@@ -8,8 +8,14 @@ from pathlib import Path
 # --- Configuration ---
 # 이 스크립트가 있는 디렉토리를 기준으로 경로 설정
 BASE_DIR = Path(__file__).parent.resolve()
-# conda base 환경의 Python 사용 (whisper가 설치된 환경)
-PYTHON_EXEC = "/opt/homebrew/Caskroom/miniconda/base/bin/python"
+# Python 실행 파일 자동 감지 (Windows 호환)
+import platform
+if platform.system() == "Windows":
+    # Windows에서는 현재 Python 인터프리터 사용
+    PYTHON_EXEC = sys.executable
+else:
+    # Unix 계열에서는 기존 경로 유지
+    PYTHON_EXEC = "/opt/homebrew/Caskroom/miniconda/base/bin/python"
 OUTPUT_DIR = BASE_DIR / "whisper_output"
 
 # 실행할 스크립트 경로
@@ -22,8 +28,9 @@ def run_command(command):
     """주어진 명령어를 실행하고 진행 상황을 출력합니다."""
     print(f"\n--- 실행: {" ".join(map(str, command))} ---")
     try:
-        # 실시간 출력을 위해 Popen 사용
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8')
+        # 실시간 출력을 위해 Popen 사용 (Windows 호환성 개선)
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                                 text=True, encoding='utf-8', shell=platform.system() == "Windows")
         while True:
             output = process.stdout.readline()
             if output == '' and process.poll() is not None:

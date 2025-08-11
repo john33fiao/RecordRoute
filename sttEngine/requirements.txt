@@ -1,0 +1,2 @@
+openai-whisper>=20231117
+ollama>=0.1.0
