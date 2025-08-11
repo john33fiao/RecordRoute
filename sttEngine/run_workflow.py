@@ -16,7 +16,7 @@ if platform.system() == "Windows":
 else:
     # Unix 계열에서는 기존 경로 유지
     PYTHON_EXEC = "/opt/homebrew/Caskroom/miniconda/base/bin/python"
-OUTPUT_DIR = BASE_DIR / "whisper_output"
+OUTPUT_DIR = BASE_DIR.parent / "whisper_output"
 
 # 실행할 스크립트 경로
 WORKFLOW_DIR = BASE_DIR / "workflow"
@@ -83,14 +83,23 @@ def main():
             else:
                 print(f"오류: '{input_path_str}'는 유효한 폴더가 아닙니다. 다시 입력해주세요.")
         
+        # 변환 전의 파일 목록을 가져옵니다.
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        files_before = set(OUTPUT_DIR.glob("*.md"))
+
         if not run_command([PYTHON_EXEC, TRANSCRIBE_SCRIPT, input_path]):
             print("음성 변환 단계에서 오류가 발생하여 중단합니다.")
             return
         
-        # 다음 단계를 위해 변환된 파일 목록을 가져옵니다.
-        files_to_process = [p for p in OUTPUT_DIR.glob(f"*.md") if not (p.name.endswith('.corrected.md') or p.name.endswith('.summary.md'))]
+        # 변환 후의 파일 목록을 가져와 새로 생성된 파일을 찾습니다.
+        files_after = set(OUTPUT_DIR.glob("*.md"))
+        newly_created_files = list(files_after - files_before)
+        
+        # 새로 생성된 파일 중에서도 원본 스크립트만 필터링합니다.
+        files_to_process = [p for p in newly_created_files if not p.name.endswith(('.corrected.md', '.summary.md'))]
+
         if not files_to_process:
-            print("변환된 파일이 없어 다음 단계를 진행할 수 없습니다.")
+            print("새로 변환된 파일이 없어 다음 단계를 진행할 수 없습니다.")
             # If other steps were requested, this is an error.
             if len(steps_to_run) > 1:
                  return
