@@ -1,2 +1,6 @@
+# 테스트용 폴더 제외
 test/
 whisper_output/
+
+# macOS 시스템 파일 제외
+.DS_Store
