@@ -2,6 +2,7 @@
 import argparse
 import json
 import logging
+import platform
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -13,8 +14,11 @@ except ImportError:
     print("오류: ollama 패키지가 설치되지 않았습니다. 'pip install ollama'로 설치하세요.")
     sys.exit(1)
 
-# 설정 상수
-DEFAULT_MODEL = "llama3.2"  # 실제 존재하는 모델로 변경
+# 설정 상수 - 플랫폼별 기본 모델
+if platform.system() == "Windows":
+    DEFAULT_MODEL = "gemma3:4b"
+else:
+    DEFAULT_MODEL = "gpt-oss:20b"
 DEFAULT_CHUNK_SIZE = 6000
 DEFAULT_TEMPERATURE = 0.2
 DEFAULT_NUM_CTX = 8192

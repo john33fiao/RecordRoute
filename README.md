@@ -55,11 +55,11 @@ winget install Ollama.Ollama
 
 #### 필요 모델 다운로드
 ```bash
-# 텍스트 교정용
-ollama pull gpt-oss:20b
+# Windows 사용자
+ollama pull gemma3:4b    # 텍스트 교정 및 요약 공용
 
-# 요약용  
-ollama pull llama3.2
+# macOS/Linux 사용자  
+ollama pull gpt-oss:20b     # 텍스트 교정 및 요약 공용
 ```
 
 ### 4. 모델 캐시 경로

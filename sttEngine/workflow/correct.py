@@ -5,10 +5,15 @@ from pathlib import Path
 import sys
 import time
 import re
+import platform
 import ollama
 from typing import List, Optional
 
-DEFAULT_MODEL = "gpt-oss:20b"
+# 플랫폼별 기본 모델 설정
+if platform.system() == "Windows":
+    DEFAULT_MODEL = "gemma3:4b"
+else:
+    DEFAULT_MODEL = "gpt-oss:20b"
 
 SYSTEM_PROMPT = (
     "당신은 한국어 텍스트를 전문적으로 교정하는 편집자입니다. "
