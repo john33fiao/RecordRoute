@@ -8,6 +8,7 @@ import traceback
 import platform
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Dict
 
 # Whisper가 지원하는 파일 확장자 목록
 SUPPORTED_EXTS = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'}
@@ -109,15 +110,51 @@ def get_unique_output_path(base_path: Path) -> Path:
             return new_path
         counter += 1
 
-def transcribe_single_file(file_path: Path, output_dir: Path, model, 
+
+def diarize_audio(file_path: Path) -> List[Dict[str, float]]:
+    """pyannote.audio를 사용하여 화자 구간을 추출합니다."""
+    try:
+        from pyannote.audio import Pipeline
+    except ImportError:
+        logging.error("pyannote.audio가 설치되어 있지 않아 화자 구분을 건너뜁니다.")
+        return []
+
+    token = os.getenv("PYANNOTE_TOKEN")
+    try:
+        pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization", use_auth_token=token
+        )
+    except Exception as e:
+        logging.error("화자 구분 파이프라인 로드 실패: %s", e)
+        return []
+
+    try:
+        diarization = pipeline(str(file_path))
+    except Exception as e:
+        logging.error("화자 구분 수행 중 오류: %s", e)
+        return []
+
+    segments: List[Dict[str, float]] = []
+    for turn, _, speaker in diarization.itertracks(yield_label=True):
+        segments.append({
+            "start": float(turn.start),
+            "end": float(turn.end),
+            "speaker": speaker,
+        })
+    return segments
+
+def transcribe_single_file(file_path: Path, output_dir: Path, model,
                           language: str, initial_prompt: str,
-                          filter_fillers: bool, min_seg_length: int, 
-                          normalize_punct: bool):
+                          filter_fillers: bool, min_seg_length: int,
+                          normalize_punct: bool, diarize: bool):
     """단일 파일을 변환하고 결과를 저장합니다."""
     
     # 출력 파일 경로 결정 (중복 방지)
     base_output_path = output_dir / f"{file_path.stem}.md"
     output_file_path = get_unique_output_path(base_output_path)
+
+    # 화자 구분 수행
+    speaker_segments = diarize_audio(file_path) if diarize else []
 
     # Whisper 변환 실행
     transcribe_params = {
@@ -137,22 +174,46 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
     segments = result.get("segments", []) or []
     segments = merge_segments(segments, max_gap=0.2)
 
+    # 화자 정보 매칭
+    if speaker_segments:
+        for segment in segments:
+            mid = (segment.get("start", 0.0) + segment.get("end", 0.0)) / 2
+            for sp in speaker_segments:
+                if sp["start"] <= mid <= sp["end"]:
+                    segment["speaker"] = sp["speaker"]
+                    break
+
+    speaker_map: Dict[str, int] = {}
+    next_id = 1
+    for segment in segments:
+        label = segment.get("speaker")
+        if label and label not in speaker_map:
+            speaker_map[label] = next_id
+            next_id += 1
+        segment["speaker_id"] = speaker_map.get(label, 0)
+
     # 필터링 및 정규화
-    processed_lines = []
+    processed_segments = []
     for segment in segments:
         text = segment.get("text", "").strip()
-        
+
         if not should_keep_segment(text, filter_fillers, min_seg_length):
             continue
-            
+
         text = normalize_text(text, normalize_punct)
-        processed_lines.append(text)
+        processed_segments.append((segment.get("speaker_id", 0), text))
 
     # 마크다운 생성
     markdown_content = f"# {file_path.stem}\n\n"
-    
-    if processed_lines:
-        markdown_content += "\n".join(processed_lines)
+
+    if processed_segments:
+        lines = []
+        for spk_id, text in processed_segments:
+            if diarize and spk_id:
+                lines.append(f"Speaker {spk_id}: {text}")
+            else:
+                lines.append(text)
+        markdown_content += "\n".join(lines)
     else:
         # 모든 세그먼트가 필터링된 경우 원본 텍스트 사용 (문장부호 보존)
         original_text = result.get("text", "")
@@ -163,9 +224,10 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
     return output_file_path
 
 def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: str,
-                          language: str, initial_prompt: str, workers: int, 
-                          recursive: bool, filter_fillers: bool, 
-                          min_seg_length: int, normalize_punct: bool):
+                          language: str, initial_prompt: str, workers: int,
+                          recursive: bool, filter_fillers: bool,
+                          min_seg_length: int, normalize_punct: bool,
+                          diarize: bool):
     """
     지정된 입력 디렉토리 내의 모든 오디오/비디오 파일을 Whisper를 사용하여 
     텍스트로 변환하고, 변환된 텍스트를 마크다운(.md) 파일로 저장합니다.
@@ -181,6 +243,7 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
         filter_fillers (bool): 필러 단어 필터링 활성화 여부
         min_seg_length (int): 세그먼트 최소 길이
         normalize_punct (bool): 연속 마침표 정규화 여부
+        diarize (bool): 화자 구분 활성화 여부
     """
     
     input_path_obj = Path(input_dir)
@@ -222,7 +285,7 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
             try:
                 output_path = transcribe_single_file(
                     file_path, output_path_obj, model, language, initial_prompt,
-                    filter_fillers, min_seg_length, normalize_punct
+                    filter_fillers, min_seg_length, normalize_punct, diarize
                 )
                 logging.info("변환 완료: %s → %s", file_path.name, output_path.name)
             except Exception as e:
@@ -236,7 +299,8 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
             futures = {
                 executor.submit(
                     transcribe_single_file, file_path, output_path_obj, model,
-                    language, initial_prompt, filter_fillers, min_seg_length, normalize_punct
+                    language, initial_prompt, filter_fillers, min_seg_length,
+                    normalize_punct, diarize
                 ): file_path for file_path in files_to_process
             }
             
@@ -344,6 +408,12 @@ def main():
         action="store_true",
         help="과도한 연속 마침표를 '...'로 정규화"
     )
+
+    parser.add_argument(
+        "--diarize",
+        action="store_true",
+        help="pyannote.audio를 사용하여 화자 구분 수행"
+    )
     
     args = parser.parse_args()
 
@@ -400,7 +470,8 @@ def main():
         recursive=args.recursive,
         filter_fillers=args.filter_fillers,
         min_seg_length=max(2, args.min_seg_length),
-        normalize_punct=args.normalize_punct
+        normalize_punct=args.normalize_punct,
+        diarize=args.diarize
     )
 
 if __name__ == "__main__":
