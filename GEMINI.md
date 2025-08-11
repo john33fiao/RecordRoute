@@ -12,11 +12,13 @@
 
 -   **언어:** Python 3
 -   **음성 인식:** `openai-whisper`
+-   **화자 구분:** `pyannote.audio` (GPU/MPS 최적화)
 -   **LLM (텍스트 교정/요약):** `Ollama` (gemma3:4b, gpt-oss:20b 등)
 -   **핵심 의존성:**
     -   `openai-whisper`: Python 라이브러리
     -   `ollama`: Python 라이브러리
-    -   `ffmpeg`: 시스템 프로그램 (Whisper가 오디오를 처리하기 위해 필요)
+    -   `pyannote.audio>=2.1.1`: 화자 구분 라이브러리
+    -   `ffmpeg`: 시스템 프로그램 (오디오 처리 및 m4a→wav 변환)
     -   `Ollama`: 시스템 서비스 (로컬 LLM 구동을 위해 필요)
 
 ## 3. 디렉토리 구조 (Directory Structure)
@@ -25,15 +27,19 @@
 RecordRoute/
 ├── sttEngine/
 │   ├── requirements.txt      # Python 의존성 목록
-│   ├── setup.bat             # 프로젝트 설치 및 환경 설정 스크립트
-│   ├── run.bat               # 워크플로우 실행 스크립트
+│   ├── setup.bat             # Windows 설치 스크립트
+│   ├── run.bat               # Windows 실행 스크립트
 │   ├── run_workflow.py       # 메인 워크플로우 오케스트레이션 스크립트
 │   └── workflow/
-│       ├── transcribe.py     # 1단계: 음성 변환 로직
+│       ├── transcribe.py     # 1단계: 음성 변환 로직 (화자 구분 포함)
 │       ├── correct.py        # 2단계: 텍스트 교정 로직
 │       └── summarize.py      # 3단계: 텍스트 요약 로직
-├── whisper_output/           # (생성됨) 결과물이 저장되는 기본 폴더
-└── GEMINI.md                 # AI 에이전트 및 개발자 가이드
+├── run.sh                    # Unix/macOS/Linux 실행 스크립트
+├── venv/                     # Python 가상환경
+├── test/                     # 테스트 오디오 파일 디렉토리
+├── whisper_output/           # STT 변환 결과 저장소
+├── CLAUDE.md                 # Claude AI 전용 프로젝트 가이드
+└── GEMINI.md                 # Gemini AI 에이전트 및 개발자 가이드
 ```
 
 ## 4. 설치 및 설정 (Setup)
@@ -63,9 +69,17 @@ run_shell_command(command="cd sttEngine && setup.bat")
 스크립트가 실행되면 가상환경을 활성화하고 `run_workflow.py`를 실행합니다. 사용자에게 어떤 단계를 실행할지(변환, 교정, 요약) 묻고, 선택에 따라 작업을 진행합니다.
 
 **AI 에이전트 명령어:**
+
+**Windows:**
 ```
 run_shell_command(command="sttEngine\run.bat")
 ```
+
+**Unix/macOS/Linux:**
+```
+run_shell_command(command="./run.sh")
+```
+
 *참고: `run_workflow.py`는 대화형 입력(실행할 단계, 파일 경로 등)을 요구하므로, AI 에이전트가 직접 실행하기보다는 사용자의 입력을 전달하는 방식으로 사용해야 합니다.*
 
 ## 6. AI 에이전트 활용 가이드 (Gemini Usage Guide)
@@ -76,18 +90,21 @@ run_shell_command(command="sttEngine\run.bat")
 
 -   **새로운 Python 라이브러리 추가:**
     1.  `sttEngine/requirements.txt` 파일에 라이브러리(예: `new-library==1.0.0`)를 추가합니다.
-    2.  `setup.bat`을 다시 실행하여 라이브러리를 설치합니다.
+    2.  설치 스크립트를 다시 실행하여 라이브러리를 설치합니다.
 
     **예시 명령어:**
     ```
     // 1. 파일에 내용 추가
     replace(
-        file_path="C:\Cloud\Code\RecordRoute\sttEngine\requirements.txt",
-        old_string="ollama>=0.1.0",
-        new_string="ollama>=0.1.0\nnew-library==1.0.0"
+        file_path="/path/to/RecordRoute/sttEngine/requirements.txt",
+        old_string="pyannote.audio>=2.1.1",
+        new_string="pyannote.audio>=2.1.1\nnew-library==1.0.0"
     )
-    // 2. 설치 스크립트 실행
+    // 2. Windows 설치 스크립트 실행
     run_shell_command(command="sttEngine\setup.bat")
+    
+    // 2-1. Unix/macOS/Linux에서는 직접 pip 설치
+    run_shell_command(command="./venv/bin/pip install new-library==1.0.0")
     ```
 
 ### 워크플로우 스크립트 수정
@@ -95,11 +112,22 @@ run_shell_command(command="sttEngine\run.bat")
 -   **요약 프롬프트 변경:** `sttEngine/workflow/summarize.py` 파일의 `BASE_PROMPT` 변수를 수정합니다.
 -   **교정 프롬프트 변경:** `sttEngine/workflow/correct.py` 파일의 `SYSTEM_PROMPT` 변수를 수정합니다.
 -   **Whisper 모델 변경:** `sttEngine/workflow/transcribe.py`의 `--model_size` 인자 기본값을 변경합니다.
+-   **화자 구분 설정:** `--diarize` 옵션으로 화자 구분 활성화/비활성화 제어 가능
+-   **환경변수 설정:** `.env` 파일에 `PYANNOTE_TOKEN=your_token` 추가하여 화자 구분 기능 활성화
 
 **예시 명령어 (요약 프롬프트 수정):**
 ```
 // 1. 파일 읽기
-read_file(absolute_path="C:\Cloud\Code\RecordRoute\sttEngine\workflow\summarize.py")
+read_file(absolute_path="/path/to/RecordRoute/sttEngine/workflow/summarize.py")
 // 2. 내용 확인 후 replace 실행 (old_string, new_string은 파일 내용에 맞게 구성)
 replace(...)
+```
+
+**화자 구분 기능 설정:**
+```
+// 1. .env 파일 생성 (프로젝트 루트)
+write_to_file(
+    file_path="/path/to/RecordRoute/.env",
+    content="PYANNOTE_TOKEN=your_hugging_face_token_here"
+)
 ```
