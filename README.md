@@ -9,6 +9,7 @@
 ```bash
 pip install openai-whisper
 pip install ollama
+pip install pyannote.audio
 ```
 
 #### Windows에서 추가 설치 (FFmpeg)
@@ -68,6 +69,19 @@ ollama pull gpt-oss:20b     # 텍스트 교정 및 요약 공용
 **macOS/Linux:** `~/.cache/whisper/`
 
 처음 실행 시 모델이 해당 경로에 자동 저장됩니다.
+
+### 5. 화자 구분 (Speaker Diarization)
+
+`--diarize` 옵션을 사용하면 pyannote.audio를 통해 화자별 구간을 구분하여 마크다운 결과에 `Speaker {i}:` 형태로 표시합니다.
+
+1. [Hugging Face](https://huggingface.co/) 계정에서 발급한 토큰을 환경 변수로 설정합니다.
+   ```bash
+   export PYANNOTE_TOKEN=your_token_here
+   ```
+2. 옵션을 활성화하여 변환을 실행합니다.
+   ```bash
+   python sttEngine/workflow/transcribe.py [audio_folder] --diarize
+   ```
 
 ## 참고사항
 
