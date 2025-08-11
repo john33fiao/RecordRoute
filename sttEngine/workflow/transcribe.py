@@ -9,6 +9,7 @@ import platform
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict
+import subprocess
 
 # Whisper가 지원하는 파일 확장자 목록
 SUPPORTED_EXTS = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'}
@@ -147,81 +148,109 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
                           language: str, initial_prompt: str,
                           filter_fillers: bool, min_seg_length: int,
                           normalize_punct: bool, diarize: bool):
-    """단일 파일을 변환하고 결과를 저장합니다."""
+    """단일 파일을 변환하고 결과를 저장합니다. m4a 파일은 wav로 자동 변환합니다."""
     
-    # 출력 파일 경로 결정 (중복 방지)
-    base_output_path = output_dir / f"{file_path.stem}.md"
-    output_file_path = get_unique_output_path(base_output_path)
+    temp_wav_path = None
+    file_to_process = file_path
 
-    # 화자 구분 수행
-    speaker_segments = diarize_audio(file_path) if diarize else []
+    try:
+        # M4A 파일을 WAV로 변환
+        if file_path.suffix.lower() == '.m4a':
+            logging.info(f"'{file_path.name}'은(는) m4a 파일이므로, 처리를 위해 wav로 변환합니다.")
+            temp_wav_path = file_path.with_suffix('.wav')
+            
+            command = [
+                "ffmpeg", "-i", str(file_path), "-ar", "16000", "-ac", "1", 
+                "-c:a", "pcm_s16le", "-y", str(temp_wav_path)
+            ]
+            
+            result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', check=False)
+            
+            if result.returncode != 0:
+                logging.error(f"ffmpeg 변환 실패: {file_path.name}\n{result.stderr}")
+                raise RuntimeError(f"ffmpeg 변환 실패: {result.stderr}")
+            
+            file_to_process = temp_wav_path
+            logging.info(f"성공적으로 '{temp_wav_path.name}' 파일로 변환했습니다.")
 
-    # Whisper 변환 실행
-    transcribe_params = {
-        "fp16": False,  # Apple Silicon 안정성 고려
-        "verbose": False,
-        "temperature": 0.0
-    }
-    
-    if language:
-        transcribe_params["language"] = language
-    if initial_prompt:
-        transcribe_params["initial_prompt"] = initial_prompt
+        # 출력 파일 경로 결정 (원본 파일명 기준)
+        base_output_path = output_dir / f"{file_path.stem}.md"
+        output_file_path = get_unique_output_path(base_output_path)
 
-    result = model.transcribe(str(file_path), **transcribe_params)
+        # 화자 구분 수행
+        speaker_segments = diarize_audio(file_to_process) if diarize else []
 
-    # 세그먼트 처리
-    segments = result.get("segments", []) or []
-    segments = merge_segments(segments, max_gap=0.2)
+        # Whisper 변환 실행
+        transcribe_params = {
+            "fp16": False,
+            "verbose": False,
+            "temperature": 0.0
+        }
+        if language:
+            transcribe_params["language"] = language
+        if initial_prompt:
+            transcribe_params["initial_prompt"] = initial_prompt
 
-    # 화자 정보 매칭
-    if speaker_segments:
+        result = model.transcribe(str(file_to_process), **transcribe_params)
+
+        # 세그먼트 처리
+        segments = result.get("segments", []) or []
+        segments = merge_segments(segments, max_gap=0.2)
+
+        # 화자 정보 매칭
+        if speaker_segments:
+            for segment in segments:
+                mid = (segment.get("start", 0.0) + segment.get("end", 0.0)) / 2
+                for sp in speaker_segments:
+                    if sp["start"] <= mid <= sp["end"]:
+                        segment["speaker"] = sp["speaker"]
+                        break
+
+        speaker_map: Dict[str, int] = {}
+        next_id = 1
         for segment in segments:
-            mid = (segment.get("start", 0.0) + segment.get("end", 0.0)) / 2
-            for sp in speaker_segments:
-                if sp["start"] <= mid <= sp["end"]:
-                    segment["speaker"] = sp["speaker"]
-                    break
+            label = segment.get("speaker")
+            if label and label not in speaker_map:
+                speaker_map[label] = next_id
+                next_id += 1
+            segment["speaker_id"] = speaker_map.get(label, 0)
 
-    speaker_map: Dict[str, int] = {}
-    next_id = 1
-    for segment in segments:
-        label = segment.get("speaker")
-        if label and label not in speaker_map:
-            speaker_map[label] = next_id
-            next_id += 1
-        segment["speaker_id"] = speaker_map.get(label, 0)
+        # 필터링 및 정규화
+        processed_segments = []
+        for segment in segments:
+            text = segment.get("text", "").strip()
+            if not should_keep_segment(text, filter_fillers, min_seg_length):
+                continue
+            text = normalize_text(text, normalize_punct)
+            processed_segments.append((segment.get("speaker_id", 0), text))
 
-    # 필터링 및 정규화
-    processed_segments = []
-    for segment in segments:
-        text = segment.get("text", "").strip()
+        # 마크다운 생성 (원본 파일명 기준)
+        markdown_content = f"# {file_path.stem}\n\n"
+        if processed_segments:
+            lines = []
+            for spk_id, text in processed_segments:
+                if diarize and spk_id:
+                    lines.append(f"Speaker {spk_id}: {text}")
+                else:
+                    lines.append(text)
+            markdown_content += "\n".join(lines)
+        else:
+            original_text = result.get("text", "")
+            markdown_content += normalize_text(original_text, normalize_punct)
 
-        if not should_keep_segment(text, filter_fillers, min_seg_length):
-            continue
+        # 원자적 저장
+        write_atomic(output_file_path, markdown_content)
+        return output_file_path
 
-        text = normalize_text(text, normalize_punct)
-        processed_segments.append((segment.get("speaker_id", 0), text))
+    finally:
+        # 임시 WAV 파일 삭제
+        if temp_wav_path and temp_wav_path.exists():
+            try:
+                temp_wav_path.unlink()
+                logging.info(f"임시 wav 파일 '{temp_wav_path.name}'을(를) 삭제했습니다.")
+            except OSError as e:
+                logging.error(f"임시 wav 파일 삭제 실패: {e}")
 
-    # 마크다운 생성
-    markdown_content = f"# {file_path.stem}\n\n"
-
-    if processed_segments:
-        lines = []
-        for spk_id, text in processed_segments:
-            if diarize and spk_id:
-                lines.append(f"Speaker {spk_id}: {text}")
-            else:
-                lines.append(text)
-        markdown_content += "\n".join(lines)
-    else:
-        # 모든 세그먼트가 필터링된 경우 원본 텍스트 사용 (문장부호 보존)
-        original_text = result.get("text", "")
-        markdown_content += normalize_text(original_text, normalize_punct)
-
-    # 원자적 저장
-    write_atomic(output_file_path, markdown_content)
-    return output_file_path
 
 def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: str,
                           language: str, initial_prompt: str, workers: int,
