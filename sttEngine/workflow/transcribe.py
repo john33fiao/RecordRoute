@@ -5,6 +5,7 @@ import os
 import argparse
 import logging
 import traceback
+import platform
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -346,16 +347,35 @@ def main():
     
     args = parser.parse_args()
 
-    # 모델 경로 결정 (기존 로직 유지)
+    # 모델 경로 결정 (플랫폼별 캐시 경로 지원)
     model_to_use = args.model_size
     if args.model_size == 'large-v3-turbo':
-        model_path = Path.home() / ".cache" / "whisper" / "large-v3-turbo.pt"
-        if not model_path.exists():
-            logging.warning("지정된 모델 파일이 경로에 없습니다: %s", model_path)
+        # 플랫폼별 캐시 경로 결정
+        if platform.system() == "Windows":
+            # Windows: %USERPROFILE%\.cache\whisper\
+            cache_dir = Path(os.environ.get("USERPROFILE", Path.home())) / ".cache" / "whisper"
+        else:
+            # macOS/Linux: ~/.cache/whisper/
+            cache_dir = Path.home() / ".cache" / "whisper"
+        
+        # turbo 모델 파일 검색 (다양한 파일명 패턴 지원)
+        model_path = None
+        turbo_patterns = ["large-v3-turbo.pt", "whisper-turbo.pt", "turbo.pt"]
+        
+        for pattern in turbo_patterns:
+            candidate_path = cache_dir / pattern
+            if candidate_path.exists():
+                model_path = candidate_path
+                break
+        
+        if model_path and model_path.exists():
+            model_to_use = str(model_path)
+            logging.info("turbo 모델 파일을 찾았습니다: %s", model_path)
+        else:
+            logging.warning("turbo 모델 파일을 찾을 수 없습니다. 검색 경로: %s", cache_dir)
+            logging.warning("검색한 파일명: %s", ', '.join(turbo_patterns))
             logging.warning("자동으로 'large' 모델을 사용합니다.")
             model_to_use = "large"
-        else:
-            model_to_use = str(model_path)
 
     # 입력 경로 검증
     input_path = Path(args.input_dir)
