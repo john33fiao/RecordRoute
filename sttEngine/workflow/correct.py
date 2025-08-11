@@ -13,7 +13,7 @@ from typing import List, Optional
 if platform.system() == "Windows":
     DEFAULT_MODEL = "gemma3:4b"
 else:
-    DEFAULT_MODEL = "gpt-oss:20b"
+    DEFAULT_MODEL = "gemma3:12b-it-qat"
 
 SYSTEM_PROMPT = (
     "당신은 한국어 텍스트를 전문적으로 교정하는 편집자입니다. "
@@ -164,8 +164,8 @@ def chat_once(model: str, system: str, user: str, temperature: float = 0.0,
             )
             
             # 응답 검증
-            if not isinstance(resp, dict):
-                raise RuntimeError("예상하지 못한 응답 형식입니다.")
+            # if not isinstance(resp, dict):
+            #     raise RuntimeError(f"예상하지 못한 응답 형식입니다. type: {type(resp)}")
             
             message = resp.get("message", {})
             content = message.get("content")
