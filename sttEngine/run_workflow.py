@@ -3,19 +3,14 @@ import os
 import sys
 import glob
 import subprocess
+import platform
 from pathlib import Path
 
 # --- Configuration ---
 # 이 스크립트가 있는 디렉토리를 기준으로 경로 설정
 BASE_DIR = Path(__file__).parent.resolve()
 # Python 실행 파일 자동 감지 (Windows 호환)
-import platform
-if platform.system() == "Windows":
-    # Windows에서는 현재 Python 인터프리터 사용
-    PYTHON_EXEC = sys.executable
-else:
-    # Unix 계열에서는 기존 경로 유지
-    PYTHON_EXEC = "/opt/homebrew/Caskroom/miniconda/base/bin/python"
+PYTHON_EXEC = sys.executable
 OUTPUT_DIR = BASE_DIR.parent / "whisper_output"
 
 # 실행할 스크립트 경로

@@ -411,8 +411,9 @@ def main():
 
     parser.add_argument(
         "--diarize",
-        action="store_true",
-        help="pyannote.audio를 사용하여 화자 구분 수행"
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="pyannote.audio를 사용하여 화자 구분 수행 (기본값: 활성화)"
     )
     
     args = parser.parse_args()
