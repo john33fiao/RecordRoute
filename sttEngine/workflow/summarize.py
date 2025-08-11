@@ -69,7 +69,7 @@ def validate_model(model: str) -> bool:
     """모델 존재 여부 확인"""
     try:
         models = ollama.list()
-        available_models = [m['name'] for m in models.get('models', [])]
+        available_models = [m.get('name') for m in models.get('models', []) if m.get('name')]
         return model in available_models
     except Exception as e:
         logging.warning(f"모델 목록 조회 실패: {e}")
@@ -182,17 +182,10 @@ def call_ollama_with_retry(
             )
             
             # 응답 형식 처리
-            if isinstance(response, dict):
-                if "response" in response:
-                    result = response["response"]
-                elif "content" in response:
-                    result = response["content"]
-                else:
-                    raise SummarizationError(f"예상하지 못한 응답 형식: {response.keys()}")
-            elif isinstance(response, str):
-                result = response
-            else:
-                raise SummarizationError(f"지원하지 않는 응답 타입: {type(response)}")
+            try:
+                result = response['response']
+            except (TypeError, KeyError):
+                raise SummarizationError(f"지원하지 않는 응답 타입({type(response)})이거나 'response' 키가 없습니다.")
             
             if not result or not result.strip():
                 raise SummarizationError("빈 응답 수신")
