@@ -1,6 +1,8 @@
 # 필요한 라이브러리를 임포트합니다.
 # 이 스크립트를 실행하기 전에 'pip install openai-whisper'를 통해 라이브러리를 설치해야 합니다.
 import whisper
+import torch
+import torchaudio
 import os
 import argparse
 import logging
@@ -113,27 +115,48 @@ def get_unique_output_path(base_path: Path) -> Path:
 
 
 def diarize_audio(file_path: Path) -> List[Dict[str, float]]:
-    """pyannote.audio를 사용하여 화자 구간을 추출합니다."""
+    """pyannote.audio를 사용하여 화자 구간을 추출합니다. (GPU/MPS 우선 사용 및 CPU fallback)"""
     try:
         from pyannote.audio import Pipeline
     except ImportError:
         logging.error("pyannote.audio가 설치되어 있지 않아 화자 구분을 건너뜁니다.")
         return []
 
+    # 1. 장치 선택 (MPS > CPU)
+    use_mps = torch.backends.mps.is_available() and torch.backends.mps.is_built()
+    device = torch.device("mps" if use_mps else "cpu")
+    
+    if use_mps:
+        logging.info("Apple Silicon (MPS) GPU를 사용하여 화자 구분을 시도합니다.")
+    else:
+        logging.info("CPU를 사용하여 화자 구분을 수행합니다.")
+
     token = os.getenv("PYANNOTE_TOKEN")
     try:
         pipeline = Pipeline.from_pretrained(
             "pyannote/speaker-diarization", use_auth_token=token
         )
+        pipeline.to(device)
     except Exception as e:
-        logging.error("화자 구분 파이프라인 로드 실패: %s", e)
+        logging.error(f"화자 구분 파이프라인 로드 실패: {e}")
         return []
 
     try:
         diarization = pipeline(str(file_path))
     except Exception as e:
-        logging.error("화자 구분 수행 중 오류: %s", e)
-        return []
+        logging.error(f"화자 구분 중 오류 발생 ({device} 사용): {e}")
+        if use_mps:
+            logging.warning("MPS GPU 처리 실패. CPU로 전환하여 재시도합니다.")
+            try:
+                pipeline.to(torch.device("cpu"))
+                diarization = pipeline(str(file_path))
+                logging.info("CPU 재시도 성공.")
+            except Exception as cpu_e:
+                logging.error(f"CPU 재시도 중에도 오류 발생: {cpu_e}")
+                return []
+        else:
+            # CPU에서 이미 실패한 경우
+            return []
 
     segments: List[Dict[str, float]] = []
     for turn, _, speaker in diarization.itertracks(yield_label=True):
