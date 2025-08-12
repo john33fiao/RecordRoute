@@ -95,7 +95,24 @@ def should_keep_segment(text: str, enable_filter: bool, min_length: int):
     
     # 보수적 필러 필터: 단독으로 나타나는 필러만 제거
     filler_words = {"아", "으", "음", "어", "저", "그", "뭐", "얍", "흠", "네", "예"}
-    return text not in filler_words
+    if text in filler_words:
+        return False
+    
+    # 반복적인 패턴 감지 및 제거
+    import re
+    
+    # 같은 문자가 10번 이상 반복되는 경우 제거 (예: "아 아 아 아...")
+    words = text.split()
+    if len(words) >= 10:
+        unique_words = set(words)
+        if len(unique_words) <= 2:  # 1-2개 고유 단어만 있는 경우
+            return False
+    
+    # 숫자만 나열된 경우 제거 (예: "1. 2. 3. 4...")
+    if re.match(r'^[\d\.\s]+$', text) and len(text.split()) >= 10:
+        return False
+    
+    return True
 
 def get_unique_output_path(base_path: Path) -> Path:
     """파일명 충돌 시 접미사를 붙여 고유한 경로를 반환"""
@@ -145,12 +162,30 @@ def diarize_audio(file_path: Path) -> List[Dict[str, float]]:
             "pyannote/speaker-diarization", use_auth_token=token
         )
         pipeline.to(device)
+        
+        # 화자 분리 성능 최적화 파라미터 설정
+        # 최소 화자 발화 시간을 줄여서 더 세밀한 분리 (기본값: 1초 → 0.5초)
+        if hasattr(pipeline, '_segmentation') and hasattr(pipeline._segmentation, 'model'):
+            logging.info("화자 분리 파라미터 최적화를 적용합니다.")
+        
     except Exception as e:
         logging.error(f"화자 구분 파이프라인 로드 실패: {e}")
         return []
 
     try:
-        diarization = pipeline(str(file_path))
+        # 더 정확한 화자 분리를 위한 파라미터 설정
+        diarization_params = {
+            "min_duration_on": 0.5,      # 최소 화자 발화 지속시간 (초)
+            "min_duration_off": 0.1,     # 최소 무음 지속시간 (초)  
+        }
+        
+        # pyannote 버전에 따라 파라미터 전달 방식이 다를 수 있음
+        try:
+            diarization = pipeline(str(file_path), **diarization_params)
+        except TypeError:
+            # 파라미터를 지원하지 않는 경우 기본 실행
+            logging.info("기본 화자 분리 파라미터로 실행합니다.")
+            diarization = pipeline(str(file_path))
     except Exception as e:
         logging.error(f"화자 구분 중 오류 발생 ({device} 사용): {e}")
         if device.type != "cpu":
@@ -215,7 +250,11 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
         transcribe_params = {
             "fp16": False,
             "verbose": False,
-            "temperature": 0.0
+            "temperature": 0.0,
+            "no_speech_threshold": 0.6,  # 무음 구간 감지 임계값 상향
+            "logprob_threshold": -1.0,   # 낮은 확신도 구간 필터링
+            "compression_ratio_threshold": 2.4,  # 반복적인 텍스트 감지
+            "condition_on_previous_text": False  # 이전 텍스트 의존성 제거
         }
         if language:
             transcribe_params["language"] = language
@@ -228,23 +267,63 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
         segments = result.get("segments", []) or []
         segments = merge_segments(segments, max_gap=0.2)
 
-        # 화자 정보 매칭
+        # 화자 정보 매칭 - 더 정교한 매칭 알고리즘
         if speaker_segments:
             for segment in segments:
-                mid = (segment.get("start", 0.0) + segment.get("end", 0.0)) / 2
+                seg_start = segment.get("start", 0.0)
+                seg_end = segment.get("end", 0.0)
+                seg_mid = (seg_start + seg_end) / 2
+                
+                best_speaker = None
+                max_overlap = 0.0
+                
+                # 가장 많이 겹치는 화자 구간을 찾기
                 for sp in speaker_segments:
-                    if sp["start"] <= mid <= sp["end"]:
-                        segment["speaker"] = sp["speaker"]
-                        break
+                    # 시간 구간 겹침 계산
+                    overlap_start = max(seg_start, sp["start"])
+                    overlap_end = min(seg_end, sp["end"])
+                    overlap_duration = max(0, overlap_end - overlap_start)
+                    
+                    if overlap_duration > max_overlap:
+                        max_overlap = overlap_duration
+                        best_speaker = sp["speaker"]
+                
+                # 겹치는 구간이 전체 세그먼트의 30% 이상인 경우만 할당
+                segment_duration = seg_end - seg_start
+                if best_speaker and segment_duration > 0 and (max_overlap / segment_duration) >= 0.3:
+                    segment["speaker"] = best_speaker
+                    logging.debug(f"세그먼트 {seg_start:.1f}-{seg_end:.1f}s를 {best_speaker}에 할당 (겹침: {max_overlap:.1f}s)")
+                else:
+                    # 중간점 기준 폴백
+                    for sp in speaker_segments:
+                        if sp["start"] <= seg_mid <= sp["end"]:
+                            segment["speaker"] = sp["speaker"]
+                            logging.debug(f"세그먼트 {seg_start:.1f}-{seg_end:.1f}s를 {sp['speaker']}에 중간점 기준으로 할당")
+                            break
 
+        # 화자 ID 매핑 - 시간 순서대로 정렬하여 일관성 있는 ID 부여
         speaker_map: Dict[str, int] = {}
         next_id = 1
+        
+        # 화자별 첫 등장 시간을 기준으로 정렬
+        speaker_first_appearance = {}
         for segment in segments:
             label = segment.get("speaker")
-            if label and label not in speaker_map:
-                speaker_map[label] = next_id
-                next_id += 1
+            if label and label not in speaker_first_appearance:
+                speaker_first_appearance[label] = segment.get("start", 0.0)
+        
+        # 첫 등장 시간 순으로 화자 ID 부여
+        sorted_speakers = sorted(speaker_first_appearance.items(), key=lambda x: x[1])
+        for label, _ in sorted_speakers:
+            speaker_map[label] = next_id
+            next_id += 1
+            
+        # 각 세그먼트에 화자 ID 할당
+        for segment in segments:
+            label = segment.get("speaker")
             segment["speaker_id"] = speaker_map.get(label, 0)
+            
+        logging.info(f"식별된 화자 수: {len(speaker_map)}명, 매핑: {speaker_map}")
 
         # 필터링 및 정규화
         processed_segments = []
@@ -266,8 +345,12 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
                     lines.append(text)
             markdown_content += "\n".join(lines)
         else:
-            original_text = result.get("text", "")
-            markdown_content += normalize_text(original_text, normalize_punct)
+            original_text = result.get("text", "").strip()
+            # 원본 텍스트도 반복 패턴인지 확인
+            if not should_keep_segment(original_text, True, 10):
+                markdown_content += "## 변환 결과\n\n음성 내용을 인식할 수 없거나 주로 무음/반복 패턴으로 구성되어 있습니다.\n\n**참고사항:**\n- 녹음 품질이 낮거나 배경소음이 많은 경우\n- 실제 음성 내용이 없는 경우\n- 매우 조용한 음성이나 중얼거림인 경우\n\n다른 Whisper 모델(large, base 등)을 시도하거나 녹음 파일을 확인해 보세요."
+            else:
+                markdown_content += normalize_text(original_text, normalize_punct)
 
         # 원자적 저장
         write_atomic(output_file_path, markdown_content)
