@@ -1,133 +1,75 @@
-# RecordRoute STT Engine
+# GEMINI.md – RecordRoute Guide for Gemini
 
-## 1. 프로젝트 개요 (Project Overview)
+## Overview
+RecordRoute is a pipeline that converts audio or video recordings into cleaned and summarized meeting notes.  The workflow consists of three stages:
 
-이 프로젝트는 오디오/비디오 파일로부터 텍스트를 추출하고, 이를 교정 및 요약하는 자동화된 워크플로우를 제공합니다. STT(Speech-to-Text) 엔진을 중심으로 구성되어 있으며, 다음과 같은 3단계 파이프라인을 통해 작동합니다.
+1. **Speech‑to‑Text** – `sttEngine/workflow/transcribe.py` runs OpenAI Whisper and produces Markdown transcripts.
+2. **Text Correction** – `sttEngine/workflow/correct.py` refines the transcript using an Ollama model.
+3. **Summarization** – `sttEngine/workflow/summarize.py` generates a structured summary.
 
-1.  **음성 -> 텍스트 변환 (Transcribe):** `openai-whisper`를 사용하여 미디어 파일에서 텍스트를 추출합니다.
-2.  **텍스트 교정 (Correct):** `Ollama`를 통해 추출된 텍스트의 오탈자, 문법 등을 교정합니다.
-3.  **텍스트 요약 (Summarize):** 교정된 텍스트를 `Ollama`를 사용해 구조화된 형식으로 요약합니다.
+Intermediate and final files are stored in `whisper_output/`.
 
-## 2. 기술 스택 (Tech Stack)
-
--   **언어:** Python 3
--   **음성 인식:** `openai-whisper`
--   **화자 구분:** `pyannote.audio` (GPU/MPS 최적화)
--   **LLM (텍스트 교정/요약):** `Ollama` (gemma3:4b, gpt-oss:20b 등)
--   **핵심 의존성:**
-    -   `openai-whisper`: Python 라이브러리
-    -   `ollama`: Python 라이브러리
-    -   `pyannote.audio>=2.1.1`: 화자 구분 라이브러리
-    -   `ffmpeg`: 시스템 프로그램 (오디오 처리 및 m4a→wav 변환)
-    -   `Ollama`: 시스템 서비스 (로컬 LLM 구동을 위해 필요)
-
-## 3. 디렉토리 구조 (Directory Structure)
-
+## Repository Layout
 ```
 RecordRoute/
+├── run.sh                # Unix/macOS/Linux entry point
+├── run.bat               # Windows entry point
 ├── sttEngine/
-│   ├── requirements.txt      # Python 의존성 목록
-│   ├── setup.bat             # Windows 설치 스크립트
-│   ├── run.bat               # Windows 실행 스크립트
-│   ├── run_workflow.py       # 메인 워크플로우 오케스트레이션 스크립트
+│   ├── run_workflow.py   # Interactive orchestrator
 │   └── workflow/
-│       ├── transcribe.py     # 1단계: 음성 변환 로직 (화자 구분 포함)
-│       ├── correct.py        # 2단계: 텍스트 교정 로직
-│       └── summarize.py      # 3단계: 텍스트 요약 로직
-├── run.sh                    # Unix/macOS/Linux 실행 스크립트
-├── venv/                     # Python 가상환경
-├── test/                     # 테스트 오디오 파일 디렉토리
-├── whisper_output/           # STT 변환 결과 저장소
-├── CLAUDE.md                 # Claude AI 전용 프로젝트 가이드
-└── GEMINI.md                 # Gemini AI 에이전트 및 개발자 가이드
+│       ├── transcribe.py # Stage 1: speech recognition
+│       ├── correct.py    # Stage 2: text correction
+│       └── summarize.py  # Stage 3: summarization
+└── whisper_output/       # Generated Markdown and summaries
 ```
 
-## 4. 설치 및 설정 (Setup)
+## Core Modules
 
-프로젝트를 처음 사용하거나 의존성을 업데이트할 때 사용합니다.
+### transcribe.py
+* Handles `.flac`, `.m4a`, `.mp3`, `.mp4`, `.mpeg`, `.mpga`, `.oga`, `.ogg`, `.wav`, and `.webm` files.
+* Prefers the `large-v3-turbo` Whisper model and falls back to `large` if the turbo weights are not found in the platform cache.
+* Supports speaker diarization via `pyannote.audio` with a `PYANNOTE_TOKEN` environment variable.
+* Converts M4A sources to 16‑kHz mono WAV, merges adjacent identical segments and optionally filters filler words.
+* Important CLI flags: `--language`, `--initial_prompt`, `--workers`, `--recursive`, `--filter_fillers`, `--min_seg_length`, `--normalize_punct`, `--diarize`.
 
-1.  `sttEngine` 디렉토리로 이동합니다.
-2.  `setup.bat` 스크립트를 실행합니다.
+### correct.py
+* Uses Ollama to edit transcripts while preserving meaning and Markdown structure.
+* Default models – Windows: `gemma3:4b`; macOS/Linux: `gemma3:12b-it-qat`.
+* Automatically falls back between encodings when reading files and chunks long documents with overlap.
+* Saves results as `<name>.corrected.md`.
 
-이 스크립트는 다음 작업을 자동으로 수행합니다.
--   `venv`라는 이름의 Python 가상환경 생성
--   `requirements.txt`에 명시된 Python 라이브러리 설치
--   시스템에 `ffmpeg`과 `ollama`가 설치되어 있는지 확인하고, 없을 경우 설치 안내 메시지 출력
+### summarize.py
+* Produces meeting summaries using a Map‑Reduce approach for large inputs.
+* Default models – Windows: `gemma3:4b`; macOS/Linux: `gpt-oss:20b`.
+* Outputs six fixed sections (Major Topics, Key Points, Decisions, Action Items, Risks/Issues, Next Steps) and supports a `--json` flag.
+* Writes `<name>.summary.md` or `.summary.json`.
 
-**AI 에이전트 명령어:**
-```
-run_shell_command(command="cd sttEngine && setup.bat")
-```
+### run_workflow.py
+* Command‑line driver for running stage 1‑3 sequentially or individually.
+* Uses `sys.executable` so the same script works on Windows and Unix platforms.
+* Streams subprocess output and manages intermediate filenames in `whisper_output/`.
 
-## 5. 실행 방법 (How to Run)
+## Running the Pipeline
 
-`run.bat` 스크립트를 사용하여 메인 워크플로우를 시작합니다.
-
-1.  `sttEngine` 디렉토리로 이동합니다.
-2.  `run.bat`를 실행합니다.
-
-스크립트가 실행되면 가상환경을 활성화하고 `run_workflow.py`를 실행합니다. 사용자에게 어떤 단계를 실행할지(변환, 교정, 요약) 묻고, 선택에 따라 작업을 진행합니다.
-
-**AI 에이전트 명령어:**
-
-**Windows:**
-```
-run_shell_command(command="sttEngine\run.bat")
-```
-
-**Unix/macOS/Linux:**
-```
-run_shell_command(command="./run.sh")
+### Windows
+```bash
+cd sttEngine
+setup.bat     # create virtualenv and install dependencies
+run.bat       # launch the workflow
 ```
 
-*참고: `run_workflow.py`는 대화형 입력(실행할 단계, 파일 경로 등)을 요구하므로, AI 에이전트가 직접 실행하기보다는 사용자의 입력을 전달하는 방식으로 사용해야 합니다.*
-
-## 6. AI 에이전트 활용 가이드 (Gemini Usage Guide)
-
-다음은 AI 에이전트가 이 프로젝트에서 수행할 수 있는 주요 작업 목록입니다.
-
-### 의존성 관리
-
--   **새로운 Python 라이브러리 추가:**
-    1.  `sttEngine/requirements.txt` 파일에 라이브러리(예: `new-library==1.0.0`)를 추가합니다.
-    2.  설치 스크립트를 다시 실행하여 라이브러리를 설치합니다.
-
-    **예시 명령어:**
-    ```
-    // 1. 파일에 내용 추가
-    replace(
-        file_path="/path/to/RecordRoute/sttEngine/requirements.txt",
-        old_string="pyannote.audio>=2.1.1",
-        new_string="pyannote.audio>=2.1.1\nnew-library==1.0.0"
-    )
-    // 2. Windows 설치 스크립트 실행
-    run_shell_command(command="sttEngine\setup.bat")
-    
-    // 2-1. Unix/macOS/Linux에서는 직접 pip 설치
-    run_shell_command(command="./venv/bin/pip install new-library==1.0.0")
-    ```
-
-### 워크플로우 스크립트 수정
-
--   **요약 프롬프트 변경:** `sttEngine/workflow/summarize.py` 파일의 `BASE_PROMPT` 변수를 수정합니다.
--   **교정 프롬프트 변경:** `sttEngine/workflow/correct.py` 파일의 `SYSTEM_PROMPT` 변수를 수정합니다.
--   **Whisper 모델 변경:** `sttEngine/workflow/transcribe.py`의 `--model_size` 인자 기본값을 변경합니다.
--   **화자 구분 설정:** `--diarize` 옵션으로 화자 구분 활성화/비활성화 제어 가능
--   **환경변수 설정:** `.env` 파일에 `PYANNOTE_TOKEN=your_token` 추가하여 화자 구분 기능 활성화
-
-**예시 명령어 (요약 프롬프트 수정):**
-```
-// 1. 파일 읽기
-read_file(absolute_path="/path/to/RecordRoute/sttEngine/workflow/summarize.py")
-// 2. 내용 확인 후 replace 실행 (old_string, new_string은 파일 내용에 맞게 구성)
-replace(...)
+### macOS/Linux
+```bash
+./run.sh      # executes sttEngine/run_workflow.py inside the virtualenv
 ```
 
-**화자 구분 기능 설정:**
-```
-// 1. .env 파일 생성 (프로젝트 루트)
-write_to_file(
-    file_path="/path/to/RecordRoute/.env",
-    content="PYANNOTE_TOKEN=your_hugging_face_token_here"
-)
-```
+## Key Dependencies
+- `openai-whisper` for speech recognition
+- `ollama` for local LLM inference
+- `pyannote.audio` for optional speaker diarization
+- `ffmpeg` for audio format conversion
+
+## Notes
+- Set `PYANNOTE_TOKEN` to enable diarization.
+- Use `--workers 1` unless multiple GPUs are available.
+
