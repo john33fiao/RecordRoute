@@ -117,19 +117,27 @@ def get_unique_output_path(base_path: Path) -> Path:
 def diarize_audio(file_path: Path) -> List[Dict[str, float]]:
     """pyannote.audio를 사용하여 화자 구간을 추출합니다. (GPU/MPS 우선 사용 및 CPU fallback)"""
     try:
+        import pyannote.audio as pyannote_module
         from pyannote.audio import Pipeline
+        logging.info("pyannote.audio version %s", pyannote_module.__version__)
     except ImportError:
         logging.error("pyannote.audio가 설치되어 있지 않아 화자 구분을 건너뜁니다.")
         return []
 
-    # 1. 장치 선택 (MPS > CPU)
-    use_mps = torch.backends.mps.is_available() and torch.backends.mps.is_built()
-    device = torch.device("mps" if use_mps else "cpu")
-    
-    if use_mps:
+    # 1. 장치 선택 (CUDA > MPS > CPU)
+    system = platform.system()
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        logging.info("CUDA GPU를 사용하여 화자 구분을 시도합니다.")
+    elif system == "Darwin" and torch.backends.mps.is_available() and torch.backends.mps.is_built():
+        device = torch.device("mps")
         logging.info("Apple Silicon (MPS) GPU를 사용하여 화자 구분을 시도합니다.")
     else:
-        logging.info("CPU를 사용하여 화자 구분을 수행합니다.")
+        device = torch.device("cpu")
+        if system == "Windows":
+            logging.info("Windows 환경에서 CPU를 사용하여 화자 구분을 수행합니다.")
+        else:
+            logging.info("CPU를 사용하여 화자 구분을 수행합니다.")
 
     token = os.getenv("PYANNOTE_TOKEN")
     try:
@@ -145,8 +153,8 @@ def diarize_audio(file_path: Path) -> List[Dict[str, float]]:
         diarization = pipeline(str(file_path))
     except Exception as e:
         logging.error(f"화자 구분 중 오류 발생 ({device} 사용): {e}")
-        if use_mps:
-            logging.warning("MPS GPU 처리 실패. CPU로 전환하여 재시도합니다.")
+        if device.type != "cpu":
+            logging.warning(f"{device.type.upper()} 처리 실패. CPU로 전환하여 재시도합니다.")
             try:
                 pipeline.to(torch.device("cpu"))
                 diarization = pipeline(str(file_path))
