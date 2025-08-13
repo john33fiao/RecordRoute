@@ -10,13 +10,14 @@ Only selected workflow steps return download links.
 """
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import cgi
 import json
 import os
 import subprocess
 import sys
 import uuid
 from pathlib import Path
+import re
+from urllib.parse import unquote
 
 
 BASE_DIR = Path(__file__).parent.resolve()
@@ -39,27 +40,32 @@ def run_workflow(file_path: Path, steps):
 
     results = {}
     current_file = file_path
+    
+    # Create individual output directory based on upload folder structure
+    upload_folder_name = current_file.parent.name  # Get UUID folder name
+    individual_output_dir = OUTPUT_DIR / upload_folder_name
+    individual_output_dir.mkdir(exist_ok=True)
 
     try:
         if "stt" in steps:
             subprocess.run(
-                [PYTHON, str(WORKFLOW_DIR / "transcribe.py"), str(current_file.parent), "--output_dir", str(OUTPUT_DIR), "--model_size", "large"],
+                [PYTHON, str(WORKFLOW_DIR / "transcribe.py"), str(current_file.parent), "--output_dir", str(individual_output_dir), "--model_size", "large"],
                 check=True,
             )
-            stt_file = OUTPUT_DIR / f"{file_path.stem}.md"
-            results["stt"] = f"/download/{stt_file.name}"
+            stt_file = individual_output_dir / f"{file_path.stem}.md"
+            results["stt"] = f"/download/{upload_folder_name}/{stt_file.name}"
             current_file = stt_file
 
         if "correct" in steps:
             subprocess.run([PYTHON, str(WORKFLOW_DIR / "correct.py"), str(current_file)], check=True)
             corrected_file = current_file.with_name(f"{current_file.stem}.corrected.md")
-            results["correct"] = f"/download/{corrected_file.name}"
+            results["correct"] = f"/download/{upload_folder_name}/{corrected_file.name}"
             current_file = corrected_file
 
         if "summary" in steps:
             subprocess.run([PYTHON, str(WORKFLOW_DIR / "summarize.py"), str(current_file)], check=True)
             summary_file = current_file.with_name(f"{current_file.stem}.summary.md")
-            results["summary"] = f"/download/{summary_file.name}"
+            results["summary"] = f"/download/{upload_folder_name}/{summary_file.name}"
 
     except Exception as exc:  # pragma: no cover - best effort error handling
         return {"error": str(exc)}
@@ -80,14 +86,27 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    def _serve_download(self, filename: str):
-        file_path = OUTPUT_DIR / filename
-        if file_path.exists():
+    def _serve_download(self, file_path: str):
+        # Handle both old flat structure and new nested structure
+        full_path = OUTPUT_DIR / file_path
+        if full_path.exists():
+            filename = os.path.basename(file_path)
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Disposition", f"attachment; filename={filename}")
+            
+            # RFC 6266: Use UTF-8 encoding for non-ASCII filenames
+            try:
+                # Try ASCII encoding first
+                filename.encode('ascii')
+                self.send_header("Content-Disposition", f"attachment; filename={filename}")
+            except UnicodeEncodeError:
+                # Use UTF-8 encoding for non-ASCII filenames
+                from urllib.parse import quote
+                encoded_filename = quote(filename.encode('utf-8'))
+                self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{encoded_filename}")
+                
             self.end_headers()
-            with open(file_path, "rb") as f:
+            with open(full_path, "rb") as f:
                 self.wfile.write(f.read())
         else:
             self.send_response(404)
@@ -97,37 +116,89 @@ class UploadHandler(BaseHTTPRequestHandler):
         if self.path == "/":
             self._serve_upload_page()
         elif self.path.startswith("/download/"):
-            filename = os.path.basename(self.path[len("/download/"):])
-            self._serve_download(filename)
+            file_path = unquote(self.path[len("/download/"):])
+            self._serve_download(file_path)
         else:
             self.send_response(404)
             self.end_headers()
 
+    def _parse_multipart(self, data, boundary):
+        """Simple multipart/form-data parser"""
+        parts = data.split(f'--{boundary}'.encode())
+        files = {}
+        
+        for part in parts[1:-1]:  # Skip first empty and last closing parts
+            if b'Content-Disposition' not in part:
+                continue
+                
+            headers, body = part.split(b'\r\n\r\n', 1)
+            headers = headers.decode('utf-8')
+            body = body.rstrip(b'\r\n')
+            
+            # Extract filename from Content-Disposition header
+            if 'filename=' in headers:
+                filename_match = re.search(r'filename="([^"]*)"', headers)
+                name_match = re.search(r'name="([^"]*)"', headers)
+                
+                if filename_match and name_match:
+                    filename = filename_match.group(1)
+                    name = name_match.group(1)
+                    
+                    files[name] = {
+                        'filename': filename,
+                        'data': body
+                    }
+        
+        return files
+
     def do_POST(self):
         if self.path == "/upload":
             try:
-                form = cgi.FieldStorage(
-                    fp=self.rfile,
-                    headers=self.headers,
-                    environ={
-                        "REQUEST_METHOD": "POST",
-                        "CONTENT_TYPE": self.headers.get("Content-Type"),
-                    },
-                )
-
-                file_item = form["file"] if "file" in form else None
-                if file_item is None or not hasattr(file_item, 'filename') or not file_item.filename:
+                print(f"Upload request received - Content-Length: {self.headers.get('Content-Length')}")
+                print(f"Content-Type: {self.headers.get('Content-Type')}")
+                
+                content_type = self.headers.get('Content-Type', '')
+                if not content_type.startswith('multipart/form-data'):
+                    print("Upload failed: Not multipart/form-data")
+                    self.send_response(400)
+                    self.end_headers()
+                    self.wfile.write(b"Invalid content type")
+                    return
+                
+                # Extract boundary
+                boundary_match = re.search(r'boundary=([^;]+)', content_type)
+                if not boundary_match:
+                    print("Upload failed: No boundary found")
+                    self.send_response(400)
+                    self.end_headers()
+                    self.wfile.write(b"No boundary found")
+                    return
+                
+                boundary = boundary_match.group(1).strip()
+                content_length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(content_length)
+                
+                files = self._parse_multipart(data, boundary)
+                print(f"Parsed files: {list(files.keys())}")
+                
+                if 'file' not in files or not files['file']['filename']:
+                    print("Upload failed: No file uploaded or filename is empty")
+                    print(f"Available files: {files}")
                     self.send_response(400)
                     self.end_headers()
                     self.wfile.write(b"No file uploaded")
                     return
 
+                file_info = files['file']
                 uid = uuid.uuid4().hex
                 save_dir = UPLOAD_DIR / uid
                 save_dir.mkdir(parents=True, exist_ok=True)
-                file_path = save_dir / os.path.basename(file_item.filename)
+                file_path = save_dir / os.path.basename(file_info['filename'])
+                
                 with open(file_path, "wb") as output_file:
-                    output_file.write(file_item.file.read())
+                    output_file.write(file_info['data'])
+                
+                print(f"File saved successfully: {file_path}")
 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -135,6 +206,10 @@ class UploadHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"file_path": str(file_path.relative_to(BASE_DIR))}).encode())
                 return
             except Exception as e:
+                print(f"Upload error: {str(e)}")
+                print(f"Exception type: {type(e).__name__}")
+                import traceback
+                traceback.print_exc()
                 self.send_response(500)
                 self.end_headers()
                 self.wfile.write(f"Upload error: {str(e)}".encode())
