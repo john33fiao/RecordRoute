@@ -43,7 +43,7 @@ def run_workflow(file_path: Path, steps):
     try:
         if "stt" in steps:
             subprocess.run(
-                [PYTHON, str(WORKFLOW_DIR / "transcribe.py"), str(current_file.parent), "--output_dir", str(OUTPUT_DIR)],
+                [PYTHON, str(WORKFLOW_DIR / "transcribe.py"), str(current_file.parent), "--output_dir", str(OUTPUT_DIR), "--model_size", "large"],
                 check=True,
             )
             stt_file = OUTPUT_DIR / f"{file_path.stem}.md"
@@ -105,34 +105,39 @@ class UploadHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/upload":
-            form = cgi.FieldStorage(
-                fp=self.rfile,
-                headers=self.headers,
-                environ={
-                    "REQUEST_METHOD": "POST",
-                    "CONTENT_TYPE": self.headers.get("Content-Type"),
-                },
-            )
+            try:
+                form = cgi.FieldStorage(
+                    fp=self.rfile,
+                    headers=self.headers,
+                    environ={
+                        "REQUEST_METHOD": "POST",
+                        "CONTENT_TYPE": self.headers.get("Content-Type"),
+                    },
+                )
 
-            file_item = form["file"] if "file" in form else None
-            if not file_item or not file_item.filename:
-                self.send_response(400)
+                file_item = form["file"] if "file" in form else None
+                if file_item is None or not hasattr(file_item, 'filename') or not file_item.filename:
+                    self.send_response(400)
+                    self.end_headers()
+                    self.wfile.write(b"No file uploaded")
+                    return
+
+                uid = uuid.uuid4().hex
+                save_dir = UPLOAD_DIR / uid
+                save_dir.mkdir(parents=True, exist_ok=True)
+                file_path = save_dir / os.path.basename(file_item.filename)
+                with open(file_path, "wb") as output_file:
+                    output_file.write(file_item.file.read())
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(b"No file uploaded")
+                self.wfile.write(json.dumps({"file_path": str(file_path.relative_to(BASE_DIR))}).encode())
                 return
-
-            uid = uuid.uuid4().hex
-            save_dir = UPLOAD_DIR / uid
-            save_dir.mkdir(parents=True, exist_ok=True)
-            file_path = save_dir / os.path.basename(file_item.filename)
-            with open(file_path, "wb") as output_file:
-                output_file.write(file_item.file.read())
-
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"file_path": str(file_path.relative_to(BASE_DIR))}).encode())
-            return
+            except Exception as e:
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(f"Upload error: {str(e)}".encode())
 
         if self.path == "/process":
             length = int(self.headers.get("Content-Length", 0))

@@ -57,32 +57,56 @@
             if (document.getElementById('stepCorrect').checked) steps.push('correct');
             if (document.getElementById('stepSummary').checked) steps.push('summary');
 
+            if (steps.length === 0) {
+                alert('최소 하나의 작업을 선택해주세요.');
+                return;
+            }
+
+            const downloads = document.getElementById('downloads');
+            downloads.innerHTML = '<p style="color: blue; font-weight: bold;">작업을 시작합니다...</p>';
+
             const resp = await fetch('/process', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ file_path: uploadedPath, steps })
             });
 
-            const downloads = document.getElementById('downloads');
             downloads.innerHTML = '';
 
             if (!resp.ok) {
-                downloads.textContent = 'Processing failed.';
+                downloads.innerHTML = '<p style="color: red;">작업 처리에 실패했습니다.</p>';
                 return;
             }
 
             const result = await resp.json();
 
+            if (result.error) {
+                downloads.innerHTML = `<p style="color: red;">오류: ${result.error}</p>`;
+                return;
+            }
+
+            let hasResults = false;
             ['stt', 'correct', 'summary'].forEach(step => {
                 if (result[step]) {
+                    hasResults = true;
                     const link = document.createElement('a');
                     link.href = result[step];
                     link.textContent = step.toUpperCase() + ' 파일 다운로드';
                     link.download = '';
+                    link.style.display = 'block';
+                    link.style.marginBottom = '10px';
+                    link.style.padding = '8px 12px';
+                    link.style.backgroundColor = '#007bff';
+                    link.style.color = 'white';
+                    link.style.textDecoration = 'none';
+                    link.style.borderRadius = '4px';
                     downloads.appendChild(link);
-                    downloads.appendChild(document.createElement('br'));
                 }
             });
+
+            if (!hasResults) {
+                downloads.innerHTML = '<p style="color: orange;">처리는 완료되었지만 다운로드할 파일이 없습니다.</p>';
+            }
         });
     </script>
 </body>
