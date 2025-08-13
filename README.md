@@ -95,6 +95,7 @@ brew install ollama
 ollama pull gemma3:4b
 
 # macOS/Linux 사용자
+ollama pull gemma3:12b-it-qat
 ollama pull gpt-oss:20b
 ```
 
@@ -142,12 +143,14 @@ python sttEngine/workflow/transcribe.py [audio_folder] --model_size large-v3-tur
 
 #### 2단계: 텍스트 교정
 ```bash
-python sttEngine/workflow/correct.py input.md --model gemma3:4b --temperature 0.0
+python sttEngine/workflow/correct.py input.md --model gemma3:4b --temperature 0.0  # Windows
+python sttEngine/workflow/correct.py input.md --model gemma3:12b-it-qat --temperature 0.0  # macOS/Linux
 ```
 
 #### 3단계: 텍스트 요약
 ```bash
-python sttEngine/workflow/summarize.py input.corrected.md --model gemma3:4b --temperature 0.0
+python sttEngine/workflow/summarize.py input.corrected.md --model gemma3:4b --temperature 0.0  # Windows
+python sttEngine/workflow/summarize.py input.corrected.md --model gpt-oss:20b --temperature 0.0  # macOS/Linux
 ```
 
 ## 지원 오디오 포맷
@@ -163,7 +166,7 @@ python sttEngine/workflow/summarize.py input.corrected.md --model gemma3:4b --te
 - Python 실행파일: 자동 감지
 
 ### macOS/Linux
-- 모델: `gpt-oss:20b` (교정 및 요약 공용)
+- 모델: 교정 `gemma3:12b-it-qat`, 요약 `gpt-oss:20b`
 - 캐시: `~/.cache/whisper/`
 - Python 실행파일: `venv/bin/python` (가상환경 사용)
 - 환경변수: `.env` 파일에서 자동 로드
@@ -222,6 +225,6 @@ python sttEngine/workflow/summarize.py input.corrected.md --model gemma3:4b --te
 
 ### 추가 참고사항
 
-- 본 레포지토리는 문과 출신 기획자에 의해 운영됩니다. LLM 자체에 대한 학습을 목적으로 합니다. 
+- 본 레포지토리는 문과 출신 기획자에 의해 운영됩니다. LLM 자체에 대한 학습을 목적으로 합니다.
 - 대부분의 코드는 LLM(Claude > Gemini > ChatGPT 순)으로 작성되었습니다.
 - 구현 예정사항은 [Todo List](/TodoList.md)로 정리합니다.

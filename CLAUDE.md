@@ -59,7 +59,7 @@ python transcribe.py /path/to/audio/folder --model_size large-v3-turbo --languag
 
 **플랫폼별 기본 모델**:
 - Windows: `gemma3:4b`
-- macOS/Linux: `gpt-oss:20b`
+- macOS/Linux: `gemma3:12b-it-qat`
 
 **교정 규칙**:
 - 원문 의미와 사실 보존
@@ -141,7 +141,7 @@ run.bat
 - Python 실행파일: 자동 감지
 
 ### macOS/Linux
-- 모델: `gpt-oss:20b` (교정 및 요약 공용)
+- 모델: 교정 `gemma3:12b-it-qat`, 요약 `gpt-oss:20b`
 - 캐시: `~/.cache/whisper/`
 - Python 실행파일: `venv/bin/python` (가상환경 사용)
 - 환경변수: `.env` 파일에서 자동 로드
