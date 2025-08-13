@@ -2,6 +2,9 @@
 test/
 whisper_output/
 
+# 업로드 폴더 제외
+upload/
+
 # macOS 시스템 파일 제외
 .DS_Store
 
