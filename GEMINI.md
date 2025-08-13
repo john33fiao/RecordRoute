@@ -13,7 +13,7 @@
 -   **언어:** Python 3
 -   **음성 인식:** `openai-whisper`
 -   **화자 구분:** `pyannote.audio` (GPU/MPS 최적화)
--   **LLM (텍스트 교정/요약):** `Ollama` (gemma3:4b, gpt-oss:20b 등)
+-   **LLM (텍스트 교정/요약):** `Ollama` (gemma3:4b, gemma3:12b-it-qat, gpt-oss:20b 등)
 -   **핵심 의존성:**
     -   `openai-whisper`: Python 라이브러리
     -   `ollama`: Python 라이브러리
@@ -79,6 +79,10 @@ run_shell_command(command="sttEngine\run.bat")
 ```
 run_shell_command(command="./run.sh")
 ```
+
+**플랫폼별 기본 모델:**
+- Windows: `gemma3:4b`
+- macOS/Linux: 교정 `gemma3:12b-it-qat`, 요약 `gpt-oss:20b`
 
 *참고: `run_workflow.py`는 대화형 입력(실행할 단계, 파일 경로 등)을 요구하므로, AI 에이전트가 직접 실행하기보다는 사용자의 입력을 전달하는 방식으로 사용해야 합니다.*
 
