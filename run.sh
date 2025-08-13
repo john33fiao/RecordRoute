@@ -13,8 +13,8 @@ fi
 # 가상환경의 Python 실행 파일 경로
 VENV_PYTHON="$SCRIPT_DIR/venv/bin/python"
 
-# 워크플로우 스크립트 경로
-WORKFLOW_SCRIPT="$SCRIPT_DIR/sttEngine/run_workflow.py"
+# 웹서버 스크립트 경로
+WEB_SERVER="$SCRIPT_DIR/server.py"
 
 # 가상환경 존재 확인
 if [ ! -f "$VENV_PYTHON" ]; then
@@ -23,15 +23,19 @@ if [ ! -f "$VENV_PYTHON" ]; then
     exit 1
 fi
 
-# 워크플로우 스크립트 존재 확인
-if [ ! -f "$WORKFLOW_SCRIPT" ]; then
-    echo "오류: 워크플로우 스크립트(sttEngine/run_workflow.py)를 찾을 수 없습니다."
+# 웹서버 스크립트 존재 확인
+if [ ! -f "$WEB_SERVER" ]; then
+    echo "오류: 웹서버 스크립트(server.py)를 찾을 수 없습니다."
     exit 1
 fi
 
-# 워크플로우 스크립트 실행
-echo "가상환경의 파이썬으로 워크플로우를 실행합니다..."
-echo "(스크립트 경로: $WORKFLOW_SCRIPT)"
+# 웹서버 실행
+echo "가상환경의 파이썬으로 웹서버를 실행합니다..."
+echo "서버 URL: http://localhost:8080"
+echo "(웹브라우저에서 http://localhost:8080 에 접속하세요)"
+echo
 
-# "$@"를 통해 이 스크립트에 전달된 모든 인자를 python 스크립트로 넘김
-"$VENV_PYTHON" "$WORKFLOW_SCRIPT" "$@"
+"$VENV_PYTHON" "$WEB_SERVER"
+
+echo
+echo "서버가 종료되었습니다."

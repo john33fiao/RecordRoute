@@ -1,5 +1,5 @@
 @echo off
-REM Windows용 RecordRoute 워크플로우 실행 스크립트
+REM Windows용 RecordRoute 웹서버 실행 스크립트
 
 REM 이 스크립트가 있는 디렉토리 기준으로 경로 설정
 set "SCRIPT_DIR=%~dp0"
@@ -20,8 +20,8 @@ if exist "%SCRIPT_DIR%\.env" (
 REM 가상환경의 Python 실행 파일 경로
 set "VENV_PYTHON=%SCRIPT_DIR%\venv\Scripts\python.exe"
 
-REM 워크플로우 스크립트 경로
-set "WORKFLOW_SCRIPT=%SCRIPT_DIR%\sttEngine\run_workflow.py"
+REM 웹서버 스크립트 경로
+set "WEB_SERVER=%SCRIPT_DIR%\server.py"
 
 REM 가상환경 존재 확인
 if not exist "%VENV_PYTHON%" (
@@ -31,17 +31,21 @@ if not exist "%VENV_PYTHON%" (
     exit /b 1
 )
 
-REM 워크플로우 스크립트 존재 확인
-if not exist "%WORKFLOW_SCRIPT%" (
-    echo 오류: 워크플로우 스크립트(sttEngine\run_workflow.py)를 찾을 수 없습니다.
+REM 웹서버 스크립트 존재 확인
+if not exist "%WEB_SERVER%" (
+    echo 오류: 웹서버 스크립트(server.py)를 찾을 수 없습니다.
     pause
     exit /b 1
 )
 
-REM 워크플로우 스크립트 실행
-echo 가상환경의 파이썬으로 워크플로우를 실행합니다...
-echo (스크립트 경로: %WORKFLOW_SCRIPT%)
-"%VENV_PYTHON%" "%WORKFLOW_SCRIPT%" %*
+REM 웹서버 실행
+echo 가상환경의 파이썬으로 웹서버를 실행합니다...
+echo 서버 URL: http://localhost:8080
+echo (웹브라우저에서 http://localhost:8080 에 접속하세요)
+echo.
+"%VENV_PYTHON%" "%WEB_SERVER%"
 
-REM 실행 완료 후 일시 정지 (창이 바로 닫히는 것을 방지)
-if "%~1"=="" pause
+REM 서버 종료 후 일시 정지
+echo.
+echo 서버가 종료되었습니다.
+pause

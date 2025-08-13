@@ -159,8 +159,8 @@ class UploadHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     UPLOAD_DIR.mkdir(exist_ok=True)
     OUTPUT_DIR.mkdir(exist_ok=True)
-    server = HTTPServer(("0.0.0.0", 8000), UploadHandler)
-    print("Serving on http://localhost:8000")
+    server = HTTPServer(("127.0.0.1", 8080), UploadHandler)
+    print("Serving on http://localhost:8080")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
