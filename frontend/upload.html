@@ -9,7 +9,19 @@
     <input type="file" id="audioFile" accept="audio/*" />
     <button id="uploadBtn">Upload</button>
     <div id="status"></div>
+
+    <div id="workflow" style="display:none; margin-top:1em;">
+        <label><input type="checkbox" id="stepStt" /> STT 변환</label>
+        <label><input type="checkbox" id="stepCorrect" /> 텍스트 교정</label>
+        <label><input type="checkbox" id="stepSummary" /> 요약</label>
+        <button id="processBtn">확인</button>
+    </div>
+
+    <div id="downloads" style="margin-top:1em;"></div>
+
     <script>
+        let uploadedPath = null;
+
         document.getElementById('uploadBtn').addEventListener('click', async () => {
             const input = document.getElementById('audioFile');
             const status = document.getElementById('status');
@@ -25,13 +37,52 @@
                     body: formData
                 });
                 if (resp.ok) {
-                    status.textContent = 'Upload complete!';
+                    const data = await resp.json();
+                    uploadedPath = data.file_path;
+                    document.getElementById('workflow').style.display = 'block';
+                    status.textContent = 'Upload complete! Select workflow steps.';
                 } else {
                     status.textContent = 'Upload failed.';
                 }
             } catch (err) {
                 status.textContent = 'Error: ' + err.message;
             }
+        });
+
+        document.getElementById('processBtn').addEventListener('click', async () => {
+            if (!uploadedPath) return;
+
+            const steps = [];
+            if (document.getElementById('stepStt').checked) steps.push('stt');
+            if (document.getElementById('stepCorrect').checked) steps.push('correct');
+            if (document.getElementById('stepSummary').checked) steps.push('summary');
+
+            const resp = await fetch('/process', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file_path: uploadedPath, steps })
+            });
+
+            const downloads = document.getElementById('downloads');
+            downloads.innerHTML = '';
+
+            if (!resp.ok) {
+                downloads.textContent = 'Processing failed.';
+                return;
+            }
+
+            const result = await resp.json();
+
+            ['stt', 'correct', 'summary'].forEach(step => {
+                if (result[step]) {
+                    const link = document.createElement('a');
+                    link.href = result[step];
+                    link.textContent = step.toUpperCase() + ' 파일 다운로드';
+                    link.download = '';
+                    downloads.appendChild(link);
+                    downloads.appendChild(document.createElement('br'));
+                }
+            });
         });
     </script>
 </body>
