@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>Audio Upload Test</title>
+    <title>RecordRoute File Upload</title>
 </head>
 <body>
-    <h1>Upload Audio File</h1>
-    <input type="file" id="audioFile" accept="audio/*" />
+    <h1>Upload File</h1>
+    <input type="file" id="fileInput" accept="audio/*,.md,.txt,.text,.markdown" />
     <button id="uploadBtn">Upload</button>
     <div id="status"></div>
 
@@ -21,12 +21,42 @@
 
     <script>
         let uploadedPath = null;
+        let fileType = null;
+
+        function updateWorkflowOptions(fileType) {
+            const sttCheckbox = document.getElementById('stepStt');
+            const sttLabel = sttCheckbox.parentElement;
+            
+            if (fileType === 'audio') {
+                // Show all checkboxes for audio files
+                sttLabel.style.display = 'block';
+                sttLabel.style.visibility = 'visible';
+                sttCheckbox.checked = false;
+                sttCheckbox.disabled = false;
+            } else if (fileType === 'text') {
+                // Hide STT checkbox for text files
+                sttLabel.style.display = 'none';
+                sttLabel.style.visibility = 'hidden';
+                sttCheckbox.checked = false;
+                sttCheckbox.disabled = true;
+            } else {
+                // For unknown types, show all options
+                sttLabel.style.display = 'block';
+                sttLabel.style.visibility = 'visible';
+                sttCheckbox.checked = false;
+                sttCheckbox.disabled = false;
+            }
+            
+            // Reset other checkboxes
+            document.getElementById('stepCorrect').checked = false;
+            document.getElementById('stepSummary').checked = false;
+        }
 
         document.getElementById('uploadBtn').addEventListener('click', async () => {
-            const input = document.getElementById('audioFile');
+            const input = document.getElementById('fileInput');
             const status = document.getElementById('status');
             if (!input.files.length) {
-                status.textContent = 'Please select an audio file first.';
+                status.textContent = 'Please select a file first.';
                 return;
             }
             const formData = new FormData();
@@ -39,8 +69,18 @@
                 if (resp.ok) {
                     const data = await resp.json();
                     uploadedPath = data.file_path;
+                    fileType = data.file_type;
+                    
+                    updateWorkflowOptions(fileType);
                     document.getElementById('workflow').style.display = 'block';
-                    status.textContent = 'Upload complete! Select workflow steps.';
+                    
+                    if (fileType === 'audio') {
+                        status.textContent = 'Upload complete! Select workflow steps.';
+                    } else if (fileType === 'text') {
+                        status.textContent = 'Upload complete! Select text processing steps.';
+                    } else {
+                        status.textContent = 'Upload complete! File type not fully supported, but you can try processing.';
+                    }
                 } else {
                     status.textContent = 'Upload failed.';
                 }

@@ -27,6 +27,24 @@ WORKFLOW_DIR = BASE_DIR / "sttEngine" / "workflow"
 PYTHON = sys.executable
 
 
+def get_file_type(file_path: Path):
+    """Determine if the file is audio or text.
+    
+    Returns:
+        'audio' for audio files, 'text' for text files, 'unknown' for others.
+    """
+    audio_extensions = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'}
+    text_extensions = {'.md', '.txt', '.text', '.markdown'}
+    
+    suffix = file_path.suffix.lower()
+    if suffix in audio_extensions:
+        return 'audio'
+    elif suffix in text_extensions:
+        return 'text'
+    else:
+        return 'unknown'
+
+
 def run_workflow(file_path: Path, steps):
     """Run the requested workflow steps sequentially.
 
@@ -40,6 +58,7 @@ def run_workflow(file_path: Path, steps):
 
     results = {}
     current_file = file_path
+    file_type = get_file_type(file_path)
     
     # Create individual output directory based on upload folder structure
     upload_folder_name = current_file.parent.name  # Get UUID folder name
@@ -47,7 +66,26 @@ def run_workflow(file_path: Path, steps):
     individual_output_dir.mkdir(exist_ok=True)
 
     try:
-        if "stt" in steps:
+        # For text files, skip STT step and copy to output directory
+        if file_type == 'text':
+            if "stt" in steps:
+                # For text files, we already have the text content, so just copy it to output
+                text_file = individual_output_dir / f"{file_path.stem}.md"
+                # Copy the text file to output directory with .md extension
+                import shutil
+                shutil.copy2(file_path, text_file)
+                results["stt"] = f"/download/{upload_folder_name}/{text_file.name}"
+                current_file = text_file
+            else:
+                # If no STT step for text file, use the original file as starting point
+                # Copy to output directory for consistency
+                text_file = individual_output_dir / f"{file_path.stem}.md"
+                import shutil
+                shutil.copy2(file_path, text_file)
+                current_file = text_file
+        
+        # For audio files, run STT step
+        elif file_type == 'audio' and "stt" in steps:
             subprocess.run(
                 [PYTHON, str(WORKFLOW_DIR / "transcribe.py"), str(current_file.parent), "--output_dir", str(individual_output_dir), "--model_size", "large"],
                 check=True,
@@ -200,10 +238,15 @@ class UploadHandler(BaseHTTPRequestHandler):
                 
                 print(f"File saved successfully: {file_path}")
 
+                file_type = get_file_type(file_path)
+                
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps({"file_path": str(file_path.relative_to(BASE_DIR))}).encode())
+                self.wfile.write(json.dumps({
+                    "file_path": str(file_path.relative_to(BASE_DIR)),
+                    "file_type": file_type
+                }).encode())
                 return
             except Exception as e:
                 print(f"Upload error: {str(e)}")
