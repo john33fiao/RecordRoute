@@ -36,6 +36,22 @@
         let taskQueue = [];
         let currentTask = null;
         let taskIdCounter = 0;
+        const categoryOrder = ['stt', 'correct', 'summary'];
+        let currentCategory = null;
+
+        function sortTaskQueue() {
+            let startIndex = 0;
+            if (currentTask) {
+                startIndex = categoryOrder.indexOf(currentTask.task);
+            } else if (currentCategory) {
+                startIndex = categoryOrder.indexOf(currentCategory);
+            }
+            const order = categoryOrder.slice(startIndex).concat(categoryOrder.slice(0, startIndex));
+            taskQueue.sort((a, b) => {
+                const diff = order.indexOf(a.task) - order.indexOf(b.task);
+                return diff !== 0 ? diff : a.id - b.id;
+            });
+        }
 
         function formatDateTime(isoString) {
             const date = new Date(isoString);
@@ -62,6 +78,7 @@
             };
             
             taskQueue.push(taskItem);
+            sortTaskQueue();
             updateQueueDisplay();
             processNextTask();
             
@@ -83,15 +100,17 @@
                     resetTaskElement(task.taskElement, task.task);
                 }
                 
-                taskQueue.splice(taskIndex, 1);
-                updateQueueDisplay();
+            taskQueue.splice(taskIndex, 1);
+            updateQueueDisplay();
+            currentCategory = taskQueue.length > 0 ? taskQueue[0].task : currentCategory;
             }
             
             // If this was the current task, process next
-            if (currentTask && currentTask.id === taskId) {
-                currentTask = null;
-                processNextTask();
-            }
+        if (currentTask && currentTask.id === taskId) {
+            currentTask = null;
+            currentCategory = taskQueue.length > 0 ? taskQueue[0].task : null;
+            processNextTask();
+        }
         }
 
         function resetTaskElement(taskElement, task) {
@@ -306,6 +325,7 @@
             
             currentTask = taskQueue[0];
             currentTask.status = 'processing';
+            currentCategory = currentTask.task;
             updateQueueDisplay();
             
             try {
@@ -380,8 +400,9 @@
                         taskQueue.splice(taskIndex, 1);
                     }
                 }
-                
+
                 currentTask = null;
+                currentCategory = taskQueue.length > 0 ? taskQueue[0].task : null;
                 updateQueueDisplay();
                 
                 // Reload history to show updated completion status
