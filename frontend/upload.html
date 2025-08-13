@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Audio Upload Test</title>
+</head>
+<body>
+    <h1>Upload Audio File</h1>
+    <input type="file" id="audioFile" accept="audio/*" />
+    <button id="uploadBtn">Upload</button>
+    <div id="status"></div>
+    <script>
+        document.getElementById('uploadBtn').addEventListener('click', async () => {
+            const input = document.getElementById('audioFile');
+            const status = document.getElementById('status');
+            if (!input.files.length) {
+                status.textContent = 'Please select an audio file first.';
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', input.files[0]);
+            try {
+                const resp = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (resp.ok) {
+                    status.textContent = 'Upload complete!';
+                } else {
+                    status.textContent = 'Upload failed.';
+                }
+            } catch (err) {
+                status.textContent = 'Error: ' + err.message;
+            }
+        });
+    </script>
+</body>
+</html>
