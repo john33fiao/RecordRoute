@@ -1,7 +1,6 @@
 # run_workflow.py
 import os
 import sys
-import glob
 import subprocess
 import platform
 from pathlib import Path
@@ -45,6 +44,32 @@ def run_command(command):
         print(f"명령어 실행 중 예외 발생: {e}")
         return False
 
+def run_transcription():
+    """STT 변환 단계를 실행하고 생성된 원본 마크다운 파일 목록을 반환합니다."""
+    while True:
+        input_path_str = input("음성 파일이 있는 폴더의 경로를 입력하세요: ").strip()
+        input_path = Path(input_path_str)
+        if input_path.is_dir():
+            break
+        else:
+            print(f"오류: '{input_path_str}'는 유효한 폴더가 아닙니다. 다시 입력해주세요.")
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    files_before = set(OUTPUT_DIR.glob("*.md"))
+
+    if not run_command([PYTHON_EXEC, TRANSCRIBE_SCRIPT, input_path]):
+        print("음성 변환 단계에서 오류가 발생하여 중단합니다.")
+        return []
+
+    files_after = set(OUTPUT_DIR.glob("*.md"))
+    newly_created_files = list(files_after - files_before)
+
+    files_to_process = [p for p in newly_created_files if not p.name.endswith(('.corrected.md', '.summary.md'))]
+
+    if not files_to_process:
+        print("새로 변환된 파일이 없어 다음 단계를 진행할 수 없습니다.")
+    return files_to_process
+
 def main():
     """메인 워크플로우를 실행합니다."""
     print("---오디오 처리 자동화 워크플로우 시작---")
@@ -70,48 +95,27 @@ def main():
     # --- 1단계: 음성 -> 텍스트 변환 ---
     if '1' in steps_to_run:
         print("\n--- [단계 1] 음성 변환을 시작합니다 ---")
-        while True:
-            input_path_str = input("음성 파일이 있는 폴더의 경로를 입력하세요: ").strip()
-            input_path = Path(input_path_str)
-            if input_path.is_dir():
-                break
-            else:
-                print(f"오류: '{input_path_str}'는 유효한 폴더가 아닙니다. 다시 입력해주세요.")
-        
-        # 변환 전의 파일 목록을 가져옵니다.
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        files_before = set(OUTPUT_DIR.glob("*.md"))
-
-        if not run_command([PYTHON_EXEC, TRANSCRIBE_SCRIPT, input_path]):
-            print("음성 변환 단계에서 오류가 발생하여 중단합니다.")
+        files_to_process = run_transcription()
+        if not files_to_process and len(steps_to_run) > 1:
             return
-        
-        # 변환 후의 파일 목록을 가져와 새로 생성된 파일을 찾습니다.
-        files_after = set(OUTPUT_DIR.glob("*.md"))
-        newly_created_files = list(files_after - files_before)
-        
-        # 새로 생성된 파일 중에서도 원본 스크립트만 필터링합니다.
-        files_to_process = [p for p in newly_created_files if not p.name.endswith(('.corrected.md', '.summary.md'))]
-
-        if not files_to_process:
-            print("새로 변환된 파일이 없어 다음 단계를 진행할 수 없습니다.")
-            # If other steps were requested, this is an error.
-            if len(steps_to_run) > 1:
-                 return
 
     # --- 2단계: 텍스트 교정 ---
     if '2' in steps_to_run:
         print("\n--- [단계 2] 텍스트 교정을 시작합니다 ---")
-        # 1단계를 거치지 않았다면, 교정할 파일이 있는 폴더를 묻습니다.
+        # 1단계를 거치지 않았다면, STT 실행 여부를 먼저 묻습니다.
         if '1' not in steps_to_run:
-            while True:
-                input_path_str = input("교정할 .md 파일이 있는 폴더의 경로를 입력하세요: ").strip()
-                input_path = Path(input_path_str)
-                if input_path.is_dir():
-                    files_to_process = [p for p in input_path.glob("*.md") if not (p.name.endswith('.corrected.md') or p.name.endswith('.summary.md'))]
-                    break
-                else:
-                    print(f"오류: '{input_path_str}'는 유효한 폴더가 아닙니다. 다시 입력해주세요.")
+            run_stt = input("STT 변환을 먼저 실행하시겠습니까? (y/n): ").strip().lower()
+            if run_stt == 'y':
+                files_to_process = run_transcription()
+            else:
+                while True:
+                    input_path_str = input("교정할 .md 파일이 있는 폴더의 경로를 입력하세요: ").strip()
+                    input_path = Path(input_path_str)
+                    if input_path.is_dir():
+                        files_to_process = [p for p in input_path.glob("*.md") if not (p.name.endswith('.corrected.md') or p.name.endswith('.summary.md'))]
+                        break
+                    else:
+                        print(f"오류: '{input_path_str}'는 유효한 폴더가 아닙니다. 다시 입력해주세요.")
         
         if not files_to_process:
             print("교정할 마크다운 파일이 없습니다.")
@@ -132,21 +136,24 @@ def main():
     # --- 3단계: 텍스트 요약 ---
     if '3' in steps_to_run:
         print("\n--- [단계 3] 텍스트 요약을 시작합니다 ---")
-        # 이전 단계를 거치지 않았다면, 요약할 파일이 있는 폴더를 묻습니다.
+        # 이전 단계를 거치지 않았다면, STT 실행 여부를 먼저 묻습니다.
         if '1' not in steps_to_run and '2' not in steps_to_run:
-            while True:
-                input_path_str = input("요약할 파일(.corrected.md)이 있는 폴더의 경로를 입력하세요: ").strip()
-                input_path = Path(input_path_str)
-                if input_path.is_dir():
-                    # .corrected.md 파일을 우선 찾습니다.
-                    files_to_process = list(input_path.glob("*.corrected.md"))
-                    if not files_to_process:
-                        print(f"경고: '{input_path_str}'에서 .corrected.md 파일을 찾지 못했습니다. .md 파일을 대신 찾습니다.")
-                        # .md 파일이라도 있는지 확인해봅니다.
-                        files_to_process = [p for p in input_path.glob("*.md") if not p.name.endswith('.summary.md')]
-                    break
-                else:
-                    print(f"오류: '{input_path_str}'는 유효한 폴더가 아닙니다. 다시 입력해주세요.")
+            run_stt = input("STT 변환을 먼저 실행하시겠습니까? (y/n): ").strip().lower()
+            if run_stt == 'y':
+                files_to_process = run_transcription()
+            else:
+                while True:
+                    input_path_str = input("요약할 파일(.corrected.md)이 있는 폴더의 경로를 입력하세요: ").strip()
+                    input_path = Path(input_path_str)
+                    if input_path.is_dir():
+                        # .corrected.md 파일을 우선 찾습니다.
+                        files_to_process = list(input_path.glob("*.corrected.md"))
+                        if not files_to_process:
+                            print(f"경고: '{input_path_str}'에서 .corrected.md 파일을 찾지 못했습니다. .md 파일을 대신 찾습니다.")
+                            files_to_process = [p for p in input_path.glob("*.md") if not p.name.endswith('.summary.md')]
+                        break
+                    else:
+                        print(f"오류: '{input_path_str}'는 유효한 폴더가 아닙니다. 다시 입력해주세요.")
 
         if not files_to_process:
             print("요약할 파일이 없습니다.")
