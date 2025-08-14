@@ -51,6 +51,14 @@ def normalize_text(text: str, normalize_punct: bool) -> str:
     
     return text
 
+
+def format_timestamp(seconds: float) -> str:
+    """시간(초)을 HH:MM:SS 형식의 문자열로 변환합니다."""
+    seconds = int(seconds)
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
 def merge_segments(segments, max_gap: float = 0.2):
     """
     연속 세그먼트가 동일한 텍스트이고 시간 간격이 max_gap 이내이면 병합
@@ -340,17 +348,25 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
             if not should_keep_segment(text, filter_fillers, min_seg_length):
                 continue
             text = normalize_text(text, normalize_punct)
-            processed_segments.append((segment.get("speaker_id", 0), text))
+            processed_segments.append(
+                (
+                    segment.get("speaker_id", 0),
+                    segment.get("start", 0.0),
+                    segment.get("end", 0.0),
+                    text,
+                )
+            )
 
         # 마크다운 생성 (원본 파일명 기준)
         markdown_content = f"# {file_path.stem}\n\n"
         if processed_segments:
             lines = []
-            for spk_id, text in processed_segments:
+            for spk_id, start, end, text in processed_segments:
+                ts = f"{format_timestamp(start)} - {format_timestamp(end)}"
                 if diarize and spk_id:
-                    lines.append(f"Speaker {spk_id}: {text}")
+                    lines.append(f"[{ts}] Speaker {spk_id}: {text}")
                 else:
-                    lines.append(text)
+                    lines.append(f"[{ts}] {text}")
             markdown_content += "\n".join(lines)
         else:
             original_text = result.get("text", "").strip()
