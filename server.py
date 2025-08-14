@@ -22,13 +22,22 @@ from datetime import datetime
 import threading
 import time
 
+from sttEngine.workflow.transcribe import transcribe_audio_files
+from sttEngine.workflow.correct import correct_text_file
+from sttEngine.workflow.summarize import (
+    summarize_text_mapreduce,
+    read_text_with_fallback,
+    save_output,
+    DEFAULT_MODEL,
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_TEMPERATURE,
+)
 
-BASE_DIR = Path(__file__).parent.resolve()
+
+BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)).resolve()
 UPLOAD_DIR = BASE_DIR / "uploads"
 OUTPUT_DIR = BASE_DIR / "whisper_output"
-WORKFLOW_DIR = BASE_DIR / "sttEngine" / "workflow"
 HISTORY_FILE = BASE_DIR / "upload_history.json"
-PYTHON = sys.executable
 
 # Global dictionary to track running processes
 running_processes = {}
@@ -260,35 +269,29 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 return {"error": "Task was cancelled"}
                 
             print(f"Starting STT for task {task_id}")
-            process = subprocess.Popen(
-                [PYTHON, str(WORKFLOW_DIR / "transcribe.py"), str(current_file.parent), "--output_dir", str(individual_output_dir), "--model_size", "large"],
-            )
-            
-            # Register the process for potential cancellation
-            if task_id:
-                register_process(task_id, process)
-            
-            # Wait for completion and check for cancellation
-            return_code = process.wait()
-            
-            # Clean up process registration
-            if task_id:
-                unregister_process(task_id)
-            
-            # Check if process was terminated due to cancellation
-            if return_code != 0:
-                if task_id and is_task_cancelled(task_id):
-                    print(f"STT task {task_id} was cancelled")
-                    return {"error": "Task was cancelled"}
-                else:
-                    print(f"STT process failed with return code {return_code}")
-                    return {"error": f"STT process failed with return code {return_code}"}
-            
+            try:
+                transcribe_audio_files(
+                    input_dir=str(current_file.parent),
+                    output_dir=str(individual_output_dir),
+                    model_identifier="large",
+                    language=None,
+                    initial_prompt="",
+                    workers=1,
+                    recursive=False,
+                    filter_fillers=False,
+                    min_seg_length=2,
+                    normalize_punct=False,
+                    diarize=False,
+                )
+            except Exception as e:
+                print(f"STT process failed: {e}")
+                return {"error": f"STT process failed: {e}"}
+
             stt_file = individual_output_dir / f"{file_path.stem}.md"
             download_url = f"/download/{upload_folder_name}/{stt_file.name}"
             results["stt"] = download_url
             current_file = stt_file
-            
+
             # Update history
             if record_id:
                 update_task_completion(record_id, "stt", download_url)
@@ -299,33 +302,19 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 return {"error": "Task was cancelled"}
                 
             print(f"Starting text correction for task {task_id}")
-            process = subprocess.Popen([PYTHON, str(WORKFLOW_DIR / "correct.py"), str(current_file)])
-            
-            # Register the process for potential cancellation
-            if task_id:
-                register_process(task_id, process)
-            
-            # Wait for completion and check for cancellation
-            return_code = process.wait()
-            
-            # Clean up process registration
-            if task_id:
-                unregister_process(task_id)
-            
-            # Check if process was terminated due to cancellation
-            if return_code != 0:
-                if task_id and is_task_cancelled(task_id):
-                    print(f"Correction task {task_id} was cancelled")
-                    return {"error": "Task was cancelled"}
-                else:
-                    print(f"Correction process failed with return code {return_code}")
-                    return {"error": f"Correction process failed with return code {return_code}"}
-            
+            try:
+                success = correct_text_file(Path(current_file))
+                if not success:
+                    return {"error": "Correction process failed"}
+            except Exception as e:
+                print(f"Correction process failed: {e}")
+                return {"error": f"Correction process failed: {e}"}
+
             corrected_file = current_file.with_name(f"{current_file.stem}.corrected.md")
             download_url = f"/download/{upload_folder_name}/{corrected_file.name}"
             results["correct"] = download_url
             current_file = corrected_file
-            
+
             # Update history
             if record_id:
                 update_task_completion(record_id, "correct", download_url)
@@ -336,32 +325,25 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 return {"error": "Task was cancelled"}
                 
             print(f"Starting summary for task {task_id}")
-            process = subprocess.Popen([PYTHON, str(WORKFLOW_DIR / "summarize.py"), str(current_file)])
-            
-            # Register the process for potential cancellation
-            if task_id:
-                register_process(task_id, process)
-            
-            # Wait for completion and check for cancellation
-            return_code = process.wait()
-            
-            # Clean up process registration
-            if task_id:
-                unregister_process(task_id)
-            
-            # Check if process was terminated due to cancellation
-            if return_code != 0:
-                if task_id and is_task_cancelled(task_id):
-                    print(f"Summary task {task_id} was cancelled")
-                    return {"error": "Task was cancelled"}
-                else:
-                    print(f"Summary process failed with return code {return_code}")
-                    return {"error": f"Summary process failed with return code {return_code}"}
-            
+            try:
+                text = read_text_with_fallback(Path(current_file))
+                summary = summarize_text_mapreduce(
+                    text=text,
+                    model=DEFAULT_MODEL,
+                    chunk_size=DEFAULT_CHUNK_SIZE,
+                    max_tokens=None,
+                    temperature=DEFAULT_TEMPERATURE,
+                )
+                output_file = Path(current_file).with_name(f"{Path(current_file).stem}.summary.md")
+                save_output(summary, output_file, as_json=False)
+            except Exception as e:
+                print(f"Summary process failed: {e}")
+                return {"error": f"Summary process failed: {e}"}
+
             summary_file = current_file.with_name(f"{current_file.stem}.summary.md")
             download_url = f"/download/{upload_folder_name}/{summary_file.name}"
             results["summary"] = download_url
-            
+
             # Update history
             if record_id:
                 update_task_completion(record_id, "summary", download_url)
