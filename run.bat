@@ -1,6 +1,9 @@
 @echo off
 REM Windows용 RecordRoute 웹서버 실행 스크립트
 
+REM 지연 확장을 활성화하여 특수문자가 포함된 환경변수도 안전하게 처리
+setlocal EnableDelayedExpansion
+
 REM 이 스크립트가 있는 디렉토리 기준으로 경로 설정
 set "SCRIPT_DIR=%~dp0"
 REM 경로 끝의 백슬래시 제거
@@ -15,7 +18,7 @@ if exist "%SCRIPT_DIR%\.env" (
         )
     )
     if defined PYANNOTE_TOKEN (
-        echo [DEBUG] 로드된 토큰: %PYANNOTE_TOKEN%
+        echo [DEBUG] 로드된 토큰: !PYANNOTE_TOKEN!
     ) else (
         echo [DEBUG] PYANNOTE_TOKEN이 설정되지 않았습니다.
     )
