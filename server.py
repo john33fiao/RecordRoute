@@ -9,7 +9,7 @@ The server exposes:
 Only selected workflow steps return download links.
 """
 
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import json
 import os
 import subprocess
@@ -611,7 +611,10 @@ class UploadHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     UPLOAD_DIR.mkdir(exist_ok=True)
     OUTPUT_DIR.mkdir(exist_ok=True)
-    server = HTTPServer(("127.0.0.1", 8080), UploadHandler)
+    # Use ThreadingHTTPServer to allow concurrent request handling.
+    # This lets the server respond to cancellation requests while
+    # long-running tasks are processing in separate threads.
+    server = ThreadingHTTPServer(("127.0.0.1", 8080), UploadHandler)
     print("Serving on http://localhost:8080")
     try:
         server.serve_forever()
