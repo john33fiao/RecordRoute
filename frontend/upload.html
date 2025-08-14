@@ -73,6 +73,30 @@
             background: #6c757d;
             color: white;
         }
+        #summaryPopup {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        #summaryPopup .content {
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        #summaryPopup button {
+            margin: 0 5px;
+            padding: 5px 10px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -110,6 +134,14 @@
         </div>
     </div>
 
+    <div id="summaryPopup">
+        <div class="content">
+            <p>교정 작업을 진행한 뒤에 요약 작업을 시작하시겠습니까?</p>
+            <button id="summaryOnlyBtn">요약만 진행</button>
+            <button id="correctThenSummaryBtn">교정&gt;요약 순으로 진행</button>
+        </div>
+    </div>
+
     <script>
         let uploadedPath = null;
         let fileType = null;
@@ -119,6 +151,9 @@
         let taskIdCounter = 0;
         const categoryOrder = ['stt', 'correct', 'summary'];
         let currentCategory = null;
+        const summaryPopup = document.getElementById('summaryPopup');
+        const summaryOnlyBtn = document.getElementById('summaryOnlyBtn');
+        const correctThenSummaryBtn = document.getElementById('correctThenSummaryBtn');
 
         function showTextOverlay(url) {
             const overlay = document.getElementById('textOverlay');
@@ -140,6 +175,38 @@
         document.getElementById('overlayClose').addEventListener('click', () => {
             document.getElementById('textOverlay').style.display = 'none';
         });
+
+        function hideSummaryPopup() {
+            summaryPopup.style.display = 'none';
+        }
+
+        function setQueuedState(span) {
+            span.style.backgroundColor = '#17a2b8';
+            span.style.color = 'white';
+            span.title = '큐에 추가됨';
+            span.onclick = null;
+        }
+
+        function showSummaryPopup(record, span) {
+            summaryPopup.style.display = 'flex';
+            summaryOnlyBtn.onclick = () => {
+                addTaskToQueue(record.id, record.file_path, 'summary', span, record.filename);
+                setQueuedState(span);
+                hideSummaryPopup();
+            };
+            correctThenSummaryBtn.onclick = () => {
+                const correctSpan = span.parentNode.querySelector('span[data-task="correct"]');
+                if (correctSpan) {
+                    addTaskToQueue(record.id, record.file_path, 'correct', correctSpan, record.filename);
+                    setQueuedState(correctSpan);
+                } else {
+                    addTaskToQueue(record.id, record.file_path, 'correct', document.createElement('span'), record.filename);
+                }
+                addTaskToQueue(record.id, record.file_path, 'summary', span, record.filename);
+                setQueuedState(span);
+                hideSummaryPopup();
+            };
+        }
 
         function sortTaskQueue() {
             let startIndex = 0;
@@ -322,6 +389,7 @@
             span.style.padding = '2px 6px';
             span.style.borderRadius = '3px';
             span.style.fontSize = '12px';
+            span.dataset.task = task;
             
             if (isCompleted && downloadUrl) {
                 // Completed task - green with download link
@@ -348,26 +416,30 @@
                     span.title = '큐에 추가됨';
                     span.onclick = null;
                 } else {
-                    // Incomplete task - clickable to add to queue
+                    // Incomplete task - clickable to add to queue or show popup
                     span.style.backgroundColor = '#6c757d';
                     span.style.color = 'white';
                     span.style.cursor = 'pointer';
                     span.title = '클릭하여 작업 시작';
                     span.onclick = () => {
                         // Double-check if this task is already in queue (in case of race condition)
-                        const existingTaskCheck = taskQueue.find(t => 
-                            t.recordId === record.id && 
+                        const existingTaskCheck = taskQueue.find(t =>
+                            t.recordId === record.id &&
                             t.task === task
                         );
-                        
+
                         if (!existingTaskCheck) {
-                            addTaskToQueue(record.id, record.file_path, task, span, record.filename);
-                            
-                            // Show queued state
-                            span.style.backgroundColor = '#17a2b8';
-                            span.style.color = 'white';
-                            span.title = '큐에 추가됨';
-                            span.onclick = null;
+                            if (task === 'summary' && record.completed_tasks.stt && !record.completed_tasks.correct) {
+                                showSummaryPopup(record, span);
+                            } else {
+                                addTaskToQueue(record.id, record.file_path, task, span, record.filename);
+
+                                // Show queued state
+                                span.style.backgroundColor = '#17a2b8';
+                                span.style.color = 'white';
+                                span.title = '큐에 추가됨';
+                                span.onclick = null;
+                            }
                         }
                     };
                 }
