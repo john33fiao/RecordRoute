@@ -21,6 +21,7 @@ from urllib.parse import unquote
 from datetime import datetime
 import threading
 import time
+import shutil
 
 from sttEngine.workflow.transcribe import transcribe_audio_files
 from sttEngine.workflow.correct import correct_text_file
@@ -211,6 +212,32 @@ def update_task_completion(record_id: str, task: str, download_url: str):
     
     save_upload_history(history)
 
+
+def reset_upload_record(record_id: str) -> bool:
+    """Remove processed files and reset completion status for a record."""
+    history = load_upload_history()
+
+    for record in history:
+        if record["id"] == record_id:
+            folder = record.get("folder_name")
+            output_dir = OUTPUT_DIR / folder if folder else None
+            try:
+                if output_dir and output_dir.exists():
+                    shutil.rmtree(output_dir)
+            except Exception:
+                pass
+
+            record["completed_tasks"] = {
+                "stt": False,
+                "correct": False,
+                "summary": False,
+            }
+            record["download_links"] = {}
+
+            save_upload_history(history)
+            return True
+
+    return False
 
 def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = None):
     """Run the requested workflow steps sequentially.
@@ -580,6 +607,24 @@ class UploadHandler(BaseHTTPRequestHandler):
                 return
             
             success = cancel_task(task_id)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": success}).encode())
+            return
+
+        if self.path == "/reset":
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length)) if length else {}
+            record_id = payload.get("record_id")
+
+            if not record_id:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Missing record_id")
+                return
+
+            success = reset_upload_record(record_id)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
