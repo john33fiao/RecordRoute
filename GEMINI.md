@@ -12,12 +12,10 @@
 
 -   **언어:** Python 3
 -   **음성 인식:** `openai-whisper`
--   **화자 구분:** `pyannote.audio` (GPU/MPS 최적화)
 -   **LLM (텍스트 교정/요약):** `Ollama` (gemma3:4b, gemma3:12b-it-qat, gpt-oss:20b 등)
 -   **핵심 의존성:**
     -   `openai-whisper`: Python 라이브러리
     -   `ollama`: Python 라이브러리
-    -   `pyannote.audio>=2.1.1`: 화자 구분 라이브러리
     -   `ffmpeg`: 시스템 프로그램 (오디오 처리 및 m4a→wav 변환)
     -   `Ollama`: 시스템 서비스 (로컬 LLM 구동을 위해 필요)
 
@@ -31,7 +29,7 @@ RecordRoute/
 │   ├── run.bat               # Windows 실행 스크립트
 │   ├── run_workflow.py       # 메인 워크플로우 오케스트레이션 스크립트
 │   └── workflow/
-│       ├── transcribe.py     # 1단계: 음성 변환 로직 (화자 구분 포함)
+│       ├── transcribe.py     # 1단계: 음성 변환 로직
 │       ├── correct.py        # 2단계: 텍스트 교정 로직
 │       └── summarize.py      # 3단계: 텍스트 요약 로직
 ├── run.sh                    # Unix/macOS/Linux 실행 스크립트
@@ -101,8 +99,8 @@ run_shell_command(command="./run.sh")
     // 1. 파일에 내용 추가
     replace(
         file_path="/path/to/RecordRoute/sttEngine/requirements.txt",
-        old_string="pyannote.audio>=2.1.1",
-        new_string="pyannote.audio>=2.1.1\nnew-library==1.0.0"
+        old_string="ollama>=0.1.0",
+        new_string="ollama>=0.1.0\nnew-library==1.0.0"
     )
     // 2. Windows 설치 스크립트 실행
     run_shell_command(command="sttEngine\setup.bat")
@@ -116,8 +114,6 @@ run_shell_command(command="./run.sh")
 -   **요약 프롬프트 변경:** `sttEngine/workflow/summarize.py` 파일의 `BASE_PROMPT` 변수를 수정합니다.
 -   **교정 프롬프트 변경:** `sttEngine/workflow/correct.py` 파일의 `SYSTEM_PROMPT` 변수를 수정합니다.
 -   **Whisper 모델 변경:** `sttEngine/workflow/transcribe.py`의 `--model_size` 인자 기본값을 변경합니다.
--   **화자 구분 설정:** `--diarize` 옵션으로 화자 구분 활성화/비활성화 제어 가능
--   **환경변수 설정:** `.env` 파일에 `PYANNOTE_TOKEN=your_token` 추가하여 화자 구분 기능 활성화
 
 **예시 명령어 (요약 프롬프트 수정):**
 ```
@@ -127,11 +123,3 @@ read_file(absolute_path="/path/to/RecordRoute/sttEngine/workflow/summarize.py")
 replace(...)
 ```
 
-**화자 구분 기능 설정:**
-```
-// 1. .env 파일 생성 (프로젝트 루트)
-write_to_file(
-    file_path="/path/to/RecordRoute/.env",
-    content="PYANNOTE_TOKEN=your_hugging_face_token_here"
-)
-```

@@ -3,11 +3,10 @@
 
 ## 주요 기능
 
-- **음성→텍스트 변환**: OpenAI Whisper를 사용한 고품질 음성 인식
-- **화자 구분**: pyannote.audio를 통한 화자별 구간 구분
-- **텍스트 교정**: Ollama LLM을 활용한 문법/어법 개선
-- **구조화된 요약**: 회의록 형태의 체계적 요약 생성
-- **통합 워크플로우**: 1단계부터 3단계까지 자동화된 처리 파이프라인
+ - **음성→텍스트 변환**: OpenAI Whisper를 사용한 고품질 음성 인식
+ - **텍스트 교정**: Ollama LLM을 활용한 문법/어법 개선
+ - **구조화된 요약**: 회의록 형태의 체계적 요약 생성
+ - **통합 워크플로우**: 1단계부터 3단계까지 자동화된 처리 파이프라인
 
 ## 디렉토리 구조
 
@@ -60,9 +59,8 @@ pip install -r sttEngine/requirements.txt
 ```
 
 **포함 패키지:**
-- `openai-whisper>=20231117`: 음성 인식
-- `ollama>=0.1.0`: 로컬 LLM 추론
-- `pyannote.audio>=2.1.1`: 화자 구분
+ - `openai-whisper>=20231117`: 음성 인식
+ - `ollama>=0.1.0`: 로컬 LLM 추론
 
 #### FFmpeg 설치
 다양한 오디오 형식 처리를 위해 필수:
@@ -131,15 +129,14 @@ python sttEngine/run_workflow.py
 
 #### 1단계: 음성→텍스트 변환
 ```bash
-python sttEngine/workflow/transcribe.py [audio_folder] --model_size large-v3-turbo --language ko --diarize --filter_fillers
+python sttEngine/workflow/transcribe.py [audio_folder] --model_size large-v3-turbo --language ko --filter_fillers
 ```
 
 **주요 옵션:**
-- `--model_size`: Whisper 모델 크기 (tiny, base, small, medium, large, large-v3-turbo)
-- `--language ko`: 한국어 힌트
-- `--diarize`: 화자 구분 활성화
-- `--filter_fillers`: 필러 단어 제거
-- `--normalize_punct`: 연속 마침표 정규화
+ - `--model_size`: Whisper 모델 크기 (tiny, base, small, medium, large, large-v3-turbo)
+ - `--language ko`: 한국어 힌트
+ - `--filter_fillers`: 필러 단어 제거
+ - `--normalize_punct`: 연속 마침표 정규화
 
 #### 2단계: 텍스트 교정
 ```bash

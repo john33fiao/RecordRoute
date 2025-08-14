@@ -281,7 +281,6 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     filter_fillers=False,
                     min_seg_length=2,
                     normalize_punct=False,
-                    diarize=False,
                 )
             except Exception as e:
                 print(f"STT process failed: {e}")
