@@ -33,6 +33,7 @@ from sttEngine.workflow.summarize import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TEMPERATURE,
 )
+from sttEngine.one_line_summary import generate_one_line_summary
 
 
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)).resolve()
@@ -187,7 +188,8 @@ def add_upload_record(file_path: Path, file_type: str, duration: str = None):
             "correct": False,
             "summary": False
         },
-        "download_links": {}
+        "download_links": {},
+        "title_summary": ""
     }
     
     history.insert(0, record)  # Add to beginning (most recent first)
@@ -213,6 +215,25 @@ def update_task_completion(record_id: str, task: str, download_url: str):
     save_upload_history(history)
 
 
+def update_title_summary(record_id: str, summary: str):
+    """Store one-line summary for a record."""
+    history = load_upload_history()
+    for record in history:
+        if record["id"] == record_id:
+            record["title_summary"] = summary
+            break
+    save_upload_history(history)
+
+
+def generate_and_store_title_summary(record_id: str, file_path: Path):
+    """Generate one-line summary and store it."""
+    try:
+        summary = generate_one_line_summary(file_path)
+        update_title_summary(record_id, summary)
+    except Exception as e:
+        print(f"One-line summary generation failed: {e}")
+
+
 def reset_upload_record(record_id: str) -> bool:
     """Remove processed files and reset completion status for a record."""
     history = load_upload_history()
@@ -233,6 +254,7 @@ def reset_upload_record(record_id: str) -> bool:
                 "summary": False,
             }
             record["download_links"] = {}
+            record["title_summary"] = ""
 
             save_upload_history(history)
             return True
@@ -281,6 +303,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 # Update history
                 if record_id:
                     update_task_completion(record_id, "stt", download_url)
+                    generate_and_store_title_summary(record_id, current_file)
             else:
                 # If no STT step for text file, use the original file as starting point
                 # Copy to output directory for consistency
@@ -321,6 +344,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
             # Update history
             if record_id:
                 update_task_completion(record_id, "stt", download_url)
+                generate_and_store_title_summary(record_id, current_file)
 
         if "correct" in steps:
             # Check if task was cancelled before starting correction
@@ -344,6 +368,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
             # Update history
             if record_id:
                 update_task_completion(record_id, "correct", download_url)
+                generate_and_store_title_summary(record_id, current_file)
 
         if "summary" in steps:
             # Check if task was cancelled before starting summary
@@ -369,10 +394,12 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
             summary_file = current_file.with_name(f"{current_file.stem}.summary.md")
             download_url = f"/download/{upload_folder_name}/{summary_file.name}"
             results["summary"] = download_url
+            current_file = summary_file
 
             # Update history
             if record_id:
                 update_task_completion(record_id, "summary", download_url)
+                generate_and_store_title_summary(record_id, current_file)
 
     except Exception as exc:  # pragma: no cover - best effort error handling
         # Clean up process registration if something goes wrong

@@ -596,6 +596,12 @@
                 };
 
                 item.appendChild(header);
+                if (record.title_summary) {
+                    const summary = document.createElement('div');
+                    summary.style.cssText = 'margin:4px 0; color:#333; font-size:13px;';
+                    summary.textContent = record.title_summary;
+                    item.appendChild(summary);
+                }
                 item.appendChild(tasks);
                 historyList.appendChild(item);
             });
