@@ -123,7 +123,13 @@
     </div>
 
     <div id="history-section" style="margin-top:2em;">
-        <h2>업로드 기록</h2>
+        <h2 style="display:flex; align-items:center; justify-content:space-between;">
+            업로드 기록
+            <select id="historySortSelect" style="margin-left:auto; padding:4px 8px; border:1px solid #ccc; border-radius:3px; font-size:14px;">
+                <option value="newest">기본값 (최신순)</option>
+                <option value="oldest">추가순 (오래된 순)</option>
+            </select>
+        </h2>
         <div id="history-list"></div>
     </div>
 
@@ -674,9 +680,15 @@
             });
         }
 
-        async function loadHistory() {
+        async function loadHistory(sortOrder = null) {
             try {
-                const response = await fetch('/history');
+                // Get sort order from dropdown if not specified
+                if (!sortOrder) {
+                    const sortSelect = document.getElementById('historySortSelect');
+                    sortOrder = sortSelect ? sortSelect.value : 'newest';
+                }
+                
+                const response = await fetch(`/history?sort=${sortOrder}`);
                 if (response.ok) {
                     const history = await response.json();
                     displayHistory(history);
@@ -688,9 +700,15 @@
             }
         }
 
-        async function loadHistorySync() {
+        async function loadHistorySync(sortOrder = null) {
             try {
-                const response = await fetch('/history');
+                // Get sort order from dropdown if not specified
+                if (!sortOrder) {
+                    const sortSelect = document.getElementById('historySortSelect');
+                    sortOrder = sortSelect ? sortSelect.value : 'newest';
+                }
+                
+                const response = await fetch(`/history?sort=${sortOrder}`);
                 if (response.ok) {
                     return await response.json();
                 }
@@ -1050,6 +1068,11 @@
             } catch (err) {
                 alert(err.message);
             }
+        });
+
+        // Add event listener for history sort dropdown
+        document.getElementById('historySortSelect').addEventListener('change', function() {
+            loadHistory(this.value);
         });
 
         document.addEventListener('DOMContentLoaded', function() {
