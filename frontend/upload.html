@@ -101,7 +101,7 @@
 </head>
 <body>
     <h1>Upload File</h1>
-    <input type="file" id="fileInput" accept="audio/*,.md,.txt,.text,.markdown" />
+    <input type="file" id="fileInput" accept="audio/*,.md,.txt,.text,.markdown,.pdf" />
     <button id="uploadBtn">Upload</button>
     <div id="status"></div>
 
@@ -485,7 +485,8 @@
                     background-color: #f8f9fa;
                 `;
 
-                const typeLabel = record.file_type === 'audio' ? '오디오' : '텍스트';
+                const typeMap = { audio: '오디오', text: '텍스트', pdf: 'PDF' };
+                const typeLabel = typeMap[record.file_type] || '기타';
                 const dateTime = formatDateTime(record.timestamp);
                 const duration = record.duration ? ` ${record.duration}` : '';
 
@@ -566,14 +567,22 @@
 
                 const taskElements = {};
 
-                // Only show STT button for audio files
                 if (record.file_type === 'audio') {
                     taskElements.stt = createTaskElement('stt', record.completed_tasks.stt, record.download_links.stt, record);
                     tasks.appendChild(taskElements.stt);
+                    taskElements.correct = createTaskElement('correct', record.completed_tasks.correct, record.download_links.correct, record);
+                    tasks.appendChild(taskElements.correct);
+                } else if (record.file_type === 'text') {
+                    taskElements.correct = createTaskElement('correct', record.completed_tasks.correct, record.download_links.correct, record);
+                    tasks.appendChild(taskElements.correct);
+                } else if (record.file_type !== 'pdf') {
+                    // Unknown types: show all options
+                    taskElements.stt = createTaskElement('stt', record.completed_tasks.stt, record.download_links.stt, record);
+                    tasks.appendChild(taskElements.stt);
+                    taskElements.correct = createTaskElement('correct', record.completed_tasks.correct, record.download_links.correct, record);
+                    tasks.appendChild(taskElements.correct);
                 }
 
-                taskElements.correct = createTaskElement('correct', record.completed_tasks.correct, record.download_links.correct, record);
-                tasks.appendChild(taskElements.correct);
                 taskElements.summary = createTaskElement('summary', record.completed_tasks.summary, record.download_links.summary, record);
                 tasks.appendChild(taskElements.summary);
 
@@ -584,8 +593,15 @@
                 } else {
                     batchBtn.onclick = () => {
                         const steps = [];
-                        if (record.file_type === 'audio') steps.push('stt');
-                        steps.push('correct', 'summary');
+                        if (record.file_type === 'audio') {
+                            steps.push('stt', 'correct', 'summary');
+                        } else if (record.file_type === 'text') {
+                            steps.push('correct', 'summary');
+                        } else if (record.file_type === 'pdf') {
+                            steps.push('summary');
+                        } else {
+                            steps.push('stt', 'correct', 'summary');
+                        }
 
                         steps.forEach(step => {
                             const alreadyCompleted = record.completed_tasks[step];
@@ -743,29 +759,52 @@
         function updateWorkflowOptions(fileType) {
             const sttCheckbox = document.getElementById('stepStt');
             const sttLabel = sttCheckbox.parentElement;
-            
+            const correctCheckbox = document.getElementById('stepCorrect');
+            const correctLabel = correctCheckbox.parentElement;
+
             if (fileType === 'audio') {
-                // Show all checkboxes for audio files
+                // Show all options for audio files
                 sttLabel.style.display = 'block';
                 sttLabel.style.visibility = 'visible';
                 sttCheckbox.checked = false;
                 sttCheckbox.disabled = false;
+                correctLabel.style.display = 'block';
+                correctLabel.style.visibility = 'visible';
+                correctCheckbox.checked = false;
+                correctCheckbox.disabled = false;
             } else if (fileType === 'text') {
-                // Hide STT checkbox for text files
+                // Hide STT for text files
                 sttLabel.style.display = 'none';
                 sttLabel.style.visibility = 'hidden';
                 sttCheckbox.checked = false;
                 sttCheckbox.disabled = true;
+                correctLabel.style.display = 'block';
+                correctLabel.style.visibility = 'visible';
+                correctCheckbox.checked = false;
+                correctCheckbox.disabled = false;
+            } else if (fileType === 'pdf') {
+                // Only summary available for PDF files
+                sttLabel.style.display = 'none';
+                sttLabel.style.visibility = 'hidden';
+                sttCheckbox.checked = false;
+                sttCheckbox.disabled = true;
+                correctLabel.style.display = 'none';
+                correctLabel.style.visibility = 'hidden';
+                correctCheckbox.checked = false;
+                correctCheckbox.disabled = true;
             } else {
                 // For unknown types, show all options
                 sttLabel.style.display = 'block';
                 sttLabel.style.visibility = 'visible';
                 sttCheckbox.checked = false;
                 sttCheckbox.disabled = false;
+                correctLabel.style.display = 'block';
+                correctLabel.style.visibility = 'visible';
+                correctCheckbox.checked = false;
+                correctCheckbox.disabled = false;
             }
-            
-            // Reset other checkboxes
-            document.getElementById('stepCorrect').checked = false;
+
+            // Reset summary checkbox
             document.getElementById('stepSummary').checked = false;
         }
 
@@ -799,6 +838,8 @@
                         status.textContent = 'Upload complete! Select workflow steps.';
                     } else if (fileType === 'text') {
                         status.textContent = 'Upload complete! Select text processing steps.';
+                    } else if (fileType === 'pdf') {
+                        status.textContent = 'Upload complete! Only summary step is available.';
                     } else {
                         status.textContent = 'Upload complete! File type not fully supported, but you can try processing.';
                     }

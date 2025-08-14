@@ -119,19 +119,23 @@ def get_running_tasks():
 
 
 def get_file_type(file_path: Path):
-    """Determine if the file is audio or text.
-    
+    """Determine if the file is audio, text, or PDF.
+
     Returns:
-        'audio' for audio files, 'text' for text files, 'unknown' for others.
+        'audio' for audio files, 'text' for text files,
+        'pdf' for PDF files, 'unknown' for others.
     """
     audio_extensions = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'}
     text_extensions = {'.md', '.txt', '.text', '.markdown'}
-    
+    pdf_extensions = {'.pdf'}
+
     suffix = file_path.suffix.lower()
     if suffix in audio_extensions:
         return 'audio'
     elif suffix in text_extensions:
         return 'text'
+    elif suffix in pdf_extensions:
+        return 'pdf'
     else:
         return 'unknown'
 
@@ -149,6 +153,18 @@ def get_audio_duration(file_path: Path):
         return f"{minutes:02d}:{seconds:02d}"
     except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
         return None
+
+
+def extract_text_from_pdf(file_path: Path) -> str:
+    """Extract text content from a PDF file."""
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(str(file_path))
+        texts = [page.extract_text() or "" for page in reader.pages]
+        return "\n".join(texts)
+    except Exception as e:
+        raise RuntimeError(f"Failed to extract text from PDF: {e}")
 
 
 def load_upload_history():
@@ -311,7 +327,18 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 import shutil
                 shutil.copy2(file_path, text_file)
                 current_file = text_file
-        
+
+        # For PDF files, extract text for summary
+        elif file_type == 'pdf':
+            text_file = individual_output_dir / f"{file_path.stem}.md"
+            try:
+                text_content = extract_text_from_pdf(file_path)
+                text_file.write_text(text_content, encoding='utf-8')
+            except Exception as e:
+                print(f"PDF extraction failed: {e}")
+                return {"error": f"PDF extraction failed: {e}"}
+            current_file = text_file
+
         # For audio files, run STT step
         elif file_type == 'audio' and "stt" in steps:
             # Check if task was cancelled before starting STT
