@@ -470,19 +470,55 @@
                     margin-bottom: 10px;
                     background-color: #f8f9fa;
                 `;
-                
+
                 const typeLabel = record.file_type === 'audio' ? '오디오' : '텍스트';
                 const dateTime = formatDateTime(record.timestamp);
                 const duration = record.duration ? ` ${record.duration}` : '';
-                
+
                 const header = document.createElement('div');
-                header.style.marginBottom = '5px';
-                header.innerHTML = `
-                    <strong>[${typeLabel}]</strong> 
-                    ${dateTime} 
+                header.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;';
+
+                const info = document.createElement('span');
+                info.innerHTML = `
+                    <strong>[${typeLabel}]</strong>
+                    ${dateTime}
                     <strong>${record.filename}</strong>${duration}
                 `;
-                
+
+                const resetBtn = document.createElement('button');
+                resetBtn.textContent = '초기화';
+                resetBtn.style.cssText = `
+                    background: #dc3545;
+                    color: white;
+                    border: none;
+                    border-radius: 3px;
+                    padding: 2px 8px;
+                    cursor: pointer;
+                    font-size: 12px;
+                `;
+                resetBtn.onclick = async () => {
+                    if (!confirm('기존 작업내역을 초기화 하시겠습니까?')) return;
+
+                    // Remove related tasks from queue
+                    const relatedTasks = taskQueue.filter(t => t.recordId === record.id);
+                    relatedTasks.forEach(t => removeTaskFromQueue(t.id));
+
+                    const resp = await fetch('/reset', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ record_id: record.id })
+                    });
+
+                    if (resp.ok) {
+                        loadHistory();
+                    } else {
+                        alert('초기화에 실패했습니다.');
+                    }
+                };
+
+                header.appendChild(info);
+                header.appendChild(resetBtn);
+
                 const tasks = document.createElement('div');
                 
                 // Only show STT button for audio files
