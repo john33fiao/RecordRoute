@@ -1,7 +1,7 @@
 # CLAUDE.md - RecordRoute 프로젝트 가이드
 
 ## 프로젝트 개요
-RecordRoute는 음성 파일을 회의록으로 변환하는 통합 워크플로우 시스템입니다. STT(Speech-to-Text), 텍스트 교정, 요약 기능을 단계적으로 제공합니다.
+RecordRoute는 음성 파일을 회의록으로 변환하는 통합 워크플로우 시스템입니다. STT(Speech-to-Text), 텍스트 교정, 요약 기능을 단계적으로 제공합니다. 최근에는 웹 기반 인터페이스가 추가되어 파일 업로드와 단계별 작업 선택, 작업 큐 및 업로드 기록(개별 초기화), 결과 오버레이 뷰어, 요약 전 확인 팝업을 지원합니다.
 
 ## 아키텍처 구조
 
@@ -13,14 +13,13 @@ RecordRoute/
 ├── LICENSE              # 라이선스 정보
 ├── CLAUDE.md             # Claude AI 전용 프로젝트 가이드
 ├── GEMINI.md             # Gemini AI 전용 프로젝트 가이드
-├── run.sh               # Unix/macOS/Linux 실행 스크립트
-├── venv/                # Python 가상환경
-├── test/                # 테스트 오디오 파일 디렉토리
-├── whisper_output/      # STT 변환 결과 저장소
+├── run.bat               # Windows 웹 서버 실행 스크립트
+├── run.command           # macOS/Linux 웹 서버 실행 스크립트
+├── server.py             # 업로드 처리 및 워크플로우 실행 서버
+├── frontend/             # 웹 인터페이스 (upload.html)
 └── sttEngine/           # STT 엔진 메인 모듈
     ├── requirements.txt    # Python 의존성
     ├── setup.bat          # Windows 설치 스크립트
-    ├── run.bat           # Windows 실행 스크립트
     ├── run_workflow.py   # 워크플로우 통합 실행기
     └── workflow/         # 핵심 처리 모듈들
         ├── transcribe.py   # 음성→텍스트 변환
@@ -98,6 +97,16 @@ python correct.py input.md --model gemma3:4b --temperature 0.0
 - 연속 처리 파이프라인
 - 실시간 진행 상황 출력
 
+### 5. server.py - 웹 업로드 및 워크플로우 서버
+**기능**: 파일 업로드와 선택된 단계(STT, 교정, 요약)의 백그라운드 실행을 처리하는 HTTP 서버.
+
+**주요 특징**:
+- 작업 큐 및 업로드 기록 관리 (개별 초기화 가능)
+- 결과 다운로드 링크와 텍스트 오버레이 뷰어 제공
+- 요약 실행 전 확인 팝업 지원
+- 작업 취소 및 진행 중인 작업 조회 API(`/cancel`, `/tasks`, `/reset`)
+- ThreadingHTTPServer 기반의 동시 요청 처리
+
 ## 의존성 및 환경 설정
 
 ### Python 패키지
@@ -115,16 +124,19 @@ ollama>=0.1.0
 **Windows:**
 ```bash
 # 1단계: 환경 설정
-setup.bat
+sttEngine\setup.bat
 
-# 2단계: 워크플로우 실행  
+# 2단계: 웹 서버 실행
 run.bat
 ```
 
 **Unix/macOS/Linux:**
 ```bash
-# 워크플로우 실행 (.env 파일에서 환경변수 자동 로드)
-./run.sh
+# 1단계: 의존성 설치
+pip install -r sttEngine/requirements.txt
+
+# 2단계: 웹 서버 실행 (.env 파일에서 환경변수 자동 로드)
+./run.command
 ```
 
 ## 플랫폼별 설정
@@ -181,7 +193,7 @@ run.bat
 
 ## 확장 계획 (TodoList.md 기준)
 - [ ] 임베딩 및 RAG 질의 시스템
-- [ ] 웹 UI 개발
+- [x] 웹 UI 개발 (완료)
 - [ ] LLM API 연동 확장
 - [ ] 다국어 지원 강화
 
