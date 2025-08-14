@@ -15,12 +15,14 @@ venv/
 .env
 
 # 파이썬 캐시 파일 제외
-__pycache__/server.cpython-313.pyc
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 
 # 내장 DB 제외
 upload_history.json
 
 # 파이썬 캐시 폴더 제외
-sttEngine/workflow/__pycache__
 # 임베딩 벡터 저장소 제외
 vector_store/
