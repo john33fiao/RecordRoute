@@ -34,6 +34,7 @@ from sttEngine.workflow.summarize import (
     DEFAULT_TEMPERATURE,
 )
 from sttEngine.one_line_summary import generate_one_line_summary
+from vector_search import search as search_vectors
 
 
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)).resolve()
@@ -459,6 +460,19 @@ class UploadHandler(BaseHTTPRequestHandler):
             self._serve_history()
         elif self.path == "/tasks":
             self._serve_running_tasks()
+        elif self.path.startswith("/search"):
+            from urllib.parse import urlparse, parse_qs
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            query = params.get("q", [""])[0]
+            results = []
+            if query:
+                hits = search_vectors(query, BASE_DIR)
+                results = [{"file": r["file"], "score": r["score"], "link": f"/download/{r['file']}"} for r in hits]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(results, ensure_ascii=False).encode())
         else:
             self.send_response(404)
             self.end_headers()
