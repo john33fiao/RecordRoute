@@ -115,7 +115,10 @@
     <div id="downloads" style="margin-top:1em;"></div>
 
     <div id="queue-section" style="margin-top:2em;">
-        <h2>작업 큐</h2>
+        <h2 style="display:flex; align-items:center; justify-content:space-between;">
+            작업 큐
+            <button id="cancelAllBtn" style="display:none; margin-left:auto; background:#dc3545; color:white; border:none; border-radius:3px; padding:4px 8px; cursor:pointer; font-size:14px;">모두 취소</button>
+        </h2>
         <div id="queue-list"></div>
     </div>
 
@@ -301,6 +304,13 @@
             }
         }
 
+        function cancelAllTasks() {
+            const tasks = [...taskQueue];
+            tasks.forEach(t => removeTaskFromQueue(t.id));
+        }
+
+        document.getElementById('cancelAllBtn').addEventListener('click', cancelAllTasks);
+
         function resetTaskElement(taskElement, task) {
             const taskNames = {
                 'stt': 'STT',
@@ -317,13 +327,17 @@
 
         function updateQueueDisplay() {
             const queueList = document.getElementById('queue-list');
+            const cancelAllBtn = document.getElementById('cancelAllBtn');
             queueList.innerHTML = '';
-            
+
             if (taskQueue.length === 0) {
                 queueList.innerHTML = '<p style="color: #6c757d; font-style: italic;">진행 중인 작업이 없습니다.</p>';
+                cancelAllBtn.style.display = 'none';
                 return;
             }
-            
+
+            cancelAllBtn.style.display = 'inline-block';
+
             taskQueue.forEach((task, index) => {
                 const item = document.createElement('div');
                 item.style.cssText = `
