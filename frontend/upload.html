@@ -577,23 +577,33 @@
                 taskElements.summary = createTaskElement('summary', record.completed_tasks.summary, record.download_links.summary, record);
                 tasks.appendChild(taskElements.summary);
 
-                batchBtn.onclick = () => {
-                    const steps = [];
-                    if (record.file_type === 'audio') steps.push('stt');
-                    steps.push('correct', 'summary');
+                if (hasCompleted || queued) {
+                    batchBtn.disabled = true;
+                    batchBtn.style.background = '#6c757d';
+                    batchBtn.style.cursor = 'not-allowed';
+                } else {
+                    batchBtn.onclick = () => {
+                        const steps = [];
+                        if (record.file_type === 'audio') steps.push('stt');
+                        steps.push('correct', 'summary');
 
-                    steps.forEach(step => {
-                        const alreadyCompleted = record.completed_tasks[step];
-                        const existingTask = taskQueue.find(t => t.recordId === record.id && t.task === step);
-                        if (!alreadyCompleted && !existingTask) {
-                            const span = taskElements[step] || document.createElement('span');
-                            addTaskToQueue(record.id, record.file_path, step, span, record.filename);
-                            if (taskElements[step]) {
-                                setQueuedState(taskElements[step]);
+                        steps.forEach(step => {
+                            const alreadyCompleted = record.completed_tasks[step];
+                            const existingTask = taskQueue.find(t => t.recordId === record.id && t.task === step);
+                            if (!alreadyCompleted && !existingTask) {
+                                const span = taskElements[step] || document.createElement('span');
+                                addTaskToQueue(record.id, record.file_path, step, span, record.filename);
+                                if (taskElements[step]) {
+                                    setQueuedState(taskElements[step]);
+                                }
                             }
-                        }
-                    });
-                };
+                        });
+
+                        batchBtn.disabled = true;
+                        batchBtn.style.background = '#6c757d';
+                        batchBtn.style.cursor = 'not-allowed';
+                    };
+                }
 
                 item.appendChild(header);
                 item.appendChild(tasks);
