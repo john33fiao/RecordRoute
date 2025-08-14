@@ -526,19 +526,61 @@
                     resetBtn.style.cursor = 'not-allowed';
                 }
 
+                const batchBtn = document.createElement('button');
+                batchBtn.textContent = '일괄 진행';
+                batchBtn.style.cssText = `
+                    background: #007bff;
+                    color: white;
+                    border: none;
+                    border-radius: 3px;
+                    padding: 2px 8px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    margin-right: 5px;
+                `;
+
+                const buttonContainer = document.createElement('div');
+                buttonContainer.style.cssText = 'display:flex; align-items:center;';
+
+                buttonContainer.appendChild(batchBtn);
+                buttonContainer.appendChild(resetBtn);
+
                 header.appendChild(info);
-                header.appendChild(resetBtn);
+                header.appendChild(buttonContainer);
 
                 const tasks = document.createElement('div');
-                
+
+                const taskElements = {};
+
                 // Only show STT button for audio files
                 if (record.file_type === 'audio') {
-                    tasks.appendChild(createTaskElement('stt', record.completed_tasks.stt, record.download_links.stt, record));
+                    taskElements.stt = createTaskElement('stt', record.completed_tasks.stt, record.download_links.stt, record);
+                    tasks.appendChild(taskElements.stt);
                 }
-                
-                tasks.appendChild(createTaskElement('correct', record.completed_tasks.correct, record.download_links.correct, record));
-                tasks.appendChild(createTaskElement('summary', record.completed_tasks.summary, record.download_links.summary, record));
-                
+
+                taskElements.correct = createTaskElement('correct', record.completed_tasks.correct, record.download_links.correct, record);
+                tasks.appendChild(taskElements.correct);
+                taskElements.summary = createTaskElement('summary', record.completed_tasks.summary, record.download_links.summary, record);
+                tasks.appendChild(taskElements.summary);
+
+                batchBtn.onclick = () => {
+                    const steps = [];
+                    if (record.file_type === 'audio') steps.push('stt');
+                    steps.push('correct', 'summary');
+
+                    steps.forEach(step => {
+                        const alreadyCompleted = record.completed_tasks[step];
+                        const existingTask = taskQueue.find(t => t.recordId === record.id && t.task === step);
+                        if (!alreadyCompleted && !existingTask) {
+                            const span = taskElements[step] || document.createElement('span');
+                            addTaskToQueue(record.id, record.file_path, step, span, record.filename);
+                            if (taskElements[step]) {
+                                setQueuedState(taskElements[step]);
+                            }
+                        }
+                    });
+                };
+
                 item.appendChild(header);
                 item.appendChild(tasks);
                 historyList.appendChild(item);
