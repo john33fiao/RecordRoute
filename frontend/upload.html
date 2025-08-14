@@ -127,6 +127,13 @@
         <div id="history-list"></div>
     </div>
 
+    <div id="search-section" style="margin-top:2em;">
+        <h2>키워드 검색</h2>
+        <input type="text" id="searchInput" placeholder="검색어를 입력하세요" />
+        <button id="searchBtn">검색</button>
+        <ul id="searchResults"></ul>
+    </div>
+
     <div id="textOverlay">
         <div class="content">
             <div class="buttons">
@@ -977,6 +984,33 @@
         }
 
         // Load history on page load
+        document.getElementById('searchBtn').addEventListener('click', async () => {
+            const q = document.getElementById('searchInput').value.trim();
+            if (!q) return;
+            try {
+                const resp = await fetch(`/search?q=${encodeURIComponent(q)}`);
+                if (!resp.ok) throw new Error('검색 실패');
+                const data = await resp.json();
+                const list = document.getElementById('searchResults');
+                list.innerHTML = '';
+                if (data.length === 0) {
+                    list.innerHTML = '<li>결과 없음</li>';
+                } else {
+                    data.forEach(item => {
+                        const li = document.createElement('li');
+                        const a = document.createElement('a');
+                        a.href = item.link;
+                        a.textContent = `${item.file} (${item.score.toFixed(3)})`;
+                        a.target = '_blank';
+                        li.appendChild(a);
+                        list.appendChild(li);
+                    });
+                }
+            } catch (err) {
+                alert(err.message);
+            }
+        });
+
         document.addEventListener('DOMContentLoaded', function() {
             loadHistory();
             checkRunningTasks();

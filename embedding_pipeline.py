@@ -14,6 +14,7 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Dict
+import os
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -69,7 +70,8 @@ def process_file(model: SentenceTransformer, path: Path, index: Dict[str, Dict[s
 
 def main(src_dir: str) -> None:
     """Scan for summary files under ``src_dir`` and embed newly added ones."""
-    model = SentenceTransformer("snowflake-arctic-embed:latest")
+    model_name = os.environ.get("EMBEDDING_MODEL", "snowflake-arctic-embed:latest")
+    model = SentenceTransformer(model_name)
     index = load_index()
     for file in Path(src_dir).glob("*.summary.md"):
         process_file(model, file, index)

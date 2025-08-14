@@ -2,4 +2,5 @@ openai-whisper>=20231117
 ollama>=0.1.0
 multipart
 python-dotenv
+sentence-transformers
 pypdf>=3.0.0
