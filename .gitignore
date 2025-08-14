@@ -22,3 +22,5 @@ upload_history.json
 
 # 파이썬 캐시 폴더 제외
 sttEngine/workflow/__pycache__
+# 임베딩 벡터 저장소 제외
+vector_store/
