@@ -122,16 +122,19 @@ def get_file_type(file_path: Path):
     """Determine if the file is audio or text.
     
     Returns:
-        'audio' for audio files, 'text' for text files, 'unknown' for others.
+        'audio' for audio files, 'text' for text files, 'pdf' for PDF files, 'unknown' for others.
     """
     audio_extensions = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'}
     text_extensions = {'.md', '.txt', '.text', '.markdown'}
-    
+    pdf_extensions = {'.pdf'}
+
     suffix = file_path.suffix.lower()
     if suffix in audio_extensions:
         return 'audio'
     elif suffix in text_extensions:
         return 'text'
+    elif suffix in pdf_extensions:
+        return 'pdf'
     else:
         return 'unknown'
 
@@ -311,7 +314,32 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 import shutil
                 shutil.copy2(file_path, text_file)
                 current_file = text_file
-        
+
+        # For PDF files, extract text and treat as markdown
+        elif file_type == 'pdf':
+            if task_id and is_task_cancelled(task_id):
+                return {"error": "Task was cancelled"}
+
+            try:
+                from pypdf import PdfReader
+                reader = PdfReader(str(current_file))
+                pdf_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+            except Exception as e:
+                print(f"PDF text extraction failed: {e}")
+                return {"error": f"PDF text extraction failed: {e}"}
+
+            text_file = individual_output_dir / f"{file_path.stem}.md"
+            text_file.write_text(pdf_text, encoding='utf-8')
+
+            if "stt" in steps:
+                download_url = f"/download/{upload_folder_name}/{text_file.name}"
+                results["stt"] = download_url
+                if record_id:
+                    update_task_completion(record_id, "stt", download_url)
+                    generate_and_store_title_summary(record_id, text_file)
+
+            current_file = text_file
+
         # For audio files, run STT step
         elif file_type == 'audio' and "stt" in steps:
             # Check if task was cancelled before starting STT
