@@ -101,7 +101,7 @@
 </head>
 <body>
     <h1>Upload File</h1>
-    <input type="file" id="fileInput" accept="audio/*,.md,.txt,.text,.markdown" />
+    <input type="file" id="fileInput" accept="audio/*,.md,.txt,.text,.markdown" multiple />
     <button id="uploadBtn">Upload</button>
     <div id="status"></div>
 
@@ -772,12 +772,15 @@
         document.getElementById('uploadBtn').addEventListener('click', async () => {
             const input = document.getElementById('fileInput');
             const status = document.getElementById('status');
-            if (!input.files.length) {
+            const files = Array.from(input.files);
+            if (files.length === 0) {
                 status.textContent = 'Please select a file first.';
                 return;
             }
+
             const formData = new FormData();
-            formData.append('file', input.files[0]);
+            files.forEach(f => formData.append('files', f));
+
             try {
                 const resp = await fetch('/upload', {
                     method: 'POST',
@@ -785,23 +788,30 @@
                 });
                 if (resp.ok) {
                     const data = await resp.json();
-                    uploadedPath = data.file_path;
-                    fileType = data.file_type;
-                    recordId = data.record_id;
-                    
-                    updateWorkflowOptions(fileType);
-                    document.getElementById('workflow').style.display = 'block';
-                    
-                    // Reload history to show the new upload
-                    loadHistory();
-                    
-                    if (fileType === 'audio') {
-                        status.textContent = 'Upload complete! Select workflow steps.';
-                    } else if (fileType === 'text') {
-                        status.textContent = 'Upload complete! Select text processing steps.';
+                    if (data.length === 1) {
+                        const fileData = data[0];
+                        uploadedPath = fileData.file_path;
+                        fileType = fileData.file_type;
+                        recordId = fileData.record_id;
+
+                        updateWorkflowOptions(fileType);
+                        document.getElementById('workflow').style.display = 'block';
+
+                        if (fileType === 'audio') {
+                            status.textContent = 'Upload complete! Select workflow steps.';
+                        } else if (fileType === 'text') {
+                            status.textContent = 'Upload complete! Select text processing steps.';
+                        } else {
+                            status.textContent = 'Upload complete! File type not fully supported, but you can try processing.';
+                        }
                     } else {
-                        status.textContent = 'Upload complete! File type not fully supported, but you can try processing.';
+                        status.textContent = `${data.length}개의 파일이 업로드되었습니다. 히스토리에서 작업을 선택하세요.`;
+                        document.getElementById('workflow').style.display = 'none';
                     }
+
+                    // Reload history to show the new upload(s)
+                    loadHistory();
+                    input.value = '';
                 } else {
                     status.textContent = 'Upload failed.';
                 }
