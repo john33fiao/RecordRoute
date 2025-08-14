@@ -19,6 +19,8 @@ from pathlib import Path
 import re
 from urllib.parse import unquote
 from datetime import datetime
+import threading
+import time
 
 
 BASE_DIR = Path(__file__).parent.resolve()
@@ -27,6 +29,82 @@ OUTPUT_DIR = BASE_DIR / "whisper_output"
 WORKFLOW_DIR = BASE_DIR / "sttEngine" / "workflow"
 HISTORY_FILE = BASE_DIR / "upload_history.json"
 PYTHON = sys.executable
+
+# Global dictionary to track running processes
+running_processes = {}
+process_lock = threading.Lock()
+
+
+def register_process(task_id: str, process):
+    """Register a running process for a task."""
+    with process_lock:
+        running_processes[task_id] = {
+            'process': process,
+            'cancelled': False,
+            'start_time': time.time()
+        }
+        print(f"Registered process for task {task_id}, PID: {process.pid}")
+
+
+def unregister_process(task_id: str):
+    """Unregister a process when it completes."""
+    with process_lock:
+        if task_id in running_processes:
+            del running_processes[task_id]
+            print(f"Unregistered process for task {task_id}")
+
+
+def cancel_task(task_id: str):
+    """Cancel a running task by terminating its process."""
+    with process_lock:
+        if task_id in running_processes:
+            task_info = running_processes[task_id]
+            task_info['cancelled'] = True
+            process = task_info['process']
+            
+            try:
+                print(f"Terminating process for task {task_id}, PID: {process.pid}")
+                process.terminate()
+                
+                # Give it a moment to terminate gracefully
+                try:
+                    process.wait(timeout=5)
+                    print(f"Process {process.pid} terminated gracefully")
+                except subprocess.TimeoutExpired:
+                    print(f"Process {process.pid} didn't terminate gracefully, killing...")
+                    process.kill()
+                    process.wait()
+                    print(f"Process {process.pid} killed")
+                    
+            except Exception as e:
+                print(f"Error terminating process for task {task_id}: {e}")
+            
+            return True
+        else:
+            print(f"Task {task_id} not found in running processes")
+            return False
+
+
+def is_task_cancelled(task_id: str):
+    """Check if a task has been cancelled."""
+    with process_lock:
+        if task_id in running_processes:
+            return running_processes[task_id]['cancelled']
+        return False
+
+
+def get_running_tasks():
+    """Get information about currently running tasks."""
+    with process_lock:
+        return {
+            task_id: {
+                'pid': info['process'].pid,
+                'start_time': info['start_time'],
+                'cancelled': info['cancelled'],
+                'duration': time.time() - info['start_time']
+            }
+            for task_id, info in running_processes.items()
+        }
 
 
 def get_file_type(file_path: Path):
@@ -125,13 +203,14 @@ def update_task_completion(record_id: str, task: str, download_url: str):
     save_upload_history(history)
 
 
-def run_workflow(file_path: Path, steps, record_id: str = None):
+def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = None):
     """Run the requested workflow steps sequentially.
 
     Args:
         file_path: Path to the uploaded audio or text file.
         steps: list of step names, e.g. ["stt", "correct", "summary"].
         record_id: Upload record ID for updating history.
+        task_id: Unique task ID for tracking and cancellation.
 
     Returns:
         Dict mapping step name to download URL.
@@ -150,6 +229,10 @@ def run_workflow(file_path: Path, steps, record_id: str = None):
         # For text files, skip STT step and copy to output directory
         if file_type == 'text':
             if "stt" in steps:
+                # Check if task was cancelled
+                if task_id and is_task_cancelled(task_id):
+                    return {"error": "Task was cancelled"}
+                    
                 # For text files, we already have the text content, so just copy it to output
                 text_file = individual_output_dir / f"{file_path.stem}.md"
                 # Copy the text file to output directory with .md extension
@@ -172,10 +255,35 @@ def run_workflow(file_path: Path, steps, record_id: str = None):
         
         # For audio files, run STT step
         elif file_type == 'audio' and "stt" in steps:
-            subprocess.run(
+            # Check if task was cancelled before starting STT
+            if task_id and is_task_cancelled(task_id):
+                return {"error": "Task was cancelled"}
+                
+            print(f"Starting STT for task {task_id}")
+            process = subprocess.Popen(
                 [PYTHON, str(WORKFLOW_DIR / "transcribe.py"), str(current_file.parent), "--output_dir", str(individual_output_dir), "--model_size", "large"],
-                check=True,
             )
+            
+            # Register the process for potential cancellation
+            if task_id:
+                register_process(task_id, process)
+            
+            # Wait for completion and check for cancellation
+            return_code = process.wait()
+            
+            # Clean up process registration
+            if task_id:
+                unregister_process(task_id)
+            
+            # Check if process was terminated due to cancellation
+            if return_code != 0:
+                if task_id and is_task_cancelled(task_id):
+                    print(f"STT task {task_id} was cancelled")
+                    return {"error": "Task was cancelled"}
+                else:
+                    print(f"STT process failed with return code {return_code}")
+                    return {"error": f"STT process failed with return code {return_code}"}
+            
             stt_file = individual_output_dir / f"{file_path.stem}.md"
             download_url = f"/download/{upload_folder_name}/{stt_file.name}"
             results["stt"] = download_url
@@ -186,7 +294,33 @@ def run_workflow(file_path: Path, steps, record_id: str = None):
                 update_task_completion(record_id, "stt", download_url)
 
         if "correct" in steps:
-            subprocess.run([PYTHON, str(WORKFLOW_DIR / "correct.py"), str(current_file)], check=True)
+            # Check if task was cancelled before starting correction
+            if task_id and is_task_cancelled(task_id):
+                return {"error": "Task was cancelled"}
+                
+            print(f"Starting text correction for task {task_id}")
+            process = subprocess.Popen([PYTHON, str(WORKFLOW_DIR / "correct.py"), str(current_file)])
+            
+            # Register the process for potential cancellation
+            if task_id:
+                register_process(task_id, process)
+            
+            # Wait for completion and check for cancellation
+            return_code = process.wait()
+            
+            # Clean up process registration
+            if task_id:
+                unregister_process(task_id)
+            
+            # Check if process was terminated due to cancellation
+            if return_code != 0:
+                if task_id and is_task_cancelled(task_id):
+                    print(f"Correction task {task_id} was cancelled")
+                    return {"error": "Task was cancelled"}
+                else:
+                    print(f"Correction process failed with return code {return_code}")
+                    return {"error": f"Correction process failed with return code {return_code}"}
+            
             corrected_file = current_file.with_name(f"{current_file.stem}.corrected.md")
             download_url = f"/download/{upload_folder_name}/{corrected_file.name}"
             results["correct"] = download_url
@@ -197,7 +331,33 @@ def run_workflow(file_path: Path, steps, record_id: str = None):
                 update_task_completion(record_id, "correct", download_url)
 
         if "summary" in steps:
-            subprocess.run([PYTHON, str(WORKFLOW_DIR / "summarize.py"), str(current_file)], check=True)
+            # Check if task was cancelled before starting summary
+            if task_id and is_task_cancelled(task_id):
+                return {"error": "Task was cancelled"}
+                
+            print(f"Starting summary for task {task_id}")
+            process = subprocess.Popen([PYTHON, str(WORKFLOW_DIR / "summarize.py"), str(current_file)])
+            
+            # Register the process for potential cancellation
+            if task_id:
+                register_process(task_id, process)
+            
+            # Wait for completion and check for cancellation
+            return_code = process.wait()
+            
+            # Clean up process registration
+            if task_id:
+                unregister_process(task_id)
+            
+            # Check if process was terminated due to cancellation
+            if return_code != 0:
+                if task_id and is_task_cancelled(task_id):
+                    print(f"Summary task {task_id} was cancelled")
+                    return {"error": "Task was cancelled"}
+                else:
+                    print(f"Summary process failed with return code {return_code}")
+                    return {"error": f"Summary process failed with return code {return_code}"}
+            
             summary_file = current_file.with_name(f"{current_file.stem}.summary.md")
             download_url = f"/download/{upload_folder_name}/{summary_file.name}"
             results["summary"] = download_url
@@ -207,6 +367,9 @@ def run_workflow(file_path: Path, steps, record_id: str = None):
                 update_task_completion(record_id, "summary", download_url)
 
     except Exception as exc:  # pragma: no cover - best effort error handling
+        # Clean up process registration if something goes wrong
+        if task_id:
+            unregister_process(task_id)
         return {"error": str(exc)}
 
     return results
@@ -259,6 +422,8 @@ class UploadHandler(BaseHTTPRequestHandler):
             self._serve_download(file_path)
         elif self.path == "/history":
             self._serve_history()
+        elif self.path == "/tasks":
+            self._serve_running_tasks()
         else:
             self.send_response(404)
             self.end_headers()
@@ -275,6 +440,19 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_response(500)
             self.end_headers()
             self.wfile.write(f"Error loading history: {str(e)}".encode())
+
+    def _serve_running_tasks(self):
+        """Serve information about currently running tasks."""
+        try:
+            tasks = get_running_tasks()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(tasks, ensure_ascii=False).encode())
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(f"Error getting running tasks: {str(e)}".encode())
 
     def _parse_multipart(self, data, boundary):
         """Simple multipart/form-data parser"""
@@ -388,18 +566,42 @@ class UploadHandler(BaseHTTPRequestHandler):
             file_path = payload.get("file_path")
             steps = payload.get("steps", [])
             record_id = payload.get("record_id")
+            task_id = payload.get("task_id")  # Get task_id from frontend
             
             if not file_path:
                 self.send_response(400)
                 self.end_headers()
                 self.wfile.write(b"Missing file_path")
                 return
+            
+            # Generate task_id if not provided
+            if not task_id:
+                task_id = str(uuid.uuid4())
 
-            results = run_workflow(BASE_DIR / file_path, steps, record_id)
+            print(f"Processing task {task_id} with steps {steps}")
+            results = run_workflow(BASE_DIR / file_path, steps, record_id, task_id)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(results).encode())
+            return
+
+        if self.path == "/cancel":
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length)) if length else {}
+            task_id = payload.get("task_id")
+            
+            if not task_id:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Missing task_id")
+                return
+            
+            success = cancel_task(task_id)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": success}).encode())
             return
 
         self.send_response(404)

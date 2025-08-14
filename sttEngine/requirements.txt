@@ -2,3 +2,4 @@ openai-whisper>=20231117
 ollama>=0.1.0
 pyannote.audio>=2.1.1
 multipart
+python-dotenv

@@ -3,6 +3,32 @@
 <head>
     <meta charset="UTF-8" />
     <title>RecordRoute File Upload</title>
+    <style>
+        .warning-box {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            color: #856404;
+        }
+        .task-status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-left: 5px;
+        }
+        .status-running {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status-completed {
+            background: #d4edda;
+            color: #155724;
+        }
+    </style>
 </head>
 <body>
     <h1>Upload File</h1>
@@ -66,8 +92,10 @@
         }
 
         function addTaskToQueue(recordId, filePath, task, taskElement, filename) {
+            const taskId = 'task_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);  // Generate unique task ID
             const taskItem = {
                 id: ++taskIdCounter,
+                taskId: taskId,  // Server-side task ID for cancellation
                 recordId: recordId,
                 filePath: filePath,
                 task: task,
@@ -80,6 +108,10 @@
             taskQueue.push(taskItem);
             sortTaskQueue();
             updateQueueDisplay();
+            
+            // Update history display to reflect queue state changes
+            loadHistory();
+            
             processNextTask();
             
             return taskItem.id;
@@ -90,27 +122,40 @@
             if (taskIndex !== -1) {
                 const task = taskQueue[taskIndex];
                 
+                // If task is currently processing, send cancellation request to server
+                if (task.status === 'processing' && task.taskId) {
+                    fetch('/cancel', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ task_id: task.taskId })
+                    }).then(response => response.json())
+                    .then(result => {
+                        console.log(`Task cancellation result for ${task.taskId}:`, result);
+                    })
+                    .catch(error => {
+                        console.error(`Error cancelling task ${task.taskId}:`, error);
+                    });
+                }
+                
                 // Abort the request if it's in progress
                 if (task.abortController) {
                     task.abortController.abort();
                 }
                 
-                // Reset task element appearance
-                if (task.taskElement) {
-                    resetTaskElement(task.taskElement, task.task);
-                }
+                taskQueue.splice(taskIndex, 1);
+                updateQueueDisplay();
+                currentCategory = taskQueue.length > 0 ? taskQueue[0].task : currentCategory;
                 
-            taskQueue.splice(taskIndex, 1);
-            updateQueueDisplay();
-            currentCategory = taskQueue.length > 0 ? taskQueue[0].task : currentCategory;
+                // Reload history to restore button states properly
+                loadHistory();
             }
             
             // If this was the current task, process next
-        if (currentTask && currentTask.id === taskId) {
-            currentTask = null;
-            currentCategory = taskQueue.length > 0 ? taskQueue[0].task : null;
-            processNextTask();
-        }
+            if (currentTask && currentTask.id === taskId) {
+                currentTask = null;
+                currentCategory = taskQueue.length > 0 ? taskQueue[0].task : null;
+                processNextTask();
+            }
         }
 
         function resetTaskElement(taskElement, task) {
@@ -213,28 +258,43 @@
                     window.open(downloadUrl, '_blank');
                 };
             } else if (record) {
-                // Incomplete task - clickable to add to queue
-                span.style.backgroundColor = '#6c757d';
-                span.style.color = 'white';
-                span.style.cursor = 'pointer';
-                span.title = '클릭하여 작업 시작';
-                span.onclick = () => {
-                    // Check if this task is already in queue
-                    const existingTask = taskQueue.find(t => 
-                        t.recordId === record.id && 
-                        t.task === task
-                    );
-                    
-                    if (!existingTask) {
-                        addTaskToQueue(record.id, record.file_path, task, span, record.filename);
+                // Check if this task is already in queue
+                const existingTask = taskQueue.find(t => 
+                    t.recordId === record.id && 
+                    t.task === task
+                );
+                
+                if (existingTask) {
+                    // Task is already in queue - show queued state
+                    span.style.backgroundColor = '#17a2b8';
+                    span.style.color = 'white';
+                    span.style.cursor = 'default';
+                    span.title = '큐에 추가됨';
+                    span.onclick = null;
+                } else {
+                    // Incomplete task - clickable to add to queue
+                    span.style.backgroundColor = '#6c757d';
+                    span.style.color = 'white';
+                    span.style.cursor = 'pointer';
+                    span.title = '클릭하여 작업 시작';
+                    span.onclick = () => {
+                        // Double-check if this task is already in queue (in case of race condition)
+                        const existingTaskCheck = taskQueue.find(t => 
+                            t.recordId === record.id && 
+                            t.task === task
+                        );
                         
-                        // Show queued state
-                        span.style.backgroundColor = '#17a2b8';
-                        span.style.color = 'white';
-                        span.title = '큐에 추가됨';
-                        span.onclick = null;
-                    }
-                };
+                        if (!existingTaskCheck) {
+                            addTaskToQueue(record.id, record.file_path, task, span, record.filename);
+                            
+                            // Show queued state
+                            span.style.backgroundColor = '#17a2b8';
+                            span.style.color = 'white';
+                            span.title = '큐에 추가됨';
+                            span.onclick = null;
+                        }
+                    };
+                }
             } else {
                 // Default state - not clickable
                 span.style.backgroundColor = '#e9ecef';
@@ -347,7 +407,8 @@
                     body: JSON.stringify({ 
                         file_path: currentTask.filePath, 
                         steps: [currentTask.task],
-                        record_id: currentTask.recordId
+                        record_id: currentTask.recordId,
+                        task_id: currentTask.taskId  // Send task_id to server
                     }),
                     signal: currentTask.abortController.signal
                 });
@@ -521,9 +582,94 @@
             document.getElementById('fileInput').value = '';
         });
 
+        // Check for running tasks on page load
+        async function checkRunningTasks() {
+            try {
+                const response = await fetch('/tasks');
+                if (response.ok) {
+                    const runningTasks = await response.json();
+                    console.log('Running tasks found:', runningTasks);
+                    
+                    // If there are running tasks, show a warning
+                    if (Object.keys(runningTasks).length > 0) {
+                        const status = document.getElementById('status');
+                        const taskCount = Object.keys(runningTasks).length;
+                        
+                        let taskDetails = '';
+                        for (const [taskId, info] of Object.entries(runningTasks)) {
+                            const duration = Math.round(info.duration || 0);
+                            taskDetails += `<li>작업 ID: ${taskId} (실행시간: ${duration}초)</li>`;
+                        }
+                        
+                        status.innerHTML = `
+                            <div class="warning-box">
+                                <strong>⚠️ 백그라운드에서 실행 중인 작업이 있습니다!</strong><br>
+                                페이지를 새로고침했지만 서버에서 ${taskCount}개의 작업이 계속 실행 중입니다.<br>
+                                <ul style="margin: 5px 0;">${taskDetails}</ul>
+                                작업 완료 후 히스토리를 자동으로 업데이트됩니다.
+                            </div>
+                        `;
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking running tasks:', error);
+            }
+        }
+
+        // Periodically check for running tasks
+        let previousTaskCount = 0;
+        function startTaskMonitoring() {
+            setInterval(async () => {
+                try {
+                    const response = await fetch('/tasks');
+                    if (response.ok) {
+                        const runningTasks = await response.json();
+                        const taskCount = Object.keys(runningTasks).length;
+                        
+                        // Update page title to show running tasks
+                        if (taskCount > 0) {
+                            document.title = `(${taskCount}) RecordRoute File Upload`;
+                        } else {
+                            document.title = 'RecordRoute File Upload';
+                        }
+                        
+                        // If task count decreased, some tasks completed - reload history
+                        if (previousTaskCount > 0 && taskCount < previousTaskCount) {
+                            console.log('Tasks completed, reloading history...');
+                            loadHistory();
+                            
+                            // Clear the warning message if no tasks are running
+                            if (taskCount === 0) {
+                                const status = document.getElementById('status');
+                                if (status.innerHTML.includes('백그라운드에서 실행 중인')) {
+                                    status.innerHTML = `
+                                        <div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 10px; border-radius: 5px; margin: 10px 0; color: #155724;">
+                                            ✅ 모든 백그라운드 작업이 완료되었습니다!
+                                        </div>
+                                    `;
+                                    // Clear this message after 3 seconds
+                                    setTimeout(() => {
+                                        if (status.innerHTML.includes('모든 백그라운드 작업이 완료')) {
+                                            status.innerHTML = '';
+                                        }
+                                    }, 3000);
+                                }
+                            }
+                        }
+                        
+                        previousTaskCount = taskCount;
+                    }
+                } catch (error) {
+                    console.error('Error monitoring tasks:', error);
+                }
+            }, 2000); // Check every 2 seconds
+        }
+
         // Load history on page load
         document.addEventListener('DOMContentLoaded', function() {
             loadHistory();
+            checkRunningTasks();
+            startTaskMonitoring();
         });
     </script>
 </body>

@@ -13,6 +13,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict
 import subprocess
 
+# .env 파일의 환경변수 자동 로드
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv가 설치되지 않은 경우 환경변수는 시스템에서 직접 읽음
+    pass
+
 # Whisper가 지원하는 파일 확장자 목록
 SUPPORTED_EXTS = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'}
 
