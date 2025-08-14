@@ -211,6 +211,6 @@ python sttEngine/workflow/summarize.py input.corrected.md --model gpt-oss:20b --
 
 ### 추가 참고사항
 
-- 본 레포지토리는 문과 출신 기획자에 의해 운영됩니다. LLM 자체에 대한 학습을 목적으로 합니다.
+- 본 레포지토리는 UX 기획자에 의해, LLM 도구 및 Git에 대한 학습을 목적으로 운영됩니다. 
 - 대부분의 코드는 LLM(Claude > Gemini > ChatGPT 순)으로 작성되었습니다.
 - 구현 예정사항은 [Todo List](/TodoList.md)로 정리합니다.
