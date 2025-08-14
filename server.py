@@ -466,29 +466,29 @@ class UploadHandler(BaseHTTPRequestHandler):
         """Simple multipart/form-data parser"""
         parts = data.split(f'--{boundary}'.encode())
         files = {}
-        
+
         for part in parts[1:-1]:  # Skip first empty and last closing parts
             if b'Content-Disposition' not in part:
                 continue
-                
+
             headers, body = part.split(b'\r\n\r\n', 1)
             headers = headers.decode('utf-8')
             body = body.rstrip(b'\r\n')
-            
+
             # Extract filename from Content-Disposition header
             if 'filename=' in headers:
                 filename_match = re.search(r'filename="([^"]*)"', headers)
                 name_match = re.search(r'name="([^"]*)"', headers)
-                
+
                 if filename_match and name_match:
                     filename = filename_match.group(1)
                     name = name_match.group(1)
-                    
-                    files[name] = {
+
+                    files.setdefault(name, []).append({
                         'filename': filename,
                         'data': body
-                    }
-        
+                    })
+
         return files
 
     def do_POST(self):
@@ -519,45 +519,51 @@ class UploadHandler(BaseHTTPRequestHandler):
                 data = self.rfile.read(content_length)
                 
                 files = self._parse_multipart(data, boundary)
-                print(f"Parsed files: {list(files.keys())}")
-                
-                if 'file' not in files or not files['file']['filename']:
-                    print("Upload failed: No file uploaded or filename is empty")
-                    print(f"Available files: {files}")
+                print(f"Parsed fields: {list(files.keys())}")
+
+                file_entries = files.get('files') or files.get('file')
+                if not file_entries:
+                    print("Upload failed: No files provided")
                     self.send_response(400)
                     self.end_headers()
                     self.wfile.write(b"No file uploaded")
                     return
 
-                file_info = files['file']
-                uid = uuid.uuid4().hex
-                save_dir = UPLOAD_DIR / uid
-                save_dir.mkdir(parents=True, exist_ok=True)
-                file_path = save_dir / os.path.basename(file_info['filename'])
-                
-                with open(file_path, "wb") as output_file:
-                    output_file.write(file_info['data'])
-                
-                print(f"File saved successfully: {file_path}")
+                uploaded_files = []
+                for file_info in file_entries:
+                    if not file_info.get('filename'):
+                        continue
 
-                file_type = get_file_type(file_path)
-                
-                # Get audio duration if it's an audio file
-                duration = None
-                if file_type == 'audio':
-                    duration = get_audio_duration(file_path)
-                
-                # Add to upload history
-                record_id = add_upload_record(file_path, file_type, duration)
-                
+                    uid = uuid.uuid4().hex
+                    save_dir = UPLOAD_DIR / uid
+                    save_dir.mkdir(parents=True, exist_ok=True)
+                    file_path = save_dir / os.path.basename(file_info['filename'])
+
+                    with open(file_path, "wb") as output_file:
+                        output_file.write(file_info['data'])
+
+                    print(f"File saved successfully: {file_path}")
+
+                    file_type = get_file_type(file_path)
+
+                    # Get audio duration if it's an audio file
+                    duration = None
+                    if file_type == 'audio':
+                        duration = get_audio_duration(file_path)
+
+                    # Add to upload history
+                    record_id = add_upload_record(file_path, file_type, duration)
+
+                    uploaded_files.append({
+                        "file_path": str(file_path.relative_to(BASE_DIR)),
+                        "file_type": file_type,
+                        "record_id": record_id
+                    })
+
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps({
-                    "file_path": str(file_path.relative_to(BASE_DIR)),
-                    "file_type": file_type,
-                    "record_id": record_id
-                }).encode())
+                self.wfile.write(json.dumps(uploaded_files).encode())
                 return
             except Exception as e:
                 print(f"Upload error: {str(e)}")
