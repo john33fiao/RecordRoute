@@ -4,7 +4,6 @@
 ## 주요 기능
 
 - **음성→텍스트 변환**: OpenAI Whisper를 사용한 고품질 음성 인식
-- **화자 구분**: pyannote.audio를 통한 화자별 구간 구분
 - **텍스트 교정**: Ollama LLM을 활용한 문법/어법 개선
 - **구조화된 요약**: 회의록 형태의 체계적 요약 생성
 - **통합 워크플로우**: 1단계부터 3단계까지 자동화된 처리 파이프라인
@@ -62,7 +61,6 @@ pip install -r sttEngine/requirements.txt
 **포함 패키지:**
 - `openai-whisper>=20231117`: 음성 인식
 - `ollama>=0.1.0`: 로컬 LLM 추론
-- `pyannote.audio>=2.1.1`: 화자 구분
 
 #### FFmpeg 설치
 다양한 오디오 형식 처리를 위해 필수:
@@ -99,20 +97,6 @@ ollama pull gemma3:12b-it-qat
 ollama pull gpt-oss:20b
 ```
 
-### 4. 화자 구분 설정
-
-화자 구분 기능 사용을 위해:
-
-1. [Hugging Face](https://huggingface.co/)에서 토큰 발급
-2. 환경변수 설정:
-   ```bash
-   # Windows
-   set PYANNOTE_TOKEN=your_token_here
-   
-   # Unix/macOS/Linux
-   export PYANNOTE_TOKEN=your_token_here
-   ```
-
 ## 사용법
 
 ### 통합 워크플로우 실행
@@ -131,13 +115,12 @@ python sttEngine/run_workflow.py
 
 #### 1단계: 음성→텍스트 변환
 ```bash
-python sttEngine/workflow/transcribe.py [audio_folder] --model_size large-v3-turbo --language ko --diarize --filter_fillers
+python sttEngine/workflow/transcribe.py [audio_folder] --model_size large-v3-turbo --language ko --filter_fillers
 ```
 
 **주요 옵션:**
 - `--model_size`: Whisper 모델 크기 (tiny, base, small, medium, large, large-v3-turbo)
 - `--language ko`: 한국어 힌트
-- `--diarize`: 화자 구분 활성화
 - `--filter_fillers`: 필러 단어 제거
 - `--normalize_punct`: 연속 마침표 정규화
 
@@ -176,14 +159,13 @@ python sttEngine/workflow/summarize.py input.corrected.md --model gpt-oss:20b --
 
 ### 1단계: 음성→텍스트
 - OpenAI Whisper `large-v3-turbo` 모델 사용
-- 화자 구분 기능 (기본 활성화)
 - 세그먼트 병합 및 필러 단어 필터링
 - 결과: `.md` 파일
 
 ### 2단계: 텍스트 교정
 - 한국어 문법/어법/오탈자 수정
 - 원문 의미와 사실 보존
-- 마크다운 구조 및 화자 표기 유지
+- 마크다운 구조 유지
 - 결과: `.corrected.md` 파일
 
 ### 3단계: 텍스트 요약
@@ -211,11 +193,6 @@ python sttEngine/workflow/summarize.py input.corrected.md --model gpt-oss:20b --
 - **Ollama 연결 오류**: Ollama 서비스 실행 상태 점검
 - **FFmpeg 오류**: 시스템 PATH 환경변수에 FFmpeg 경로 추가
 - **인코딩 문제**: UTF-8, CP949, EUC-KR 순으로 자동 시도
-
-### 화자 구분 관련
-- **PYANNOTE_TOKEN**: Hugging Face 토큰 환경변수 설정 확인
-- **MPS 오류**: Apple Silicon에서 GPU 실패 시 CPU로 자동 전환
-- **M4A 변환 오류**: FFmpeg 설치 및 PATH 설정 확인
 
 ## 참고사항
 

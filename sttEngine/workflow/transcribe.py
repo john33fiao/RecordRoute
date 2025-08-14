@@ -1,16 +1,12 @@
 # 필요한 라이브러리를 임포트합니다.
 # 이 스크립트를 실행하기 전에 'pip install openai-whisper'를 통해 라이브러리를 설치해야 합니다.
 import whisper
-import torch
-import torchaudio
 import os
 import argparse
 import logging
-import traceback
 import platform
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict
 import subprocess
 
 # .env 파일의 환경변수 자동 로드
@@ -139,89 +135,10 @@ def get_unique_output_path(base_path: Path) -> Path:
         counter += 1
 
 
-def diarize_audio(file_path: Path) -> List[Dict[str, float]]:
-    """pyannote.audio를 사용하여 화자 구간을 추출합니다. (GPU/MPS 우선 사용 및 CPU fallback)"""
-    try:
-        import pyannote.audio as pyannote_module
-        from pyannote.audio import Pipeline
-        logging.info("pyannote.audio version %s", pyannote_module.__version__)
-    except ImportError:
-        logging.error("pyannote.audio가 설치되어 있지 않아 화자 구분을 건너뜁니다.")
-        return []
-
-    # 1. 장치 선택 (CUDA > MPS > CPU)
-    system = platform.system()
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        logging.info("CUDA GPU를 사용하여 화자 구분을 시도합니다.")
-    elif system == "Darwin" and torch.backends.mps.is_available() and torch.backends.mps.is_built():
-        device = torch.device("mps")
-        logging.info("Apple Silicon (MPS) GPU를 사용하여 화자 구분을 시도합니다.")
-    else:
-        device = torch.device("cpu")
-        if system == "Windows":
-            logging.info("Windows 환경에서 CPU를 사용하여 화자 구분을 수행합니다.")
-        else:
-            logging.info("CPU를 사용하여 화자 구분을 수행합니다.")
-
-    token = os.getenv("PYANNOTE_TOKEN")
-    try:
-        pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization", use_auth_token=token
-        )
-        pipeline.to(device)
-        
-        # 화자 분리 성능 최적화 파라미터 설정
-        # 최소 화자 발화 시간을 줄여서 더 세밀한 분리 (기본값: 1초 → 0.5초)
-        if hasattr(pipeline, '_segmentation') and hasattr(pipeline._segmentation, 'model'):
-            logging.info("화자 분리 파라미터 최적화를 적용합니다.")
-        
-    except Exception as e:
-        logging.error(f"화자 구분 파이프라인 로드 실패: {e}")
-        return []
-
-    try:
-        # 더 정확한 화자 분리를 위한 파라미터 설정
-        diarization_params = {
-            "min_duration_on": 0.5,      # 최소 화자 발화 지속시간 (초)
-            "min_duration_off": 0.1,     # 최소 무음 지속시간 (초)  
-        }
-        
-        # pyannote 버전에 따라 파라미터 전달 방식이 다를 수 있음
-        try:
-            diarization = pipeline(str(file_path), **diarization_params)
-        except TypeError:
-            # 파라미터를 지원하지 않는 경우 기본 실행
-            logging.info("기본 화자 분리 파라미터로 실행합니다.")
-            diarization = pipeline(str(file_path))
-    except Exception as e:
-        logging.error(f"화자 구분 중 오류 발생 ({device} 사용): {e}")
-        if device.type != "cpu":
-            logging.warning(f"{device.type.upper()} 처리 실패. CPU로 전환하여 재시도합니다.")
-            try:
-                pipeline.to(torch.device("cpu"))
-                diarization = pipeline(str(file_path))
-                logging.info("CPU 재시도 성공.")
-            except Exception as cpu_e:
-                logging.error(f"CPU 재시도 중에도 오류 발생: {cpu_e}")
-                return []
-        else:
-            # CPU에서 이미 실패한 경우
-            return []
-
-    segments: List[Dict[str, float]] = []
-    for turn, _, speaker in diarization.itertracks(yield_label=True):
-        segments.append({
-            "start": float(turn.start),
-            "end": float(turn.end),
-            "speaker": speaker,
-        })
-    return segments
-
 def transcribe_single_file(file_path: Path, output_dir: Path, model,
                           language: str, initial_prompt: str,
                           filter_fillers: bool, min_seg_length: int,
-                          normalize_punct: bool, diarize: bool):
+                          normalize_punct: bool):
     """단일 파일을 변환하고 결과를 저장합니다. m4a 파일은 wav로 자동 변환합니다."""
     
     temp_wav_path = None
@@ -251,9 +168,6 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
         base_output_path = output_dir / f"{file_path.stem}.md"
         output_file_path = get_unique_output_path(base_output_path)
 
-        # 화자 구분 수행
-        speaker_segments = diarize_audio(file_to_process) if diarize else []
-
         # Whisper 변환 실행
         transcribe_params = {
             "fp16": False,
@@ -275,64 +189,6 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
         segments = result.get("segments", []) or []
         segments = merge_segments(segments, max_gap=0.2)
 
-        # 화자 정보 매칭 - 더 정교한 매칭 알고리즘
-        if speaker_segments:
-            for segment in segments:
-                seg_start = segment.get("start", 0.0)
-                seg_end = segment.get("end", 0.0)
-                seg_mid = (seg_start + seg_end) / 2
-                
-                best_speaker = None
-                max_overlap = 0.0
-                
-                # 가장 많이 겹치는 화자 구간을 찾기
-                for sp in speaker_segments:
-                    # 시간 구간 겹침 계산
-                    overlap_start = max(seg_start, sp["start"])
-                    overlap_end = min(seg_end, sp["end"])
-                    overlap_duration = max(0, overlap_end - overlap_start)
-                    
-                    if overlap_duration > max_overlap:
-                        max_overlap = overlap_duration
-                        best_speaker = sp["speaker"]
-                
-                # 겹치는 구간이 전체 세그먼트의 30% 이상인 경우만 할당
-                segment_duration = seg_end - seg_start
-                if best_speaker and segment_duration > 0 and (max_overlap / segment_duration) >= 0.3:
-                    segment["speaker"] = best_speaker
-                    logging.debug(f"세그먼트 {seg_start:.1f}-{seg_end:.1f}s를 {best_speaker}에 할당 (겹침: {max_overlap:.1f}s)")
-                else:
-                    # 중간점 기준 폴백
-                    for sp in speaker_segments:
-                        if sp["start"] <= seg_mid <= sp["end"]:
-                            segment["speaker"] = sp["speaker"]
-                            logging.debug(f"세그먼트 {seg_start:.1f}-{seg_end:.1f}s를 {sp['speaker']}에 중간점 기준으로 할당")
-                            break
-
-        # 화자 ID 매핑 - 시간 순서대로 정렬하여 일관성 있는 ID 부여
-        speaker_map: Dict[str, int] = {}
-        next_id = 1
-        
-        # 화자별 첫 등장 시간을 기준으로 정렬
-        speaker_first_appearance = {}
-        for segment in segments:
-            label = segment.get("speaker")
-            if label and label not in speaker_first_appearance:
-                speaker_first_appearance[label] = segment.get("start", 0.0)
-        
-        # 첫 등장 시간 순으로 화자 ID 부여
-        sorted_speakers = sorted(speaker_first_appearance.items(), key=lambda x: x[1])
-        for label, _ in sorted_speakers:
-            speaker_map[label] = next_id
-            next_id += 1
-            
-        # 각 세그먼트에 화자 ID 할당
-        for segment in segments:
-            label = segment.get("speaker")
-            segment["speaker_id"] = speaker_map.get(label, 0)
-            
-        logging.info(f"식별된 화자 수: {len(speaker_map)}명, 매핑: {speaker_map}")
-
         # 필터링 및 정규화
         processed_segments = []
         for segment in segments:
@@ -340,18 +196,12 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
             if not should_keep_segment(text, filter_fillers, min_seg_length):
                 continue
             text = normalize_text(text, normalize_punct)
-            processed_segments.append((segment.get("speaker_id", 0), text))
+            processed_segments.append(text)
 
         # 마크다운 생성 (원본 파일명 기준)
         markdown_content = f"# {file_path.stem}\n\n"
         if processed_segments:
-            lines = []
-            for spk_id, text in processed_segments:
-                if diarize and spk_id:
-                    lines.append(f"Speaker {spk_id}: {text}")
-                else:
-                    lines.append(text)
-            markdown_content += "\n".join(lines)
+            markdown_content += "\n".join(processed_segments)
         else:
             original_text = result.get("text", "").strip()
             # 원본 텍스트도 반복 패턴인지 확인
@@ -377,8 +227,7 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
 def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: str,
                           language: str, initial_prompt: str, workers: int,
                           recursive: bool, filter_fillers: bool,
-                          min_seg_length: int, normalize_punct: bool,
-                          diarize: bool):
+                          min_seg_length: int, normalize_punct: bool):
     """
     지정된 입력 디렉토리 내의 모든 오디오/비디오 파일을 Whisper를 사용하여 
     텍스트로 변환하고, 변환된 텍스트를 마크다운(.md) 파일로 저장합니다.
@@ -394,7 +243,6 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
         filter_fillers (bool): 필러 단어 필터링 활성화 여부
         min_seg_length (int): 세그먼트 최소 길이
         normalize_punct (bool): 연속 마침표 정규화 여부
-        diarize (bool): 화자 구분 활성화 여부
     """
     
     input_path_obj = Path(input_dir)
@@ -436,7 +284,7 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
             try:
                 output_path = transcribe_single_file(
                     file_path, output_path_obj, model, language, initial_prompt,
-                    filter_fillers, min_seg_length, normalize_punct, diarize
+                    filter_fillers, min_seg_length, normalize_punct
                 )
                 logging.info("변환 완료: %s → %s", file_path.name, output_path.name)
             except Exception as e:
@@ -450,8 +298,7 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
             futures = {
                 executor.submit(
                     transcribe_single_file, file_path, output_path_obj, model,
-                    language, initial_prompt, filter_fillers, min_seg_length,
-                    normalize_punct, diarize
+                    language, initial_prompt, filter_fillers, min_seg_length, normalize_punct
                 ): file_path for file_path in files_to_process
             }
             
@@ -559,13 +406,6 @@ def main():
         action="store_true",
         help="과도한 연속 마침표를 '...'로 정규화"
     )
-
-    parser.add_argument(
-        "--diarize",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="pyannote.audio를 사용하여 화자 구분 수행 (기본값: 활성화)"
-    )
     
     args = parser.parse_args()
 
@@ -622,8 +462,7 @@ def main():
         recursive=args.recursive,
         filter_fillers=args.filter_fillers,
         min_seg_length=max(2, args.min_seg_length),
-        normalize_punct=args.normalize_punct,
-        diarize=args.diarize
+        normalize_punct=args.normalize_punct
     )
 
 if __name__ == "__main__":
