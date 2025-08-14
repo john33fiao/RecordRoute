@@ -345,55 +345,96 @@
 
             cancelAllBtn.style.display = 'inline-block';
 
-            taskQueue.forEach((task, index) => {
-                const item = document.createElement('div');
-                item.style.cssText = `
-                    border: 1px solid #dee2e6;
-                    border-radius: 5px;
-                    padding: 8px 12px;
-                    margin-bottom: 5px;
-                    background-color: ${task.status === 'processing' ? '#fff3cd' : '#f8f9fa'};
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                `;
-                
-                const taskNames = {
-                    'stt': 'STT 변환',
-                    'correct': '텍스트 교정',
-                    'summary': '요약'
-                };
-                
-                const statusText = task.status === 'processing' ? '진행중' : `대기중 (${index + 1}번째)`;
-                const statusColor = task.status === 'processing' ? '#856404' : '#6c757d';
-                
-                const info = document.createElement('span');
-                info.innerHTML = `
-                    <strong>${task.filename}</strong> - ${taskNames[task.task] || task.task}
-                    <span style="color: ${statusColor}; font-size: 12px; margin-left: 10px;">[${statusText}]</span>
-                `;
-                
-                const cancelBtn = document.createElement('button');
-                cancelBtn.textContent = '×';
-                cancelBtn.style.cssText = `
-                    background: #dc3545;
+            const taskNames = {
+                'stt': 'STT 변환',
+                'correct': '텍스트 교정',
+                'summary': '요약'
+            };
+
+            const categoryNames = {
+                'stt': 'STT 변환',
+                'correct': '텍스트 교정', 
+                'summary': '요약'
+            };
+
+            // Group tasks by category
+            const tasksByCategory = {};
+            categoryOrder.forEach(category => {
+                tasksByCategory[category] = [];
+            });
+
+            taskQueue.forEach(task => {
+                if (tasksByCategory[task.task]) {
+                    tasksByCategory[task.task].push(task);
+                }
+            });
+
+            // Display tasks by category
+            categoryOrder.forEach(category => {
+                const categoryTasks = tasksByCategory[category];
+                if (categoryTasks.length === 0) return;
+
+                // Create category header
+                const categoryHeader = document.createElement('div');
+                categoryHeader.style.cssText = `
+                    background: #007bff;
                     color: white;
-                    border: none;
-                    border-radius: 3px;
-                    width: 24px;
-                    height: 24px;
-                    cursor: pointer;
-                    font-size: 16px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    padding: 6px 12px;
+                    margin: 10px 0 5px 0;
+                    border-radius: 5px 5px 0 0;
+                    font-weight: bold;
+                    font-size: 14px;
                 `;
-                cancelBtn.title = '작업 취소';
-                cancelBtn.onclick = () => removeTaskFromQueue(task.id);
-                
-                item.appendChild(info);
-                item.appendChild(cancelBtn);
-                queueList.appendChild(item);
+                categoryHeader.textContent = `${categoryNames[category]} (${categoryTasks.length}개)`;
+                queueList.appendChild(categoryHeader);
+
+                // Add tasks in this category
+                categoryTasks.forEach((task, index) => {
+                    const item = document.createElement('div');
+                    item.style.cssText = `
+                        border: 1px solid #dee2e6;
+                        border-top: none;
+                        padding: 8px 12px;
+                        margin-bottom: ${index === categoryTasks.length - 1 ? '10px' : '0'};
+                        background-color: ${task.status === 'processing' ? '#fff3cd' : '#f8f9fa'};
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        ${index === categoryTasks.length - 1 ? 'border-radius: 0 0 5px 5px;' : ''}
+                    `;
+                    
+                    const globalIndex = taskQueue.findIndex(t => t.id === task.id);
+                    const statusText = task.status === 'processing' ? '진행중' : `대기중 (${globalIndex + 1}번째)`;
+                    const statusColor = task.status === 'processing' ? '#856404' : '#6c757d';
+                    
+                    const info = document.createElement('span');
+                    info.innerHTML = `
+                        <strong>${task.filename}</strong>
+                        <span style="color: ${statusColor}; font-size: 12px; margin-left: 10px;">[${statusText}]</span>
+                    `;
+                    
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.textContent = '×';
+                    cancelBtn.style.cssText = `
+                        background: #dc3545;
+                        color: white;
+                        border: none;
+                        border-radius: 3px;
+                        width: 24px;
+                        height: 24px;
+                        cursor: pointer;
+                        font-size: 16px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    `;
+                    cancelBtn.title = '작업 취소';
+                    cancelBtn.onclick = () => removeTaskFromQueue(task.id);
+                    
+                    item.appendChild(info);
+                    item.appendChild(cancelBtn);
+                    queueList.appendChild(item);
+                });
             });
         }
 
