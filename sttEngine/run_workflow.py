@@ -10,7 +10,7 @@ from pathlib import Path
 # 이 스크립트가 있는 디렉토리를 기준으로 경로 설정
 BASE_DIR = Path(__file__).parent.resolve()
 # Python 실행 파일 자동 감지 (Windows 호환)
-PYTHON_EXEC = sys.executable
+PYTHON_EXEC = Path(os.environ.get("PYTHON_EXEC", sys.executable))
 OUTPUT_DIR = BASE_DIR.parent / "whisper_output"
 
 # 실행할 스크립트 경로
