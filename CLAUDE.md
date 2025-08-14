@@ -34,7 +34,6 @@ RecordRoute/
 **기능**: OpenAI Whisper를 사용한 음성→텍스트 변환
 
 **주요 특징**:
-- **화자 구분 기능**: pyannote.audio를 사용한 화자 구분 (기본 활성화)
 - **GPU/MPS 최적화**: Apple Silicon MPS 우선 사용, CPU fallback 지원
 - **M4A 자동 변환**: m4a 파일을 wav로 자동 변환하여 처리
 - 플랫폼별 Whisper 캐시 경로 자동 감지 (Windows: `%USERPROFILE%\.cache\whisper\`, macOS/Linux: `~/.cache/whisper/`)
@@ -46,13 +45,9 @@ RecordRoute/
 
 **실행 예시**:
 ```bash
-python transcribe.py /path/to/audio/folder --model_size large-v3-turbo --language ko --filter_fillers --normalize_punct --diarize
+python transcribe.py /path/to/audio/folder --model_size large-v3-turbo --language ko --filter_fillers --normalize_punct
 ```
 
-**화자 구분 기능**:
-- pyannote.audio 2.1.1+ 사용
-- GPU/MPS 우선 사용, CPU fallback 자동 전환
-- PYANNOTE_TOKEN 환경변수 필요 (Hugging Face 토큰)
 
 ### 2. correct.py - 텍스트 교정
 **기능**: Ollama를 사용한 한국어 텍스트 교정
@@ -109,7 +104,6 @@ python correct.py input.md --model gemma3:4b --temperature 0.0
 ```txt
 openai-whisper>=20231117
 ollama>=0.1.0
-pyannote.audio>=2.1.1
 ```
 
 ### 시스템 의존성
@@ -145,7 +139,6 @@ run.bat
 - 캐시: `~/.cache/whisper/`
 - Python 실행파일: `venv/bin/python` (가상환경 사용)
 - 환경변수: `.env` 파일에서 자동 로드
-- 화자 구분: MPS (Apple Silicon) > CPU 순으로 자동 선택
 
 ## 파일 처리 플로우
 
@@ -172,7 +165,6 @@ run.bat
 - `--filter_fillers`: 필러 단어 제거
 - `--normalize_punct`: 연속 마침표 정규화
 - `--workers`: 병렬 처리 수 (기본: 1)
-- `--diarize`: 화자 구분 활성화 (기본: True)
 - `--initial_prompt`: 도메인 특화 용어 힌트
 - `--min_seg_length`: 세그먼트 최소 길이 (기본: 2)
 
@@ -204,6 +196,5 @@ run.bat
 - **Ollama 연결 오류**: Ollama 서비스 실행 상태 점검
 - **FFmpeg 오류**: 시스템 PATH 환경변수에 FFmpeg 경로 추가
 - **인코딩 문제**: UTF-8, CP949, EUC-KR 순으로 자동 시도
-- **화자 구분 실패**: PYANNOTE_TOKEN 환경변수 설정 확인
 - **MPS 오류**: Apple Silicon에서 GPU 실패 시 CPU로 자동 전환
 - **M4A 변환 오류**: FFmpeg 설치 및 PATH 설정 확인
