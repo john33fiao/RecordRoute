@@ -14,16 +14,25 @@ except ImportError:
     print("오류: ollama 패키지가 설치되지 않았습니다. 'pip install ollama'로 설치하세요.")
     sys.exit(1)
 
-# 설정 상수 - 플랫폼별 기본 모델
-if platform.system() == "Windows":
-    DEFAULT_MODEL = "gemma3:4b"
-else:
-    DEFAULT_MODEL = "gpt-oss:20b"
-DEFAULT_CHUNK_SIZE = 6000
-DEFAULT_TEMPERATURE = 0.2
-DEFAULT_NUM_CTX = 8192
-MAX_RETRIES = 3
-RETRY_DELAY = 2
+# 설정 모듈 임포트
+sys.path.append(str(Path(__file__).parent.parent))
+from config import get_model_for_task, get_default_model, get_config_value
+
+# 설정 상수 - .env 파일에서 로드
+try:
+    DEFAULT_MODEL = get_model_for_task("SUMMARY", get_default_model("SUMMARY"))
+except:
+    # 환경변수 설정이 없을 때 기존 로직 사용
+    if platform.system() == "Windows":
+        DEFAULT_MODEL = "gemma3:4b"
+    else:
+        DEFAULT_MODEL = "gpt-oss:20b"
+
+DEFAULT_CHUNK_SIZE = get_config_value("DEFAULT_CHUNK_SIZE", 6000, int)
+DEFAULT_TEMPERATURE = get_config_value("DEFAULT_TEMPERATURE_SUMMARY", 0.2, float)
+DEFAULT_NUM_CTX = get_config_value("DEFAULT_NUM_CTX", 8192, int)
+MAX_RETRIES = get_config_value("MAX_RETRIES", 3, int)
+RETRY_DELAY = get_config_value("RETRY_DELAY", 2, int)
 
 # 프롬프트 템플릿
 BASE_PROMPT = """당신은 전문 요약가입니다. 다음 텍스트를 간결하고 구조화된 한국어 요약으로 작성합니다.

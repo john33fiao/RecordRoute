@@ -9,11 +9,19 @@ import platform
 import ollama
 from typing import List, Optional
 
-# 플랫폼별 기본 모델 설정
-if platform.system() == "Windows":
-    DEFAULT_MODEL = "gemma3:4b"
-else:
-    DEFAULT_MODEL = "gemma3:12b-it-qat"
+# 설정 모듈 임포트
+sys.path.append(str(Path(__file__).parent.parent))
+from config import get_model_for_task, get_default_model, get_config_value
+
+# 플랫폼별 기본 모델 설정 (.env 파일에서 로드)
+try:
+    DEFAULT_MODEL = get_model_for_task("CORRECT", get_default_model("CORRECT"))
+except:
+    # 환경변수 설정이 없을 때 기존 로직 사용
+    if platform.system() == "Windows":
+        DEFAULT_MODEL = "gemma3:4b"
+    else:
+        DEFAULT_MODEL = "gemma3:12b-it-qat"
 
 SYSTEM_PROMPT = (
     "당신은 한국어 텍스트를 전문적으로 교정하는 편집자입니다. "
@@ -321,8 +329,11 @@ def main():
     # 모델 옵션
     parser.add_argument("-m", "--model", default=DEFAULT_MODEL, 
                        help=f"사용할 Ollama 모델 (기본: {DEFAULT_MODEL})")
-    parser.add_argument("--temperature", type=float, default=0.0, 
-                       help="샘플링 온도 (기본: 0.0, 재현성 확보)")
+    # .env 파일에서 기본 온도 설정 로드
+    default_temp = get_config_value("DEFAULT_TEMPERATURE_CORRECT", 0.0, float)
+    
+    parser.add_argument("--temperature", type=float, default=default_temp, 
+                       help=f"샘플링 온도 (기본: {default_temp}, 재현성 확보)")
     parser.add_argument("--num-ctx", type=int, default=8192, 
                        help="컨텍스트 길이 (기본: 8192)")
     

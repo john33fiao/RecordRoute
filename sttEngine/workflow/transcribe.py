@@ -18,6 +18,11 @@ except ImportError:
     # dotenv가 설치되지 않은 경우 환경변수는 시스템에서 직접 읽음
     pass
 
+# 설정 모듈 임포트
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
+from config import get_model_for_task, get_default_model
+
 # Whisper가 지원하는 파일 확장자 목록
 SUPPORTED_EXTS = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'}
 
@@ -370,12 +375,18 @@ def main():
         help="변환된 마크다운 파일을 저장할 출력 디렉토리 경로\n(기본값: ./whisper_output)"
     )
     
+    # .env 파일에서 플랫폼별 기본 모델 로드
+    try:
+        default_transcribe_model = get_model_for_task("TRANSCRIBE", get_default_model("TRANSCRIBE"))
+    except:
+        default_transcribe_model = "large-v3-turbo"
+    
     parser.add_argument(
         "--model_size",
         type=str,
-        default="large-v3-turbo",
+        default=default_transcribe_model,
         choices=['tiny', 'base', 'small', 'medium', 'large', 'large-v3-turbo'],
-        help="사용할 Whisper 모델의 크기 또는 종류\n(기본값: large-v3-turbo)"
+        help=f"사용할 Whisper 모델의 크기 또는 종류\n(기본값: {default_transcribe_model})"
     )
     
     # 언어 및 품질 옵션
