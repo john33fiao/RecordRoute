@@ -496,25 +496,35 @@
                     cursor: pointer;
                     font-size: 12px;
                 `;
-                resetBtn.onclick = async () => {
-                    if (!confirm('기존 작업내역을 초기화 하시겠습니까?')) return;
 
-                    // Remove related tasks from queue
-                    const relatedTasks = taskQueue.filter(t => t.recordId === record.id);
-                    relatedTasks.forEach(t => removeTaskFromQueue(t.id));
+                const hasCompleted = Object.values(record.completed_tasks).some(v => v);
+                const queued = taskQueue.some(t => t.recordId === record.id);
 
-                    const resp = await fetch('/reset', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ record_id: record.id })
-                    });
+                if (hasCompleted || queued) {
+                    resetBtn.onclick = async () => {
+                        if (!confirm('기존 작업내역을 초기화 하시겠습니까?')) return;
 
-                    if (resp.ok) {
-                        loadHistory();
-                    } else {
-                        alert('초기화에 실패했습니다.');
-                    }
-                };
+                        // Remove related tasks from queue
+                        const relatedTasks = taskQueue.filter(t => t.recordId === record.id);
+                        relatedTasks.forEach(t => removeTaskFromQueue(t.id));
+
+                        const resp = await fetch('/reset', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ record_id: record.id })
+                        });
+
+                        if (resp.ok) {
+                            loadHistory();
+                        } else {
+                            alert('초기화에 실패했습니다.');
+                        }
+                    };
+                } else {
+                    resetBtn.disabled = true;
+                    resetBtn.style.background = '#6c757d';
+                    resetBtn.style.cursor = 'not-allowed';
+                }
 
                 header.appendChild(info);
                 header.appendChild(resetBtn);
