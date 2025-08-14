@@ -7,6 +7,7 @@
  - **텍스트 교정**: Ollama LLM을 활용한 문법/어법 개선
  - **구조화된 요약**: 회의록 형태의 체계적 요약 생성
  - **통합 워크플로우**: 1단계부터 3단계까지 자동화된 처리 파이프라인
+ - **웹 기반 인터페이스**: 파일 업로드와 단계별 작업 선택, 작업 큐·업로드 기록 관리, 결과 오버레이 뷰어, 요약 전 확인 팝업, 기록 초기화 지원
 
 ## 디렉토리 구조
 
@@ -17,14 +18,13 @@ RecordRoute/
 ├── LICENSE              # 라이선스 정보
 ├── CLAUDE.md             # Claude AI 전용 프로젝트 가이드
 ├── GEMINI.md             # Gemini AI 전용 프로젝트 가이드
-├── run.sh               # Unix/macOS/Linux 실행 스크립트
-├── venv/                # Python 가상환경
-├── test/                # 테스트 오디오 파일 디렉토리
-├── whisper_output/      # STT 변환 결과 저장소
+├── run.bat               # Windows 웹 서버 실행 스크립트
+├── run.command           # macOS/Linux 웹 서버 실행 스크립트
+├── server.py             # 업로드 처리 및 워크플로우 실행 서버
+├── frontend/             # 웹 인터페이스 (upload.html)
 └── sttEngine/           # STT 엔진 메인 모듈
     ├── requirements.txt    # Python 의존성
     ├── setup.bat          # Windows 설치 스크립트
-    ├── run.bat           # Windows 실행 스크립트
     ├── run_workflow.py   # 워크플로우 통합 실행기
     └── workflow/         # 핵심 처리 모듈들
         ├── transcribe.py   # 음성→텍스트 변환
@@ -39,16 +39,19 @@ RecordRoute/
 #### Windows
 ```bash
 # 1단계: 환경 설정
-setup.bat
+sttEngine\setup.bat
 
-# 2단계: 워크플로우 실행
+# 2단계: 웹 서버 실행
 run.bat
 ```
 
-#### Unix/macOS/Linux
+#### macOS/Linux
 ```bash
-# 워크플로우 실행 (.env 파일에서 환경변수 자동 로드)
-./run.sh
+# 1단계: 의존성 설치
+pip install -r sttEngine/requirements.txt
+
+# 2단계: 웹 서버 실행 (.env 파일에서 환경변수 자동 로드)
+./run.command
 ```
 
 ### 2. 수동 설치
@@ -97,31 +100,21 @@ ollama pull gemma3:12b-it-qat
 ollama pull gpt-oss:20b
 ```
 
-### 4. 화자 구분 설정
-
-화자 구분 기능 사용을 위해:
-
-1. [Hugging Face](https://huggingface.co/)에서 토큰 발급
-2. 환경변수 설정:
-   ```bash
-   # Windows
-   set PYANNOTE_TOKEN=your_token_here
-   
-   # Unix/macOS/Linux
-   export PYANNOTE_TOKEN=your_token_here
-   ```
 
 ## 사용법
 
-### 통합 워크플로우 실행
+### 웹 인터페이스 실행
 ```bash
 # Windows
 run.bat
 
-# Unix/macOS/Linux
-./run.sh
+# macOS/Linux
+./run.command
+```
+웹 브라우저에서 <http://localhost:8080> 에 접속하여 파일을 업로드하고 STT, 교정, 요약 작업을 선택합니다. 작업 큐, 업로드 기록(개별 초기화 가능), 결과 오버레이 뷰어, 요약 전 확인 팝업을 제공합니다.
 
-# 또는 직접 실행
+### CLI 워크플로우 실행
+```bash
 python sttEngine/run_workflow.py
 ```
 
@@ -173,7 +166,6 @@ python sttEngine/workflow/summarize.py input.corrected.md --model gpt-oss:20b --
 
 ### 1단계: 음성→텍스트
 - OpenAI Whisper `large-v3-turbo` 모델 사용
-- 화자 구분 기능 (기본 활성화)
 - 세그먼트 병합 및 필러 단어 필터링
 - 결과: `.md` 파일
 
@@ -208,9 +200,6 @@ python sttEngine/workflow/summarize.py input.corrected.md --model gpt-oss:20b --
 - **Ollama 연결 오류**: Ollama 서비스 실행 상태 점검
 - **FFmpeg 오류**: 시스템 PATH 환경변수에 FFmpeg 경로 추가
 - **인코딩 문제**: UTF-8, CP949, EUC-KR 순으로 자동 시도
-
-### 화자 구분 관련
-- **PYANNOTE_TOKEN**: Hugging Face 토큰 환경변수 설정 확인
 - **MPS 오류**: Apple Silicon에서 GPU 실패 시 CPU로 자동 전환
 - **M4A 변환 오류**: FFmpeg 설치 및 PATH 설정 확인
 

@@ -4,9 +4,11 @@
 
 이 프로젝트는 오디오/비디오 파일로부터 텍스트를 추출하고, 이를 교정 및 요약하는 자동화된 워크플로우를 제공합니다. STT(Speech-to-Text) 엔진을 중심으로 구성되어 있으며, 다음과 같은 3단계 파이프라인을 통해 작동합니다.
 
-1.  **음성 -> 텍스트 변환 (Transcribe):** `openai-whisper`를 사용하여 미디어 파일에서 텍스트를 추출합니다.
-2.  **텍스트 교정 (Correct):** `Ollama`를 통해 추출된 텍스트의 오탈자, 문법 등을 교정합니다.
-3.  **텍스트 요약 (Summarize):** 교정된 텍스트를 `Ollama`를 사용해 구조화된 형식으로 요약합니다.
+ 1.  **음성 -> 텍스트 변환 (Transcribe):** `openai-whisper`를 사용하여 미디어 파일에서 텍스트를 추출합니다.
+ 2.  **텍스트 교정 (Correct):** `Ollama`를 통해 추출된 텍스트의 오탈자, 문법 등을 교정합니다.
+ 3.  **텍스트 요약 (Summarize):** 교정된 텍스트를 `Ollama`를 사용해 구조화된 형식으로 요약합니다.
+
+간단한 웹 업로드 페이지를 통해 이러한 작업을 선택적으로 실행할 수 있으며, 작업 큐와 업로드 기록 관리, 결과 오버레이 뷰어, 요약 전 확인 팝업, 업로드 기록 초기화 기능을 제공합니다.
 
 ## 2. 기술 스택 (Tech Stack)
 
@@ -23,21 +25,21 @@
 
 ```
 RecordRoute/
+├── run.bat                # Windows 웹 서버 실행 스크립트
+├── run.command            # macOS/Linux 웹 서버 실행 스크립트
+├── server.py              # 업로드 처리 및 워크플로우 실행 서버
+├── frontend/
+│   └── upload.html        # 웹 업로드 및 작업 관리 UI
 ├── sttEngine/
 │   ├── requirements.txt      # Python 의존성 목록
 │   ├── setup.bat             # Windows 설치 스크립트
-│   ├── run.bat               # Windows 실행 스크립트
 │   ├── run_workflow.py       # 메인 워크플로우 오케스트레이션 스크립트
 │   └── workflow/
 │       ├── transcribe.py     # 1단계: 음성 변환 로직
 │       ├── correct.py        # 2단계: 텍스트 교정 로직
 │       └── summarize.py      # 3단계: 텍스트 요약 로직
-├── run.sh                    # Unix/macOS/Linux 실행 스크립트
-├── venv/                     # Python 가상환경
-├── test/                     # 테스트 오디오 파일 디렉토리
-├── whisper_output/           # STT 변환 결과 저장소
-├── CLAUDE.md                 # Claude AI 전용 프로젝트 가이드
-└── GEMINI.md                 # Gemini AI 에이전트 및 개발자 가이드
+├── CLAUDE.md              # Claude AI 전용 프로젝트 가이드
+└── GEMINI.md              # Gemini AI 에이전트 및 개발자 가이드
 ```
 
 ## 4. 설치 및 설정 (Setup)
@@ -59,30 +61,28 @@ run_shell_command(command="cd sttEngine && setup.bat")
 
 ## 5. 실행 방법 (How to Run)
 
-`run.bat` 스크립트를 사용하여 메인 워크플로우를 시작합니다.
+루트 디렉토리에서 제공하는 실행 스크립트로 웹 서버를 시작합니다.
 
-1.  `sttEngine` 디렉토리로 이동합니다.
-2.  `run.bat`를 실행합니다.
-
-스크립트가 실행되면 가상환경을 활성화하고 `run_workflow.py`를 실행합니다. 사용자에게 어떤 단계를 실행할지(변환, 교정, 요약) 묻고, 선택에 따라 작업을 진행합니다.
+1. 의존성 설치 후 실행 스크립트를 호출합니다.
+2. 브라우저에서 `http://localhost:8080` 에 접속하여 파일 업로드, 단계 선택(STT, 교정, 요약), 작업 큐·업로드 기록 관리, 결과 오버레이 뷰어, 요약 전 확인 팝업, 업로드 기록 초기화 기능을 사용합니다.
 
 **AI 에이전트 명령어:**
 
 **Windows:**
 ```
-run_shell_command(command="sttEngine\run.bat")
+run_shell_command(command="run.bat")
 ```
 
-**Unix/macOS/Linux:**
+**macOS/Linux:**
 ```
-run_shell_command(command="./run.sh")
+run_shell_command(command="./run.command")
 ```
 
 **플랫폼별 기본 모델:**
 - Windows: `gemma3:4b`
 - macOS/Linux: 교정 `gemma3:12b-it-qat`, 요약 `gpt-oss:20b`
 
-*참고: `run_workflow.py`는 대화형 입력(실행할 단계, 파일 경로 등)을 요구하므로, AI 에이전트가 직접 실행하기보다는 사용자의 입력을 전달하는 방식으로 사용해야 합니다.*
+*참고: 기존 `sttEngine/run_workflow.py`는 CLI용으로 남아 있으며 대화형 입력을 요구합니다.*
 
 ## 6. AI 에이전트 활용 가이드 (Gemini Usage Guide)
 
