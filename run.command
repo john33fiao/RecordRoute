@@ -14,7 +14,7 @@ fi
 VENV_PYTHON="$SCRIPT_DIR/venv/bin/python"
 
 # 웹서버 스크립트 경로
-WEB_SERVER="$SCRIPT_DIR/server.py"
+WEB_SERVER="$SCRIPT_DIR/sttEngine/server.py"
 
 # 가상환경 존재 확인
 if [ ! -f "$VENV_PYTHON" ]; then

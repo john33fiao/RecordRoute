@@ -23,54 +23,54 @@ if exist "%SCRIPT_DIR%\.env" (
         echo [DEBUG] PYANNOTE_TOKEN이 설정되지 않았습니다.
     )
 )
-
-REM 가상환경의 Python 실행 파일 경로
-set "VENV_PYTHON=%SCRIPT_DIR%\venv\Scripts\python.exe"
-
-REM 웹서버 스크립트 경로
-set "WEB_SERVER=%SCRIPT_DIR%\server.py"
-
-REM 가상환경 존재 확인
-if not exist "%VENV_PYTHON%" (
-    echo 오류: 가상환경(venv)을 찾을 수 없습니다.
-    echo 경로: %VENV_PYTHON%
-    echo 먼저 setup.bat 스크립트를 실행하여 가상환경을 설정하세요.
-    echo.
-    echo 계속하려면 아무 키나 누르세요...
-    pause
-    exit /b 1
-)
-
-REM 웹서버 스크립트 존재 확인
-if not exist "%WEB_SERVER%" (
-    echo 오류: 웹서버 스크립트(server.py)를 찾을 수 없습니다.
-    echo 경로: %WEB_SERVER%
-    echo.
-    echo 계속하려면 아무 키나 누르세요...
-    pause
-    exit /b 1
-)
-
-REM 웹서버 실행
-echo 가상환경의 파이썬으로 웹서버를 실행합니다...
-echo 서버 URL: http://localhost:8080
-echo (웹브라우저에서 http://localhost:8080 에 접속하세요)
-echo.
-echo 서버를 종료하려면 Ctrl+C를 누르세요.
-echo.
-
-REM 오류 발생 시에도 창이 닫히지 않도록 처리
-"%VENV_PYTHON%" "%WEB_SERVER%"
-set "EXIT_CODE=%ERRORLEVEL%"
-
-REM 서버 종료 후 일시 정지
-echo.
-if "%EXIT_CODE%"=="0" (
-    echo 서버가 정상적으로 종료되었습니다.
-) else (
-    echo 서버가 오류와 함께 종료되었습니다. (오류코드: %EXIT_CODE%)
-    echo 오류 상세 내용을 확인하세요.
-)
-echo.
-echo 계속하려면 아무 키나 누르세요...
-pause
+
+REM 가상환경의 Python 실행 파일 경로
+set "VENV_PYTHON=%SCRIPT_DIR%\venv\Scripts\python.exe"
+
+REM 웹서버 스크립트 경로
+set "WEB_SERVER=%SCRIPT_DIR%\sttEngine\server.py"
+
+REM 가상환경 존재 확인
+if not exist "%VENV_PYTHON%" (
+    echo 오류: 가상환경(venv)을 찾을 수 없습니다.
+    echo 경로: %VENV_PYTHON%
+    echo 먼저 setup.bat 스크립트를 실행하여 가상환경을 설정하세요.
+    echo.
+    echo 계속하려면 아무 키나 누르세요...
+    pause
+    exit /b 1
+)
+
+REM 웹서버 스크립트 존재 확인
+if not exist "%WEB_SERVER%" (
+    echo 오류: 웹서버 스크립트(server.py)를 찾을 수 없습니다.
+    echo 경로: %WEB_SERVER%
+    echo.
+    echo 계속하려면 아무 키나 누르세요...
+    pause
+    exit /b 1
+)
+
+REM 웹서버 실행
+echo 가상환경의 파이썬으로 웹서버를 실행합니다...
+echo 서버 URL: http://localhost:8080
+echo (웹브라우저에서 http://localhost:8080 에 접속하세요)
+echo.
+echo 서버를 종료하려면 Ctrl+C를 누르세요.
+echo.
+
+REM 오류 발생 시에도 창이 닫히지 않도록 처리
+"%VENV_PYTHON%" "%WEB_SERVER%"
+set "EXIT_CODE=%ERRORLEVEL%"
+
+REM 서버 종료 후 일시 정지
+echo.
+if "%EXIT_CODE%"=="0" (
+    echo 서버가 정상적으로 종료되었습니다.
+) else (
+    echo 서버가 오류와 함께 종료되었습니다. (오류코드: %EXIT_CODE%)
+    echo 오류 상세 내용을 확인하세요.
+)
+echo.
+echo 계속하려면 아무 키나 누르세요...
+pause
