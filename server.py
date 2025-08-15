@@ -484,12 +484,8 @@ class UploadHandler(BaseHTTPRequestHandler):
         elif self.path.startswith("/download/"):
             file_path = unquote(self.path[len("/download/"):])
             self._serve_download(file_path)
-        elif self.path.startswith("/history"):
-            from urllib.parse import urlparse, parse_qs
-            parsed = urlparse(self.path)
-            params = parse_qs(parsed.query)
-            sort_order = params.get("sort", ["newest"])[0]  # Default to newest
-            self._serve_history(sort_order)
+        elif self.path == "/history":
+            self._serve_history()
         elif self.path == "/tasks":
             self._serve_running_tasks()
         elif self.path.startswith("/search"):
@@ -509,17 +505,10 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
     
-    def _serve_history(self, sort_order="newest"):
-        """Serve upload history as JSON with optional sorting."""
+    def _serve_history(self):
+        """Serve upload history as JSON."""
         try:
             history = load_upload_history()
-            
-            # Apply sorting based on sort_order parameter
-            if sort_order == "oldest":
-                # Reverse the order to show oldest first
-                history = history[::-1]
-            # "newest" is already the default order from load_upload_history()
-            
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
