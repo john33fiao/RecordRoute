@@ -84,6 +84,9 @@
     border-radius: 5px;
     text-align: center;
 }
+#summaryPopup .buttons {
+    margin-top: 10px;
+}
 #summaryPopup button {
     margin: 0 5px;
     padding: 5px 10px;

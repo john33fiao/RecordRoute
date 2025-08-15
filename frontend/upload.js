@@ -9,6 +9,7 @@ let currentCategory = null;
 const summaryPopup = document.getElementById('summaryPopup');
 const summaryOnlyBtn = document.getElementById('summaryOnlyBtn');
 const correctThenSummaryBtn = document.getElementById('correctThenSummaryBtn');
+const summaryCancelBtn = document.getElementById('summaryCancelBtn');
 
 function showTextOverlay(url) {
     const overlay = document.getElementById('textOverlay');
@@ -63,12 +64,17 @@ document.addEventListener('keydown', (e) => {
         if (textOverlay.style.display === 'flex') {
             textOverlay.style.display = 'none';
         }
+        if (summaryPopup.style.display === 'flex') {
+            hideSummaryPopup();
+        }
     }
 });
 
 function hideSummaryPopup() {
     summaryPopup.style.display = 'none';
 }
+
+summaryCancelBtn.addEventListener('click', hideSummaryPopup);
 
 function editFilename(recordId, currentFilename) {
     const filenameElement = document.getElementById(`filename-${recordId}`);
