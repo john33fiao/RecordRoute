@@ -101,6 +101,10 @@ PLATFORM_DEFAULTS = {
     "SUMMARY": {
         "WINDOWS": "gemma3:4b",
         "UNIX": "gpt-oss:20b"
+    },
+    "EMBEDDING": {
+        "WINDOWS": "snowflake-arctic-embed2:latest",
+        "UNIX": "snowflake-arctic-embed2:latest"
     }
 }
 

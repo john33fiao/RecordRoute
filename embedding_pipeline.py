@@ -12,12 +12,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 from typing import Dict
 import os
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
+
+# 설정 모듈 임포트
+sys.path.append(str(Path(__file__).parent / "sttEngine"))
+from sttEngine.config import get_model_for_task, get_default_model
 
 VECTOR_DIR = Path("vector_store")
 INDEX_FILE = VECTOR_DIR / "index.json"
@@ -70,7 +75,12 @@ def process_file(model: SentenceTransformer, path: Path, index: Dict[str, Dict[s
 
 def main(src_dir: str) -> None:
     """Scan for summary files under ``src_dir`` and embed newly added ones."""
-    model_name = os.environ.get("EMBEDDING_MODEL", "snowflake-arctic-embed:latest")
+    try:
+        model_name = get_model_for_task("EMBEDDING", get_default_model("EMBEDDING"))
+    except:
+        # 환경변수 설정이 없을 때 기존 로직 사용
+        model_name = os.environ.get("EMBEDDING_MODEL", "snowflake-arctic-embed2:latest")
+    
     model = SentenceTransformer(model_name)
     index = load_index()
     for file in Path(src_dir).glob("*.summary.md"):

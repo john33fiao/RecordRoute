@@ -382,7 +382,10 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 
             print(f"Starting text correction for task {task_id}")
             try:
-                success = correct_text_file(Path(current_file))
+                success = correct_text_file(
+                    input_file=Path(current_file),
+                    inplace=True  # 원본 파일과 같은 위치에 .corrected.md 파일 생성
+                )
                 if not success:
                     return {"error": "Correction process failed"}
             except Exception as e:
@@ -645,7 +648,13 @@ class UploadHandler(BaseHTTPRequestHandler):
 
         if self.path == "/process":
             length = int(self.headers.get("Content-Length", 0))
-            payload = json.loads(self.rfile.read(length)) if length else {}
+            try:
+                payload = json.loads(self.rfile.read(length)) if length else {}
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Invalid JSON payload")
+                return
             file_path = payload.get("file_path")
             steps = payload.get("steps", [])
             record_id = payload.get("record_id")
@@ -671,7 +680,13 @@ class UploadHandler(BaseHTTPRequestHandler):
 
         if self.path == "/cancel":
             length = int(self.headers.get("Content-Length", 0))
-            payload = json.loads(self.rfile.read(length)) if length else {}
+            try:
+                payload = json.loads(self.rfile.read(length)) if length else {}
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Invalid JSON payload")
+                return
             task_id = payload.get("task_id")
             
             if not task_id:
@@ -689,7 +704,13 @@ class UploadHandler(BaseHTTPRequestHandler):
 
         if self.path == "/reset":
             length = int(self.headers.get("Content-Length", 0))
-            payload = json.loads(self.rfile.read(length)) if length else {}
+            try:
+                payload = json.loads(self.rfile.read(length)) if length else {}
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Invalid JSON payload")
+                return
             record_id = payload.get("record_id")
 
             if not record_id:
