@@ -117,7 +117,13 @@
     <div id="queue-section" style="margin-top:2em;">
         <h2 style="display:flex; align-items:center; justify-content:space-between;">
             작업 큐
-            <button id="cancelAllBtn" style="display:none; margin-left:auto; background:#dc3545; color:white; border:none; border-radius:3px; padding:4px 8px; cursor:pointer; font-size:14px;">모두 취소</button>
+            <div style="display:flex; align-items:center; gap:10px;">
+                <select id="queueSortSelect" style="padding:4px 8px; border:1px solid #ccc; border-radius:3px; font-size:14px;">
+                    <option value="default">기본값 (카테고리별)</option>
+                    <option value="oldest">추가순 (오래된 순)</option>
+                </select>
+                <button id="cancelAllBtn" style="display:none; background:#dc3545; color:white; border:none; border-radius:3px; padding:4px 8px; cursor:pointer; font-size:14px;">모두 취소</button>
+            </div>
         </h2>
         <div id="queue-list"></div>
     </div>
@@ -219,17 +225,25 @@
         }
 
         function sortTaskQueue() {
-            let startIndex = 0;
-            if (currentTask) {
-                startIndex = categoryOrder.indexOf(currentTask.task);
-            } else if (currentCategory) {
-                startIndex = categoryOrder.indexOf(currentCategory);
+            const sortOrder = document.getElementById('queueSortSelect').value;
+            
+            if (sortOrder === 'oldest') {
+                // 추가순 (오래된 순): 추가 순서대로 정렬
+                taskQueue.sort((a, b) => a.id - b.id);
+            } else {
+                // 기본값 (카테고리별): 현재 진행 중인 카테고리 우선 정렬
+                let startIndex = 0;
+                if (currentTask) {
+                    startIndex = categoryOrder.indexOf(currentTask.task);
+                } else if (currentCategory) {
+                    startIndex = categoryOrder.indexOf(currentCategory);
+                }
+                const order = categoryOrder.slice(startIndex).concat(categoryOrder.slice(0, startIndex));
+                taskQueue.sort((a, b) => {
+                    const diff = order.indexOf(a.task) - order.indexOf(b.task);
+                    return diff !== 0 ? diff : a.id - b.id;
+                });
             }
-            const order = categoryOrder.slice(startIndex).concat(categoryOrder.slice(0, startIndex));
-            taskQueue.sort((a, b) => {
-                const diff = order.indexOf(a.task) - order.indexOf(b.task);
-                return diff !== 0 ? diff : a.id - b.id;
-            });
         }
 
         function formatDateTime(isoString) {
@@ -335,6 +349,7 @@
         function updateQueueDisplay() {
             const queueList = document.getElementById('queue-list');
             const cancelAllBtn = document.getElementById('cancelAllBtn');
+            const sortOrder = document.getElementById('queueSortSelect').value;
             queueList.innerHTML = '';
 
             if (taskQueue.length === 0) {
@@ -357,59 +372,28 @@
                 'summary': '요약'
             };
 
-            // Group tasks by category
-            const tasksByCategory = {};
-            categoryOrder.forEach(category => {
-                tasksByCategory[category] = [];
-            });
-
-            taskQueue.forEach(task => {
-                if (tasksByCategory[task.task]) {
-                    tasksByCategory[task.task].push(task);
-                }
-            });
-
-            // Display tasks by category
-            categoryOrder.forEach(category => {
-                const categoryTasks = tasksByCategory[category];
-                if (categoryTasks.length === 0) return;
-
-                // Create category header
-                const categoryHeader = document.createElement('div');
-                categoryHeader.style.cssText = `
-                    background: #007bff;
-                    color: white;
-                    padding: 6px 12px;
-                    margin: 10px 0 5px 0;
-                    border-radius: 5px 5px 0 0;
-                    font-weight: bold;
-                    font-size: 14px;
-                `;
-                categoryHeader.textContent = `${categoryNames[category]} (${categoryTasks.length}개)`;
-                queueList.appendChild(categoryHeader);
-
-                // Add tasks in this category
-                categoryTasks.forEach((task, index) => {
+            if (sortOrder === 'oldest') {
+                // 추가순: 단순 리스트로 표시
+                taskQueue.forEach((task, index) => {
                     const item = document.createElement('div');
                     item.style.cssText = `
                         border: 1px solid #dee2e6;
-                        border-top: none;
+                        border-radius: 5px;
                         padding: 8px 12px;
-                        margin-bottom: ${index === categoryTasks.length - 1 ? '10px' : '0'};
+                        margin-bottom: 8px;
                         background-color: ${task.status === 'processing' ? '#fff3cd' : '#f8f9fa'};
                         display: flex;
                         justify-content: space-between;
                         align-items: center;
-                        ${index === categoryTasks.length - 1 ? 'border-radius: 0 0 5px 5px;' : ''}
                     `;
                     
-                    const globalIndex = taskQueue.findIndex(t => t.id === task.id);
-                    const statusText = task.status === 'processing' ? '진행중' : `대기중 (${globalIndex + 1}번째)`;
+                    const statusText = task.status === 'processing' ? '진행중' : `대기중 (${index + 1}번째)`;
                     const statusColor = task.status === 'processing' ? '#856404' : '#6c757d';
+                    const taskName = taskNames[task.task] || task.task;
                     
                     const info = document.createElement('span');
                     info.innerHTML = `
-                        <strong>${task.filename}</strong>
+                        <strong>${task.filename}</strong> - ${taskName}
                         <span style="color: ${statusColor}; font-size: 12px; margin-left: 10px;">[${statusText}]</span>
                     `;
                     
@@ -435,7 +419,87 @@
                     item.appendChild(cancelBtn);
                     queueList.appendChild(item);
                 });
-            });
+            } else {
+                // 기본값: 카테고리별 그룹화
+                const tasksByCategory = {};
+                categoryOrder.forEach(category => {
+                    tasksByCategory[category] = [];
+                });
+
+                taskQueue.forEach(task => {
+                    if (tasksByCategory[task.task]) {
+                        tasksByCategory[task.task].push(task);
+                    }
+                });
+
+                // Display tasks by category
+                categoryOrder.forEach(category => {
+                    const categoryTasks = tasksByCategory[category];
+                    if (categoryTasks.length === 0) return;
+
+                    // Create category header
+                    const categoryHeader = document.createElement('div');
+                    categoryHeader.style.cssText = `
+                        background: #007bff;
+                        color: white;
+                        padding: 6px 12px;
+                        margin: 10px 0 5px 0;
+                        border-radius: 5px 5px 0 0;
+                        font-weight: bold;
+                        font-size: 14px;
+                    `;
+                    categoryHeader.textContent = `${categoryNames[category]} (${categoryTasks.length}개)`;
+                    queueList.appendChild(categoryHeader);
+
+                    // Add tasks in this category
+                    categoryTasks.forEach((task, index) => {
+                        const item = document.createElement('div');
+                        item.style.cssText = `
+                            border: 1px solid #dee2e6;
+                            border-top: none;
+                            padding: 8px 12px;
+                            margin-bottom: ${index === categoryTasks.length - 1 ? '10px' : '0'};
+                            background-color: ${task.status === 'processing' ? '#fff3cd' : '#f8f9fa'};
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            ${index === categoryTasks.length - 1 ? 'border-radius: 0 0 5px 5px;' : ''}
+                        `;
+                        
+                        const globalIndex = taskQueue.findIndex(t => t.id === task.id);
+                        const statusText = task.status === 'processing' ? '진행중' : `대기중 (${globalIndex + 1}번째)`;
+                        const statusColor = task.status === 'processing' ? '#856404' : '#6c757d';
+                        
+                        const info = document.createElement('span');
+                        info.innerHTML = `
+                            <strong>${task.filename}</strong>
+                            <span style="color: ${statusColor}; font-size: 12px; margin-left: 10px;">[${statusText}]</span>
+                        `;
+                        
+                        const cancelBtn = document.createElement('button');
+                        cancelBtn.textContent = '×';
+                        cancelBtn.style.cssText = `
+                            background: #dc3545;
+                            color: white;
+                            border: none;
+                            border-radius: 3px;
+                            width: 24px;
+                            height: 24px;
+                            cursor: pointer;
+                            font-size: 16px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                        `;
+                        cancelBtn.title = '작업 취소';
+                        cancelBtn.onclick = () => removeTaskFromQueue(task.id);
+                        
+                        item.appendChild(info);
+                        item.appendChild(cancelBtn);
+                        queueList.appendChild(item);
+                    });
+                });
+            }
         }
 
         function createTaskElement(task, isCompleted, downloadUrl, record = null) {
@@ -1050,6 +1114,12 @@
             } catch (err) {
                 alert(err.message);
             }
+        });
+
+        // Add event listener for queue sort dropdown
+        document.getElementById('queueSortSelect').addEventListener('change', function() {
+            sortTaskQueue();
+            updateQueueDisplay();
         });
 
         document.addEventListener('DOMContentLoaded', function() {
