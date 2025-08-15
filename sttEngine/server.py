@@ -532,6 +532,19 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def _serve_static(self, filename: str, content_type: str):
+        """Serve static frontend assets like CSS or JS files."""
+        try:
+            with open(BASE_DIR / "frontend" / filename, "rb") as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.end_headers()
+            self.wfile.write(content)
+        except FileNotFoundError:
+            self.send_response(404)
+            self.end_headers()
+
     def _serve_download(self, file_path: str):
         # Handle both old flat structure and new nested structure
         full_path = OUTPUT_DIR / file_path
@@ -561,6 +574,9 @@ class UploadHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/":
             self._serve_upload_page()
+        elif self.path in ("/upload.css", "/upload.js"):
+            content_type = "text/css" if self.path.endswith(".css") else "application/javascript"
+            self._serve_static(self.path.lstrip("/"), content_type)
         elif self.path.startswith("/download/"):
             file_path = unquote(self.path[len("/download/"):])
             self._serve_download(file_path)
