@@ -18,7 +18,7 @@ if exist "%SCRIPT_DIR%\.env" (
         )
     )
     if defined PYANNOTE_TOKEN (
-        echo [DEBUG] 로드된 토큰: !PYANNOTE_TOKEN!
+        echo [DEBUG] PYANNOTE_TOKEN이 로드되었습니다.
     ) else (
         echo [DEBUG] PYANNOTE_TOKEN이 설정되지 않았습니다.
     )

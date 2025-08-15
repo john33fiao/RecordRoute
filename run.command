@@ -7,7 +7,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 if [ -f "$SCRIPT_DIR/.env" ]; then
   echo ".env 파일에서 환경변수를 로드합니다."
   export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
-  echo "[DEBUG] 로드된 토큰: $PYANNOTE_TOKEN"
+  echo "[DEBUG] PYANNOTE_TOKEN이 로드되었습니다."
 fi
 
 # 가상환경의 Python 실행 파일 경로
