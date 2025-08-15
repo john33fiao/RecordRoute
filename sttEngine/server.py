@@ -37,7 +37,7 @@ from sttEngine.one_line_summary import generate_one_line_summary
 from vector_search import search as search_vectors
 
 
-BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)).resolve()
+BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent)).resolve()
 UPLOAD_DIR = BASE_DIR / "uploads"
 OUTPUT_DIR = BASE_DIR / "whisper_output"
 HISTORY_FILE = BASE_DIR / "upload_history.json"
