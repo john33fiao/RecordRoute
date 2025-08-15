@@ -157,19 +157,26 @@ def chat_once(model: str, system: str, user: str, temperature: float = 0.0,
         try:
             logging.debug("모델 %s에 요청 중... (시도 %d/%d)", model, attempt, retries)
             
-            resp = ollama.chat(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                    {"role": "user", "content": CORRECTION_INSTRUCTIONS},
-                ],
-                options={
-                    "temperature": temperature,
-                    "num_ctx": num_ctx,
-                },
-                stream=False,
-            )
+            # ollama.chat() 호출 방식 수정 - 기본 형태로 단순화
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user + "\n\n" + CORRECTION_INSTRUCTIONS},
+            ]
+            
+            try:
+                # 최신 ollama 라이브러리 방식
+                resp = ollama.chat(
+                    model=model,
+                    messages=messages,
+                    options={
+                        "temperature": temperature,
+                        "num_ctx": num_ctx,
+                    }
+                )
+            except TypeError as te:
+                # 구 버전 ollama 라이브러리 방식
+                logging.warning("새로운 ollama.chat 방식 실패, 구 버전 방식으로 재시도: %s", te)
+                resp = ollama.chat(model, messages)
             
             # 응답 검증
             # if not isinstance(resp, dict):
