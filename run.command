@@ -35,7 +35,8 @@ echo "서버 URL: http://localhost:8080"
 echo "(웹브라우저에서 http://localhost:8080 에 접속하세요)"
 echo
 
-"$VENV_PYTHON" "$WEB_SERVER"
+cd "$SCRIPT_DIR"
+"$VENV_PYTHON" -m sttEngine.server
 
 echo
 echo "서버가 종료되었습니다."

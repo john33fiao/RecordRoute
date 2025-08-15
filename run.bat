@@ -59,8 +59,8 @@ echo.
 echo 서버를 종료하려면 Ctrl+C를 누르세요.
 echo.
 
-REM 오류 발생 시에도 창이 닫히지 않도록 처리
-"%VENV_PYTHON%" "%WEB_SERVER%"
+cd /d "%SCRIPT_DIR%"
+"%VENV_PYTHON%" -m sttEngine.server
 set "EXIT_CODE=%ERRORLEVEL%"
 
 REM 서버 종료 후 일시 정지
