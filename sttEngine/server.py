@@ -429,11 +429,21 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
             print(f"Starting text correction for task {task_id}")
             if task_id:
                 update_task_progress(task_id, "텍스트 교정 시작")
-                
+
+            # Define the output file path
+            corrected_file = individual_output_dir / f"{current_file.stem}.corrected.md"
+            
             try:
+                # Load model and temperature settings from config
+                from sttEngine.config import get_model_for_task, get_config_value
+                correction_model = get_model_for_task("CORRECT")
+                correction_temp = get_config_value("DEFAULT_TEMPERATURE_CORRECT", 0.0, float)
+
                 success = correct_text_file(
-                    input_file=Path(current_file),
-                    inplace=True  # 원본 파일과 같은 위치에 .corrected.md 파일 생성
+                    input_file=current_file,
+                    output_file=corrected_file,
+                    model=correction_model,
+                    temperature=correction_temp
                 )
                 if not success:
                     if task_id:
@@ -448,7 +458,6 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     update_task_progress(task_id, f"텍스트 교정 실패: {e}")
                 return {"error": f"Correction process failed: {e}"}
 
-            corrected_file = current_file.with_name(f"{current_file.stem}.corrected.md")
             download_url = f"/download/{upload_folder_name}/{corrected_file.name}"
             results["correct"] = download_url
             current_file = corrected_file
