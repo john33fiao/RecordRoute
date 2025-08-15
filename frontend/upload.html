@@ -97,6 +97,29 @@
             border-radius: 3px;
             cursor: pointer;
         }
+        .filename-display {
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: 3px;
+            transition: background-color 0.2s;
+        }
+        .filename-display:hover {
+            background-color: #e9ecef;
+        }
+        .filename-input {
+            background: white;
+            border: 1px solid #007bff;
+            border-radius: 3px;
+            padding: 2px 4px;
+            font-size: inherit;
+            font-weight: bold;
+            min-width: 200px;
+        }
+        .filename-input:focus {
+            outline: none;
+            border-color: #0056b3;
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+        }
     </style>
 </head>
 <body>
@@ -194,6 +217,77 @@
 
         function hideSummaryPopup() {
             summaryPopup.style.display = 'none';
+        }
+
+        function editFilename(recordId, currentFilename) {
+            const filenameElement = document.getElementById(`filename-${recordId}`);
+            const originalText = filenameElement.textContent;
+            
+            // Create input element
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentFilename;
+            input.className = 'filename-input';
+            
+            // Replace filename display with input
+            filenameElement.style.display = 'none';
+            filenameElement.parentNode.insertBefore(input, filenameElement.nextSibling);
+            
+            input.focus();
+            input.select();
+            
+            // Handle save on Enter or blur
+            const saveEdit = async (newFilename) => {
+                if (newFilename && newFilename.trim() !== '' && newFilename !== currentFilename) {
+                    try {
+                        const response = await fetch('/update_filename', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                record_id: recordId, 
+                                filename: newFilename.trim() 
+                            })
+                        });
+                        
+                        if (response.ok) {
+                            filenameElement.textContent = newFilename.trim();
+                            loadHistory(); // Reload to reflect changes
+                        } else {
+                            alert('파일명 수정에 실패했습니다.');
+                            filenameElement.textContent = originalText;
+                        }
+                    } catch (error) {
+                        alert('파일명 수정 중 오류가 발생했습니다.');
+                        filenameElement.textContent = originalText;
+                    }
+                } else {
+                    filenameElement.textContent = originalText;
+                }
+                
+                // Remove input and show filename display
+                input.remove();
+                filenameElement.style.display = '';
+            };
+            
+            // Cancel edit on Escape
+            const cancelEdit = () => {
+                input.remove();
+                filenameElement.style.display = '';
+            };
+            
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    saveEdit(input.value);
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cancelEdit();
+                }
+            });
+            
+            input.addEventListener('blur', () => {
+                saveEdit(input.value);
+            });
         }
 
         function setQueuedState(span) {
@@ -608,8 +702,16 @@
                 info.innerHTML = `
                     <strong>[${typeLabel}]</strong>
                     ${dateTime}
-                    <strong>${record.filename}</strong>${duration}
+                    <strong id="filename-${record.id}" class="filename-display" title="클릭하여 파일명 수정">${record.filename}</strong><span class="duration">${duration}</span>
                 `;
+                
+                // Add click event to filename for editing
+                setTimeout(() => {
+                    const filenameElement = document.getElementById(`filename-${record.id}`);
+                    if (filenameElement) {
+                        filenameElement.onclick = () => editFilename(record.id, record.filename);
+                    }
+                }, 0);
 
                 const resetBtn = document.createElement('button');
                 resetBtn.textContent = '초기화';

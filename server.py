@@ -229,6 +229,16 @@ def update_title_summary(record_id: str, summary: str):
     save_upload_history(history)
 
 
+def update_filename(record_id: str, new_filename: str):
+    """Update filename for a record."""
+    history = load_upload_history()
+    for record in history:
+        if record["id"] == record_id:
+            record["filename"] = new_filename
+            break
+    save_upload_history(history)
+
+
 def generate_and_store_title_summary(record_id: str, file_path: Path):
     """Generate one-line summary and store it."""
     try:
@@ -724,6 +734,31 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"success": success}).encode())
+            return
+
+        if self.path == "/update_filename":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length)) if length else {}
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Invalid JSON payload")
+                return
+            record_id = payload.get("record_id")
+            new_filename = payload.get("filename")
+
+            if not record_id or not new_filename:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Missing record_id or filename")
+                return
+
+            update_filename(record_id, new_filename)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True}).encode())
             return
 
         self.send_response(404)
