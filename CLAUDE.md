@@ -1,7 +1,7 @@
 # CLAUDE.md - RecordRoute 프로젝트 가이드
 
 ## 프로젝트 개요
-RecordRoute는 음성 파일을 회의록으로 변환하는 통합 워크플로우 시스템입니다. STT(Speech-to-Text), 텍스트 교정, 요약 기능을 단계적으로 제공합니다. 최근에는 웹 기반 인터페이스가 추가되어 파일 업로드와 단계별 작업 선택, 작업 큐 및 업로드 기록(개별 초기화), 결과 오버레이 뷰어, 요약 전 확인 팝업을 지원합니다.
+RecordRoute는 음성 파일을 회의록으로 변환하는 통합 워크플로우 시스템입니다. STT(Speech-to-Text), 텍스트 교정, 요약 기능을 단계적으로 제공합니다. 최근에는 웹 기반 인터페이스가 추가되어 파일 업로드와 단계별 작업 선택, 작업 큐 및 업로드 기록(개별 초기화), 결과 오버레이 뷰어, 요약 전 확인 팝업을 지원합니다. 추가로 문서 임베딩·벡터 검색과 한 줄 요약 기능을 제공합니다.
 
 ## 아키텍처 구조
 
@@ -9,22 +9,25 @@ RecordRoute는 음성 파일을 회의록으로 변환하는 통합 워크플로
 ```
 RecordRoute/
 ├── README.md              # 프로젝트 소개 및 설치 가이드
-├── TodoList.md           # 기능 구현 계획
-├── LICENSE              # 라이선스 정보
+├── TODO.md               # 기능 구현 계획
+├── LICENSE                # 라이선스 정보
 ├── CLAUDE.md             # Claude AI 전용 프로젝트 가이드
 ├── GEMINI.md             # Gemini AI 전용 프로젝트 가이드
 ├── run.bat               # Windows 웹 서버 실행 스크립트
 ├── run.command           # macOS/Linux 웹 서버 실행 스크립트
-├── server.py             # 업로드 처리 및 워크플로우 실행 서버
 ├── frontend/             # 웹 인터페이스 (upload.html)
-└── sttEngine/           # STT 엔진 메인 모듈
-    ├── requirements.txt    # Python 의존성
-    ├── setup.bat          # Windows 설치 스크립트
-    ├── run_workflow.py   # 워크플로우 통합 실행기
-    └── workflow/         # 핵심 처리 모듈들
-        ├── transcribe.py   # 음성→텍스트 변환
-        ├── correct.py     # 텍스트 교정
-        └── summarize.py   # 텍스트 요약
+└── sttEngine/            # STT 엔진 및 서버 모듈
+    ├── config.py            # 환경변수 기반 설정 관리
+    ├── embedding_pipeline.py  # 문서 임베딩 및 벡터 생성
+    ├── one_line_summary.py    # 한 줄 요약 유틸리티
+    ├── requirements.txt       # Python 의존성
+    ├── run_workflow.py        # 워크플로우 통합 실행기
+    ├── server.py              # 업로드 처리 및 워크플로우 실행 서버
+    ├── vector_search.py       # 벡터 검색 기능
+    └── workflow/              # 핵심 처리 모듈들
+        ├── transcribe.py      # 음성→텍스트 변환
+        ├── correct.py         # 텍스트 교정
+        └── summarize.py       # 텍스트 요약
 ```
 
 ## 핵심 기능 모듈
@@ -97,7 +100,7 @@ python correct.py input.md --model gemma3:4b --temperature 0.0
 - 연속 처리 파이프라인
 - 실시간 진행 상황 출력
 
-### 5. server.py - 웹 업로드 및 워크플로우 서버
+### 5. sttEngine/server.py - 웹 업로드 및 워크플로우 서버
 **기능**: 파일 업로드와 선택된 단계(STT, 교정, 요약)의 백그라운드 실행을 처리하는 HTTP 서버.
 
 **주요 특징**:
@@ -191,7 +194,7 @@ pip install -r sttEngine/requirements.txt
 - 원자적 파일 쓰기로 데이터 손실 방지
 - 재시도 메커니즘 (summarize.py)
 
-## 확장 계획 (TodoList.md 기준)
+## 확장 계획 (TODO.md 기준)
 - [ ] 임베딩 및 RAG 질의 시스템
 - [x] 웹 UI 개발 (완료)
 - [ ] LLM API 연동 확장

@@ -8,28 +8,33 @@
  - **구조화된 요약**: 회의록 형태의 체계적 요약 생성
  - **통합 워크플로우**: 1단계부터 3단계까지 자동화된 처리 파이프라인
  - **웹 기반 인터페이스**: 파일 업로드와 단계별 작업 선택, 작업 큐·업로드 기록 관리, 결과 오버레이 뷰어, 요약 전 확인 팝업, 기록 초기화 지원
+ - **임베딩 기반 검색**: 문서를 벡터화하여 RAG 질의 및 유사도 검색 지원
+ - **한 줄 요약**: 텍스트 파일을 한 줄로 요약하는 유틸리티
 
 ## 디렉토리 구조
 
 ```
 RecordRoute/
 ├── README.md              # 프로젝트 소개 및 설치 가이드
-├── TodoList.md           # 기능 구현 계획
-├── LICENSE              # 라이선스 정보
+├── TODO.md               # 기능 구현 계획
+├── LICENSE                # 라이선스 정보
 ├── CLAUDE.md             # Claude AI 전용 프로젝트 가이드
 ├── GEMINI.md             # Gemini AI 전용 프로젝트 가이드
 ├── run.bat               # Windows 웹 서버 실행 스크립트
 ├── run.command           # macOS/Linux 웹 서버 실행 스크립트
-├── server.py             # 업로드 처리 및 워크플로우 실행 서버
 ├── frontend/             # 웹 인터페이스 (upload.html)
-└── sttEngine/           # STT 엔진 메인 모듈
-    ├── requirements.txt    # Python 의존성
-    ├── setup.bat          # Windows 설치 스크립트
-    ├── run_workflow.py   # 워크플로우 통합 실행기
-    └── workflow/         # 핵심 처리 모듈들
-        ├── transcribe.py   # 음성→텍스트 변환
-        ├── correct.py     # 텍스트 교정
-        └── summarize.py   # 텍스트 요약
+└── sttEngine/            # STT 엔진 및 서버 모듈
+    ├── config.py            # 환경변수 기반 설정 관리
+    ├── embedding_pipeline.py  # 문서 임베딩 및 벡터 생성
+    ├── one_line_summary.py    # 한 줄 요약 유틸리티
+    ├── requirements.txt       # Python 의존성
+    ├── run_workflow.py        # 워크플로우 통합 실행기
+    ├── server.py              # 업로드 처리 및 워크플로우 실행 서버
+    ├── vector_search.py       # 벡터 검색 기능
+    └── workflow/              # 핵심 처리 모듈들
+        ├── transcribe.py      # 음성→텍스트 변환
+        ├── correct.py         # 텍스트 교정
+        └── summarize.py       # 텍스트 요약
 ```
 
 ## 설치 및 설정
