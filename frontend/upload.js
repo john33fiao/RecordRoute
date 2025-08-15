@@ -27,71 +27,29 @@ function showTextOverlay(url) {
         });
 }
 
-// Progress modal functions
-function showProgressModal(filename, taskId) {
-    const overlay = document.getElementById('progressOverlay');
-    const filenameEl = document.getElementById('progressFilename');
-    const progressText = document.getElementById('progressText');
-    const progressFill = document.getElementById('progressFill');
-    
-    filenameEl.textContent = filename;
-    progressText.textContent = '작업 준비 중...';
-    progressFill.style.width = '0%';
-    overlay.style.display = 'flex';
-    
-    // Start polling for progress
-    startProgressPolling(taskId);
-}
-
-function hideProgressModal() {
-    const overlay = document.getElementById('progressOverlay');
-    overlay.style.display = 'none';
-    
-    // Stop polling
-    if (window.progressPollingInterval) {
-        clearInterval(window.progressPollingInterval);
-        window.progressPollingInterval = null;
-    }
-}
-
-function updateProgress(message, percentage = null) {
-    const progressText = document.getElementById('progressText');
-    const progressFill = document.getElementById('progressFill');
-    
-    progressText.textContent = message;
-    
-    if (percentage !== null) {
-        progressFill.style.width = percentage + '%';
-    } else {
-        // Estimate progress based on message content
-        let estimatedProgress = 10;
-        if (message.includes('모델 로드')) estimatedProgress = 20;
-        else if (message.includes('변환 중') || message.includes('실행 중')) estimatedProgress = 50;
-        else if (message.includes('처리 중') || message.includes('분석 중')) estimatedProgress = 70;
-        else if (message.includes('저장 중')) estimatedProgress = 90;
-        else if (message.includes('완료')) estimatedProgress = 100;
-        
-        progressFill.style.width = estimatedProgress + '%';
-    }
-}
-
-function startProgressPolling(taskId) {
-    if (window.progressPollingInterval) {
-        clearInterval(window.progressPollingInterval);
-    }
-    
+// Progress polling to update queue items
+function startProgressPolling(task) {
+    stopProgressPolling();
     window.progressPollingInterval = setInterval(() => {
-        fetch(`/progress/${taskId}`)
+        fetch(`/progress/${task.taskId}`)
             .then(response => response.json())
             .then(data => {
                 if (data.message) {
-                    updateProgress(data.message);
+                    task.progress = data.message;
+                    updateQueueDisplay();
                 }
             })
             .catch(error => {
                 console.log('Progress polling error:', error);
             });
-    }, 1000); // Poll every second
+    }, 1000);
+}
+
+function stopProgressPolling() {
+    if (window.progressPollingInterval) {
+        clearInterval(window.progressPollingInterval);
+        window.progressPollingInterval = null;
+    }
 }
 
 document.getElementById('overlayClose').addEventListener('click', () => {
@@ -383,7 +341,18 @@ function updateQueueDisplay() {
                 <strong>${task.filename}</strong> - ${taskName}
                 <span style="color: ${statusColor}; font-size: 12px; margin-left: 10px;">[${statusText}]</span>
             `;
-            
+
+            const infoContainer = document.createElement('div');
+            infoContainer.style.flex = '1';
+            infoContainer.appendChild(info);
+
+            if (task.status === 'processing' && task.progress) {
+                const progressDiv = document.createElement('div');
+                progressDiv.style.cssText = 'color: #856404; font-size: 12px; margin-top: 4px;';
+                progressDiv.textContent = task.progress;
+                infoContainer.appendChild(progressDiv);
+            }
+
             const cancelBtn = document.createElement('button');
             cancelBtn.textContent = '×';
             cancelBtn.style.cssText = `
@@ -402,7 +371,7 @@ function updateQueueDisplay() {
             cancelBtn.title = '작업 취소';
             cancelBtn.onclick = () => removeTaskFromQueue(task.id);
             
-            item.appendChild(info);
+            item.appendChild(infoContainer);
             item.appendChild(cancelBtn);
             queueList.appendChild(item);
         });
@@ -462,7 +431,18 @@ function updateQueueDisplay() {
                     <strong>${task.filename}</strong>
                     <span style="color: ${statusColor}; font-size: 12px; margin-left: 10px;">[${statusText}]</span>
                 `;
-                
+
+                const infoContainer = document.createElement('div');
+                infoContainer.style.flex = '1';
+                infoContainer.appendChild(info);
+
+                if (task.status === 'processing' && task.progress) {
+                    const progressDiv = document.createElement('div');
+                    progressDiv.style.cssText = 'color: #856404; font-size: 12px; margin-top: 4px;';
+                    progressDiv.textContent = task.progress;
+                    infoContainer.appendChild(progressDiv);
+                }
+
                 const cancelBtn = document.createElement('button');
                 cancelBtn.textContent = '×';
                 cancelBtn.style.cssText = `
@@ -481,7 +461,7 @@ function updateQueueDisplay() {
                 cancelBtn.title = '작업 취소';
                 cancelBtn.onclick = () => removeTaskFromQueue(task.id);
                 
-                item.appendChild(info);
+                item.appendChild(infoContainer);
                 item.appendChild(cancelBtn);
                 queueList.appendChild(item);
             });
@@ -780,8 +760,10 @@ async function processNextTask() {
         taskElement.style.cursor = 'default';
         taskElement.onclick = null;
         
-        // Show progress modal
-        showProgressModal(currentTask.filename, currentTask.taskId);
+        // Initialize progress message and start polling for updates
+        currentTask.progress = '작업 준비 중...';
+        updateQueueDisplay();
+        startProgressPolling(currentTask);
 
         // Create AbortController for this task
         currentTask.abortController = new AbortController();
@@ -839,8 +821,8 @@ async function processNextTask() {
             console.error('Error processing task:', error);
         }
         
-        // Hide progress modal on error
-        hideProgressModal();
+        // Stop progress polling on error
+        stopProgressPolling();
     } finally {
         // Remove completed task from queue
         if (currentTask) {
@@ -857,8 +839,8 @@ async function processNextTask() {
         // Reload history to show updated completion status
         loadHistory();
         
-        // Hide progress modal when task completes
-        hideProgressModal();
+        // Stop progress polling when task completes
+        stopProgressPolling();
         
         // Process next task in queue
         setTimeout(() => processNextTask(), 100);
