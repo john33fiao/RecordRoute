@@ -46,6 +46,10 @@ HISTORY_FILE = BASE_DIR / "upload_history.json"
 running_processes = {}
 process_lock = threading.Lock()
 
+# Global dictionary to track task progress
+task_progress = {}
+progress_lock = threading.Lock()
+
 
 def register_process(task_id: str, process):
     """Register a running process for a task."""
@@ -103,6 +107,29 @@ def is_task_cancelled(task_id: str):
         if task_id in running_processes:
             return running_processes[task_id]['cancelled']
         return False
+
+
+def update_task_progress(task_id: str, message: str):
+    """Update progress message for a task."""
+    with progress_lock:
+        task_progress[task_id] = {
+            'message': message,
+            'timestamp': time.time()
+        }
+        print(f"Task {task_id}: {message}")
+
+
+def get_task_progress(task_id: str):
+    """Get current progress for a task."""
+    with progress_lock:
+        return task_progress.get(task_id, {})
+
+
+def clear_task_progress(task_id: str):
+    """Clear progress for a completed/cancelled task."""
+    with progress_lock:
+        if task_id in task_progress:
+            del task_progress[task_id]
 
 
 def get_running_tasks():
@@ -358,6 +385,12 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 return {"error": "Task was cancelled"}
                 
             print(f"Starting STT for task {task_id}")
+            
+            # Create progress callback function
+            def progress_callback(message):
+                if task_id:
+                    update_task_progress(task_id, message)
+                    
             try:
                 transcribe_audio_files(
                     input_dir=str(current_file.parent),
@@ -370,9 +403,12 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     filter_fillers=False,
                     min_seg_length=2,
                     normalize_punct=False,
+                    progress_callback=progress_callback
                 )
             except Exception as e:
                 print(f"STT process failed: {e}")
+                if task_id:
+                    update_task_progress(task_id, f"STT 실패: {e}")
                 return {"error": f"STT process failed: {e}"}
 
             stt_file = individual_output_dir / f"{file_path.stem}.md"
@@ -391,15 +427,25 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 return {"error": "Task was cancelled"}
                 
             print(f"Starting text correction for task {task_id}")
+            if task_id:
+                update_task_progress(task_id, "텍스트 교정 시작")
+                
             try:
                 success = correct_text_file(
                     input_file=Path(current_file),
                     inplace=True  # 원본 파일과 같은 위치에 .corrected.md 파일 생성
                 )
                 if not success:
+                    if task_id:
+                        update_task_progress(task_id, "텍스트 교정 실패")
                     return {"error": "Correction process failed"}
+                    
+                if task_id:
+                    update_task_progress(task_id, "텍스트 교정 완료")
             except Exception as e:
                 print(f"Correction process failed: {e}")
+                if task_id:
+                    update_task_progress(task_id, f"텍스트 교정 실패: {e}")
                 return {"error": f"Correction process failed: {e}"}
 
             corrected_file = current_file.with_name(f"{current_file.stem}.corrected.md")
@@ -418,8 +464,14 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 return {"error": "Task was cancelled"}
                 
             print(f"Starting summary for task {task_id}")
+            if task_id:
+                update_task_progress(task_id, "요약 생성 시작")
+                
             try:
                 text = read_text_with_fallback(Path(current_file))
+                if task_id:
+                    update_task_progress(task_id, "텍스트 분석 중...")
+                    
                 summary = summarize_text_mapreduce(
                     text=text,
                     model=DEFAULT_MODEL,
@@ -427,10 +479,19 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     max_tokens=None,
                     temperature=DEFAULT_TEMPERATURE,
                 )
+                
+                if task_id:
+                    update_task_progress(task_id, "요약 파일 저장 중...")
+                    
                 output_file = Path(current_file).with_name(f"{Path(current_file).stem}.summary.md")
                 save_output(summary, output_file, as_json=False)
+                
+                if task_id:
+                    update_task_progress(task_id, "요약 생성 완료")
             except Exception as e:
                 print(f"Summary process failed: {e}")
+                if task_id:
+                    update_task_progress(task_id, f"요약 생성 실패: {e}")
                 return {"error": f"Summary process failed: {e}"}
 
             summary_file = current_file.with_name(f"{current_file.stem}.summary.md")
@@ -447,7 +508,13 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
         # Clean up process registration if something goes wrong
         if task_id:
             unregister_process(task_id)
+            update_task_progress(task_id, f"작업 실패: {exc}")
         return {"error": str(exc)}
+    
+    finally:
+        # Clear progress when task completes
+        if task_id:
+            clear_task_progress(task_id)
 
     return results
 
@@ -501,6 +568,9 @@ class UploadHandler(BaseHTTPRequestHandler):
             self._serve_history()
         elif self.path == "/tasks":
             self._serve_running_tasks()
+        elif self.path.startswith("/progress/"):
+            task_id = self.path[len("/progress/"):]
+            self._serve_task_progress(task_id)
         elif self.path.startswith("/search"):
             from urllib.parse import urlparse, parse_qs
             parsed = urlparse(self.path)
@@ -543,6 +613,19 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_response(500)
             self.end_headers()
             self.wfile.write(f"Error getting running tasks: {str(e)}".encode())
+
+    def _serve_task_progress(self, task_id: str):
+        """Serve progress information for a specific task."""
+        try:
+            progress = get_task_progress(task_id)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(progress, ensure_ascii=False).encode())
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(f"Error getting task progress: {str(e)}".encode())
 
     def _parse_multipart(self, data, boundary):
         """Simple multipart/form-data parser"""

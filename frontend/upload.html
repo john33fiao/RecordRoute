@@ -28,6 +28,50 @@
             background: #d4edda;
             color: #155724;
         }
+        .progress-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .progress-modal {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            min-width: 400px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #007bff, #0056b3);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .progress-text {
+            margin: 10px 0;
+            font-size: 14px;
+            color: #666;
+        }
+        .progress-filename {
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #333;
+        }
         #workflow label {
             display: block;
             margin-bottom: 5px;
@@ -181,6 +225,20 @@
         </div>
     </div>
 
+    <!-- Progress Modal -->
+    <div id="progressOverlay" class="progress-overlay">
+        <div class="progress-modal">
+            <div class="progress-filename" id="progressFilename"></div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-text" id="progressText">작업 준비 중...</div>
+            <button onclick="hideProgressModal()" style="margin-top: 20px; padding: 8px 16px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                백그라운드로 실행
+            </button>
+        </div>
+    </div>
+
     <script>
         let uploadedPath = null;
         let fileType = null;
@@ -211,8 +269,85 @@
                 });
         }
 
+        // Progress modal functions
+        function showProgressModal(filename, taskId) {
+            const overlay = document.getElementById('progressOverlay');
+            const filenameEl = document.getElementById('progressFilename');
+            const progressText = document.getElementById('progressText');
+            const progressFill = document.getElementById('progressFill');
+            
+            filenameEl.textContent = filename;
+            progressText.textContent = '작업 준비 중...';
+            progressFill.style.width = '0%';
+            overlay.style.display = 'flex';
+            
+            // Start polling for progress
+            startProgressPolling(taskId);
+        }
+
+        function hideProgressModal() {
+            const overlay = document.getElementById('progressOverlay');
+            overlay.style.display = 'none';
+            
+            // Stop polling
+            if (window.progressPollingInterval) {
+                clearInterval(window.progressPollingInterval);
+                window.progressPollingInterval = null;
+            }
+        }
+
+        function updateProgress(message, percentage = null) {
+            const progressText = document.getElementById('progressText');
+            const progressFill = document.getElementById('progressFill');
+            
+            progressText.textContent = message;
+            
+            if (percentage !== null) {
+                progressFill.style.width = percentage + '%';
+            } else {
+                // Estimate progress based on message content
+                let estimatedProgress = 10;
+                if (message.includes('모델 로드')) estimatedProgress = 20;
+                else if (message.includes('변환 중') || message.includes('실행 중')) estimatedProgress = 50;
+                else if (message.includes('처리 중') || message.includes('분석 중')) estimatedProgress = 70;
+                else if (message.includes('저장 중')) estimatedProgress = 90;
+                else if (message.includes('완료')) estimatedProgress = 100;
+                
+                progressFill.style.width = estimatedProgress + '%';
+            }
+        }
+
+        function startProgressPolling(taskId) {
+            if (window.progressPollingInterval) {
+                clearInterval(window.progressPollingInterval);
+            }
+            
+            window.progressPollingInterval = setInterval(() => {
+                fetch(`/progress/${taskId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.message) {
+                            updateProgress(data.message);
+                        }
+                    })
+                    .catch(error => {
+                        console.log('Progress polling error:', error);
+                    });
+            }, 1000); // Poll every second
+        }
+
         document.getElementById('overlayClose').addEventListener('click', () => {
             document.getElementById('textOverlay').style.display = 'none';
+        });
+
+        // Add Esc key listener for text overlay
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const textOverlay = document.getElementById('textOverlay');
+                if (textOverlay.style.display === 'flex') {
+                    textOverlay.style.display = 'none';
+                }
+            }
         });
 
         function hideSummaryPopup() {
@@ -886,6 +1021,9 @@
                 taskElement.style.color = 'black';
                 taskElement.style.cursor = 'default';
                 taskElement.onclick = null;
+                
+                // Show progress modal
+                showProgressModal(currentTask.filename, currentTask.taskId);
 
                 // Create AbortController for this task
                 currentTask.abortController = new AbortController();
@@ -942,6 +1080,9 @@
                     taskElement.title = `오류: ${error.message}`;
                     console.error('Error processing task:', error);
                 }
+                
+                // Hide progress modal on error
+                hideProgressModal();
             } finally {
                 // Remove completed task from queue
                 if (currentTask) {
@@ -957,6 +1098,9 @@
                 
                 // Reload history to show updated completion status
                 loadHistory();
+                
+                // Hide progress modal when task completes
+                hideProgressModal();
                 
                 // Process next task in queue
                 setTimeout(() => processNextTask(), 100);

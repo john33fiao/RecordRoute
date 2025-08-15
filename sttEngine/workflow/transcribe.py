@@ -153,7 +153,7 @@ def get_unique_output_path(base_path: Path) -> Path:
 def transcribe_single_file(file_path: Path, output_dir: Path, model,
                           language: str, initial_prompt: str,
                           filter_fillers: bool, min_seg_length: int,
-                          normalize_punct: bool):
+                          normalize_punct: bool, progress_callback=None):
     """단일 파일을 변환하고 결과를 저장합니다. m4a 파일은 wav로 자동 변환합니다."""
     
     temp_wav_path = None
@@ -162,6 +162,8 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
     try:
         # M4A 파일을 WAV로 변환
         if file_path.suffix.lower() == '.m4a':
+            if progress_callback:
+                progress_callback(f"'{file_path.name}' m4a → wav 변환 중...")
             logging.info(f"'{file_path.name}'은(는) m4a 파일이므로, 처리를 위해 wav로 변환합니다.")
             temp_wav_path = file_path.with_suffix('.wav')
             
@@ -184,6 +186,9 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
         output_file_path = get_unique_output_path(base_output_path)
 
         # Whisper 변환 실행
+        if progress_callback:
+            progress_callback(f"'{file_path.name}' Whisper 모델 실행 중...")
+        
         transcribe_params = {
             "fp16": False,
             "verbose": False,
@@ -201,6 +206,9 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
         result = model.transcribe(str(file_to_process), **transcribe_params)
 
         # 세그먼트 처리
+        if progress_callback:
+            progress_callback(f"'{file_path.name}' 결과 처리 중...")
+        
         segments = result.get("segments", []) or []
         segments = merge_segments(segments, max_gap=0.2)
 
@@ -236,7 +244,14 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
                 markdown_content += normalize_text(original_text, normalize_punct)
 
         # 원자적 저장
+        if progress_callback:
+            progress_callback(f"'{file_path.name}' 파일 저장 중...")
+        
         write_atomic(output_file_path, markdown_content)
+        
+        if progress_callback:
+            progress_callback(f"'{file_path.name}' 변환 완료!")
+        
         return output_file_path
 
     finally:
@@ -252,7 +267,7 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
 def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: str,
                           language: str, initial_prompt: str, workers: int,
                           recursive: bool, filter_fillers: bool,
-                          min_seg_length: int, normalize_punct: bool):
+                          min_seg_length: int, normalize_punct: bool, progress_callback=None):
     """
     지정된 입력 디렉토리 내의 모든 오디오/비디오 파일을 Whisper를 사용하여 
     텍스트로 변환하고, 변환된 텍스트를 마크다운(.md) 파일로 저장합니다.
@@ -290,13 +305,20 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
         logging.info("하위 폴더 포함 검색 활성화")
 
     # Whisper 모델 로드
+    if progress_callback:
+        progress_callback(f"Whisper 모델 ({os.path.basename(model_identifier)}) 로드 중...")
+    
     logging.info("'%s' 모델을 로드하는 중...", os.path.basename(model_identifier))
     try:
         model = whisper.load_model(model_identifier)
         logging.info("모델 로드 완료.")
+        if progress_callback:
+            progress_callback("모델 로드 완료")
     except Exception as e:
         logging.error("모델 로딩 중 오류 발생: %s", e)
         logging.error("스크립트를 종료합니다. 모델 이름이나 경로가 올바른지 확인하세요.")
+        if progress_callback:
+            progress_callback(f"모델 로드 실패: {e}")
         return
 
     # 변환 실행
@@ -304,17 +326,22 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
     
     if workers <= 1:
         # 순차 처리
-        for file_path in files_to_process:
+        for i, file_path in enumerate(files_to_process, 1):
+            if progress_callback:
+                progress_callback(f"파일 {i}/{len(files_to_process)} 처리 시작: {file_path.name}")
+            
             logging.info("'%s' 파일 변환 시작", file_path.name)
             try:
                 output_path = transcribe_single_file(
                     file_path, output_path_obj, model, language, initial_prompt,
-                    filter_fillers, min_seg_length, normalize_punct
+                    filter_fillers, min_seg_length, normalize_punct, progress_callback
                 )
                 logging.info("변환 완료: %s → %s", file_path.name, output_path.name)
             except Exception as e:
                 failures.append((file_path, str(e)))
                 logging.error("변환 실패: %s", file_path.name, exc_info=True)
+                if progress_callback:
+                    progress_callback(f"파일 {file_path.name} 변환 실패: {e}")
     else:
         # 병렬 처리 (주의: 단일 GPU/MPS/CPU에서는 비권장)
         logging.warning("병렬 처리 모드 활성화 (workers=%d). 단일 GPU/MPS/CPU에서는 성능 향상이 제한적일 수 있습니다.", workers)
@@ -324,7 +351,7 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
                 executor.submit(
                     transcribe_single_file, file_path, output_path_obj, model,
                     language, initial_prompt, filter_fillers, min_seg_length,
-                    normalize_punct
+                    normalize_punct, progress_callback
                 ): file_path for file_path in files_to_process
             }
             
