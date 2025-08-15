@@ -9,6 +9,7 @@
  3.  **텍스트 요약 (Summarize):** 교정된 텍스트를 `Ollama`를 사용해 구조화된 형식으로 요약합니다.
 
 간단한 웹 업로드 페이지를 통해 이러한 작업을 선택적으로 실행할 수 있으며, 작업 큐와 업로드 기록 관리, 결과 오버레이 뷰어, 요약 전 확인 팝업, 업로드 기록 초기화 기능을 제공합니다.
+추가로 문서 임베딩과 벡터 검색, 한 줄 요약 기능을 통해 결과 활용성을 높였습니다.
 
 ## 2. 기술 스택 (Tech Stack)
 
@@ -25,21 +26,27 @@
 
 ```
 RecordRoute/
+├── README.md              # 프로젝트 소개 및 설치 가이드
+├── TODO.md               # 기능 구현 계획
+├── LICENSE                # 라이선스 정보
+├── CLAUDE.md             # Claude AI 전용 프로젝트 가이드
+├── GEMINI.md             # Gemini AI 에이전트 및 개발자 가이드
 ├── run.bat                # Windows 웹 서버 실행 스크립트
 ├── run.command            # macOS/Linux 웹 서버 실행 스크립트
-├── server.py              # 업로드 처리 및 워크플로우 실행 서버
 ├── frontend/
 │   └── upload.html        # 웹 업로드 및 작업 관리 UI
-├── sttEngine/
-│   ├── requirements.txt      # Python 의존성 목록
-│   ├── setup.bat             # Windows 설치 스크립트
-│   ├── run_workflow.py       # 메인 워크플로우 오케스트레이션 스크립트
-│   └── workflow/
-│       ├── transcribe.py     # 1단계: 음성 변환 로직
-│       ├── correct.py        # 2단계: 텍스트 교정 로직
-│       └── summarize.py      # 3단계: 텍스트 요약 로직
-├── CLAUDE.md              # Claude AI 전용 프로젝트 가이드
-└── GEMINI.md              # Gemini AI 에이전트 및 개발자 가이드
+└── sttEngine/
+    ├── config.py            # 환경변수 기반 설정 관리
+    ├── embedding_pipeline.py  # 문서 임베딩 및 벡터 생성
+    ├── one_line_summary.py    # 한 줄 요약 유틸리티
+    ├── requirements.txt       # Python 의존성 목록
+    ├── run_workflow.py        # 메인 워크플로우 오케스트레이션 스크립트
+    ├── server.py              # 업로드 처리 및 워크플로우 실행 서버
+    ├── vector_search.py       # 벡터 검색 기능
+    └── workflow/
+        ├── transcribe.py     # 1단계: 음성 변환 로직
+        ├── correct.py        # 2단계: 텍스트 교정 로직
+        └── summarize.py      # 3단계: 텍스트 요약 로직
 ```
 
 ## 4. 설치 및 설정 (Setup)
