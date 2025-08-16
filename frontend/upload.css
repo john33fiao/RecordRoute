@@ -67,7 +67,7 @@
     background: #6c757d;
     color: white;
 }
-#summaryPopup {
+#summaryPopup, #sttConfirmPopup {
     position: fixed;
     top: 0;
     left: 0;
@@ -78,21 +78,29 @@
     align-items: center;
     justify-content: center;
 }
-#summaryPopup .content {
+#summaryPopup .content, #sttConfirmPopup .content {
     background: #ffffff;
     padding: 20px;
     border-radius: 5px;
     text-align: center;
 }
-#summaryPopup .buttons {
+#summaryPopup .buttons, #sttConfirmPopup .buttons {
     margin-top: 10px;
 }
-#summaryPopup button {
+#summaryPopup button, #sttConfirmPopup button {
     margin: 0 5px;
     padding: 5px 10px;
     border: none;
     border-radius: 3px;
     cursor: pointer;
+}
+#summaryCancelBtn, #sttConfirmCancelBtn {
+    background: #6c757d;
+    color: white;
+}
+#summaryOnlyBtn, #sttConfirmOkBtn {
+    background: #28a745;
+    color: white;
 }
 .filename-display {
     cursor: pointer;
