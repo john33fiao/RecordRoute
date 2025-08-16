@@ -66,3 +66,10 @@
 - [ ] 설정 파일 기반 구성 관리
 - [ ] 플러그인 시스템 구조
 - [ ] 로그 관리 및 모니터링
+
+## 리팩토링 및 구조 개선
+- [ ] `sttEngine`을 파이썬 패키지로 구성하여 `sys.path` 수정 제거
+- [ ] `embed_text_ollama` 중복 로직을 공용 유틸 모듈로 분리
+- [ ] `server.py`를 라우팅·작업 관리·파일 처리 등으로 모듈화
+- [ ] `transcribe`·`summarize`·`correct` 스크립트의 중복 CLI 로직 정리
+- [ ] `frontend/upload.js`를 모듈 단위로 분리하거나 프레임워크 도입 검토
