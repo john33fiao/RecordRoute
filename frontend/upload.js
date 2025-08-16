@@ -4,7 +4,7 @@ let recordId = null;
 let taskQueue = [];
 let currentTask = null;
 let taskIdCounter = 0;
-const categoryOrder = ['stt', 'summary'];
+const categoryOrder = ['stt', 'embedding', 'summary'];
 let currentCategory = null;
 const summaryPopup = document.getElementById('summaryPopup');
 const summaryOnlyBtn = document.getElementById('summaryOnlyBtn');
@@ -212,6 +212,17 @@ function formatDateTime(isoString) {
 }
 
 function addTaskToQueue(recordId, filePath, task, taskElement, filename) {
+    // Check for duplicate task before adding
+    const existingTask = taskQueue.find(t => 
+        t.recordId === recordId && 
+        t.task === task
+    );
+    
+    if (existingTask) {
+        console.log(`Task ${task} for record ${recordId} already exists in queue`);
+        return existingTask.id;
+    }
+    
     const taskId = 'task_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);  // Generate unique task ID
     const taskItem = {
         id: ++taskIdCounter,
@@ -288,6 +299,7 @@ document.getElementById('cancelAllBtn').addEventListener('click', cancelAllTasks
 function resetTaskElement(taskElement, task) {
     const taskNames = {
         'stt': 'STT',
+        'embedding': '색인',
         'summary': '요약'
     };
     
@@ -319,6 +331,7 @@ function updateQueueDisplay() {
 
     const categoryNames = {
         'stt': 'STT 변환',
+        'embedding': '색인 생성',
         'correct': '텍스트 교정', 
         'summary': '요약'
     };
@@ -543,6 +556,7 @@ function updateQueueDisplay() {
 function createTaskElement(task, isCompleted, downloadUrl, record = null) {
     const taskNames = {
         'stt': 'STT',
+        'embedding': '색인',
         'summary': '요약'
     };
     
@@ -585,15 +599,31 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
             span.style.cursor = 'pointer';
             span.title = '클릭하여 작업 시작';
             span.onclick = () => {
+                // Disable the button immediately to prevent multiple clicks
+                span.style.pointerEvents = 'none';
+                span.style.opacity = '0.7';
+                
                 // Double-check if this task is already in queue (in case of race condition)
                 const existingTaskCheck = taskQueue.find(t =>
                     t.recordId === record.id &&
                     t.task === task
                 );
 
+                if (existingTaskCheck) {
+                    // Task already exists, re-enable button and return
+                    span.style.pointerEvents = 'auto';
+                    span.style.opacity = '1';
+                    console.log(`Task ${task} for record ${record.id} already in queue, skipping`);
+                    return;
+                }
+
                 if (!existingTaskCheck) {
                     // Check if this is a summary task for audio file without STT completion
                     if (task === 'summary' && record.file_type === 'audio' && !record.completed_tasks.stt) {
+                        // Re-enable the button for popup handling
+                        span.style.pointerEvents = 'auto';
+                        span.style.opacity = '1';
+                        
                         // Show STT confirmation popup
                         showSttConfirmPopup();
                         
@@ -603,18 +633,21 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
                             // Add both STT and summary tasks (like batch process)
                             const steps = ['stt', 'summary'];
                             steps.forEach(step => {
+                                // Double check for existing task before adding
                                 const existingTask = taskQueue.find(t => t.recordId === record.id && t.task === step);
                                 if (!existingTask) {
                                     // Find the task element by ID
                                     const stepSpan = document.getElementById(`task-${record.id}-${step}`);
                                     if (stepSpan) {
-                                        addTaskToQueue(record.id, record.file_path, step, stepSpan, record.filename);
-                                        setQueuedState(stepSpan);
+                                        const addedId = addTaskToQueue(record.id, record.file_path, step, stepSpan, record.filename);
+                                        if (addedId) setQueuedState(stepSpan);
                                     } else {
                                         // Fallback: create a dummy span
                                         const dummySpan = document.createElement('span');
                                         addTaskToQueue(record.id, record.file_path, step, dummySpan, record.filename);
                                     }
+                                } else {
+                                    console.log(`Task ${step} for record ${record.id} already exists, skipping`);
                                 }
                             });
                             sttConfirmOkBtn.removeEventListener('click', handleConfirm);
@@ -624,14 +657,24 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
                         return;
                     }
                     
+                    // Check if this is an embedding task for audio file without STT completion
+                    if (task === 'embedding' && record.file_type === 'audio' && !record.completed_tasks.stt) {
+                        // Re-enable the button for alert
+                        span.style.pointerEvents = 'auto';
+                        span.style.opacity = '1';
+                        alert('오디오 파일의 경우 STT 작업을 먼저 완료해야 합니다.');
+                        return;
+                    }
+                    
                     // Normal case - just add the single task
                     addTaskToQueue(record.id, record.file_path, task, span, record.filename);
 
                     // Show queued state
-                    span.style.backgroundColor = '#17a2b8';
-                    span.style.color = 'white';
-                    span.title = '큐에 추가됨';
-                    span.onclick = null;
+                    setQueuedState(span);
+                } else {
+                    // Re-enable the button if task already exists
+                    span.style.pointerEvents = 'auto';
+                    span.style.opacity = '1';
                 }
             };
         }
@@ -759,6 +802,10 @@ function displayHistory(history) {
             tasks.appendChild(taskElements.stt);
         }
 
+        taskElements.embedding = createTaskElement('embedding', record.completed_tasks.embedding, record.download_links.embedding, record);
+        taskElements.embedding.id = `task-${record.id}-embedding`;
+        tasks.appendChild(taskElements.embedding);
+
         taskElements.summary = createTaskElement('summary', record.completed_tasks.summary, record.download_links.summary, record);
         taskElements.summary.id = `task-${record.id}-summary`;
         tasks.appendChild(taskElements.summary);
@@ -771,9 +818,12 @@ function displayHistory(history) {
             batchBtn.onclick = () => {
                 const steps = [];
                 if (record.file_type === 'audio') {
-                    steps.push('stt', 'summary');
+                    if (!record.completed_tasks.stt) steps.push('stt');
+                    if (!record.completed_tasks.embedding) steps.push('embedding');
+                    if (!record.completed_tasks.summary) steps.push('summary');
                 } else {
-                    steps.push('summary');
+                    if (!record.completed_tasks.embedding) steps.push('embedding');
+                    if (!record.completed_tasks.summary) steps.push('summary');
                 }
 
                 steps.forEach(step => {
@@ -781,10 +831,12 @@ function displayHistory(history) {
                     const existingTask = taskQueue.find(t => t.recordId === record.id && t.task === step);
                     if (!alreadyCompleted && !existingTask) {
                         const span = taskElements[step] || document.createElement('span');
-                        addTaskToQueue(record.id, record.file_path, step, span, record.filename);
-                        if (taskElements[step]) {
+                        const addedId = addTaskToQueue(record.id, record.file_path, step, span, record.filename);
+                        if (addedId && taskElements[step]) {
                             setQueuedState(taskElements[step]);
                         }
+                    } else if (existingTask) {
+                        console.log(`Task ${step} for record ${record.id} already in queue, skipping`);
                     }
                 });
 
@@ -838,7 +890,35 @@ async function processNextTask() {
         return;
     }
     
-    currentTask = taskQueue[0];
+    // Find the next task that's ready to process
+    let nextTaskIndex = -1;
+    const now = Date.now();
+    
+    for (let i = 0; i < taskQueue.length; i++) {
+        const task = taskQueue[i];
+        
+        // Skip tasks that were recently retried (within 3 seconds)
+        if (task.lastRetryTime && (now - task.lastRetryTime) < 3000) {
+            continue;
+        }
+        
+        // Skip tasks that have too many retries for STT dependency
+        if (task.retryCount && task.retryCount >= 20) {
+            continue;
+        }
+        
+        nextTaskIndex = i;
+        break;
+    }
+    
+    // If no task is ready, wait and try again
+    if (nextTaskIndex === -1) {
+        setTimeout(() => processNextTask(), 2000);
+        return;
+    }
+    
+    // Move the selected task to the front and process it
+    currentTask = taskQueue.splice(nextTaskIndex, 1)[0];
     currentTask.status = 'processing';
     currentCategory = currentTask.task;
     updateQueueDisplay();
@@ -877,11 +957,46 @@ async function processNextTask() {
             const result = await response.json();
             
             if (result.error) {
-                // Show error state
-                taskElement.textContent = '오류';
-                taskElement.style.backgroundColor = '#dc3545';
-                taskElement.style.color = 'white';
-                taskElement.title = `오류: ${result.error}`;
+                // Check if this is a dependency error (STT not completed for embedding)
+                if (result.error === 'STT_DEPENDENCY_NOT_MET') {
+                    // Put the task back to the queue and retry later
+                    currentTask.status = 'queued';
+                    currentTask.retryCount = (currentTask.retryCount || 0) + 1;
+                    currentTask.lastRetryTime = Date.now();
+                    
+                    if (currentTask.retryCount < 20) { // Max 20 retries
+                        // Add task back to the END of queue (not front) to avoid immediate retry
+                        taskQueue.push(currentTask);
+                        
+                        // Show waiting state
+                        taskElement.textContent = 'STT 대기';
+                        taskElement.style.backgroundColor = '#ffc107';
+                        taskElement.style.color = 'black';
+                        taskElement.title = result.message || 'STT 작업 완료 대기 중';
+                        
+                        // Don't remove task from queue, let it retry
+                        currentTask = null;
+                        currentCategory = taskQueue.length > 0 ? taskQueue[0].task : null;
+                        updateQueueDisplay();
+                        
+                        // Stop progress polling and retry after 5 seconds
+                        stopProgressPolling();
+                        setTimeout(() => processNextTask(), 5000);
+                        return;
+                    } else {
+                        // Too many retries, treat as error
+                        taskElement.textContent = '오류';
+                        taskElement.style.backgroundColor = '#dc3545';
+                        taskElement.style.color = 'white';
+                        taskElement.title = 'STT 작업을 기다리는 중 시간 초과';
+                    }
+                } else {
+                    // Show error state
+                    taskElement.textContent = '오류';
+                    taskElement.style.backgroundColor = '#dc3545';
+                    taskElement.style.color = 'white';
+                    taskElement.title = `오류: ${result.error}`;
+                }
             } else if (result[currentTask.task]) {
                 // Show success state with download link
                 taskElement.textContent = originalText;
@@ -917,11 +1032,15 @@ async function processNextTask() {
         // Stop progress polling on error
         stopProgressPolling();
     } finally {
-        // Remove completed task from queue
+        // Only remove task from queue if it's not being retried (not already re-added to queue)
         if (currentTask) {
-            const taskIndex = taskQueue.findIndex(t => t.id === currentTask.id);
-            if (taskIndex !== -1) {
-                taskQueue.splice(taskIndex, 1);
+            const isRetrying = taskQueue.some(t => t.id === currentTask.id);
+            if (!isRetrying) {
+                // Task completed or failed permanently, remove it
+                const taskIndex = taskQueue.findIndex(t => t.id === currentTask.id);
+                if (taskIndex !== -1) {
+                    taskQueue.splice(taskIndex, 1);
+                }
             }
         }
 
@@ -957,7 +1076,8 @@ function updateWorkflowOptions(fileType) {
         sttCheckbox.disabled = true;
     }
 
-    // Reset summary checkbox
+    // Reset embedding and summary checkboxes
+    document.getElementById('stepEmbedding').checked = false;
     document.getElementById('stepSummary').checked = false;
 }
 
@@ -1019,6 +1139,7 @@ document.getElementById('processBtn').addEventListener('click', async () => {
 
     const steps = [];
     if (document.getElementById('stepStt').checked) steps.push('stt');
+    if (document.getElementById('stepEmbedding').checked) steps.push('embedding');
     if (document.getElementById('stepSummary').checked) steps.push('summary');
 
     if (steps.length === 0) {
@@ -1036,9 +1157,15 @@ document.getElementById('processBtn').addEventListener('click', async () => {
 
     // Add each step to the queue individually
     steps.forEach(step => {
-        // Create a temporary task element for queue tracking
-        const tempElement = document.createElement('span');
-        addTaskToQueue(recordId, uploadedPath, step, tempElement, filename);
+        // Check for existing task before adding
+        const existingTask = taskQueue.find(t => t.recordId === recordId && t.task === step);
+        if (!existingTask) {
+            // Create a temporary task element for queue tracking
+            const tempElement = document.createElement('span');
+            addTaskToQueue(recordId, uploadedPath, step, tempElement, filename);
+        } else {
+            console.log(`Task ${step} for record ${recordId} already in queue, skipping`);
+        }
     });
 
     downloads.innerHTML = `<p style="color: green;">선택한 작업들이 큐에 추가되었습니다.</p>`;
@@ -1202,8 +1329,10 @@ async function processAllIncomplete() {
             // Check which steps are incomplete
             if (record.file_type === 'audio') {
                 if (!record.completed_tasks.stt) steps.push('stt');
+                if (!record.completed_tasks.embedding) steps.push('embedding');
                 if (!record.completed_tasks.summary) steps.push('summary');
             } else {
+                if (!record.completed_tasks.embedding) steps.push('embedding');
                 if (!record.completed_tasks.summary) steps.push('summary');
             }
             
@@ -1212,8 +1341,12 @@ async function processAllIncomplete() {
                 const existingTask = taskQueue.find(t => t.recordId === record.id && t.task === step);
                 if (!existingTask) {
                     const span = document.createElement('span');
-                    addTaskToQueue(record.id, record.file_path, step, span, record.filename);
-                    tasksAdded++;
+                    const addedId = addTaskToQueue(record.id, record.file_path, step, span, record.filename);
+                    if (addedId) {
+                        tasksAdded++;
+                    }
+                } else {
+                    console.log(`Task ${step} for record ${record.id} already in queue, skipping`);
                 }
             });
         });

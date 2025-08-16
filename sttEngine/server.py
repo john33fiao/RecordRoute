@@ -34,11 +34,15 @@ from sttEngine.workflow.summarize import (
 )
 from sttEngine.one_line_summary import generate_one_line_summary
 from vector_search import search as search_vectors
+from sttEngine.embedding_pipeline import embed_text_ollama, load_index, save_index
+import numpy as np
+import os
 
 
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent)).resolve()
 UPLOAD_DIR = BASE_DIR / "uploads"
 OUTPUT_DIR = BASE_DIR / "whisper_output"
+VECTOR_DIR = BASE_DIR / "vector_store"
 HISTORY_FILE = BASE_DIR / "upload_history.json"
 
 # Global dictionary to track running processes
@@ -215,7 +219,7 @@ def add_upload_record(file_path: Path, file_type: str, duration: str = None):
         "folder_name": file_path.parent.name,  # UUID folder name
         "completed_tasks": {
             "stt": False,
-            "summary": False
+            "embedding": False
         },
         "download_links": {},
         "title_summary": ""
@@ -273,6 +277,57 @@ def generate_and_store_title_summary(record_id: str, file_path: Path):
         print(f"One-line summary generation failed: {e}")
 
 
+def generate_embedding(file_path: Path, record_id: str = None):
+    """Generate embedding for a text file and store it."""
+    try:
+        # Get embedding model name
+        try:
+            from sttEngine.config import get_model_for_task, get_default_model
+            model_name = get_model_for_task("EMBEDDING", get_default_model("EMBEDDING"))
+        except:
+            model_name = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
+        
+        # Read text content
+        text = file_path.read_text(encoding="utf-8")
+        
+        # Generate embedding
+        vector = embed_text_ollama(text, model_name)
+        
+        # Create vector directory if not exists
+        VECTOR_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # Save embedding vector
+        vector_file = VECTOR_DIR / f"{file_path.stem}.npy"
+        np.save(vector_file, vector)
+        
+        # Update index
+        index = load_index()
+        import hashlib
+        h = hashlib.sha256()
+        with file_path.open("rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                h.update(chunk)
+        checksum = h.hexdigest()
+        
+        index[str(file_path.resolve())] = {
+            "sha256": checksum, 
+            "vector": vector_file.name
+        }
+        save_index(index)
+        
+        # Update task completion
+        if record_id:
+            download_url = f"/download/{file_path.parent.name}/{file_path.name}"
+            update_task_completion(record_id, "embedding", download_url)
+        
+        print(f"Embedding generated for {file_path.name}")
+        return True
+        
+    except Exception as e:
+        print(f"Embedding generation failed for {file_path.name}: {e}")
+        return False
+
+
 def reset_upload_record(record_id: str) -> bool:
     """Remove processed files and reset completion status for a record."""
     history = load_upload_history()
@@ -289,7 +344,7 @@ def reset_upload_record(record_id: str) -> bool:
 
             record["completed_tasks"] = {
                 "stt": False,
-                    "summary": False,
+                "embedding": False,
             }
             record["download_links"] = {}
             record["title_summary"] = ""
@@ -349,6 +404,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 import shutil
                 shutil.copy2(file_path, text_file)
                 current_file = text_file
+            
 
         # For PDF files, extract text and treat as markdown
         elif file_type == 'pdf':
@@ -374,6 +430,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     generate_and_store_title_summary(record_id, text_file)
 
             current_file = text_file
+            
 
         # For audio files, run STT step
         elif file_type == 'audio' and "stt" in steps:
@@ -417,6 +474,30 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
             if record_id:
                 update_task_completion(record_id, "stt", download_url)
                 generate_and_store_title_summary(record_id, current_file)
+
+        if "embedding" in steps and current_file:
+            # Check if task was cancelled
+            if task_id and is_task_cancelled(task_id):
+                return {"error": "Task was cancelled"}
+            
+            # For audio files, check if we have the text file (STT completed)
+            if file_type == 'audio' and current_file == file_path:
+                # current_file is still the original audio file, STT hasn't been completed
+                # Return a special status to indicate dependency not met
+                if task_id:
+                    update_task_progress(task_id, "STT 작업 대기 중...")
+                print(f"Embedding for audio file {file_path.name} waiting for STT completion")
+                return {"error": "STT_DEPENDENCY_NOT_MET", "message": "STT 작업이 먼저 완료되어야 합니다"}
+            else:
+                if task_id:
+                    update_task_progress(task_id, "임베딩 생성 시작")
+                    
+                if generate_embedding(current_file, record_id):
+                    if task_id:
+                        update_task_progress(task_id, "임베딩 생성 완료")
+                else:
+                    if task_id:
+                        update_task_progress(task_id, "임베딩 생성 실패")
 
         if "summary" in steps:
             # Check if task was cancelled before starting summary
