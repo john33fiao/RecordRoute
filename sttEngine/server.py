@@ -342,6 +342,36 @@ def reset_upload_record(record_id: str) -> bool:
             except Exception:
                 pass
 
+            # Remove embedding vectors and index entries related to this record
+            if output_dir:
+                index = load_index()
+                keys_to_remove = []
+                for key, meta in index.items():
+                    try:
+                        Path(key).resolve().relative_to(output_dir.resolve())
+                        keys_to_remove.append((key, meta))
+                    except ValueError:
+                        continue
+
+                for key, meta in keys_to_remove:
+                    vector_name = meta.get("vector")
+                    if vector_name:
+                        vector_path = VECTOR_DIR / vector_name
+                        if vector_path.exists():
+                            # Check if this vector is referenced elsewhere
+                            if not any(
+                                v.get("vector") == vector_name and k != key
+                                for k, v in index.items()
+                            ):
+                                try:
+                                    vector_path.unlink()
+                                except Exception:
+                                    pass
+                    del index[key]
+
+                if keys_to_remove:
+                    save_index(index)
+
             record["completed_tasks"] = {
                 "stt": False,
                 "embedding": False,
