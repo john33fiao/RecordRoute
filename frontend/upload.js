@@ -1047,11 +1047,53 @@ document.getElementById('searchBtn').addEventListener('click', async () => {
     }
 });
 
+// Process all incomplete tasks
+async function processAllIncomplete() {
+    try {
+        const history = await loadHistorySync();
+        let tasksAdded = 0;
+        
+        history.forEach(record => {
+            const steps = [];
+            
+            // Check which steps are incomplete
+            if (record.file_type === 'audio') {
+                if (!record.completed_tasks.stt) steps.push('stt');
+                if (!record.completed_tasks.summary) steps.push('summary');
+            } else {
+                if (!record.completed_tasks.summary) steps.push('summary');
+            }
+            
+            // Add incomplete steps to queue if they're not already queued
+            steps.forEach(step => {
+                const existingTask = taskQueue.find(t => t.recordId === record.id && t.task === step);
+                if (!existingTask) {
+                    const span = document.createElement('span');
+                    addTaskToQueue(record.id, record.file_path, step, span, record.filename);
+                    tasksAdded++;
+                }
+            });
+        });
+        
+        if (tasksAdded > 0) {
+            alert(`${tasksAdded}개의 작업이 큐에 추가되었습니다.`);
+        } else {
+            alert('진행할 미완료 작업이 없습니다.');
+        }
+    } catch (error) {
+        console.error('Error processing all incomplete tasks:', error);
+        alert('전체 진행 중 오류가 발생했습니다.');
+    }
+}
+
 // Add event listener for queue sort dropdown
 document.getElementById('queueSortSelect').addEventListener('change', function() {
     sortTaskQueue();
     updateQueueDisplay();
 });
+
+// Add event listener for process all button
+document.getElementById('processAllBtn').addEventListener('click', processAllIncomplete);
 
 document.addEventListener('DOMContentLoaded', function() {
     loadHistory();

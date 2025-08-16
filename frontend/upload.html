@@ -34,7 +34,10 @@
     </div>
 
     <div id="history-section" style="margin-top:2em;">
-        <h2>업로드 기록</h2>
+        <h2 style="display:flex; align-items:center; justify-content:space-between;">
+            업로드 기록
+            <button id="processAllBtn" style="background:#28a745; color:white; border:none; border-radius:3px; padding:4px 8px; cursor:pointer; font-size:14px;">전체 진행</button>
+        </h2>
         <div id="history-list"></div>
     </div>
 
@@ -61,6 +64,16 @@
             <div class="buttons">
                 <button id="summaryCancelBtn">닫기</button>
                 <button id="summaryOnlyBtn">요약 진행</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="sttConfirmPopup">
+        <div class="content">
+            <p>STT 단계 진행 후 요약 과정을 진행하시겠습니까?</p>
+            <div class="buttons">
+                <button id="sttConfirmCancelBtn">취소</button>
+                <button id="sttConfirmOkBtn">확인</button>
             </div>
         </div>
     </div>
