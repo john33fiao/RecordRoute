@@ -203,48 +203,142 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
         if initial_prompt:
             transcribe_params["initial_prompt"] = initial_prompt
 
-        # Whisper 실행 (진행률 시뮬레이션)
+        # 플랫폼별 진행률 처리
         if progress_callback:
             import threading
             import time
             
-            # 진행률 시뮬레이션을 위한 플래그
-            transcription_complete = threading.Event()
-            
-            def simulate_progress():
-                """진행률 시뮬레이션 (실제 Whisper 진행률 대신)"""
-                progress_steps = [
-                    (5, "오디오 분석 중..."),
-                    (15, "음성 인식 시작..."),
-                    (30, "텍스트 변환 중..."),
-                    (50, "처리 진행 중..."),
-                    (70, "거의 완료..."),
-                    (90, "마무리 중...")
-                ]
+            if platform.system() == "Windows":
+                # Windows: 시뮬레이션 방식 사용
+                transcription_complete = threading.Event()
                 
-                for percent, message in progress_steps:
-                    if transcription_complete.is_set():
-                        break
-                    progress_callback(f"'{file_path.name}' {message} {percent}%")
-                    time.sleep(2)  # 2초마다 업데이트
+                def simulate_progress():
+                    """Windows용 진행률 시뮬레이션"""
+                    progress_steps = [
+                        (5, "오디오 분석 중..."),
+                        (15, "음성 인식 시작..."),
+                        (30, "텍스트 변환 중..."),
+                        (50, "처리 진행 중..."),
+                        (70, "거의 완료..."),
+                        (90, "마무리 중...")
+                    ]
+                    
+                    for percent, message in progress_steps:
+                        if transcription_complete.is_set():
+                            break
+                        progress_callback(f"'{file_path.name}' {message} {percent}%")
+                        time.sleep(2)  # 2초마다 업데이트
+                    
+                    # 남은 시간 동안 90%에서 대기
+                    while not transcription_complete.is_set():
+                        progress_callback(f"'{file_path.name}' 처리 중... 90%")
+                        time.sleep(3)
                 
-                # 남은 시간 동안 90%에서 대기
-                while not transcription_complete.is_set():
-                    progress_callback(f"'{file_path.name}' 처리 중... 90%")
-                    time.sleep(3)
-            
-            # 진행률 시뮬레이션 스레드 시작
-            progress_thread = threading.Thread(target=simulate_progress, daemon=True)
-            progress_thread.start()
-            
-            try:
-                result = model.transcribe(str(file_to_process), **transcribe_params)
-            finally:
-                # 변환 완료 신호
-                transcription_complete.set()
-                progress_thread.join(timeout=1)
+                # 진행률 시뮬레이션 스레드 시작
+                progress_thread = threading.Thread(target=simulate_progress, daemon=True)
+                progress_thread.start()
                 
-                # 완료 메시지
+                try:
+                    result = model.transcribe(str(file_to_process), **transcribe_params)
+                finally:
+                    # 변환 완료 신호
+                    transcription_complete.set()
+                    progress_thread.join(timeout=1)
+                    
+                    # 완료 메시지
+                    progress_callback(f"'{file_path.name}' 변환 완료! 100%")
+            
+            else:
+                # macOS/Linux: 실제 진행률 캡처 시도
+                import sys
+                import io
+                import re
+                import os
+                
+                captured_progress = {'last_percent': 0}
+                transcription_complete = threading.Event()
+                
+                def monitor_stderr():
+                    """macOS용 stderr 출력 모니터링"""
+                    try:
+                        # 임시 파일을 사용하여 stderr 캡처
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp_file:
+                            temp_filename = temp_file.name
+                        
+                        old_stderr = sys.stderr
+                        
+                        try:
+                            # stderr을 임시 파일로 리다이렉션
+                            sys.stderr = open(temp_filename, 'w')
+                            
+                            # 백그라운드에서 파일 모니터링
+                            def read_progress_file():
+                                last_size = 0
+                                while not transcription_complete.is_set():
+                                    try:
+                                        with open(temp_filename, 'r') as f:
+                                            f.seek(last_size)
+                                            new_content = f.read()
+                                            if new_content:
+                                                last_size = f.tell()
+                                                
+                                                # 진행률 패턴 매칭
+                                                lines = new_content.split('\n')
+                                                for line in lines:
+                                                    progress_match = re.search(r'(\d+)%\|[^|]*\|\s*(\d+)/(\d+)\s*\[([^<]*)<([^,]*),([^]]*)\]', line)
+                                                    if progress_match:
+                                                        percent = int(progress_match.group(1))
+                                                        current = progress_match.group(2)
+                                                        total = progress_match.group(3)
+                                                        remaining = progress_match.group(5).strip()
+                                                        
+                                                        if percent != captured_progress['last_percent']:
+                                                            captured_progress['last_percent'] = percent
+                                                            progress_msg = f"'{file_path.name}' 처리 중... {percent}% ({current}/{total}) [남은 시간: {remaining}]"
+                                                            progress_callback(progress_msg)
+                                        
+                                        time.sleep(0.5)
+                                    except Exception as e:
+                                        print(f"진행률 모니터링 오류: {e}")
+                                        time.sleep(1)
+                            
+                            # 모니터링 스레드 시작
+                            monitor_thread = threading.Thread(target=read_progress_file, daemon=True)
+                            monitor_thread.start()
+                            
+                            # Whisper 실행
+                            result = model.transcribe(str(file_to_process), **transcribe_params)
+                            
+                            return result
+                            
+                        finally:
+                            sys.stderr.close()
+                            sys.stderr = old_stderr
+                            transcription_complete.set()
+                            
+                            # 임시 파일 정리
+                            try:
+                                os.unlink(temp_filename)
+                            except:
+                                pass
+                    
+                    except Exception as e:
+                        print(f"stderr 캡처 실패, 시뮬레이션으로 전환: {e}")
+                        # 실패 시 시뮬레이션으로 폴백
+                        return simulate_fallback_progress()
+                
+                def simulate_fallback_progress():
+                    """실제 캡처 실패 시 폴백 시뮬레이션"""
+                    progress_steps = [(10, "처리 시작..."), (30, "변환 중..."), (60, "분석 중..."), (90, "완료 중...")]
+                    for percent, message in progress_steps:
+                        progress_callback(f"'{file_path.name}' {message} {percent}%")
+                        time.sleep(1.5)
+                    
+                    result = model.transcribe(str(file_to_process), **transcribe_params)
+                    return result
+                
+                result = monitor_stderr()
                 progress_callback(f"'{file_path.name}' 변환 완료! 100%")
         else:
             # 진행률 콜백이 없으면 일반적으로 실행

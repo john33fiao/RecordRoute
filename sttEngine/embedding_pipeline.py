@@ -18,7 +18,7 @@ from typing import Dict
 import os
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
+import requests
 
 # 설정 모듈 임포트
 sys.path.append(str(Path(__file__).parent / "sttEngine"))
@@ -52,13 +52,29 @@ def file_hash(path: Path) -> str:
     return h.hexdigest()
 
 
-def embed_text(model: SentenceTransformer, text: str) -> np.ndarray:
-    """Embed text using the provided model and return a float32 vector."""
-    vec = model.encode(text)
-    return np.asarray(vec, dtype="float32")
+def embed_text_ollama(text: str, model_name: str) -> np.ndarray:
+    """Ollama API를 사용하여 텍스트를 임베딩"""
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/embeddings",
+            json={
+                "model": model_name,
+                "prompt": text
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+        result = response.json()
+        embedding = result.get("embedding", [])
+        if not embedding:
+            raise ValueError("Empty embedding received from Ollama")
+        return np.array(embedding, dtype=np.float32)
+    except Exception as e:
+        print(f"Ollama 임베딩 실패: {e}")
+        raise
 
 
-def process_file(model: SentenceTransformer, path: Path, index: Dict[str, Dict[str, str]]) -> None:
+def process_file(model_name: str, path: Path, index: Dict[str, Dict[str, str]]) -> None:
     """Embed a single file if it is new or has changed since last run."""
     checksum = file_hash(path)
     key = str(path.resolve())
@@ -66,7 +82,7 @@ def process_file(model: SentenceTransformer, path: Path, index: Dict[str, Dict[s
         return  # already up-to-date
 
     text = path.read_text(encoding="utf-8")
-    vector = embed_text(model, text)
+    vector = embed_text_ollama(text, model_name)
     out_file = VECTOR_DIR / f"{path.stem}.npy"
     np.save(out_file, vector)
 
@@ -78,13 +94,16 @@ def main(src_dir: str) -> None:
     try:
         model_name = get_model_for_task("EMBEDDING", get_default_model("EMBEDDING"))
     except:
-        # 환경변수 설정이 없을 때 기존 로직 사용
-        model_name = os.environ.get("EMBEDDING_MODEL", "snowflake-arctic-embed2:latest")
+        # 환경변수 설정이 없을 때 기본 모델 사용
+        model_name = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
     
-    model = SentenceTransformer(model_name)
     index = load_index()
     for file in Path(src_dir).glob("*.summary.md"):
-        process_file(model, file, index)
+        try:
+            process_file(model_name, file, index)
+        except Exception as e:
+            print(f"파일 {file} 임베딩 실패: {e}")
+            continue
     save_index(index)
 
 

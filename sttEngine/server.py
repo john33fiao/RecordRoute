@@ -552,14 +552,28 @@ class UploadHandler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
             query = params.get("q", [""])[0]
-            results = []
-            if query:
-                hits = search_vectors(query, BASE_DIR)
-                results = [{"file": r["file"], "score": r["score"], "link": f"/download/{r['file']}"} for r in hits]
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(results, ensure_ascii=False).encode())
+            
+            try:
+                results = []
+                if query:
+                    hits = search_vectors(query, BASE_DIR)
+                    results = [{"file": r["file"], "score": r["score"], "link": f"/download/{r['file']}"} for r in hits]
+                
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(results, ensure_ascii=False).encode())
+            
+            except Exception as e:
+                print(f"검색 요청 처리 중 오류: {e}")
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                error_response = {
+                    "error": "검색 중 오류가 발생했습니다. Ollama 서버가 실행 중인지 확인하고, 임베딩 모델이 설치되어 있는지 확인해주세요.",
+                    "details": str(e)
+                }
+                self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
         else:
             self.send_response(404)
             self.end_headers()
