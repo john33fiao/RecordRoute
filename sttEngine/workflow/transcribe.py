@@ -191,7 +191,7 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
         
         transcribe_params = {
             "fp16": False,
-            "verbose": False,
+            "verbose": True if progress_callback else False,  # 진행률 콜백이 있을 때만 verbose 활성화
             "temperature": 0.0,
             "no_speech_threshold": 0.6,  # 무음 구간 감지 임계값 상향
             "logprob_threshold": -1.0,   # 낮은 확신도 구간 필터링
@@ -203,7 +203,52 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
         if initial_prompt:
             transcribe_params["initial_prompt"] = initial_prompt
 
-        result = model.transcribe(str(file_to_process), **transcribe_params)
+        # Whisper 실행 (진행률 시뮬레이션)
+        if progress_callback:
+            import threading
+            import time
+            
+            # 진행률 시뮬레이션을 위한 플래그
+            transcription_complete = threading.Event()
+            
+            def simulate_progress():
+                """진행률 시뮬레이션 (실제 Whisper 진행률 대신)"""
+                progress_steps = [
+                    (5, "오디오 분석 중..."),
+                    (15, "음성 인식 시작..."),
+                    (30, "텍스트 변환 중..."),
+                    (50, "처리 진행 중..."),
+                    (70, "거의 완료..."),
+                    (90, "마무리 중...")
+                ]
+                
+                for percent, message in progress_steps:
+                    if transcription_complete.is_set():
+                        break
+                    progress_callback(f"'{file_path.name}' {message} {percent}%")
+                    time.sleep(2)  # 2초마다 업데이트
+                
+                # 남은 시간 동안 90%에서 대기
+                while not transcription_complete.is_set():
+                    progress_callback(f"'{file_path.name}' 처리 중... 90%")
+                    time.sleep(3)
+            
+            # 진행률 시뮬레이션 스레드 시작
+            progress_thread = threading.Thread(target=simulate_progress, daemon=True)
+            progress_thread.start()
+            
+            try:
+                result = model.transcribe(str(file_to_process), **transcribe_params)
+            finally:
+                # 변환 완료 신호
+                transcription_complete.set()
+                progress_thread.join(timeout=1)
+                
+                # 완료 메시지
+                progress_callback(f"'{file_path.name}' 변환 완료! 100%")
+        else:
+            # 진행률 콜백이 없으면 일반적으로 실행
+            result = model.transcribe(str(file_to_process), **transcribe_params)
 
         # 세그먼트 처리
         if progress_callback:

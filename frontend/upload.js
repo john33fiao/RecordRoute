@@ -351,13 +351,46 @@ function updateQueueDisplay() {
             const infoContainer = document.createElement('div');
             infoContainer.style.flex = '1';
             infoContainer.appendChild(info);
-
+            
             if (task.status === 'processing' && task.progress) {
                 const progressDiv = document.createElement('div');
                 progressDiv.style.cssText = 'color: #856404; font-size: 12px; margin-top: 4px;';
-                progressDiv.textContent = task.progress;
+                
+                // 진행률 퍼센트 추출
+                const percentMatch = task.progress.match(/(\d+)%/);
+                if (percentMatch) {
+                    const percent = parseInt(percentMatch[1]);
+                    
+                    // 진행률 바 생성
+                    const progressContainer = document.createElement('div');
+                    progressContainer.style.cssText = `
+                        width: 100%;
+                        height: 4px;
+                        background-color: #e9ecef;
+                        border-radius: 2px;
+                        margin: 2px 0;
+                        overflow: hidden;
+                    `;
+                    
+                    const progressBar = document.createElement('div');
+                    progressBar.style.cssText = `
+                        width: ${percent}%;
+                        height: 100%;
+                        background-color: #007bff;
+                        transition: width 0.3s ease;
+                    `;
+                    
+                    progressContainer.appendChild(progressBar);
+                    progressDiv.appendChild(progressContainer);
+                }
+                
+                const progressText = document.createElement('div');
+                progressText.textContent = task.progress;
+                progressDiv.appendChild(progressText);
+                
                 infoContainer.appendChild(progressDiv);
             }
+
 
             const cancelBtn = document.createElement('button');
             cancelBtn.textContent = '×';
@@ -445,7 +478,39 @@ function updateQueueDisplay() {
                 if (task.status === 'processing' && task.progress) {
                     const progressDiv = document.createElement('div');
                     progressDiv.style.cssText = 'color: #856404; font-size: 12px; margin-top: 4px;';
-                    progressDiv.textContent = task.progress;
+                    
+                    // 진행률 퍼센트 추출
+                    const percentMatch = task.progress.match(/(\d+)%/);
+                    if (percentMatch) {
+                        const percent = parseInt(percentMatch[1]);
+                        
+                        // 진행률 바 생성
+                        const progressContainer = document.createElement('div');
+                        progressContainer.style.cssText = `
+                            width: 100%;
+                            height: 4px;
+                            background-color: #e9ecef;
+                            border-radius: 2px;
+                            margin: 2px 0;
+                            overflow: hidden;
+                        `;
+                        
+                        const progressBar = document.createElement('div');
+                        progressBar.style.cssText = `
+                            width: ${percent}%;
+                            height: 100%;
+                            background-color: #007bff;
+                            transition: width 0.3s ease;
+                        `;
+                        
+                        progressContainer.appendChild(progressBar);
+                        progressDiv.appendChild(progressContainer);
+                    }
+                    
+                    const progressText = document.createElement('div');
+                    progressText.textContent = task.progress;
+                    progressDiv.appendChild(progressText);
+                    
                     infoContainer.appendChild(progressDiv);
                 }
 
