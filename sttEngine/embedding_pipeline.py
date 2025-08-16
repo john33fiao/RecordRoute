@@ -21,7 +21,10 @@ import numpy as np
 import requests
 
 # 설정 모듈 임포트
-sys.path.append(str(Path(__file__).parent / "sttEngine"))
+# 패키지 내부 실행 시에는 최상위 디렉토리가 ``sys.path``에 없어
+# ``sttEngine`` 모듈을 찾지 못하는 문제가 있었다.
+# 이를 방지하기 위해 현재 파일의 부모(프로젝트 루트)를 경로에 추가한다.
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 from sttEngine.config import get_model_for_task, get_default_model
 
 VECTOR_DIR = Path("vector_store")
