@@ -483,21 +483,52 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
             # For audio files, check if we have the text file (STT completed)
             if file_type == 'audio' and current_file == file_path:
                 # current_file is still the original audio file, STT hasn't been completed
-                # Return a special status to indicate dependency not met
+                # Automatically run STT before proceeding with embedding
                 if task_id:
-                    update_task_progress(task_id, "STT 작업 대기 중...")
-                print(f"Embedding for audio file {file_path.name} waiting for STT completion")
-                return {"error": "STT_DEPENDENCY_NOT_MET", "message": "STT 작업이 먼저 완료되어야 합니다"}
+                    update_task_progress(task_id, "STT 자동 실행 시작")
+                try:
+                    def progress_callback(message):
+                        if task_id:
+                            update_task_progress(task_id, message)
+
+                    transcribe_audio_files(
+                        input_dir=str(current_file.parent),
+                        output_dir=str(individual_output_dir),
+                        model_identifier="large",
+                        language=None,
+                        initial_prompt="",
+                        workers=1,
+                        recursive=False,
+                        filter_fillers=False,
+                        min_seg_length=2,
+                        normalize_punct=False,
+                        progress_callback=progress_callback
+                    )
+                except Exception as e:
+                    print(f"STT process failed: {e}")
+                    if task_id:
+                        update_task_progress(task_id, f"STT 실패: {e}")
+                    return {"error": f"STT process failed: {e}"}
+
+                stt_file = individual_output_dir / f"{file_path.stem}.md"
+                download_url = f"/download/{upload_folder_name}/{stt_file.name}"
+                results["stt"] = download_url
+                current_file = stt_file
+
+                # Update history
+                if record_id:
+                    update_task_completion(record_id, "stt", download_url)
+                    generate_and_store_title_summary(record_id, current_file)
+
+            if task_id:
+                update_task_progress(task_id, "임베딩 생성 시작")
+
+            if generate_embedding(current_file, record_id):
+                if task_id:
+                    update_task_progress(task_id, "임베딩 생성 완료")
             else:
                 if task_id:
-                    update_task_progress(task_id, "임베딩 생성 시작")
-                    
-                if generate_embedding(current_file, record_id):
-                    if task_id:
-                        update_task_progress(task_id, "임베딩 생성 완료")
-                else:
-                    if task_id:
-                        update_task_progress(task_id, "임베딩 생성 실패")
+                    update_task_progress(task_id, "임베딩 생성 실패")
 
         if "summary" in steps:
             # Check if task was cancelled before starting summary
