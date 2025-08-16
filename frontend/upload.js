@@ -9,6 +9,9 @@ let currentCategory = null;
 const summaryPopup = document.getElementById('summaryPopup');
 const summaryOnlyBtn = document.getElementById('summaryOnlyBtn');
 const summaryCancelBtn = document.getElementById('summaryCancelBtn');
+const sttConfirmPopup = document.getElementById('sttConfirmPopup');
+const sttConfirmOkBtn = document.getElementById('sttConfirmOkBtn');
+const sttConfirmCancelBtn = document.getElementById('sttConfirmCancelBtn');
 
 function showTextOverlay(url) {
     const overlay = document.getElementById('textOverlay');
@@ -66,6 +69,9 @@ document.addEventListener('keydown', (e) => {
         if (summaryPopup.style.display === 'flex') {
             hideSummaryPopup();
         }
+        if (sttConfirmPopup.style.display === 'flex') {
+            hideSttConfirmPopup();
+        }
     }
 });
 
@@ -73,7 +79,16 @@ function hideSummaryPopup() {
     summaryPopup.style.display = 'none';
 }
 
+function showSttConfirmPopup() {
+    sttConfirmPopup.style.display = 'flex';
+}
+
+function hideSttConfirmPopup() {
+    sttConfirmPopup.style.display = 'none';
+}
+
 summaryCancelBtn.addEventListener('click', hideSummaryPopup);
+sttConfirmCancelBtn.addEventListener('click', hideSttConfirmPopup);
 
 function editFilename(recordId, currentFilename) {
     const filenameElement = document.getElementById(`filename-${recordId}`);
@@ -512,6 +527,39 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
                 );
 
                 if (!existingTaskCheck) {
+                    // Check if this is a summary task for audio file without STT completion
+                    if (task === 'summary' && record.file_type === 'audio' && !record.completed_tasks.stt) {
+                        // Show STT confirmation popup
+                        showSttConfirmPopup();
+                        
+                        // Set up one-time event listener for confirm button
+                        const handleConfirm = () => {
+                            hideSttConfirmPopup();
+                            // Add both STT and summary tasks (like batch process)
+                            const steps = ['stt', 'summary'];
+                            steps.forEach(step => {
+                                const existingTask = taskQueue.find(t => t.recordId === record.id && t.task === step);
+                                if (!existingTask) {
+                                    // Find the task element by ID
+                                    const stepSpan = document.getElementById(`task-${record.id}-${step}`);
+                                    if (stepSpan) {
+                                        addTaskToQueue(record.id, record.file_path, step, stepSpan, record.filename);
+                                        setQueuedState(stepSpan);
+                                    } else {
+                                        // Fallback: create a dummy span
+                                        const dummySpan = document.createElement('span');
+                                        addTaskToQueue(record.id, record.file_path, step, dummySpan, record.filename);
+                                    }
+                                }
+                            });
+                            sttConfirmOkBtn.removeEventListener('click', handleConfirm);
+                        };
+                        
+                        sttConfirmOkBtn.addEventListener('click', handleConfirm);
+                        return;
+                    }
+                    
+                    // Normal case - just add the single task
                     addTaskToQueue(record.id, record.file_path, task, span, record.filename);
 
                     // Show queued state
@@ -642,10 +690,12 @@ function displayHistory(history) {
         // Only show STT button for audio files
         if (record.file_type === 'audio') {
             taskElements.stt = createTaskElement('stt', record.completed_tasks.stt, record.download_links.stt, record);
+            taskElements.stt.id = `task-${record.id}-stt`;
             tasks.appendChild(taskElements.stt);
         }
 
         taskElements.summary = createTaskElement('summary', record.completed_tasks.summary, record.download_links.summary, record);
+        taskElements.summary.id = `task-${record.id}-summary`;
         tasks.appendChild(taskElements.summary);
 
         if (hasCompleted || queued) {
