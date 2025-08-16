@@ -44,7 +44,7 @@ def get_model_for_task(task: str, fallback: str = None) -> str:
     작업별 플랫폼에 맞는 모델명 반환
     
     Args:
-        task: 작업 유형 ("TRANSCRIBE", "CORRECT", "SUMMARY")
+        task: 작업 유형 ("TRANSCRIBE", "SUMMARY")
         fallback: 환경변수가 없을 때 사용할 기본값
     
     Returns:
@@ -93,10 +93,6 @@ PLATFORM_DEFAULTS = {
     "TRANSCRIBE": {
         "WINDOWS": "large-v3-turbo",
         "UNIX": "large-v3-turbo"
-    },
-    "CORRECT": {
-        "WINDOWS": "gemma3:4b", 
-        "UNIX": "gemma3:12b-it-qat"
     },
     "SUMMARY": {
         "WINDOWS": "gemma3:4b",

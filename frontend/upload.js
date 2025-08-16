@@ -4,11 +4,10 @@ let recordId = null;
 let taskQueue = [];
 let currentTask = null;
 let taskIdCounter = 0;
-const categoryOrder = ['stt', 'correct', 'summary'];
+const categoryOrder = ['stt', 'summary'];
 let currentCategory = null;
 const summaryPopup = document.getElementById('summaryPopup');
 const summaryOnlyBtn = document.getElementById('summaryOnlyBtn');
-const correctThenSummaryBtn = document.getElementById('correctThenSummaryBtn');
 const summaryCancelBtn = document.getElementById('summaryCancelBtn');
 
 function showTextOverlay(url) {
@@ -161,18 +160,6 @@ function showSummaryPopup(record, span) {
         setQueuedState(span);
         hideSummaryPopup();
     };
-    correctThenSummaryBtn.onclick = () => {
-        const correctSpan = span.parentNode.querySelector('span[data-task="correct"]');
-        if (correctSpan) {
-            addTaskToQueue(record.id, record.file_path, 'correct', correctSpan, record.filename);
-            setQueuedState(correctSpan);
-        } else {
-            addTaskToQueue(record.id, record.file_path, 'correct', document.createElement('span'), record.filename);
-        }
-        addTaskToQueue(record.id, record.file_path, 'summary', span, record.filename);
-        setQueuedState(span);
-        hideSummaryPopup();
-    };
 }
 
 function sortTaskQueue() {
@@ -286,7 +273,6 @@ document.getElementById('cancelAllBtn').addEventListener('click', cancelAllTasks
 function resetTaskElement(taskElement, task) {
     const taskNames = {
         'stt': 'STT',
-        'correct': '교정',
         'summary': '요약'
     };
     
@@ -313,7 +299,6 @@ function updateQueueDisplay() {
 
     const taskNames = {
         'stt': 'STT 변환',
-        'correct': '텍스트 교정',
         'summary': '요약'
     };
 
@@ -478,7 +463,6 @@ function updateQueueDisplay() {
 function createTaskElement(task, isCompleted, downloadUrl, record = null) {
     const taskNames = {
         'stt': 'STT',
-        'correct': '교정',
         'summary': '요약'
     };
     
@@ -528,17 +512,13 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
                 );
 
                 if (!existingTaskCheck) {
-                    if (task === 'summary' && record.completed_tasks.stt && !record.completed_tasks.correct) {
-                        showSummaryPopup(record, span);
-                    } else {
-                        addTaskToQueue(record.id, record.file_path, task, span, record.filename);
+                    addTaskToQueue(record.id, record.file_path, task, span, record.filename);
 
-                        // Show queued state
-                        span.style.backgroundColor = '#17a2b8';
-                        span.style.color = 'white';
-                        span.title = '큐에 추가됨';
-                        span.onclick = null;
-                    }
+                    // Show queued state
+                    span.style.backgroundColor = '#17a2b8';
+                    span.style.color = 'white';
+                    span.title = '큐에 추가됨';
+                    span.onclick = null;
                 }
             };
         }
@@ -665,10 +645,6 @@ function displayHistory(history) {
             tasks.appendChild(taskElements.stt);
         }
 
-        if (record.file_type !== 'pdf') {
-            taskElements.correct = createTaskElement('correct', record.completed_tasks.correct, record.download_links.correct, record);
-            tasks.appendChild(taskElements.correct);
-        }
         taskElements.summary = createTaskElement('summary', record.completed_tasks.summary, record.download_links.summary, record);
         tasks.appendChild(taskElements.summary);
 
@@ -680,13 +656,9 @@ function displayHistory(history) {
             batchBtn.onclick = () => {
                 const steps = [];
                 if (record.file_type === 'audio') {
-                    steps.push('stt', 'correct', 'summary');
-                } else if (record.file_type === 'text') {
-                    steps.push('correct', 'summary');
-                } else if (record.file_type === 'pdf') {
-                    steps.push('summary');
+                    steps.push('stt', 'summary');
                 } else {
-                    steps.push('correct', 'summary');
+                    steps.push('summary');
                 }
 
                 steps.forEach(step => {
@@ -856,50 +828,18 @@ async function processNextTask() {
 function updateWorkflowOptions(fileType) {
     const sttCheckbox = document.getElementById('stepStt');
     const sttLabel = sttCheckbox.parentElement;
-    const correctCheckbox = document.getElementById('stepCorrect');
-    const correctLabel = correctCheckbox.parentElement;
-
     if (fileType === 'audio') {
-        // Show all checkboxes for audio files
+        // Show STT checkbox for audio files
         sttLabel.style.display = 'block';
         sttLabel.style.visibility = 'visible';
         sttCheckbox.checked = false;
         sttCheckbox.disabled = false;
-
-        correctLabel.style.display = 'block';
-        correctLabel.style.visibility = 'visible';
-        correctCheckbox.disabled = false;
-    } else if (fileType === 'text') {
-        // Hide STT checkbox for text files
-        sttLabel.style.display = 'none';
-        sttLabel.style.visibility = 'hidden';
-        sttCheckbox.checked = false;
-        sttCheckbox.disabled = true;
-
-        correctLabel.style.display = 'block';
-        correctLabel.style.visibility = 'visible';
-        correctCheckbox.disabled = false;
-    } else if (fileType === 'pdf') {
-        // Only allow summary for PDF files
-        sttLabel.style.display = 'none';
-        sttLabel.style.visibility = 'hidden';
-        sttCheckbox.checked = false;
-        sttCheckbox.disabled = true;
-
-        correctLabel.style.display = 'none';
-        correctLabel.style.visibility = 'hidden';
-        correctCheckbox.checked = false;
-        correctCheckbox.disabled = true;
     } else {
-        // For unknown types, show all options
-        sttLabel.style.display = 'block';
-        sttLabel.style.visibility = 'visible';
+        // Hide STT checkbox for non-audio files
+        sttLabel.style.display = 'none';
+        sttLabel.style.visibility = 'hidden';
         sttCheckbox.checked = false;
-        sttCheckbox.disabled = false;
-
-        correctLabel.style.display = 'block';
-        correctLabel.style.visibility = 'visible';
-        correctCheckbox.disabled = false;
+        sttCheckbox.disabled = true;
     }
 
     // Reset summary checkbox
@@ -964,7 +904,6 @@ document.getElementById('processBtn').addEventListener('click', async () => {
 
     const steps = [];
     if (document.getElementById('stepStt').checked) steps.push('stt');
-    if (document.getElementById('stepCorrect').checked) steps.push('correct');
     if (document.getElementById('stepSummary').checked) steps.push('summary');
 
     if (steps.length === 0) {

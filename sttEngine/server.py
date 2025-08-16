@@ -24,7 +24,6 @@ import time
 import shutil
 
 from sttEngine.workflow.transcribe import transcribe_audio_files
-from sttEngine.workflow.correct import correct_text_file
 from sttEngine.workflow.summarize import (
     summarize_text_mapreduce,
     read_text_with_fallback,
@@ -216,7 +215,6 @@ def add_upload_record(file_path: Path, file_type: str, duration: str = None):
         "folder_name": file_path.parent.name,  # UUID folder name
         "completed_tasks": {
             "stt": False,
-            "correct": False,
             "summary": False
         },
         "download_links": {},
@@ -291,8 +289,7 @@ def reset_upload_record(record_id: str) -> bool:
 
             record["completed_tasks"] = {
                 "stt": False,
-                "correct": False,
-                "summary": False,
+                    "summary": False,
             }
             record["download_links"] = {}
             record["title_summary"] = ""
@@ -419,80 +416,6 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
             # Update history
             if record_id:
                 update_task_completion(record_id, "stt", download_url)
-                generate_and_store_title_summary(record_id, current_file)
-
-        if "correct" in steps:
-            # Check if task was cancelled before starting correction
-            if task_id and is_task_cancelled(task_id):
-                return {"error": "Task was cancelled"}
-                
-            print(f"Starting text correction for task {task_id}")
-            if task_id:
-                update_task_progress(task_id, "텍스트 교정 시작")
-
-            # Find the .md file to correct (either from STT step or existing file)
-            if "stt" not in steps:
-                # If STT step wasn't executed, look for existing .md file
-                transcribed_file = individual_output_dir / f"{current_file.stem}.md"
-                if not transcribed_file.exists():
-                    error_msg = f"STT 결과 파일을 찾을 수 없습니다: {transcribed_file}"
-                    print(error_msg)
-                    if task_id:
-                        update_task_progress(task_id, error_msg)
-                    return {"error": error_msg}
-                current_file = transcribed_file
-            
-            # Define the output file path
-            corrected_file = individual_output_dir / f"{current_file.stem}.corrected.md"
-            
-            try:
-                # Load model and temperature settings from config
-                from sttEngine.config import get_model_for_task, get_config_value
-                correction_model = get_model_for_task("CORRECT")
-                correction_temp = get_config_value("DEFAULT_TEMPERATURE_CORRECT", 0.0, float)
-
-                print(f"Debug: current_file type = {type(current_file)}, value = {current_file}")
-                print(f"Debug: corrected_file type = {type(corrected_file)}, value = {corrected_file}")
-                print(f"Debug: correction_model = {correction_model}")
-                print(f"Debug: correction_temp = {correction_temp}")
-                
-                # Import correct_text_file function signature for debugging
-                import inspect
-                sig = inspect.signature(correct_text_file)
-                print(f"Debug: correct_text_file signature = {sig}")
-
-                success = correct_text_file(
-                    current_file,
-                    corrected_file,
-                    model=correction_model,
-                    temperature=correction_temp
-                )
-                if not success:
-                    if task_id:
-                        update_task_progress(task_id, "텍스트 교정 실패")
-                    return {"error": "Correction process failed"}
-                    
-                if task_id:
-                    update_task_progress(task_id, "텍스트 교정 완료")
-            except Exception as e:
-                import traceback
-                print(f"Correction process failed: {e}")
-                print(f"Debug: Exception type = {type(e)}")
-                print(f"Debug: Exception args = {e.args}")
-                print(f"Debug: Full traceback = {traceback.format_exc()}")
-                logging.error("파일 교정 중 오류 발생: %s", str(e))
-                logging.error("Full traceback: %s", traceback.format_exc())
-                if task_id:
-                    update_task_progress(task_id, f"텍스트 교정 실패: {e}")
-                return {"error": f"Correction process failed: {e}"}
-
-            download_url = f"/download/{upload_folder_name}/{corrected_file.name}"
-            results["correct"] = download_url
-            current_file = corrected_file
-
-            # Update history
-            if record_id:
-                update_task_completion(record_id, "correct", download_url)
                 generate_and_store_title_summary(record_id, current_file)
 
         if "summary" in steps:

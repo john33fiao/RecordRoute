@@ -1,13 +1,12 @@
 # RecordRoute
-음성 파일을 회의록으로 변환하는 통합 워크플로우 시스템입니다. STT(Speech-to-Text), 텍스트 교정, 요약 기능을 단계적으로 제공합니다.
+음성 파일을 회의록으로 변환하는 통합 워크플로우 시스템입니다. STT(Speech-to-Text)와 요약 기능을 단계적으로 제공합니다.
 
 ## 주요 기능
 
  - **음성→텍스트 변환**: OpenAI Whisper를 사용한 고품질 음성 인식
- - **텍스트 교정**: Ollama LLM을 활용한 문법/어법 개선
  - **구조화된 요약**: 회의록 형태의 체계적 요약 생성
- - **통합 워크플로우**: 1단계부터 3단계까지 자동화된 처리 파이프라인
- - **웹 기반 인터페이스**: 파일 업로드와 단계별 작업 선택, 작업 큐·업로드 기록 관리, 결과 오버레이 뷰어, 요약 전 확인 팝업, 기록 초기화 지원
+ - **통합 워크플로우**: STT부터 요약까지 자동화된 처리 파이프라인
+ - **웹 기반 인터페이스**: 파일 업로드와 단계별 작업 선택, 작업 큐·업로드 기록 관리, 결과 오버레이 뷰어, 기록 초기화 지원
  - **임베딩 기반 검색**: 문서를 벡터화하여 RAG 질의 및 유사도 검색 지원
  - **한 줄 요약**: 텍스트 파일을 한 줄로 요약하는 유틸리티
 
@@ -33,7 +32,6 @@ RecordRoute/
     ├── vector_search.py       # 벡터 검색 기능
     └── workflow/              # 핵심 처리 모듈들
         ├── transcribe.py      # 음성→텍스트 변환
-        ├── correct.py         # 텍스트 교정
         └── summarize.py       # 텍스트 요약
 ```
 
@@ -116,7 +114,7 @@ run.bat
 # macOS/Linux
 ./run.command
 ```
-웹 브라우저에서 <http://localhost:8080> 에 접속하여 파일을 업로드하고 STT, 교정, 요약 작업을 선택합니다. 작업 큐, 업로드 기록(개별 초기화 가능), 결과 오버레이 뷰어, 요약 전 확인 팝업을 제공합니다.
+웹 브라우저에서 <http://localhost:8080> 에 접속하여 파일을 업로드하고 STT, 요약 작업을 선택합니다. 작업 큐, 업로드 기록(개별 초기화 가능), 결과 오버레이 뷰어를 제공합니다.
 
 ### CLI 워크플로우 실행
 ```bash
@@ -136,16 +134,10 @@ python sttEngine/workflow/transcribe.py [audio_folder] --model_size large-v3-tur
  - `--filter_fillers`: 필러 단어 제거
  - `--normalize_punct`: 연속 마침표 정규화
 
-#### 2단계: 텍스트 교정
+#### 2단계: 텍스트 요약
 ```bash
-python sttEngine/workflow/correct.py input.md --model gemma3:4b --temperature 0.0  # Windows
-python sttEngine/workflow/correct.py input.md --model gemma3:12b-it-qat --temperature 0.0  # macOS/Linux
-```
-
-#### 3단계: 텍스트 요약
-```bash
-python sttEngine/workflow/summarize.py input.corrected.md --model gemma3:4b --temperature 0.0  # Windows
-python sttEngine/workflow/summarize.py input.corrected.md --model gpt-oss:20b --temperature 0.0  # macOS/Linux
+python sttEngine/workflow/summarize.py input.md --model gemma3:4b --temperature 0.0  # Windows
+python sttEngine/workflow/summarize.py input.md --model gpt-oss:20b --temperature 0.0  # macOS/Linux
 ```
 
 ## 지원 오디오 포맷
@@ -161,12 +153,12 @@ python sttEngine/workflow/summarize.py input.corrected.md --model gpt-oss:20b --
 ## 플랫폼별 최적화
 
 ### Windows
-- 모델: `gemma3:4b` (교정 및 요약 공용)
+- 모델: `gemma3:4b` (요약용)
 - 캐시: `%USERPROFILE%\.cache\whisper\`
 - Python 실행파일: 자동 감지
 
 ### macOS/Linux
-- 모델: 교정 `gemma3:12b-it-qat`, 요약 `gpt-oss:20b`
+- 모델: 요약 `gpt-oss:20b`
 - 캐시: `~/.cache/whisper/`
 - Python 실행파일: `venv/bin/python` (가상환경 사용)
 - 환경변수: `.env` 파일에서 자동 로드
@@ -179,13 +171,7 @@ python sttEngine/workflow/summarize.py input.corrected.md --model gpt-oss:20b --
 - 세그먼트 병합 및 필러 단어 필터링
 - 결과: `.md` 파일
 
-### 2단계: 텍스트 교정
-- 한국어 문법/어법/오탈자 수정
-- 원문 의미와 사실 보존
-- 마크다운 구조 및 화자 표기 유지
-- 결과: `.corrected.md` 파일
-
-### 3단계: 텍스트 요약
+### 2단계: 텍스트 요약
 구조화된 회의록 형태의 요약 생성:
 1. 주요 주제
 2. 핵심 내용

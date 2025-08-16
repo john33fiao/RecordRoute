@@ -15,7 +15,6 @@ OUTPUT_DIR = BASE_DIR.parent / "whisper_output"
 # 실행할 스크립트 경로
 WORKFLOW_DIR = BASE_DIR / "workflow"
 TRANSCRIBE_SCRIPT = WORKFLOW_DIR / "transcribe.py"
-CORRECT_SCRIPT = WORKFLOW_DIR / "correct.py"
 SUMMARIZE_SCRIPT = WORKFLOW_DIR / "summarize.py"
 
 def run_command(command):
@@ -78,15 +77,14 @@ def main():
     while True:
         print("\n실행할 과정의 번호를 입력하세요.")
         print("  1: 음성 -> 텍스트 변환 (Transcribe)")
-        print("  2: 텍스트 교정 (Correct)")
-        print("  3: 텍스트 요약 (Summarize)")
-        steps_to_run = input("입력 (예: 1, 13, 123): ").strip()
-        if steps_to_run and all(c in '123' for c in steps_to_run):
+        print("  2: 텍스트 요약 (Summarize)")
+        steps_to_run = input("입력 (예: 1, 12): ").strip()
+        if steps_to_run and all(c in '12' for c in steps_to_run):
             # 중복을 제거하고 순서대로 정렬 (예: '312' -> '123')
             steps_to_run = "".join(sorted(set(steps_to_run)))
             break
         else:
-            print("오류: 1, 2, 3의 조합으로만 입력해주세요.")
+            print("오류: 1, 2의 조합으로만 입력해주세요.")
     
     print(f"선택된 과정: {steps_to_run}")
 
@@ -99,58 +97,20 @@ def main():
         if not files_to_process and len(steps_to_run) > 1:
             return
 
-    # --- 2단계: 텍스트 교정 ---
+    # --- 2단계: 텍스트 요약 ---
     if '2' in steps_to_run:
-        print("\n--- [단계 2] 텍스트 교정을 시작합니다 ---")
-        # 1단계를 거치지 않았다면, STT 실행 여부를 먼저 묻습니다.
+        print("\n--- [단계 2] 텍스트 요약을 시작합니다 ---")
+        # 이전 단계를 거치지 않았다면, STT 실행 여부를 먼저 묻습니다.
         if '1' not in steps_to_run:
             run_stt = input("STT 변환을 먼저 실행하시겠습니까? (y/n): ").strip().lower()
             if run_stt == 'y':
                 files_to_process = run_transcription()
             else:
                 while True:
-                    input_path_str = input("교정할 .md 파일이 있는 폴더의 경로를 입력하세요: ").strip()
+                    input_path_str = input("요약할 .md 파일이 있는 폴더의 경로를 입력하세요: ").strip()
                     input_path = Path(input_path_str)
                     if input_path.is_dir():
-                        files_to_process = [p for p in input_path.glob("*.md") if not (p.name.endswith('.corrected.md') or p.name.endswith('.summary.md'))]
-                        break
-                    else:
-                        print(f"오류: '{input_path_str}'는 유효한 폴더가 아닙니다. 다시 입력해주세요.")
-        
-        if not files_to_process:
-            print("교정할 마크다운 파일이 없습니다.")
-            if '3' in steps_to_run: # If there's a next step, we must stop.
-                return
-        else:
-            print(f"총 {len(files_to_process)}개 파일에 대해 교정을 진행합니다.")
-            corrected_files = []
-            for file_path in files_to_process:
-                if not run_command([PYTHON_EXEC, CORRECT_SCRIPT, file_path]):
-                    print(f"{file_path.name} 교정 중 오류가 발생하여 중단합니다.")
-                    return
-                # 교정된 파일은 OUTPUT_DIR에 생성된다고 가정합니다.
-                corrected_files.append(OUTPUT_DIR / f"{file_path.stem}.corrected.md")
-            # 다음 단계를 위해 처리된 파일 목록을 업데이트합니다.
-            files_to_process = corrected_files
-
-    # --- 3단계: 텍스트 요약 ---
-    if '3' in steps_to_run:
-        print("\n--- [단계 3] 텍스트 요약을 시작합니다 ---")
-        # 이전 단계를 거치지 않았다면, STT 실행 여부를 먼저 묻습니다.
-        if '1' not in steps_to_run and '2' not in steps_to_run:
-            run_stt = input("STT 변환을 먼저 실행하시겠습니까? (y/n): ").strip().lower()
-            if run_stt == 'y':
-                files_to_process = run_transcription()
-            else:
-                while True:
-                    input_path_str = input("요약할 파일(.corrected.md)이 있는 폴더의 경로를 입력하세요: ").strip()
-                    input_path = Path(input_path_str)
-                    if input_path.is_dir():
-                        # .corrected.md 파일을 우선 찾습니다.
-                        files_to_process = list(input_path.glob("*.corrected.md"))
-                        if not files_to_process:
-                            print(f"경고: '{input_path_str}'에서 .corrected.md 파일을 찾지 못했습니다. .md 파일을 대신 찾습니다.")
-                            files_to_process = [p for p in input_path.glob("*.md") if not p.name.endswith('.summary.md')]
+                        files_to_process = [p for p in input_path.glob("*.md") if not p.name.endswith('.summary.md')]
                         break
                     else:
                         print(f"오류: '{input_path_str}'는 유효한 폴더가 아닙니다. 다시 입력해주세요.")
