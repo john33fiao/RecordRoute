@@ -622,6 +622,12 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
 
 
 class UploadHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        """Override to filter out successful HTTP requests (200)."""
+        # Only log non-200 status codes
+        message = format % args
+        if not any(code in message for code in ['" 200 ', ' 200 ']):
+            super().log_message(format, *args)
     def _serve_upload_page(self):
         try:
             with open(BASE_DIR / "frontend" / "upload.html", "rb") as f:
