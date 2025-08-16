@@ -26,6 +26,14 @@ from config import get_model_for_task, get_default_model
 # Whisper가 지원하는 파일 확장자 목록
 SUPPORTED_EXTS = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'}
 
+# Whisper가 잘못 인식하는 불필요 문구 목록
+DISCARD_PHRASES = {
+    "이 영상은 자막을 사용하였습니다.",
+    "자막을 사용하였습니다.",
+    "이 영상은 자막을 사용합니다.",
+    "자막을 사용합니다."
+}
+
 def list_media_files(root: Path, recursive: bool):
     """지원하는 미디어 파일 목록을 반환합니다."""
     iterator = root.rglob("*") if recursive else root.iterdir()
@@ -102,9 +110,13 @@ def should_keep_segment(text: str, enable_filter: bool, min_length: int):
     # 빈 텍스트 제거
     if not text:
         return False
-    
+
     # 최소 길이 검사
     if len(text) < min_length:
+        return False
+
+    # 사전 정의된 불필요 문구 제거
+    if text in DISCARD_PHRASES:
         return False
     
     # 필터링이 비활성화되면 유지
@@ -397,6 +409,8 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
             markdown_content += "\n".join(lines)
         else:
             original_text = result.get("text", "").strip()
+            for phrase in DISCARD_PHRASES:
+                original_text = original_text.replace(phrase, "").strip()
             # 원본 텍스트도 반복 패턴인지 확인
             if not should_keep_segment(original_text, True, 10):
                 markdown_content += "## 변환 결과\n\n음성 내용을 인식할 수 없거나 주로 무음/반복 패턴으로 구성되어 있습니다.\n\n**참고사항:**\n- 녹음 품질이 낮거나 배경소음이 많은 경우\n- 실제 음성 내용이 없는 경우\n- 매우 조용한 음성이나 중얼거림인 경우\n\n다른 Whisper 모델(large, base 등)을 시도하거나 녹음 파일을 확인해 보세요."
