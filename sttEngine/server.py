@@ -33,7 +33,7 @@ from sttEngine.workflow.summarize import (
     DEFAULT_TEMPERATURE,
 )
 from sttEngine.one_line_summary import generate_one_line_summary
-from vector_search import search as search_vectors
+from vector_search import search as search_vectors, similar_to_file
 from sttEngine.embedding_pipeline import embed_text_ollama, load_index, save_index
 import numpy as np
 import os
@@ -809,18 +809,18 @@ class UploadHandler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
             query = params.get("q", [""])[0]
-            
+
             try:
                 results = []
                 if query:
                     hits = search_vectors(query, BASE_DIR)
                     results = [{"file": r["file"], "score": r["score"], "link": f"/download/{r['file']}"} for r in hits]
-                
+
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps(results, ensure_ascii=False).encode())
-            
+
             except Exception as e:
                 print(f"검색 요청 처리 중 오류: {e}")
                 self.send_response(500)
@@ -831,6 +831,26 @@ class UploadHandler(BaseHTTPRequestHandler):
                     "details": str(e)
                 }
                 self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
+        elif self.path.startswith("/similar"):
+            from urllib.parse import urlparse, parse_qs
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            file_param = params.get("file", [""])[0]
+            try:
+                results = []
+                if file_param:
+                    hits = similar_to_file(file_param, OUTPUT_DIR)
+                    results = [{"file": r["file"], "score": r["score"], "link": f"/download/{r['file']}"} for r in hits]
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(results, ensure_ascii=False).encode())
+            except Exception as e:
+                print(f"유사 문서 요청 처리 중 오류: {e}")
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}, ensure_ascii=False).encode())
         else:
             self.send_response(404)
             self.end_headers()
