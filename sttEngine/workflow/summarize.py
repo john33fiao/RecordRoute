@@ -264,7 +264,8 @@ def summarize_text_mapreduce(
     model: str,
     chunk_size: int,
     max_tokens: Optional[int],
-    temperature: float = DEFAULT_TEMPERATURE
+    temperature: float = DEFAULT_TEMPERATURE,
+    progress_callback=None
 ) -> str:
     """맵-리듀스 패턴으로 텍스트 요약"""
     if not text.strip():
@@ -288,13 +289,22 @@ def summarize_text_mapreduce(
         prompt = CHUNK_PROMPT.format(chunk=chunks[0])
         return call_ollama_with_retry(model, prompt, temperature, max_tokens=max_tokens)
     
+    # 다중 청크 처리 시작 알림
+    logging.info("텍스트가 길어 분할 처리중...")
+    logging.info(f"총 {len(chunks)}개 청크로 분할되어 단계별 요약을 진행합니다")
+    if progress_callback:
+        progress_callback("텍스트가 길어 분할 처리중...")
+    
     # 1단계: 각 청크 요약 (Map)
     logging.info("1단계: 청크별 요약 시작")
     chunk_summaries = []
     
     for i, chunk in enumerate(chunks, 1):
         chunk_bytes = len(chunk.encode('utf-8'))
-        logging.info(f"청크 {i}/{len(chunks)} 요약 중...")
+        progress_msg = f"청크 처리중({i}/{len(chunks)})..."
+        logging.info(progress_msg)
+        if progress_callback:
+            progress_callback(progress_msg)
         logging.debug(f"청크 크기: {chunk_bytes:,} bytes")
         
         try:
@@ -317,14 +327,20 @@ def summarize_text_mapreduce(
     logging.debug(f"통합 요약 크기: {combined_bytes:,} bytes")
     
     if combined_bytes > chunk_size * 2:  # 안전 마진 적용
-        logging.warning(f"통합 요약이 클 수 있음 ({combined_bytes:,} bytes). 재귀적 요약 적용")
+        logging.info(f"통합 요약이 클 수 있음 ({combined_bytes:,} bytes). 재귀적 요약 적용")
+        logging.info("청크 요약들이 많아 추가 분할 처리중...")
+        if progress_callback:
+            progress_callback("청크 요약들이 많아 추가 분할 처리중...")
         # 청크 요약들을 다시 청킹하여 처리
         summary_chunks = chunk_text(combined_summaries, chunk_size)
         if len(summary_chunks) > 1:
             logging.info(f"청크 요약을 {len(summary_chunks)}개 그룹으로 재분할")
             final_summaries = []
             for i, summary_chunk in enumerate(summary_chunks, 1):
-                logging.info(f"요약 그룹 {i}/{len(summary_chunks)} 처리 중...")
+                progress_msg = f"요약 그룹 처리중({i}/{len(summary_chunks)})..."
+                logging.info(progress_msg)
+                if progress_callback:
+                    progress_callback(progress_msg)
                 group_prompt = REDUCE_PROMPT.format(summaries=summary_chunk)
                 group_summary = call_ollama_with_retry(model, group_prompt, temperature, max_tokens=max_tokens)
                 final_summaries.append(group_summary)

@@ -792,12 +792,18 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 if task_id:
                     update_task_progress(task_id, "텍스트 분석 중...")
                     
+                # Create progress callback function for summary
+                def summary_progress_callback(message):
+                    if task_id:
+                        update_task_progress(task_id, message)
+                
                 summary = summarize_text_mapreduce(
                     text=text,
                     model=summarize_model,
                     chunk_size=DEFAULT_CHUNK_SIZE,
                     max_tokens=None,
                     temperature=DEFAULT_TEMPERATURE,
+                    progress_callback=summary_progress_callback
                 )
                 
                 if task_id:
