@@ -801,18 +801,22 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
             };
         }
     } else if (record) {
-        // Check if this task is already in queue
+        // Check if this task is already in queue or currently processing
         const existingTask = taskQueue.find(t =>
             t.recordId === record.id &&
             t.task === task
         );
         
-        if (existingTask) {
-            // Task is already in queue - show queued state
-            span.style.backgroundColor = '#17a2b8';
-            span.style.color = 'white';
+        const isCurrentlyProcessing = currentTask && 
+            currentTask.recordId === record.id && 
+            currentTask.task === task;
+        
+        if (existingTask || isCurrentlyProcessing) {
+            // Task is already in queue or processing - show queued/processing state
+            span.style.backgroundColor = isCurrentlyProcessing ? '#ffc107' : '#17a2b8';
+            span.style.color = isCurrentlyProcessing ? 'black' : 'white';
             span.style.cursor = 'default';
-            span.title = '큐에 추가됨';
+            span.title = isCurrentlyProcessing ? '처리 중' : '큐에 추가됨';
             span.onclick = null;
         } else {
             // Incomplete task - clickable to add to queue or show popup
@@ -825,21 +829,25 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
                 span.style.pointerEvents = 'none';
                 span.style.opacity = '0.7';
                 
-                // Double-check if this task is already in queue (in case of race condition)
+                // Double-check if this task is already in queue or processing (in case of race condition)
                 const existingTaskCheck = taskQueue.find(t =>
                     t.recordId === record.id &&
                     t.task === task
                 );
+                
+                const isCurrentlyProcessingCheck = currentTask && 
+                    currentTask.recordId === record.id && 
+                    currentTask.task === task;
 
-                if (existingTaskCheck) {
+                if (existingTaskCheck || isCurrentlyProcessingCheck) {
                     // Task already exists, re-enable button and return
                     span.style.pointerEvents = 'auto';
                     span.style.opacity = '1';
-                    console.log(`Task ${task} for record ${record.id} already in queue, skipping`);
+                    console.log(`Task ${task} for record ${record.id} already in queue or processing, skipping`);
                     return;
                 }
 
-                if (!existingTaskCheck) {
+                if (!existingTaskCheck && !isCurrentlyProcessingCheck) {
                     // Check if this is a summary task for audio file without STT completion
                     if (task === 'summary' && record.file_type === 'audio' && !record.completed_tasks.stt) {
                         // Re-enable the button for popup handling
@@ -985,8 +993,9 @@ function displayHistory(history) {
 
         const hasCompleted = Object.values(record.completed_tasks).some(v => v);
         const queued = taskQueue.some(t => t.recordId === record.id);
+        const isProcessing = currentTask && currentTask.recordId === record.id;
 
-        if (hasCompleted || queued) {
+        if (hasCompleted || queued || isProcessing) {
             resetBtn.onclick = async () => {
                 if (!confirm('기존 작업내역을 초기화 하시겠습니까?')) return;
 
@@ -1053,7 +1062,7 @@ function displayHistory(history) {
         taskElements.summary.id = `task-${record.id}-summary`;
         tasks.appendChild(taskElements.summary);
 
-        if (hasCompleted || queued) {
+        if (hasCompleted || queued || isProcessing) {
             batchBtn.disabled = true;
             batchBtn.style.background = '#6c757d';
             batchBtn.style.cursor = 'not-allowed';
@@ -1069,6 +1078,7 @@ function displayHistory(history) {
                     if (!record.completed_tasks.summary) steps.push('summary');
                 }
 
+                // 모든 작업을 일단 큐에 추가하고, 작업 실행 시 파일 존재 여부를 서버에서 확인
                 steps.forEach(step => {
                     const alreadyCompleted = record.completed_tasks[step];
                     const existingTask = taskQueue.find(t => t.recordId === record.id && t.task === step);
@@ -1237,6 +1247,18 @@ async function processNextTask() {
                         taskElement.style.color = 'white';
                         taskElement.title = 'STT 작업을 기다리는 중 시간 초과';
                     }
+                } else if (result.error === 'FILE_NOT_FOUND' || result.error === 'NO_TARGET_FILE') {
+                    // 작업 대상 파일이 없는 경우 - 큐에서 자동삭제
+                    console.log(`Task ${currentTask.task} for record ${currentTask.recordId} has no target file, removing from queue`);
+                    
+                    // Show notification and remove task element
+                    taskElement.textContent = '파일 없음';
+                    taskElement.style.backgroundColor = '#ffc107';
+                    taskElement.style.color = 'black';
+                    taskElement.title = '작업 대상 파일이 없어 큐에서 제거됨';
+                    
+                    // The task will be automatically removed in the finally block
+                    // No need to re-add to queue
                 } else {
                     // Show error state
                     taskElement.textContent = '오류';
@@ -1573,7 +1595,7 @@ async function processAllIncomplete() {
         history.forEach(record => {
             const steps = [];
             
-            // Check which steps are incomplete
+            // Check which steps are incomplete - 모든 작업을 큐에 추가
             if (record.file_type === 'audio') {
                 if (!record.completed_tasks.stt) steps.push('stt');
                 if (!record.completed_tasks.embedding) steps.push('embedding');
