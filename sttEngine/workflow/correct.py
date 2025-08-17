@@ -12,6 +12,7 @@ from typing import List, Optional
 # 설정 모듈 임포트
 sys.path.append(str(Path(__file__).parent.parent))
 from config import get_model_for_task, get_default_model, get_config_value
+from ollama_utils import safe_ollama_call
 
 # 플랫폼별 기본 모델 설정 (.env 파일에서 로드)
 try:
@@ -164,8 +165,9 @@ def chat_once(model: str, system: str, user: str, temperature: float = 0.0,
             ]
             
             try:
-                # 최신 ollama 라이브러리 방식
-                resp = ollama.chat(
+                # 최신 ollama 라이브러리 방식 (safe_ollama_call 사용)
+                resp = safe_ollama_call(
+                    ollama.chat,
                     model=model,
                     messages=messages,
                     options={
@@ -176,7 +178,7 @@ def chat_once(model: str, system: str, user: str, temperature: float = 0.0,
             except TypeError as te:
                 # 구 버전 ollama 라이브러리 방식
                 logging.warning("새로운 ollama.chat 방식 실패, 구 버전 방식으로 재시도: %s", te)
-                resp = ollama.chat(model, messages)
+                resp = safe_ollama_call(ollama.chat, model, messages)
             
             # 응답 검증
             # if not isinstance(resp, dict):

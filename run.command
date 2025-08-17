@@ -29,6 +29,34 @@ if [ ! -f "$WEB_SERVER" ]; then
     exit 1
 fi
 
+# Ollama 서버 상태 확인 및 시작
+echo "Ollama 서버 상태를 확인합니다..."
+if ! curl -s http://localhost:11434/api/version > /dev/null 2>&1; then
+    echo "Ollama 서버가 실행되지 않았습니다. 자동으로 시작합니다..."
+    if command -v ollama > /dev/null 2>&1; then
+        # 백그라운드에서 ollama serve 실행
+        nohup ollama serve > /dev/null 2>&1 &
+        OLLAMA_PID=$!
+        echo "Ollama 서버를 시작했습니다. (PID: $OLLAMA_PID)"
+        
+        # 서버 시작을 위해 잠시 대기
+        echo "서버 시작을 기다리는 중..."
+        sleep 3
+        
+        # 서버 시작 확인
+        if curl -s http://localhost:11434/api/version > /dev/null 2>&1; then
+            echo "Ollama 서버가 성공적으로 시작되었습니다."
+        else
+            echo "경고: Ollama 서버 시작을 확인할 수 없습니다. 수동으로 'ollama serve'를 실행해주세요."
+        fi
+    else
+        echo "경고: ollama 명령어를 찾을 수 없습니다. Ollama가 설치되어 있는지 확인하세요."
+        echo "수동으로 'ollama serve' 명령어를 실행한 후 이 스크립트를 다시 실행하세요."
+    fi
+else
+    echo "Ollama 서버가 이미 실행 중입니다."
+fi
+
 # 웹서버 실행
 echo "가상환경의 파이썬으로 웹서버를 실행합니다..."
 echo "서버 URL: http://localhost:8080"

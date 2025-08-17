@@ -36,6 +36,7 @@ from sttEngine.config import get_default_model
 from sttEngine.one_line_summary import generate_one_line_summary
 from vector_search import search as search_vectors
 from sttEngine.embedding_pipeline import embed_text_ollama, load_index, save_index
+from sttEngine.ollama_utils import ensure_ollama_server, check_ollama_model_available
 import numpy as np
 import os
 
@@ -1208,6 +1209,11 @@ class UploadHandler(BaseHTTPRequestHandler):
     def _serve_available_models(self):
         """Serve available Ollama models as JSON."""
         try:
+            # Ollama 서버 상태 확인 및 필요시 시작
+            server_ok, server_msg = ensure_ollama_server()
+            if not server_ok:
+                raise Exception(f"Ollama 서버를 사용할 수 없습니다: {server_msg}")
+            
             import subprocess
             result = subprocess.run(['ollama', 'list'], capture_output=True, text=True, timeout=10)
             

@@ -3,6 +3,7 @@
 from pathlib import Path
 import ollama
 from sttEngine.workflow.summarize import read_text_with_fallback, DEFAULT_MODEL
+from ollama_utils import safe_ollama_call
 
 
 def generate_one_line_summary(file_path: Path) -> str:
@@ -16,7 +17,8 @@ def generate_one_line_summary(file_path: Path) -> str:
     """
     text = read_text_with_fallback(file_path)
     prompt = "다음 텍스트를 한 줄로 한국어로 요약해 주세요:\n" + text[:4000]
-    response = ollama.generate(
+    response = safe_ollama_call(
+        ollama.generate,
         model=DEFAULT_MODEL,
         prompt=prompt,
         options={"temperature": 0},

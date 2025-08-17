@@ -20,6 +20,7 @@ except ImportError:
 # 설정 모듈 임포트
 sys.path.append(str(Path(__file__).parent.parent))
 from config import get_model_for_task, get_default_model, get_config_value
+from ollama_utils import ensure_ollama_server, check_ollama_model_available, safe_ollama_call
 
 # 설정 상수 - .env 파일에서 로드
 try:
@@ -81,9 +82,17 @@ def setup_logging(verbose: bool) -> None:
 def validate_model(model: str) -> bool:
     """모델 존재 여부 확인"""
     try:
-        models = ollama.list()
-        available_models = [m.get('name') for m in models.get('models', []) if m.get('name')]
-        return model in available_models
+        # Ollama 서버 상태 확인 및 필요시 시작
+        server_ok, server_msg = ensure_ollama_server()
+        if not server_ok:
+            logging.warning(f"Ollama 서버 오류: {server_msg}")
+            return False
+        
+        # 모델 사용 가능성 확인
+        model_ok, model_msg = check_ollama_model_available(model)
+        if not model_ok:
+            logging.warning(f"모델 확인 오류: {model_msg}")
+        return model_ok
     except Exception as e:
         logging.warning(f"모델 목록 조회 실패: {e}")
         return True  # 검증 실패 시 진행 허용
@@ -188,7 +197,8 @@ def call_ollama_with_timeout(
 ) -> str:
     """타임아웃을 적용한 Ollama 호출"""
     def _call_ollama():
-        return ollama.chat(
+        return safe_ollama_call(
+            ollama.chat,
             model=model,
             messages=[{"role": "user", "content": prompt}],
             options=options,

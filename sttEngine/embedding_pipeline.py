@@ -26,6 +26,7 @@ import requests
 # 이를 방지하기 위해 현재 파일의 부모(프로젝트 루트)를 경로에 추가한다.
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from sttEngine.config import get_model_for_task, get_default_model
+from sttEngine.ollama_utils import ensure_ollama_server
 
 VECTOR_DIR = Path("vector_store")
 INDEX_FILE = VECTOR_DIR / "index.json"
@@ -58,6 +59,11 @@ def file_hash(path: Path) -> str:
 def embed_text_ollama(text: str, model_name: str) -> np.ndarray:
     """Ollama API를 사용하여 텍스트를 임베딩"""
     try:
+        # Ollama 서버 상태 확인 및 필요시 시작
+        server_ok, server_msg = ensure_ollama_server()
+        if not server_ok:
+            raise Exception(f"Ollama 서버를 사용할 수 없습니다: {server_msg}")
+        
         response = requests.post(
             "http://localhost:11434/api/embeddings",
             json={
