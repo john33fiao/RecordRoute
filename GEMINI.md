@@ -34,7 +34,9 @@ RecordRoute/
 ├── run.bat                # Windows 웹 서버 실행 스크립트
 ├── run.command            # macOS/Linux 웹 서버 실행 스크립트
 ├── frontend/
-│   └── upload.html        # 웹 업로드 및 작업 관리 UI
+│   ├── upload.html        # 웹 업로드 및 작업 관리 UI
+│   ├── upload.js          # 프론트엔드 로직
+│   └── upload.css         # 프론트엔드 스타일
 └── sttEngine/
     ├── config.py            # 환경변수 기반 설정 관리
     ├── embedding_pipeline.py  # 문서 임베딩 및 벡터 생성
@@ -71,7 +73,8 @@ run_shell_command(command="cd sttEngine && setup.bat")
 루트 디렉토리에서 제공하는 실행 스크립트로 웹 서버를 시작합니다.
 
 1. 의존성 설치 후 실행 스크립트를 호출합니다.
-2. 브라우저에서 `http://localhost:8080` 에 접속하여 파일 업로드, 단계 선택(STT, 교정, 요약), 작업 큐·업로드 기록 관리, 결과 오버레이 뷰어, 요약 전 확인 팝업, 업로드 기록 초기화 기능을 사용합니다.
+2. 브라우저에서 `http://localhost:8080` 에 접속하여 파일을 업로드하고 작업을 선택합니다.
+3. 작업은 백그라운드에서 비동기적으로 처리되며, UI는 주기적으로 서버에 진행 상태를 문의하여 업데이트됩니다.
 
 **AI 에이전트 명령어:**
 
@@ -130,3 +133,21 @@ read_file(absolute_path="/path/to/RecordRoute/sttEngine/workflow/summarize.py")
 replace(...)
 ```
 
+### 웹 UI 및 비동기 작업 디버깅
+
+웹 UI 관련 문제나 작업 처리 중 멈춤 현상 발생 시 다음을 확인합니다.
+
+1.  **서버 로직 확인 (`sttEngine/server.py`):**
+    -   `/process`: 작업을 시작하는 API 엔드포인트. `run_workflow` 함수를 백그라운드 스레드에서 실행하는지 확인합니다.
+    -   `/progress/<task_id>`: 작업 진행 상태를 반환하는 엔드포인트.
+    -   `/history`: 작업 완료 기록을 반환하는 엔드포인트.
+
+2.  **프론트엔드 로직 확인 (`frontend/upload.js`):**
+    -   `processFile()`: `/process` API를 호출하고 서버로부터 `task_id`를 받는지 확인합니다.
+    -   `pollProgress()`: `task_id`를 사용해 주기적으로 `/progress/<task_id>`를 호출하여 UI를 업데이트하는지 확인합니다.
+    -   브라우저의 개발자 도구(F12) 콘솔에서 자바스크립트 오류가 발생하는지 확인하는 것이 매우 중요합니다.
+
+3.  **비동기 작업 흐름 이해:**
+    -   사용자가 웹 UI에서 "처리 시작"을 누르면, `server.py`는 작업을 즉시 백그라운드로 넘기고 `202 Accepted`와 `task_id`를 응답합니다.
+    -   `upload.js`는 이 `task_id`를 받아 `pollProgress` 함수를 통해 작업이 완료될 때까지 주기적으로 서버에 상태를 묻습니다.
+    -   이 과정에서 문제가 발생하면, 서버 로그와 브라우저 콘솔 로그를 함께 분석하여 원인을 찾아야 합니다.
