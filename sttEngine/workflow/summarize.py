@@ -202,8 +202,20 @@ def remove_timestamps(text: str) -> str:
     if repetitive_filtered > 0:
         logging.info(f"반복 텍스트 {repetitive_filtered}개 줄 필터링됨")
     logging.info(f"타임스탬프 제거 및 소프트 병합: {len(text.splitlines())}줄 → {len(merged_lines)}줄")
-    
+
     return result.strip()
+
+
+def strip_prefix_before_bracket(text: str) -> str:
+    """각 줄에서 "] " 앞의 부분을 제거하여 요약 프롬프트에 필요한 본문만 남깁니다."""
+    processed_lines = []
+    for line in text.splitlines():
+        # 원본 파일은 수정하지 않고 프롬프트에 전달할 텍스트만 가공
+        if "] " in line:
+            processed_lines.append(line.split("] ", 1)[1])
+        else:
+            processed_lines.append(line)
+    return "\n".join(processed_lines)
 
 def read_text_with_fallback(path: Path, encoding: str = "utf-8") -> str:
     """인코딩 fallback을 지원하는 텍스트 읽기"""
@@ -349,11 +361,12 @@ def summarize_text_mapreduce(
     print(f"[DEBUG] 입력 텍스트 크기: {original_chars:,} 문자, {original_bytes:,} bytes, {original_lines:,} 줄")
     print(f"[DEBUG] 텍스트 첫 200자: {repr(text[:200])}")
     
-    # 타임스탬프 제거 (원본 파일은 수정하지 않음) - 전처리 비활성화
-    # cleaned_text = remove_timestamps(text)
-    cleaned_text = text
+    # 요약 프롬프트 토큰 절감을 위해 각 줄의 접두사 제거 (원본 파일은 수정하지 않음)
+    cleaned_text = strip_prefix_before_bracket(text)
     cleaned_bytes = len(cleaned_text.encode('utf-8'))
-    logging.info(f"타임스탬프 제거 완료: {original_bytes:,} bytes → {cleaned_bytes:,} bytes ({original_bytes - cleaned_bytes:,} bytes 감소)")
+    logging.info(
+        f"접두사 제거 완료: {original_bytes:,} bytes → {cleaned_bytes:,} bytes ({original_bytes - cleaned_bytes:,} bytes 감소)"
+    )
     
     chunks = chunk_text(cleaned_text, chunk_size, target_chunks)
     logging.info(f"텍스트 분할 완료: {len(chunks)}개 청크 (청크당 최대 {chunk_size:,} bytes, 전체 {cleaned_bytes:,} bytes)")
