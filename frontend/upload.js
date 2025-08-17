@@ -6,13 +6,11 @@ function updateWorkflowOptions(fileType) {
     const sttCheckbox = document.getElementById('stepStt');
     const sttLabel = sttCheckbox.parentElement;
     if (fileType === 'audio') {
-        sttLabel.style.display = 'block';
-        sttLabel.style.visibility = 'visible';
+        sttLabel.classList.remove('hidden', 'invisible');
         sttCheckbox.checked = false;
         sttCheckbox.disabled = false;
     } else {
-        sttLabel.style.display = 'none';
-        sttLabel.style.visibility = 'hidden';
+        sttLabel.classList.add('hidden', 'invisible');
         sttCheckbox.checked = false;
         sttCheckbox.disabled = true;
     }
@@ -47,7 +45,7 @@ document.getElementById('uploadBtn').addEventListener('click', async () => {
                 recordId = fileData.record_id;
 
                 updateWorkflowOptions(fileType);
-                document.getElementById('workflow').style.display = 'block';
+                document.getElementById('workflow').classList.remove('hidden');
 
                 if (fileType === 'audio') {
                     status.textContent = 'Upload complete! Select workflow steps.';
@@ -60,7 +58,7 @@ document.getElementById('uploadBtn').addEventListener('click', async () => {
                 }
             } else {
                 status.textContent = `${data.length}개의 파일이 업로드되었습니다. 히스토리에서 작업을 선택하세요.`;
-                document.getElementById('workflow').style.display = 'none';
+                document.getElementById('workflow').classList.add('hidden');
             }
 
             loadHistory();
@@ -87,7 +85,7 @@ document.getElementById('processBtn').addEventListener('click', async () => {
     }
 
     const downloads = document.getElementById('downloads');
-    downloads.innerHTML = '<p style="color: blue; font-weight: bold;">작업을 큐에 추가합니다...</p>';
+    downloads.innerHTML = '<p class="text-info">작업을 큐에 추가합니다...</p>';
 
     const history = await loadHistorySync();
     const currentRecord = history.find(record => record.id === recordId);
@@ -103,12 +101,12 @@ document.getElementById('processBtn').addEventListener('click', async () => {
         }
     });
 
-    downloads.innerHTML = `<p style="color: green;">선택한 작업들이 큐에 추가되었습니다.</p>`;
+    downloads.innerHTML = '<p class="text-success">선택한 작업들이 큐에 추가되었습니다.</p>';
 
     uploadedPath = null;
     fileType = null;
     recordId = null;
-    document.getElementById('workflow').style.display = 'none';
+    document.getElementById('workflow').classList.add('hidden');
     document.getElementById('fileInput').value = '';
 });
 

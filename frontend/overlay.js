@@ -3,7 +3,7 @@ function showTextOverlay(url) {
     const content = document.getElementById('overlayContent');
     const download = document.getElementById('overlayDownload');
     const similar = document.getElementById('similarDocs');
-    overlay.style.display = 'flex';
+    overlay.classList.add('show-flex');
     content.textContent = '로딩중...';
     download.href = url;
     if (similar) similar.innerHTML = '';
@@ -22,7 +22,7 @@ function showEmbeddingOverlay(url) {
     const content = document.getElementById('overlayContent');
     const download = document.getElementById('overlayDownload');
     const similar = document.getElementById('similarDocs');
-    overlay.style.display = 'flex';
+    overlay.classList.add('show-flex');
     content.textContent = '로딩중...';
     download.href = url;
     if (similar) similar.innerHTML = '<p>유사 문서를 불러오는 중...</p>';
@@ -65,19 +65,19 @@ function showEmbeddingOverlay(url) {
 }
 
 document.getElementById('overlayClose').addEventListener('click', () => {
-    document.getElementById('textOverlay').style.display = 'none';
+    document.getElementById('textOverlay').classList.remove('show-flex');
 });
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         const textOverlay = document.getElementById('textOverlay');
-        if (textOverlay.style.display === 'flex') {
-            textOverlay.style.display = 'none';
+        if (textOverlay.classList.contains('show-flex')) {
+            textOverlay.classList.remove('show-flex');
         }
-        if (typeof summaryPopup !== 'undefined' && summaryPopup.style.display === 'flex' && typeof hideSummaryPopup === 'function') {
+        if (typeof summaryPopup !== 'undefined' && summaryPopup.classList.contains('show-flex') && typeof hideSummaryPopup === 'function') {
             hideSummaryPopup();
         }
-        if (typeof sttConfirmPopup !== 'undefined' && sttConfirmPopup.style.display === 'flex' && typeof hideSttConfirmPopup === 'function') {
+        if (typeof sttConfirmPopup !== 'undefined' && sttConfirmPopup.classList.contains('show-flex') && typeof hideSttConfirmPopup === 'function') {
             hideSttConfirmPopup();
         }
     }

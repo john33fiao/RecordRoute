@@ -7,7 +7,7 @@ function editFilename(recordId, currentFilename) {
     input.value = currentFilename;
     input.className = 'filename-input';
 
-    filenameElement.style.display = 'none';
+    filenameElement.classList.add('hidden');
     filenameElement.parentNode.insertBefore(input, filenameElement.nextSibling);
 
     input.focus();
@@ -41,12 +41,12 @@ function editFilename(recordId, currentFilename) {
         }
 
         input.remove();
-        filenameElement.style.display = '';
+        filenameElement.classList.remove('hidden');
     };
 
     const cancelEdit = () => {
         input.remove();
-        filenameElement.style.display = '';
+        filenameElement.classList.remove('hidden');
     };
 
     input.addEventListener('keydown', (e) => {
@@ -81,26 +81,20 @@ function displayHistory(history) {
     historyList.innerHTML = '';
 
     if (history.length === 0) {
-        historyList.innerHTML = '<p style="color: #6c757d; font-style: italic;">업로드 기록이 없습니다.</p>';
+        historyList.innerHTML = '<p class="text-muted">업로드 기록이 없습니다.</p>';
         return;
     }
 
     history.forEach((record) => {
         const item = document.createElement('div');
-        item.style.cssText = `
-            border: 1px solid #dee2e6;
-            border-radius: 5px;
-            padding: 10px;
-            margin-bottom: 10px;
-            background-color: #f8f9fa;
-        `;
+        item.className = 'history-item';
 
         const typeLabel = record.file_type === 'audio' ? '오디오' : record.file_type === 'pdf' ? 'PDF' : '텍스트';
         const dateTime = formatDateTime(record.timestamp);
         const duration = record.duration ? ` ${record.duration}` : '';
 
         const header = document.createElement('div');
-        header.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;';
+        header.className = 'history-header';
 
         const info = document.createElement('span');
         info.innerHTML = `
@@ -119,10 +113,10 @@ function displayHistory(history) {
         header.appendChild(info);
 
         const actions = document.createElement('div');
-        actions.style.cssText = 'display:flex; gap:10px;';
+        actions.className = 'history-actions';
 
         const tasks = document.createElement('div');
-        tasks.style.cssText = 'margin-top:8px;';
+        tasks.className = 'history-tasks';
 
         const createTaskSpan = (taskName, isCompleted, downloadUrl) => {
             const span = createTaskElement(taskName, isCompleted, downloadUrl, record);

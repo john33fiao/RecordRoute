@@ -11,38 +11,38 @@
     <button id="uploadBtn">Upload</button>
     <div id="status"></div>
 
-    <div id="workflow" style="display:none; margin-top:1em;">
+    <div id="workflow" class="hidden">
         <label><input type="checkbox" id="stepStt" /> STT 변환</label>
         <label><input type="checkbox" id="stepEmbedding" /> 색인</label>
         <label><input type="checkbox" id="stepSummary" /> 요약</label>
         <button id="processBtn">확인</button>
     </div>
 
-    <div id="downloads" style="margin-top:1em;"></div>
+    <div id="downloads"></div>
 
-    <div id="queue-section" style="margin-top:2em;">
-        <h2 style="display:flex; align-items:center; justify-content:space-between;">
+    <div id="queue-section">
+        <h2>
             작업 큐
-            <div style="display:flex; align-items:center; gap:10px;">
-                <select id="queueSortSelect" style="padding:4px 8px; border:1px solid #ccc; border-radius:3px; font-size:14px;">
+            <div class="controls">
+                <select id="queueSortSelect" class="select-input">
                     <option value="default">기본값 (카테고리별)</option>
                     <option value="oldest">추가순 (오래된 순)</option>
                 </select>
-                <button id="cancelAllBtn" style="display:none; background:#dc3545; color:white; border:none; border-radius:3px; padding:4px 8px; cursor:pointer; font-size:14px;">모두 취소</button>
+                <button id="cancelAllBtn" class="btn btn-danger hidden">모두 취소</button>
             </div>
         </h2>
         <div id="queue-list"></div>
     </div>
 
-    <div id="history-section" style="margin-top:2em;">
-        <h2 style="display:flex; align-items:center; justify-content:space-between;">
+    <div id="history-section">
+        <h2>
             업로드 기록
-            <button id="processAllBtn" style="background:#28a745; color:white; border:none; border-radius:3px; padding:4px 8px; cursor:pointer; font-size:14px;">전체 진행</button>
+            <button id="processAllBtn" class="btn btn-success">전체 진행</button>
         </h2>
         <div id="history-list"></div>
     </div>
 
-    <div id="search-section" style="margin-top:2em;">
+    <div id="search-section">
         <h2>키워드 검색</h2>
         <input type="text" id="searchInput" placeholder="검색어를 입력하세요" />
         <button id="searchBtn">검색</button>
@@ -55,7 +55,7 @@
                 <a id="overlayDownload" href="#" download>다운로드</a>
                 <button id="overlayClose">닫기</button>
             </div>
-            <pre id="overlayContent" style="white-space: pre-wrap;"></pre>
+            <pre id="overlayContent" class="pre-wrap"></pre>
             <div id="similarDocs"></div>
         </div>
     </div>

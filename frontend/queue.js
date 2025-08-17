@@ -36,29 +36,32 @@ function stopProgressPolling() {
 }
 
 function hideSummaryPopup() {
-    summaryPopup.style.display = 'none';
+    summaryPopup.classList.remove('show-flex');
+    summaryPopup.classList.add('hidden');
 }
 
 function showSttConfirmPopup() {
-    sttConfirmPopup.style.display = 'flex';
+    sttConfirmPopup.classList.remove('hidden');
+    sttConfirmPopup.classList.add('show-flex');
 }
 
 function hideSttConfirmPopup() {
-    sttConfirmPopup.style.display = 'none';
+    sttConfirmPopup.classList.remove('show-flex');
+    sttConfirmPopup.classList.add('hidden');
 }
 
 summaryCancelBtn.addEventListener('click', hideSummaryPopup);
 sttConfirmCancelBtn.addEventListener('click', hideSttConfirmPopup);
 
 function setQueuedState(span) {
-    span.style.backgroundColor = '#17a2b8';
-    span.style.color = 'white';
+    span.classList.add('bg-info');
     span.title = '큐에 추가됨';
     span.onclick = null;
 }
 
 function showSummaryPopup(record, span) {
-    summaryPopup.style.display = 'flex';
+    summaryPopup.classList.remove('hidden');
+    summaryPopup.classList.add('show-flex');
     summaryOnlyBtn.onclick = () => {
         addTaskToQueue(record.id, record.file_path, 'summary', span, record.filename);
         setQueuedState(span);
@@ -181,9 +184,7 @@ function resetTaskElement(taskElement, task) {
     };
 
     taskElement.textContent = taskNames[task] || task;
-    taskElement.style.backgroundColor = '#6c757d';
-    taskElement.style.color = 'white';
-    taskElement.style.cursor = 'pointer';
+    taskElement.classList.add('bg-secondary', 'pointer');
     taskElement.title = '클릭하여 작업 시작';
 }
 
@@ -194,12 +195,12 @@ function updateQueueDisplay() {
     queueList.innerHTML = '';
 
     if (taskQueue.length === 0 && !currentTask) {
-        queueList.innerHTML = '<p style="color: #6c757d; font-style: italic;">진행 중인 작업이 없습니다.</p>';
-        cancelAllBtn.style.display = 'none';
+        queueList.innerHTML = '<p class="text-muted">진행 중인 작업이 없습니다.</p>';
+        cancelAllBtn.classList.add('hidden');
         return;
     }
 
-    cancelAllBtn.style.display = 'inline-block';
+    cancelAllBtn.classList.remove('hidden');
 
     const taskNames = {
         'stt': 'STT 변환',
@@ -224,34 +225,26 @@ function updateQueueDisplay() {
 
         allTasks.forEach((task, index) => {
             const item = document.createElement('div');
-            item.style.cssText = `
-                border: 1px solid #dee2e6;
-                border-radius: 5px;
-                padding: 8px 12px;
-                margin-bottom: 8px;
-                background-color: ${task.status === 'processing' ? '#fff3cd' : '#f8f9fa'};
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            `;
+            item.className = 'queue-item mb-8';
+            if (task.status === 'processing') item.classList.add('processing');
 
             const statusText = task.status === 'processing' ? '진행중' : `대기중 (${index + 1}번째)`;
-            const statusColor = task.status === 'processing' ? '#856404' : '#6c757d';
+            const statusClass = task.status === 'processing' ? 'status-processing' : 'status-queued';
             const taskName = taskNames[task.task] || task.task;
 
             const info = document.createElement('span');
             info.innerHTML = `
                 <strong>${task.filename}</strong> - ${taskName}
-                <span style="color: ${statusColor}; font-size: 12px; margin-left: 10px;">[${statusText}]</span>
+                <span class="status-span ${statusClass}">[${statusText}]</span>
             `;
 
             const infoContainer = document.createElement('div');
-            infoContainer.style.flex = '1';
+            infoContainer.className = 'flex-1';
             infoContainer.appendChild(info);
 
             if (task.status === 'processing' && task.progress) {
                 const progressDiv = document.createElement('div');
-                progressDiv.style.cssText = 'color: #856404; font-size: 12px; margin-top: 4px;';
+                progressDiv.className = 'progress-text';
 
                 // 진행률 퍼센트 추출
                 const percentMatch = task.progress.match(/(\d+)%/);
@@ -260,22 +253,11 @@ function updateQueueDisplay() {
 
                     // 진행률 바 생성
                     const progressContainer = document.createElement('div');
-                    progressContainer.style.cssText = `
-                        width: 100%;
-                        height: 4px;
-                        background-color: #e9ecef;
-                        border-radius: 2px;
-                        margin: 2px 0;
-                        overflow: hidden;
-                    `;
+                    progressContainer.className = 'progress-container';
 
                     const progressBar = document.createElement('div');
-                    progressBar.style.cssText = `
-                        width: ${percent}%;
-                        height: 100%;
-                        background-color: #007bff;
-                        transition: width 0.3s ease;
-                    `;
+                    progressBar.className = 'progress-bar';
+                    progressBar.style.width = `${percent}%`;
 
                     progressContainer.appendChild(progressBar);
                     progressDiv.appendChild(progressContainer);
@@ -290,19 +272,7 @@ function updateQueueDisplay() {
 
             const cancelBtn = document.createElement('button');
             cancelBtn.textContent = '×';
-            cancelBtn.style.cssText = `
-                background: #dc3545;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                width: 24px;
-                height: 24px;
-                cursor: pointer;
-                font-size: 16px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            `;
+            cancelBtn.className = 'cancel-btn';
             cancelBtn.title = '작업 취소';
             cancelBtn.onclick = () => removeTaskFromQueue(task.id);
 
@@ -337,50 +307,34 @@ function updateQueueDisplay() {
 
             // Create category header
             const categoryHeader = document.createElement('div');
-            categoryHeader.style.cssText = `
-                background: #007bff;
-                color: white;
-                padding: 6px 12px;
-                margin: 10px 0 5px 0;
-                border-radius: 5px 5px 0 0;
-                font-weight: bold;
-                font-size: 14px;
-            `;
+            categoryHeader.className = 'category-header';
             categoryHeader.textContent = `${categoryNames[category]} (${categoryTasks.length}개)`;
             queueList.appendChild(categoryHeader);
 
             // Add tasks in this category
             categoryTasks.forEach((task, index) => {
                 const item = document.createElement('div');
-                item.style.cssText = `
-                    border: 1px solid #dee2e6;
-                    border-top: none;
-                    padding: 8px 12px;
-                    margin-bottom: ${index === categoryTasks.length - 1 ? '10px' : '0'};
-                    background-color: ${task.status === 'processing' ? '#fff3cd' : '#f8f9fa'};
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    ${index === categoryTasks.length - 1 ? 'border-radius: 0 0 5px 5px;' : ''}
-                `;
+                item.className = 'queue-item';
+                if (task.status === 'processing') item.classList.add('processing');
+                if (index === categoryTasks.length - 1) item.classList.add('last');
 
                 const globalIndex = taskQueue.findIndex(t => t.id === task.id);
                 const statusText = task.status === 'processing' ? '진행중' : `대기중 (${globalIndex + 1}번째)`;
-                const statusColor = task.status === 'processing' ? '#856404' : '#6c757d';
+                const statusClass = task.status === 'processing' ? 'status-processing' : 'status-queued';
 
                 const info = document.createElement('span');
                 info.innerHTML = `
                     <strong>${task.filename}</strong>
-                    <span style="color: ${statusColor}; font-size: 12px; margin-left: 10px;">[${statusText}]</span>
+                    <span class="status-span ${statusClass}">[${statusText}]</span>
                 `;
 
                 const infoContainer = document.createElement('div');
-                infoContainer.style.flex = '1';
+                infoContainer.className = 'flex-1';
                 infoContainer.appendChild(info);
 
                 if (task.status === 'processing' && task.progress) {
                     const progressDiv = document.createElement('div');
-                    progressDiv.style.cssText = 'color: #856404; font-size: 12px; margin-top: 4px;';
+                    progressDiv.className = 'progress-text';
 
                     // 진행률 퍼센트 추출
                     const percentMatch = task.progress.match(/(\d+)%/);
@@ -389,22 +343,11 @@ function updateQueueDisplay() {
 
                         // 진행률 바 생성
                         const progressContainer = document.createElement('div');
-                        progressContainer.style.cssText = `
-                            width: 100%;
-                            height: 4px;
-                            background-color: #e9ecef;
-                            border-radius: 2px;
-                            margin: 2px 0;
-                            overflow: hidden;
-                        `;
+                        progressContainer.className = 'progress-container';
 
                         const progressBar = document.createElement('div');
-                        progressBar.style.cssText = `
-                            width: ${percent}%;
-                            height: 100%;
-                            background-color: #007bff;
-                            transition: width 0.3s ease;
-                        `;
+                        progressBar.className = 'progress-bar';
+                        progressBar.style.width = `${percent}%`;
 
                         progressContainer.appendChild(progressBar);
                         progressDiv.appendChild(progressContainer);
@@ -419,19 +362,7 @@ function updateQueueDisplay() {
 
                 const cancelBtn = document.createElement('button');
                 cancelBtn.textContent = '×';
-                cancelBtn.style.cssText = `
-                    background: #dc3545;
-                    color: white;
-                    border: none;
-                    border-radius: 3px;
-                    width: 24px;
-                    height: 24px;
-                    cursor: pointer;
-                    font-size: 16px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                `;
+                cancelBtn.className = 'cancel-btn';
                 cancelBtn.title = '작업 취소';
                 cancelBtn.onclick = () => removeTaskFromQueue(task.id);
 
@@ -452,17 +383,11 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
 
     const span = document.createElement('span');
     span.textContent = taskNames[task] || task;
-    span.style.margin = '0 5px';
-    span.style.padding = '2px 6px';
-    span.style.borderRadius = '3px';
-    span.style.fontSize = '12px';
+    span.className = 'task-label';
     span.dataset.task = task;
 
     if (isCompleted && downloadUrl) {
-        span.style.backgroundColor = '#28a745';
-        span.style.color = 'white';
-        span.style.cursor = 'pointer';
-        span.style.textDecoration = 'underline';
+        span.classList.add('bg-success', 'pointer', 'underline');
         if (task === 'embedding') {
             span.title = '클릭하여 내용 및 유사 문서 보기';
             span.onclick = () => {
@@ -481,19 +406,14 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
         );
 
         if (existingTask) {
-            span.style.backgroundColor = '#17a2b8';
-            span.style.color = 'white';
-            span.style.cursor = 'default';
+            span.classList.add('bg-info', 'cursor-default');
             span.title = '큐에 추가됨';
             span.onclick = null;
         } else {
-            span.style.backgroundColor = '#6c757d';
-            span.style.color = 'white';
-            span.style.cursor = 'pointer';
+            span.classList.add('bg-secondary', 'pointer');
             span.title = '클릭하여 작업 시작';
             span.onclick = () => {
-                span.style.pointerEvents = 'none';
-                span.style.opacity = '0.7';
+                span.classList.add('no-pointer', 'opacity-70');
 
                 const existingTaskCheck = taskQueue.find(t =>
                     t.recordId === record.id &&
@@ -501,16 +421,14 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
                 );
 
                 if (existingTaskCheck) {
-                    span.style.pointerEvents = 'auto';
-                    span.style.opacity = '1';
+                    span.classList.remove('no-pointer', 'opacity-70');
                     console.log(`Task ${task} for record ${record.id} already in queue, skipping`);
                     return;
                 }
 
                 if (!existingTaskCheck) {
                     if (task === 'summary' && record.file_type === 'audio' && !record.completed_tasks.stt) {
-                        span.style.pointerEvents = 'auto';
-                        span.style.opacity = '1';
+                        span.classList.remove('no-pointer', 'opacity-70');
                         showSttConfirmPopup();
                         const handleConfirm = () => {
                             hideSttConfirmPopup();
@@ -537,8 +455,7 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
                     }
 
                     if (task === 'embedding' && record.file_type === 'audio' && !record.completed_tasks.stt) {
-                        span.style.pointerEvents = 'auto';
-                        span.style.opacity = '1';
+                        span.classList.remove('no-pointer', 'opacity-70');
                         fetch('/check_existing_stt', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -564,14 +481,12 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
                     addTaskToQueue(record.id, record.file_path, task, span, record.filename);
                     setQueuedState(span);
                 } else {
-                    span.style.pointerEvents = 'auto';
-                    span.style.opacity = '1';
+                    span.classList.remove('no-pointer', 'opacity-70');
                 }
             };
         }
     } else {
-        span.style.backgroundColor = '#e9ecef';
-        span.style.color = '#6c757d';
+        span.classList.add('bg-light');
     }
 
     return span;
@@ -620,9 +535,7 @@ async function processNextTask() {
         const taskElement = currentTask.taskElement;
         const originalText = taskElement.textContent;
         taskElement.textContent = '처리중...';
-        taskElement.style.backgroundColor = '#ffc107';
-        taskElement.style.color = 'black';
-        taskElement.style.cursor = 'default';
+        taskElement.classList.add('bg-warning', 'cursor-default');
         taskElement.onclick = null;
 
         // Initialize progress message and start polling for updates
@@ -657,8 +570,7 @@ async function processNextTask() {
                     if (currentTask.retryCount < 20) {
                         taskQueue.push(currentTask);
                         taskElement.textContent = 'STT 대기';
-                        taskElement.style.backgroundColor = '#ffc107';
-                        taskElement.style.color = 'black';
+                        taskElement.classList.add('bg-warning', 'cursor-default');
                         taskElement.title = result.message || 'STT 작업 완료 대기 중';
                         currentTask = null;
                         currentCategory = taskQueue.length > 0 ? taskQueue[0].task : null;
@@ -668,22 +580,17 @@ async function processNextTask() {
                         return;
                     } else {
                         taskElement.textContent = '오류';
-                        taskElement.style.backgroundColor = '#dc3545';
-                        taskElement.style.color = 'white';
+                        taskElement.classList.add('bg-danger');
                         taskElement.title = 'STT 작업을 기다리는 중 시간 초과';
                     }
                 } else {
                     taskElement.textContent = '오류';
-                    taskElement.style.backgroundColor = '#dc3545';
-                    taskElement.style.color = 'white';
+                    taskElement.classList.add('bg-danger');
                     taskElement.title = `오류: ${result.error}`;
                 }
             } else if (result[currentTask.task]) {
                 taskElement.textContent = originalText;
-                taskElement.style.backgroundColor = '#28a745';
-                taskElement.style.color = 'white';
-                taskElement.style.cursor = 'pointer';
-                taskElement.style.textDecoration = 'underline';
+                taskElement.classList.add('bg-success', 'pointer', 'underline');
                 taskElement.title = '클릭하여 다운로드';
                 taskElement.onclick = () => {
                     window.open(result[currentTask.task], '_blank');
@@ -691,8 +598,7 @@ async function processNextTask() {
             }
         } else {
             taskElement.textContent = '오류';
-            taskElement.style.backgroundColor = '#dc3545';
-            taskElement.style.color = 'white';
+            taskElement.classList.add('bg-danger');
             taskElement.title = '처리 중 오류가 발생했습니다';
         }
     } catch (error) {
@@ -701,8 +607,7 @@ async function processNextTask() {
         } else {
             const taskElement = currentTask.taskElement;
             taskElement.textContent = '오류';
-            taskElement.style.backgroundColor = '#dc3545';
-            taskElement.style.color = 'white';
+            taskElement.classList.add('bg-danger');
             taskElement.title = `오류: ${error.message}`;
             console.error('Error processing task:', error);
         }
@@ -748,7 +653,7 @@ async function checkRunningTasks() {
                     <div class="warning-box">
                         <strong>⚠️ 백그라운드에서 실행 중인 작업이 있습니다!</strong><br>
                         페이지를 새로고침했지만 서버에서 ${taskCount}개의 작업이 계속 실행 중입니다.<br>
-                        <ul style="margin: 5px 0;">${taskDetails}</ul>
+                        <ul class="list-compact">${taskDetails}</ul>
                         작업 완료 후 히스토리를 자동으로 업데이트됩니다.
                     </div>
                 `;
@@ -782,7 +687,7 @@ function startTaskMonitoring() {
                         const status = document.getElementById('status');
                         if (status.innerHTML.includes('백그라운드에서 실행 중인')) {
                             status.innerHTML = `
-                                <div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 10px; border-radius: 5px; margin: 10px 0; color: #155724;">
+                                <div class="alert-success">
                                     ✅ 모든 백그라운드 작업이 완료되었습니다!
                                 </div>
                             `;
