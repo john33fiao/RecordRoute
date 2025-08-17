@@ -75,7 +75,6 @@ def unregister_process(task_id: str):
             del running_processes[task_id]
             print(f"Unregistered process for task {task_id}")
 
-
 def cancel_task(task_id: str):
     """Cancel a running task by terminating its process."""
     with process_lock:
@@ -137,7 +136,6 @@ def clear_task_progress(task_id: str):
         if task_id in task_progress:
             del task_progress[task_id]
 
-
 def get_running_tasks():
     """Get information about currently running tasks."""
     with process_lock:
@@ -153,7 +151,7 @@ def get_running_tasks():
 
 
 def get_file_type(file_path: Path):
-    """Determine if the file is audio or text.
+    """Determine if the file is audio or text. 
     
     Returns:
         'audio' for audio files, 'text' for text files, 'pdf' for PDF files, 'unknown' for others.
@@ -177,7 +175,7 @@ def get_audio_duration(file_path: Path):
     """Get audio file duration using ffprobe."""
     try:
         result = subprocess.run([
-            'ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', 
+            'ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
             '-of', 'csv=p=0', str(file_path)
         ], capture_output=True, text=True, check=True)
         duration = float(result.stdout.strip())
@@ -206,7 +204,6 @@ def save_upload_history(history):
             json.dump(history, f, ensure_ascii=False, indent=2)
     except IOError:
         pass
-
 
 def add_upload_record(file_path: Path, file_type: str, duration: str = None):
     """Add a new upload record to history."""
@@ -237,7 +234,6 @@ def add_upload_record(file_path: Path, file_type: str, duration: str = None):
     save_upload_history(history)
     return record["id"]
 
-
 def load_file_registry():
     """Load file registry from JSON file."""
     if FILE_REGISTRY_FILE.exists():
@@ -248,7 +244,6 @@ def load_file_registry():
             return {}
     return {}
 
-
 def save_file_registry(registry):
     """Save file registry to JSON file."""
     try:
@@ -256,7 +251,6 @@ def save_file_registry(registry):
             json.dump(registry, f, ensure_ascii=False, indent=2)
     except IOError:
         pass
-
 
 def register_file(file_path: str, record_id: str, task_type: str, original_filename: str = None):
     """Register a file with UUID and return the file UUID."""
@@ -276,12 +270,10 @@ def register_file(file_path: str, record_id: str, task_type: str, original_filen
     save_file_registry(registry)
     return file_uuid
 
-
 def get_file_by_uuid(file_uuid: str):
     """Get file info by UUID."""
     registry = load_file_registry()
     return registry.get(file_uuid)
-
 
 def migrate_existing_files():
     """Migrate existing files from upload history to file registry."""
@@ -318,7 +310,6 @@ def migrate_existing_files():
         save_upload_history(history)
         print("기존 파일들이 레지스트리에 등록되었습니다.")
 
-
 def update_task_completion(record_id: str, task: str, file_path: str):
     """Update task completion status and register file with UUID."""
     history = load_upload_history()
@@ -336,7 +327,6 @@ def update_task_completion(record_id: str, task: str, file_path: str):
     save_upload_history(history)
     return file_uuid
 
-
 def update_title_summary(record_id: str, summary: str):
     """Store one-line summary for a record."""
     history = load_upload_history()
@@ -345,7 +335,6 @@ def update_title_summary(record_id: str, summary: str):
             record["title_summary"] = summary
             break
     save_upload_history(history)
-
 
 def update_filename(record_id: str, new_filename: str):
     """Update filename for a record."""
@@ -356,7 +345,6 @@ def update_filename(record_id: str, new_filename: str):
             break
     save_upload_history(history)
 
-
 def generate_and_store_title_summary(record_id: str, file_path: Path):
     """Generate one-line summary and store it."""
     try:
@@ -364,7 +352,6 @@ def generate_and_store_title_summary(record_id: str, file_path: Path):
         update_title_summary(record_id, summary)
     except Exception as e:
         print(f"One-line summary generation failed: {e}")
-
 
 def find_existing_stt_file(original_file_path: Path):
     """Find existing STT result file for the given original file."""
@@ -388,7 +375,6 @@ def find_existing_stt_file(original_file_path: Path):
     
     print(f"[DEBUG] '{stem}.md' STT 파일을 찾지 못함 (경로: {stt_output_dir})")
     return None
-
 
 def run_incremental_embedding(base_dir: Path = None):
     """Run incremental embedding on all existing STT result files."""
@@ -455,7 +441,6 @@ def run_incremental_embedding(base_dir: Path = None):
         print(f"증분 임베딩 실행 실패: {e}")
         return 0
 
-
 def file_hash(path: Path) -> str:
     """Return a stable SHA256 checksum for the given file."""
     import hashlib
@@ -464,7 +449,6 @@ def file_hash(path: Path) -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
     return h.hexdigest()
-
 
 def generate_embedding(file_path: Path, record_id: str = None):
     """Generate embedding for a text file and store it."""
@@ -510,7 +494,6 @@ def generate_embedding(file_path: Path, record_id: str = None):
     except Exception as e:
         print(f"Embedding generation failed for {file_path.name}: {e}")
         return False
-
 
 def reset_upload_record(record_id: str) -> bool:
     """Remove processed files and reset completion status for a record."""
@@ -568,9 +551,8 @@ def reset_upload_record(record_id: str) -> bool:
 
     return False
 
-
 def delete_file(file_identifier: str, file_type: str) -> tuple[bool, str]:
-    """Delete a specific file (STT or summary) and update history.
+    """Delete a specific file (STT or summary) and update history. 
     
     Args:
         file_identifier: File UUID from download URL
@@ -637,7 +619,6 @@ def delete_file(file_identifier: str, file_type: str) -> tuple[bool, str]:
     except Exception as e:
         print(f"Error deleting file: {e}")
         return False, f"삭제 중 오류가 발생했습니다: {str(e)}"
-
 
 def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = None, model_settings: dict = None):
     """Run the requested workflow steps sequentially.
@@ -851,6 +832,70 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
             # Check if task was cancelled before starting summary
             if task_id and is_task_cancelled(task_id):
                 return {"error": "Task was cancelled"}
+
+            # For audio files, check if we have the text file (STT completed)
+            if file_type == 'audio' and current_file == file_path:
+                # current_file is still the original audio file, check for existing STT result first
+                existing_stt = find_existing_stt_file(file_path)
+                
+                if existing_stt:
+                    # Use existing STT result
+                    if task_id:
+                        update_task_progress(task_id, f"기존 STT 결과 발견: {existing_stt.name}")
+                    current_file = existing_stt
+                    
+                    # Update results to include existing STT
+                    download_url = f"/download/{upload_folder_name}/{existing_stt.name}"
+                    results["stt"] = download_url
+                    
+                    # Update history if needed
+                    if record_id:
+                        file_path_str = str(current_file.relative_to(BASE_DIR))
+                        update_task_completion(record_id, "stt", file_path_str)
+                        generate_and_store_title_summary(record_id, current_file)
+                else:
+                    # No existing STT result, run STT first
+                    if task_id:
+                        update_task_progress(task_id, "STT 자동 실행 시작")
+                    try:
+                        def progress_callback(message):
+                            if task_id:
+                                update_task_progress(task_id, message)
+
+                        # Get Whisper model from settings, default to large-v3-turbo
+                        whisper_model = "large-v3-turbo"
+                        if model_settings and model_settings.get("whisper"):
+                            whisper_model = model_settings["whisper"]
+                            
+                        transcribe_audio_files(
+                            input_dir=str(current_file.parent),
+                            output_dir=str(individual_output_dir),
+                            model_identifier=whisper_model,
+                            language=None,
+                            initial_prompt="",
+                            workers=1,
+                            recursive=False,
+                            filter_fillers=False,
+                            min_seg_length=2,
+                            normalize_punct=False,
+                            progress_callback=progress_callback
+                        )
+                    except Exception as e:
+                        print(f"STT process failed: {e}")
+                        if task_id:
+                            update_task_progress(task_id, f"STT 실패: {e}")
+                        return {"error": f"STT process failed: {e}"}
+
+                    stt_file = individual_output_dir / f"{file_path.stem}.md"
+                    download_url = f"/download/{upload_folder_name}/{stt_file.name}"
+                    results["stt"] = download_url
+                    current_file = stt_file
+
+                    # Update history
+                    if record_id:
+                        file_path_str = str(current_file.relative_to(BASE_DIR))
+                        update_task_completion(record_id, "stt", file_path_str)
+                        generate_and_store_title_summary(record_id, current_file)
                 
             print(f"Starting summary for task {task_id}")
             if task_id:
