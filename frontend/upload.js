@@ -6,6 +6,12 @@ let currentTask = null;
 let taskIdCounter = 0;
 const categoryOrder = ['stt', 'embedding', 'summary'];
 let currentCategory = null;
+
+// Function to normalize Korean text to NFC form for proper display
+function normalizeKorean(text) {
+    if (typeof text !== 'string') return text;
+    return text.normalize('NFC');
+}
 const summaryPopup = document.getElementById('summaryPopup');
 const summaryOnlyBtn = document.getElementById('summaryOnlyBtn');
 const summaryCancelBtn = document.getElementById('summaryCancelBtn');
@@ -119,7 +125,7 @@ function showSimilarDocuments(filePath) {
                 
                 return `
                     <div class="similar-doc-item" onclick="downloadSimilarDocument('${doc.link}')">
-                        <div class="similar-doc-name">${fileName}</div>
+                        <div class="similar-doc-name">${normalizeKorean(fileName)}</div>
                         <div class="similar-doc-score">유사도: ${similarityPercent}%</div>
                     </div>
                 `;
@@ -176,7 +182,7 @@ function editFilename(recordId, currentFilename) {
                 });
                 
                 if (response.ok) {
-                    filenameElement.textContent = newFilename.trim();
+                    filenameElement.textContent = normalizeKorean(newFilename.trim());
                     loadHistory(); // Reload to reflect changes
                 } else {
                     alert('파일명 수정에 실패했습니다.');
@@ -419,7 +425,7 @@ function updateQueueDisplay() {
             
             const info = document.createElement('span');
             info.innerHTML = `
-                <strong>${task.filename}</strong> - ${taskName}
+                <strong>${normalizeKorean(task.filename)}</strong> - ${taskName}
                 <span style="color: ${statusColor}; font-size: 12px; margin-left: 10px;">[${statusText}]</span>
             `;
 
@@ -549,7 +555,7 @@ function updateQueueDisplay() {
                 
                 const info = document.createElement('span');
                 info.innerHTML = `
-                    <strong>${task.filename}</strong>
+                    <strong>${normalizeKorean(task.filename)}</strong>
                     <span style="color: ${statusColor}; font-size: 12px; margin-left: 10px;">[${statusText}]</span>
                 `;
 
@@ -815,7 +821,7 @@ function displayHistory(history) {
         info.innerHTML = `
             <strong>[${typeLabel}]</strong>
             ${dateTime}
-            <strong id="filename-${record.id}" class="filename-display" title="클릭하여 파일명 수정">${record.filename}</strong><span class="duration">${duration}</span>
+            <strong id="filename-${record.id}" class="filename-display" title="클릭하여 파일명 수정">${normalizeKorean(record.filename)}</strong><span class="duration">${duration}</span>
         `;
         
         // Add click event to filename for editing
@@ -1392,7 +1398,7 @@ document.getElementById('searchBtn').addEventListener('click', async () => {
                 const li = document.createElement('li');
                 const a = document.createElement('a');
                 a.href = item.link;
-                a.textContent = `${item.file} (유사도: ${item.score.toFixed(3)})`;
+                a.textContent = `${normalizeKorean(item.file)} (유사도: ${item.score.toFixed(3)})`;
                 a.target = '_blank';
                 a.style.textDecoration = 'none';
                 a.style.color = '#007bff';
