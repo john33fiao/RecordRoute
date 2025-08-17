@@ -74,3 +74,40 @@ def search(query: str, base_dir: Path, top_k: int = 10) -> List[Dict[str, Any]]:
         print(f"검색 중 오류 발생: {e}")
         # 오류 발생 시 빈 결과 반환
         return []
+
+
+def similar_to_file(file_path: str, base_dir: Path, top_k: int = 5) -> List[Dict[str, Any]]:
+    """Return documents most similar to the given file."""
+    try:
+        index = load_index()
+        abs_path = (base_dir / file_path).resolve()
+        key = str(abs_path)
+        meta = index.get(key)
+        if not meta:
+            return []
+        vec_file = VECTOR_DIR / meta.get("vector", "")
+        if not vec_file.exists():
+            return []
+        query_vec = np.load(vec_file)
+        results: List[Dict[str, Any]] = []
+        for path_str, m in index.items():
+            if path_str == key:
+                continue
+            other_vec_file = VECTOR_DIR / m.get("vector", "")
+            if not other_vec_file.exists():
+                continue
+            doc_vec = np.load(other_vec_file)
+            denom = (np.linalg.norm(query_vec) * np.linalg.norm(doc_vec))
+            if denom == 0:
+                continue
+            score = float(np.dot(query_vec, doc_vec) / denom)
+            try:
+                rel_path = str(Path(path_str).resolve().relative_to(base_dir))
+            except ValueError:
+                rel_path = path_str
+            results.append({"file": rel_path, "score": score})
+        results.sort(key=lambda x: x["score"], reverse=True)
+        return results[:top_k]
+    except Exception as e:
+        print(f"유사 문서 검색 중 오류 발생: {e}")
+        return []

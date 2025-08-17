@@ -67,6 +67,19 @@
     background: #6c757d;
     color: white;
 }
+#similarDocs {
+    margin-top: 10px;
+}
+#similarDocs ul {
+    padding-left: 20px;
+}
+#similarDocs a {
+    color: #007bff;
+    text-decoration: none;
+}
+#similarDocs a:hover {
+    text-decoration: underline;
+}
 #summaryPopup, #sttConfirmPopup {
     position: fixed;
     top: 0;
