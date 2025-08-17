@@ -3,6 +3,7 @@ import argparse
 import json
 import logging
 import platform
+import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -86,6 +87,17 @@ def validate_model(model: str) -> bool:
     except Exception as e:
         logging.warning(f"모델 목록 조회 실패: {e}")
         return True  # 검증 실패 시 진행 허용
+
+def remove_timestamps(text: str) -> str:
+    """텍스트에서 타임스탬프 제거 (원본 파일은 수정하지 않음)"""
+    # [00:00:28 - 00:00:36] 형태의 타임스탬프 패턴 제거
+    timestamp_pattern = r'\[[\d:]+\s*-\s*[\d:]+\]\s*'
+    cleaned_text = re.sub(timestamp_pattern, '', text)
+    
+    # 빈 줄 정리 (연속된 줄바꿈을 최대 2개로 제한)
+    cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
+    
+    return cleaned_text.strip()
 
 def read_text_with_fallback(path: Path, encoding: str = "utf-8") -> str:
     """인코딩 fallback을 지원하는 텍스트 읽기"""
@@ -248,9 +260,14 @@ def summarize_text_mapreduce(
     if not text.strip():
         return "요약할 내용이 없습니다."
     
-    chunks = chunk_text(text, chunk_size)
-    text_bytes = len(text.encode('utf-8'))
-    logging.info(f"텍스트 분할 완료: {len(chunks)}개 청크 (청크당 최대 {chunk_size:,} bytes, 전체 {text_bytes:,} bytes)")
+    # 타임스탬프 제거 (원본 파일은 수정하지 않음)
+    cleaned_text = remove_timestamps(text)
+    original_bytes = len(text.encode('utf-8'))
+    cleaned_bytes = len(cleaned_text.encode('utf-8'))
+    logging.info(f"타임스탬프 제거 완료: {original_bytes:,} bytes → {cleaned_bytes:,} bytes ({original_bytes - cleaned_bytes:,} bytes 감소)")
+    
+    chunks = chunk_text(cleaned_text, chunk_size)
+    logging.info(f"텍스트 분할 완료: {len(chunks)}개 청크 (청크당 최대 {chunk_size:,} bytes, 전체 {cleaned_bytes:,} bytes)")
     
     if len(chunks) == 0:
         return "분할된 청크가 없습니다."
