@@ -40,10 +40,13 @@ RecordRoute/
 └── sttEngine/
     ├── config.py            # 환경변수 기반 설정 관리
     ├── embedding_pipeline.py  # 문서 임베딩 및 벡터 생성
+    ├── ollama_utils.py      # Ollama 서버 및 모델 관리 유틸리티
     ├── one_line_summary.py    # 한 줄 요약 유틸리티
     ├── requirements.txt       # Python 의존성 목록
     ├── run_workflow.py        # 메인 워크플로우 오케스트레이션 스크립트
+    ├── run.bat                # Windows용 워크플로우 실행 스크립트
     ├── server.py              # 업로드 처리 및 워크플로우 실행 서버
+    ├── setup.bat              # Windows용 의존성 설치 스크립트
     ├── vector_search.py       # 벡터 검색 기능
     └── workflow/
         ├── transcribe.py     # 1단계: 음성 변환 로직
