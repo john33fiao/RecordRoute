@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import time
+import signal
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 try:
     import ollama
@@ -28,11 +30,12 @@ except:
     else:
         DEFAULT_MODEL = "gpt-oss:20b"
 
-DEFAULT_CHUNK_SIZE = get_config_value("DEFAULT_CHUNK_SIZE", 6000, int)
+DEFAULT_CHUNK_SIZE = get_config_value("DEFAULT_CHUNK_SIZE", 12000, int)  # 바이트 단위로 증가
 DEFAULT_TEMPERATURE = get_config_value("DEFAULT_TEMPERATURE_SUMMARY", 0.2, float)
 DEFAULT_NUM_CTX = get_config_value("DEFAULT_NUM_CTX", 8192, int)
 MAX_RETRIES = get_config_value("MAX_RETRIES", 3, int)
 RETRY_DELAY = get_config_value("RETRY_DELAY", 2, int)
+OLLAMA_TIMEOUT = get_config_value("OLLAMA_TIMEOUT", 300, int)  # 5분 타임아웃
 
 # 프롬프트 템플릿
 BASE_PROMPT = """당신은 전문 요약가입니다. 다음 텍스트를 간결하고 구조화된 한국어 요약으로 작성합니다.
@@ -102,8 +105,8 @@ def read_text_with_fallback(path: Path, encoding: str = "utf-8") -> str:
     
     raise SummarizationError(f"모든 인코딩으로 파일 읽기 실패: {path}")
 
-def chunk_text(text: str, max_chars: int) -> List[str]:
-    """텍스트를 문단 기준으로 청크 분할"""
+def chunk_text(text: str, max_bytes: int) -> List[str]:
+    """텍스트를 문단 기준으로 바이트 단위 청크 분할"""
     if not text.strip():
         return []
     
@@ -116,10 +119,10 @@ def chunk_text(text: str, max_chars: int) -> List[str]:
     current_size = 0
     
     for para in paragraphs:
-        para_size = len(para)
+        para_bytes = len(para.encode('utf-8'))
         
         # 단일 문단이 청크 크기를 초과하는 경우 강제 분할
-        if para_size > max_chars:
+        if para_bytes > max_bytes:
             if current_chunk:
                 chunks.append('\n\n'.join(current_chunk))
                 current_chunk = []
@@ -138,31 +141,56 @@ def chunk_text(text: str, max_chars: int) -> List[str]:
                 if not sentence.endswith('.'):
                     sentence += '.'
                 
-                if temp_size + len(sentence) + 2 > max_chars and temp_chunk:
+                sentence_bytes = len(sentence.encode('utf-8'))
+                if temp_size + sentence_bytes + 2 > max_bytes and temp_chunk:
                     chunks.append(' '.join(temp_chunk))
                     temp_chunk = []
                     temp_size = 0
                 
                 temp_chunk.append(sentence)
-                temp_size += len(sentence) + 2
+                temp_size += sentence_bytes + 2
             
             if temp_chunk:
                 chunks.append(' '.join(temp_chunk))
             continue
         
         # 일반적인 청크 처리
-        if current_size + para_size + 2 > max_chars and current_chunk:
+        if current_size + para_bytes + 2 > max_bytes and current_chunk:
             chunks.append('\n\n'.join(current_chunk))
             current_chunk = []
             current_size = 0
         
         current_chunk.append(para)
-        current_size += para_size + 2
+        current_size += para_bytes + 2
     
     if current_chunk:
         chunks.append('\n\n'.join(current_chunk))
     
     return [chunk for chunk in chunks if chunk.strip()]
+
+def call_ollama_with_timeout(
+    model: str,
+    prompt: str,
+    options: dict,
+    timeout: int = OLLAMA_TIMEOUT
+) -> str:
+    """타임아웃을 적용한 Ollama 호출"""
+    def _call_ollama():
+        return ollama.generate(
+            model=model,
+            prompt=prompt,
+            options=options
+        )
+    
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(_call_ollama)
+        try:
+            response = future.result(timeout=timeout)
+            return response
+        except FutureTimeoutError:
+            logging.error(f"Ollama 호출 타임아웃 ({timeout}초)")
+            future.cancel()
+            raise SummarizationError(f"Ollama 호출이 {timeout}초 내에 완료되지 않음")
 
 def call_ollama_with_retry(
     model: str, 
@@ -171,7 +199,7 @@ def call_ollama_with_retry(
     num_ctx: int = DEFAULT_NUM_CTX,
     max_tokens: Optional[int] = None
 ) -> str:
-    """재시도 로직을 포함한 Ollama 호출"""
+    """재시도 로직과 타임아웃을 포함한 Ollama 호출"""
     options = {
         "temperature": temperature,
         "num_ctx": num_ctx,
@@ -184,11 +212,7 @@ def call_ollama_with_retry(
         try:
             logging.debug(f"모델 호출 시도 {attempt + 1}/{MAX_RETRIES}")
             
-            response = ollama.generate(
-                model=model,
-                prompt=prompt,
-                options=options
-            )
+            response = call_ollama_with_timeout(model, prompt, options, OLLAMA_TIMEOUT)
             
             # 응답 형식 처리
             try:
@@ -222,7 +246,8 @@ def summarize_text_mapreduce(
         return "요약할 내용이 없습니다."
     
     chunks = chunk_text(text, chunk_size)
-    logging.info(f"텍스트 분할 완료: {len(chunks)}개 청크 (청크당 최대 {chunk_size} chars)")
+    text_bytes = len(text.encode('utf-8'))
+    logging.info(f"텍스트 분할 완료: {len(chunks)}개 청크 (청크당 최대 {chunk_size:,} bytes, 전체 {text_bytes:,} bytes)")
     
     if len(chunks) == 0:
         return "분할된 청크가 없습니다."
@@ -238,14 +263,20 @@ def summarize_text_mapreduce(
     chunk_summaries = []
     
     for i, chunk in enumerate(chunks, 1):
+        chunk_bytes = len(chunk.encode('utf-8'))
         logging.info(f"청크 {i}/{len(chunks)} 요약 중...")
-        logging.debug(f"청크 크기: {len(chunk)} chars")
+        logging.debug(f"청크 크기: {chunk_bytes:,} bytes")
         
-        prompt = CHUNK_PROMPT.format(chunk=chunk)
-        summary = call_ollama_with_retry(model, prompt, temperature, max_tokens=max_tokens)
-        chunk_summaries.append(summary)
-        
-        logging.debug(f"청크 {i} 요약 완료 (길이: {len(summary)} chars)")
+        try:
+            prompt = CHUNK_PROMPT.format(chunk=chunk)
+            summary = call_ollama_with_retry(model, prompt, temperature, max_tokens=max_tokens)
+            chunk_summaries.append(summary)
+            
+            summary_bytes = len(summary.encode('utf-8'))
+            logging.debug(f"청크 {i} 요약 완료 (크기: {summary_bytes:,} bytes)")
+        except SummarizationError as e:
+            logging.error(f"청크 {i} 요약 실패: {e}")
+            raise  # 청크 요약 실패 시 전체 작업 중단
     
     # 2단계: 청크 요약들을 통합 요약 (Reduce)
     logging.info("2단계: 통합 요약 시작")
@@ -355,7 +386,7 @@ def main() -> None:
         "--chunk-size",
         type=int,
         default=DEFAULT_CHUNK_SIZE,
-        help=f"청크 최대 문자 수 (기본값: {DEFAULT_CHUNK_SIZE})"
+        help=f"청크 최대 바이트 수 (기본값: {DEFAULT_CHUNK_SIZE})"
     )
     parser.add_argument(
         "--max-tokens",
@@ -423,8 +454,9 @@ def main() -> None:
             logging.error("입력 텍스트가 비어 있습니다")
             sys.exit(3)
         
-        logging.info(f"입력 텍스트 길이: {len(text):,} 문자")
-        logging.info(f"청크 크기: {args.chunk_size:,} 문자")
+        text_bytes = len(text.encode('utf-8'))
+        logging.info(f"입력 텍스트 크기: {len(text):,} 문자 ({text_bytes:,} bytes)")
+        logging.info(f"청크 크기: {args.chunk_size:,} bytes")
         logging.info(f"모델: {args.model}")
         
         # 요약 실행
