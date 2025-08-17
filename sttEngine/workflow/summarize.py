@@ -32,7 +32,7 @@ except:
     else:
         DEFAULT_MODEL = "gpt-oss:20b"
 
-DEFAULT_CHUNK_SIZE = get_config_value("DEFAULT_CHUNK_SIZE", 12000, int)  # 바이트 단위로 증가
+DEFAULT_CHUNK_SIZE = get_config_value("DEFAULT_CHUNK_SIZE", 5000, int)  # 8192 토큰 윈도우에 안전하게 맞게 조정
 DEFAULT_TEMPERATURE = get_config_value("DEFAULT_TEMPERATURE_SUMMARY", 0.2, float)
 DEFAULT_NUM_CTX = get_config_value("DEFAULT_NUM_CTX", 8192, int)
 MAX_RETRIES = get_config_value("MAX_RETRIES", 3, int)
@@ -312,7 +312,31 @@ def summarize_text_mapreduce(
     logging.info("2단계: 통합 요약 시작")
     combined_summaries = '\n\n---청크 요약 구분선---\n\n'.join(chunk_summaries)
     
-    reduce_prompt = REDUCE_PROMPT.format(summaries=combined_summaries)
+    # 통합 요약도 토큰 제한을 초과할 수 있으므로 추가 청킹 검사
+    combined_bytes = len(combined_summaries.encode('utf-8'))
+    logging.debug(f"통합 요약 크기: {combined_bytes:,} bytes")
+    
+    if combined_bytes > chunk_size * 2:  # 안전 마진 적용
+        logging.warning(f"통합 요약이 클 수 있음 ({combined_bytes:,} bytes). 재귀적 요약 적용")
+        # 청크 요약들을 다시 청킹하여 처리
+        summary_chunks = chunk_text(combined_summaries, chunk_size)
+        if len(summary_chunks) > 1:
+            logging.info(f"청크 요약을 {len(summary_chunks)}개 그룹으로 재분할")
+            final_summaries = []
+            for i, summary_chunk in enumerate(summary_chunks, 1):
+                logging.info(f"요약 그룹 {i}/{len(summary_chunks)} 처리 중...")
+                group_prompt = REDUCE_PROMPT.format(summaries=summary_chunk)
+                group_summary = call_ollama_with_retry(model, group_prompt, temperature, max_tokens=max_tokens)
+                final_summaries.append(group_summary)
+            
+            # 최종 통합
+            final_combined = '\n\n---최종 통합 구분선---\n\n'.join(final_summaries)
+            reduce_prompt = REDUCE_PROMPT.format(summaries=final_combined)
+        else:
+            reduce_prompt = REDUCE_PROMPT.format(summaries=combined_summaries)
+    else:
+        reduce_prompt = REDUCE_PROMPT.format(summaries=combined_summaries)
+    
     final_summary = call_ollama_with_retry(model, reduce_prompt, temperature, max_tokens=max_tokens)
     
     logging.info("맵-리듀스 요약 완료")
