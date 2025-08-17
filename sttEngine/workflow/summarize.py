@@ -31,7 +31,7 @@ except:
     else:
         DEFAULT_MODEL = "gpt-oss:20b"
 
-DEFAULT_CHUNK_SIZE = get_config_value("DEFAULT_CHUNK_SIZE", 15000, int)  # 청킹 크기 증가로 불필요한 분할 방지
+DEFAULT_CHUNK_SIZE = get_config_value("DEFAULT_CHUNK_SIZE", 32000, int)  # 청킹 크기 증가로 불필요한 분할 방지
 DEFAULT_TEMPERATURE = get_config_value("DEFAULT_TEMPERATURE_SUMMARY", 0.2, float)
 DEFAULT_NUM_CTX = get_config_value("DEFAULT_NUM_CTX", 8192, int)
 MAX_RETRIES = get_config_value("MAX_RETRIES", 3, int)
@@ -250,55 +250,9 @@ def chunk_text(text: str, max_bytes: int, target_chunks: Optional[int] = None) -
         logging.info("단일 청크로 처리")
         return [text.strip()]
     
-    # 문단/문장 단위로 바이트 팩킹 분할
-    # 먼저 문단으로 분할 (빈 줄로 구분)
-    paragraphs = []
-    current_paragraph = []
-    
-    for line in text.split('\n'):
-        line = line.strip()
-        if not line:  # 빈 줄
-            if current_paragraph:
-                paragraphs.append('\n'.join(current_paragraph))
-                current_paragraph = []
-        else:
-            current_paragraph.append(line)
-    
-    # 마지막 문단 추가
-    if current_paragraph:
-        paragraphs.append('\n'.join(current_paragraph))
-    
-    # 문단이 없으면 문장 단위로 분할
-    if not paragraphs:
-        # 문장 단위로 분할 (마침표, 느낌표, 물음표 기준)
-        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
-        paragraphs = [s.strip() for s in sentences if s.strip()]
-    
-    logging.info(f"총 {len(paragraphs)}개 문단/문장으로 분할됨")
-    
-    # 바이트 팩킹으로 청크 생성
-    chunks = []
-    current_chunk = []
-    current_bytes = 0
-    
-    for paragraph in paragraphs:
-        paragraph_bytes = len(paragraph.encode('utf-8'))
-        
-        # 현재 청크에 이 문단을 추가했을 때 최대 크기를 초과하는지 확인
-        separator_bytes = 2 if current_chunk else 0  # '\n\n' for paragraph separation
-        if current_bytes + paragraph_bytes + separator_bytes > max_bytes and current_chunk:
-            # 현재 청크를 완성하고 새 청크 시작
-            chunks.append('\n\n'.join(current_chunk))
-            current_chunk = [paragraph]
-            current_bytes = paragraph_bytes
-        else:
-            # 현재 청크에 문단 추가
-            current_chunk.append(paragraph)
-            current_bytes += paragraph_bytes + separator_bytes
-    
-    # 마지막 청크 추가
-    if current_chunk:
-        chunks.append('\n\n'.join(current_chunk))
+    # 청킹 비활성화 - 전체 텍스트를 하나의 청크로 처리
+    logging.info("청킹 로직 비활성화 - 전체 텍스트를 단일 청크로 처리")
+    chunks = [text.strip()]
     
     final_chunks = [chunk for chunk in chunks if chunk.strip()]
     logging.info(f"최종 청크 수: {len(final_chunks)}개")
@@ -388,9 +342,16 @@ def summarize_text_mapreduce(
     if not text.strip():
         return "요약할 내용이 없습니다."
     
-    # 타임스탬프 제거 (원본 파일은 수정하지 않음)
-    cleaned_text = remove_timestamps(text)
+    # 디버깅: 입력 텍스트 크기 확인
     original_bytes = len(text.encode('utf-8'))
+    original_chars = len(text)
+    original_lines = len(text.splitlines())
+    print(f"[DEBUG] 입력 텍스트 크기: {original_chars:,} 문자, {original_bytes:,} bytes, {original_lines:,} 줄")
+    print(f"[DEBUG] 텍스트 첫 200자: {repr(text[:200])}")
+    
+    # 타임스탬프 제거 (원본 파일은 수정하지 않음) - 전처리 비활성화
+    # cleaned_text = remove_timestamps(text)
+    cleaned_text = text
     cleaned_bytes = len(cleaned_text.encode('utf-8'))
     logging.info(f"타임스탬프 제거 완료: {original_bytes:,} bytes → {cleaned_bytes:,} bytes ({original_bytes - cleaned_bytes:,} bytes 감소)")
     
@@ -426,6 +387,10 @@ def summarize_text_mapreduce(
         
         try:
             prompt = CHUNK_PROMPT.format(chunk=chunk)
+            prompt_bytes = len(prompt.encode('utf-8'))
+            prompt_chars = len(prompt)
+            print(f"[DEBUG] 청크 {i} 프롬프트 크기: {prompt_chars:,} 문자, {prompt_bytes:,} bytes")
+            print(f"[DEBUG] 청크 {i} 내용 첫 200자: {repr(chunk[:200])}")
             summary = call_ollama_with_retry(model, prompt, temperature, max_tokens=max_tokens)
             chunk_summaries.append(summary)
             

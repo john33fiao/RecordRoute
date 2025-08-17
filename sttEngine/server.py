@@ -368,22 +368,25 @@ def generate_and_store_title_summary(record_id: str, file_path: Path):
 
 def find_existing_stt_file(original_file_path: Path):
     """Find existing STT result file for the given original file."""
-    # Check in output directory structure
-    upload_folder_name = original_file_path.parent.name
-    individual_output_dir = OUTPUT_DIR / upload_folder_name
+    stem = original_file_path.stem
     
-    if individual_output_dir.exists():
-        # Look for STT result file (*.md, but not *.summary.md or *.corrected.md)
-        stem = original_file_path.stem
-        potential_files = [
-            individual_output_dir / f"{stem}.md",
-            individual_output_dir / f"{stem}.corrected.md"  # Include corrected version
-        ]
-        
-        for stt_file in potential_files:
-            if stt_file.exists() and not stt_file.name.endswith('.summary.md'):
-                return stt_file
+    # Extract UUID from the original file path (uploads/UUID/filename)
+    upload_uuid = original_file_path.parent.name
+    print(f"[DEBUG] 업로드 UUID: {upload_uuid}")
     
+    # Look for STT file in whisper_output/UUID/filename.md
+    stt_output_dir = OUTPUT_DIR / upload_uuid
+    potential_files = [
+        stt_output_dir / f"{stem}.md",
+        stt_output_dir / f"{stem}.corrected.md"
+    ]
+    
+    for stt_file in potential_files:
+        if stt_file.exists() and not stt_file.name.endswith('.summary.md'):
+            print(f"[DEBUG] STT 파일 발견: {stt_file}")
+            return stt_file
+    
+    print(f"[DEBUG] '{stem}.md' STT 파일을 찾지 못함 (경로: {stt_output_dir})")
     return None
 
 
