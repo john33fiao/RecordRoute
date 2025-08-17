@@ -7,8 +7,6 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import time
-import signal
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 try:
     import ollama
@@ -172,25 +170,21 @@ def call_ollama_with_timeout(
     model: str,
     prompt: str,
     options: dict,
-    timeout: int = OLLAMA_TIMEOUT
-) -> str:
+    timeout: int = OLLAMA_TIMEOUT,
+) -> dict:
     """타임아웃을 적용한 Ollama 호출"""
-    def _call_ollama():
-        return ollama.generate(
+    try:
+        client = ollama.Client(timeout=timeout)
+        return client.chat(
             model=model,
-            prompt=prompt,
-            options=options
+            messages=[{"role": "user", "content": prompt}],
+            options=options,
+            stream=False,
+            keep_alive=0,
         )
-    
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(_call_ollama)
-        try:
-            response = future.result(timeout=timeout)
-            return response
-        except FutureTimeoutError:
-            logging.error(f"Ollama 호출 타임아웃 ({timeout}초)")
-            future.cancel()
-            raise SummarizationError(f"Ollama 호출이 {timeout}초 내에 완료되지 않음")
+    except Exception as e:
+        logging.error(f"Ollama 호출 실패: {e}")
+        raise SummarizationError(f"Ollama 호출이 실패했습니다: {e}")
 
 def call_ollama_with_retry(
     model: str, 
@@ -213,12 +207,14 @@ def call_ollama_with_retry(
             logging.debug(f"모델 호출 시도 {attempt + 1}/{MAX_RETRIES}")
             
             response = call_ollama_with_timeout(model, prompt, options, OLLAMA_TIMEOUT)
-            
+
             # 응답 형식 처리
             try:
-                result = response['response']
+                result = response["message"]["content"]
             except (TypeError, KeyError):
-                raise SummarizationError(f"지원하지 않는 응답 타입({type(response)})이거나 'response' 키가 없습니다.")
+                raise SummarizationError(
+                    f"지원하지 않는 응답 타입({type(response)})이거나 'message.content' 키가 없습니다."
+                )
             
             if not result or not result.strip():
                 raise SummarizationError("빈 응답 수신")
