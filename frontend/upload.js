@@ -519,6 +519,19 @@ function updateQueueDisplay() {
         'summary': '요약'
     };
 
+    // Get saved model settings to display model info
+    const savedSettings = JSON.parse(localStorage.getItem('modelSettings') || '{}');
+    const getModelForTask = (task) => {
+        if (task === 'stt') {
+            return savedSettings.whisper || 'large-v3-turbo';
+        } else if (task === 'summary') {
+            return savedSettings.summarize || 'gpt-oss:20b';
+        } else if (task === 'embedding') {
+            return savedSettings.embedding || 'nomic-embed-text';
+        }
+        return '';
+    };
+
     if (sortOrder === 'oldest') {
         // 추가순: 단순 리스트로 표시
         // Add currentTask first if it exists
@@ -544,10 +557,12 @@ function updateQueueDisplay() {
             const statusText = task.status === 'processing' ? '진행중' : `대기중 (${index + 1}번째)`;
             const statusColor = task.status === 'processing' ? '#856404' : '#6c757d';
             const taskName = taskNames[task.task] || task.task;
+            const modelName = getModelForTask(task.task);
             
             const info = document.createElement('span');
             info.innerHTML = `
                 <strong>${normalizeKorean(task.filename)}</strong> - ${taskName}
+                ${modelName ? `<span style="color: #6c757d; font-size: 11px; margin-left: 5px;">(${modelName})</span>` : ''}
                 <span style="color: ${statusColor}; font-size: 12px; margin-left: 10px;">[${statusText}]</span>
             `;
 
@@ -674,10 +689,12 @@ function updateQueueDisplay() {
                 const globalIndex = taskQueue.findIndex(t => t.id === task.id);
                 const statusText = task.status === 'processing' ? '진행중' : `대기중 (${globalIndex + 1}번째)`;
                 const statusColor = task.status === 'processing' ? '#856404' : '#6c757d';
+                const modelName = getModelForTask(task.task);
                 
                 const info = document.createElement('span');
                 info.innerHTML = `
                     <strong>${normalizeKorean(task.filename)}</strong>
+                    ${modelName ? `<span style="color: #6c757d; font-size: 11px; margin-left: 5px;">(${modelName})</span>` : ''}
                     <span style="color: ${statusColor}; font-size: 12px; margin-left: 10px;">[${statusText}]</span>
                 `;
 
