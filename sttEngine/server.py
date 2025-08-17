@@ -1083,6 +1083,110 @@ class UploadHandler(BaseHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
 
+    def _serve_similar_documents_with_filename(self, file_identifier: str, user_filename: str = None):
+        """Find similar documents with optional user filename for display."""
+        try:
+            # Determine file path based on identifier (UUID or path)
+            if self._is_uuid(file_identifier):
+                # New UUID-based system
+                file_info = get_file_by_uuid(file_identifier)
+                if file_info:
+                    file_path = file_info["file_path"]
+                    full_path = BASE_DIR / file_path
+                    current_file_name = user_filename or file_info["original_filename"]
+                else:
+                    self.send_response(404)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    error_response = {"error": "파일을 찾을 수 없습니다."}
+                    self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
+                    return
+            else:
+                # Legacy path-based system
+                file_path = file_identifier
+                full_path = OUTPUT_DIR / file_path
+                current_file_name = user_filename or os.path.basename(file_path)
+            
+            if not full_path.exists():
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                error_response = {"error": "파일을 찾을 수 없습니다."}
+                self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
+                return
+            
+            # Read file content to use as search query
+            try:
+                with open(full_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+            except UnicodeDecodeError:
+                try:
+                    with open(full_path, 'r', encoding='cp949') as f:
+                        content = f.read()
+                except UnicodeDecodeError:
+                    with open(full_path, 'r', encoding='euc-kr') as f:
+                        content = f.read()
+            
+            # Use the content to search for similar documents (top 6 to exclude self)
+            hits = search_vectors(content, BASE_DIR, top_k=6)
+            
+            # Filter out the current document itself and limit to top 5
+            similar_docs = []
+            registry = load_file_registry()
+            history = load_upload_history()
+            
+            for hit in hits:
+                hit_file_name = os.path.basename(hit["file"])
+                # Skip if it's the same file (compare original filenames)
+                if hit_file_name != os.path.basename(current_file_name):
+                    # Try to find UUID for this file in registry
+                    file_uuid = None
+                    record_id = None
+                    for uuid_key, file_info in registry.items():
+                        if file_info["file_path"] == hit["file"]:
+                            file_uuid = uuid_key
+                            record_id = file_info.get("record_id")
+                            break
+                    
+                    # Find user filename from history if available
+                    user_filename_found = None
+                    if record_id:
+                        for record in history:
+                            if record["id"] == record_id:
+                                user_filename_found = record.get("filename")
+                                break
+                    
+                    # Use UUID if available, otherwise fallback to path
+                    download_link = f"/download/{file_uuid}" if file_uuid else f"/download/{hit['file']}"
+                    
+                    # Use user filename if available, otherwise original filename
+                    display_filename = user_filename_found or os.path.basename(hit["file"])
+                    
+                    similar_docs.append({
+                        "file": hit["file"],
+                        "score": hit["score"],
+                        "link": download_link,
+                        "display_name": display_filename
+                    })
+                if len(similar_docs) >= 5:
+                    break
+            
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(similar_docs, ensure_ascii=False).encode())
+            
+        except Exception as e:
+            print(f"유사 문서 검색 중 오류: {e}")
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            error_response = {
+                "error": "유사 문서 검색 중 오류가 발생했습니다. 색인이 생성되어 있는지 확인해주세요.",
+                "details": str(e)
+            }
+            self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
+
     def _parse_multipart(self, data, boundary):
         """Simple multipart/form-data parser"""
         parts = data.split(f'--{boundary}'.encode())
@@ -1357,6 +1461,28 @@ class UploadHandler(BaseHTTPRequestHandler):
                     "has_stt": False,
                     "error": str(e)
                 }).encode())
+            return
+
+        if self.path == "/similar":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length)) if length else {}
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Invalid JSON payload")
+                return
+            
+            file_identifier = payload.get("file_identifier")
+            user_filename = payload.get("user_filename")
+            
+            if not file_identifier:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Missing file_identifier")
+                return
+            
+            self._serve_similar_documents_with_filename(file_identifier, user_filename)
             return
 
         self.send_response(404)

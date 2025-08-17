@@ -99,14 +99,24 @@ function hideSttConfirmPopup() {
     sttConfirmPopup.style.display = 'none';
 }
 
-function showSimilarDocuments(filePath) {
+function showSimilarDocuments(filePath, userFilename = null) {
     similarDocsPopup.style.display = 'flex';
     similarDocsList.innerHTML = '<p style="color: #6c757d; text-align: center;">로딩 중...</p>';
     
     // Extract the UUID or relative path from the download URL
     const fileIdentifier = filePath.replace('/download/', '');
     
-    fetch(`/similar/${encodeURIComponent(fileIdentifier)}`)
+    // Create request with optional user filename
+    const requestData = { file_identifier: fileIdentifier };
+    if (userFilename) {
+        requestData.user_filename = userFilename;
+    }
+    
+    fetch('/similar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData)
+    })
         .then(response => response.json())
         .then(data => {
             if (data.error) {
@@ -120,7 +130,10 @@ function showSimilarDocuments(filePath) {
             }
             
             const items = data.map(doc => {
-                const fileName = doc.file.split('/').pop().replace(/\.(md|txt)$/, '');
+                // Use display_name if available, otherwise fallback to original filename
+                const fileName = doc.display_name ? 
+                    doc.display_name.replace(/\.(md|txt)$/, '') : 
+                    doc.file.split('/').pop().replace(/\.(md|txt)$/, '');
                 const similarityPercent = Math.round(doc.score * 100);
                 
                 return `
@@ -653,7 +666,7 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
         if (task === 'embedding') {
             span.title = '클릭하여 유사 문서 보기';
             span.onclick = () => {
-                showSimilarDocuments(downloadUrl);
+                showSimilarDocuments(downloadUrl, record ? record.filename : null);
             };
         } else {
             span.title = '클릭하여 내용 보기';
