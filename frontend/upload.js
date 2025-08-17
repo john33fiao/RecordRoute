@@ -97,10 +97,10 @@ function showSimilarDocuments(filePath) {
     similarDocsPopup.style.display = 'flex';
     similarDocsList.innerHTML = '<p style="color: #6c757d; text-align: center;">로딩 중...</p>';
     
-    // Extract the relative path from the download URL
-    const urlPath = filePath.replace('/download/', '');
+    // Extract the UUID or relative path from the download URL
+    const fileIdentifier = filePath.replace('/download/', '');
     
-    fetch(`/similar/${encodeURIComponent(urlPath)}`)
+    fetch(`/similar/${encodeURIComponent(fileIdentifier)}`)
         .then(response => response.json())
         .then(data => {
             if (data.error) {

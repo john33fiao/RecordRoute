@@ -44,6 +44,7 @@ UPLOAD_DIR = BASE_DIR / "uploads"
 OUTPUT_DIR = BASE_DIR / "whisper_output"
 VECTOR_DIR = BASE_DIR / "vector_store"
 HISTORY_FILE = BASE_DIR / "upload_history.json"
+FILE_REGISTRY_FILE = BASE_DIR / "file_registry.json"
 
 # Global dictionary to track running processes
 running_processes = {}
@@ -235,9 +236,94 @@ def add_upload_record(file_path: Path, file_type: str, duration: str = None):
     return record["id"]
 
 
-def update_task_completion(record_id: str, task: str, download_url: str):
-    """Update task completion status and download link."""
+def load_file_registry():
+    """Load file registry from JSON file."""
+    if FILE_REGISTRY_FILE.exists():
+        try:
+            with open(FILE_REGISTRY_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+
+def save_file_registry(registry):
+    """Save file registry to JSON file."""
+    try:
+        with open(FILE_REGISTRY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(registry, f, ensure_ascii=False, indent=2)
+    except IOError:
+        pass
+
+
+def register_file(file_path: str, record_id: str, task_type: str, original_filename: str = None):
+    """Register a file with UUID and return the file UUID."""
+    registry = load_file_registry()
+    file_uuid = str(uuid.uuid4())
+    
+    file_info = {
+        "file_uuid": file_uuid,
+        "file_path": file_path,
+        "record_id": record_id,
+        "task_type": task_type,
+        "original_filename": original_filename or os.path.basename(file_path),
+        "created_at": datetime.now().isoformat()
+    }
+    
+    registry[file_uuid] = file_info
+    save_file_registry(registry)
+    return file_uuid
+
+
+def get_file_by_uuid(file_uuid: str):
+    """Get file info by UUID."""
+    registry = load_file_registry()
+    return registry.get(file_uuid)
+
+
+def migrate_existing_files():
+    """Migrate existing files from upload history to file registry."""
     history = load_upload_history()
+    registry = load_file_registry()
+    updated = False
+    
+    for record in history:
+        record_id = record["id"]
+        download_links = record.get("download_links", {})
+        
+        # Process each download link
+        for task_type, download_url in download_links.items():
+            if download_url.startswith("/download/"):
+                file_path = download_url[10:]  # Remove "/download/" prefix
+                
+                # Check if this file is already registered
+                already_registered = False
+                for file_info in registry.values():
+                    if file_info["file_path"] == file_path and file_info["record_id"] == record_id:
+                        already_registered = True
+                        break
+                
+                if not already_registered:
+                    # Register the file and update download link
+                    full_path = OUTPUT_DIR / file_path
+                    if full_path.exists():
+                        file_uuid = register_file(str(full_path.relative_to(BASE_DIR)), record_id, task_type, os.path.basename(file_path))
+                        # Update the download link to use UUID
+                        record["download_links"][task_type] = f"/download/{file_uuid}"
+                        updated = True
+    
+    if updated:
+        save_upload_history(history)
+        print("기존 파일들이 레지스트리에 등록되었습니다.")
+
+
+def update_task_completion(record_id: str, task: str, file_path: str):
+    """Update task completion status and register file with UUID."""
+    history = load_upload_history()
+    
+    # Register the file and get UUID
+    file_uuid = register_file(file_path, record_id, task)
+    download_url = f"/download/{file_uuid}"
     
     for record in history:
         if record["id"] == record_id:
@@ -246,6 +332,7 @@ def update_task_completion(record_id: str, task: str, download_url: str):
             break
     
     save_upload_history(history)
+    return file_uuid
 
 
 def update_title_summary(record_id: str, summary: str):
@@ -409,8 +496,8 @@ def generate_embedding(file_path: Path, record_id: str = None):
         
         # Update task completion
         if record_id:
-            download_url = f"/download/{file_path.parent.name}/{file_path.name}"
-            update_task_completion(record_id, "embedding", download_url)
+            file_path_str = str(file_path.relative_to(BASE_DIR))
+            update_task_completion(record_id, "embedding", file_path_str)
         
         print(f"Embedding generated for {file_path.name}")
         return True
@@ -517,7 +604,8 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 
                 # Update history
                 if record_id:
-                    update_task_completion(record_id, "stt", download_url)
+                    file_path_str = str(text_file.relative_to(BASE_DIR))
+                    update_task_completion(record_id, "stt", file_path_str)
                     generate_and_store_title_summary(record_id, current_file)
             else:
                 # If no STT step for text file, use the original file as starting point
@@ -548,7 +636,8 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 download_url = f"/download/{upload_folder_name}/{text_file.name}"
                 results["stt"] = download_url
                 if record_id:
-                    update_task_completion(record_id, "stt", download_url)
+                    file_path_str = str(text_file.relative_to(BASE_DIR))
+                    update_task_completion(record_id, "stt", file_path_str)
                     generate_and_store_title_summary(record_id, text_file)
 
             current_file = text_file
@@ -594,7 +683,8 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
 
             # Update history
             if record_id:
-                update_task_completion(record_id, "stt", download_url)
+                file_path_str = str(md_file.relative_to(BASE_DIR))
+                update_task_completion(record_id, "stt", file_path_str)
                 generate_and_store_title_summary(record_id, current_file)
 
         if "embedding" in steps and current_file:
@@ -619,7 +709,8 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     
                     # Update history if needed
                     if record_id:
-                        update_task_completion(record_id, "stt", download_url)
+                        file_path_str = str(current_file.relative_to(BASE_DIR))
+                        update_task_completion(record_id, "stt", file_path_str)
                         generate_and_store_title_summary(record_id, current_file)
                 else:
                     # No existing STT result, run STT first
@@ -656,7 +747,8 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
 
                     # Update history
                     if record_id:
-                        update_task_completion(record_id, "stt", download_url)
+                        file_path_str = str(current_file.relative_to(BASE_DIR))
+                        update_task_completion(record_id, "stt", file_path_str)
                         generate_and_store_title_summary(record_id, current_file)
 
             if task_id:
@@ -712,7 +804,8 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
 
             # Update history
             if record_id:
-                update_task_completion(record_id, "summary", download_url)
+                file_path_str = str(summary_file.relative_to(BASE_DIR))
+                update_task_completion(record_id, "summary", file_path_str)
                 generate_and_store_title_summary(record_id, current_file)
 
     except Exception as exc:  # pragma: no cover - best effort error handling
@@ -762,11 +855,26 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    def _serve_download(self, file_path: str):
-        # Handle both old flat structure and new nested structure
-        full_path = OUTPUT_DIR / file_path
-        if full_path.exists():
+    def _serve_download(self, file_identifier: str):
+        # Check if it's a UUID (new system) or file path (legacy system)
+        if self._is_uuid(file_identifier):
+            # New UUID-based system
+            file_info = get_file_by_uuid(file_identifier)
+            if file_info:
+                file_path = file_info["file_path"]
+                filename = file_info["original_filename"]
+                full_path = BASE_DIR / file_path
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
+        else:
+            # Legacy path-based system
+            file_path = file_identifier
             filename = os.path.basename(file_path)
+            full_path = OUTPUT_DIR / file_path
+        
+        if full_path.exists():
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
             
@@ -788,6 +896,14 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def _is_uuid(self, test_string: str) -> bool:
+        """Check if a string is a valid UUID."""
+        try:
+            uuid.UUID(test_string)
+            return True
+        except ValueError:
+            return False
+
     def do_GET(self):
         if self.path == "/":
             self._serve_upload_page()
@@ -795,8 +911,8 @@ class UploadHandler(BaseHTTPRequestHandler):
             content_type = "text/css" if self.path.endswith(".css") else "application/javascript"
             self._serve_static(self.path.lstrip("/"), content_type)
         elif self.path.startswith("/download/"):
-            file_path = unquote(self.path[len("/download/"):])
-            self._serve_download(file_path)
+            file_identifier = unquote(self.path[len("/download/"):])
+            self._serve_download(file_identifier)
         elif self.path == "/history":
             self._serve_history()
         elif self.path == "/tasks":
@@ -832,9 +948,9 @@ class UploadHandler(BaseHTTPRequestHandler):
                 }
                 self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
         elif self.path.startswith("/similar/"):
-            # Extract file path from URL
-            file_path = unquote(self.path[len("/similar/"):])
-            self._serve_similar_documents(file_path)
+            # Extract file identifier from URL (can be UUID or file path)
+            file_identifier = unquote(self.path[len("/similar/"):])
+            self._serve_similar_documents(file_identifier)
         else:
             self.send_response(404)
             self.end_headers()
@@ -878,11 +994,30 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(f"Error getting task progress: {str(e)}".encode())
 
-    def _serve_similar_documents(self, file_path: str):
+    def _serve_similar_documents(self, file_identifier: str):
         """Find similar documents based on the provided file's content."""
         try:
-            # Read the content of the provided file
-            full_path = OUTPUT_DIR / file_path
+            # Determine file path based on identifier (UUID or path)
+            if self._is_uuid(file_identifier):
+                # New UUID-based system
+                file_info = get_file_by_uuid(file_identifier)
+                if file_info:
+                    file_path = file_info["file_path"]
+                    full_path = BASE_DIR / file_path
+                    current_file_name = file_info["original_filename"]
+                else:
+                    self.send_response(404)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    error_response = {"error": "파일을 찾을 수 없습니다."}
+                    self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
+                    return
+            else:
+                # Legacy path-based system
+                file_path = file_identifier
+                full_path = OUTPUT_DIR / file_path
+                current_file_name = os.path.basename(file_path)
+            
             if not full_path.exists():
                 self.send_response(404)
                 self.send_header("Content-Type", "application/json")
@@ -908,16 +1043,26 @@ class UploadHandler(BaseHTTPRequestHandler):
             
             # Filter out the current document itself and limit to top 5
             similar_docs = []
-            current_file_name = os.path.basename(file_path)
+            registry = load_file_registry()
             
             for hit in hits:
                 hit_file_name = os.path.basename(hit["file"])
                 # Skip if it's the same file
                 if hit_file_name != current_file_name:
+                    # Try to find UUID for this file in registry
+                    file_uuid = None
+                    for uuid_key, file_info in registry.items():
+                        if file_info["file_path"] == hit["file"]:
+                            file_uuid = uuid_key
+                            break
+                    
+                    # Use UUID if available, otherwise fallback to path
+                    download_link = f"/download/{file_uuid}" if file_uuid else f"/download/{hit['file']}"
+                    
                     similar_docs.append({
                         "file": hit["file"],
                         "score": hit["score"],
-                        "link": f"/download/{hit['file']}"
+                        "link": download_link
                     })
                 if len(similar_docs) >= 5:
                     break
@@ -1221,6 +1366,10 @@ class UploadHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     UPLOAD_DIR.mkdir(exist_ok=True)
     OUTPUT_DIR.mkdir(exist_ok=True)
+    
+    # Migrate existing files to UUID system
+    migrate_existing_files()
+    
     # Use ThreadingHTTPServer to allow concurrent request handling.
     # This lets the server respond to cancellation requests while
     # long-running tasks are processing in separate threads.
