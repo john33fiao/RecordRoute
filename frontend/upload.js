@@ -12,6 +12,9 @@ const summaryCancelBtn = document.getElementById('summaryCancelBtn');
 const sttConfirmPopup = document.getElementById('sttConfirmPopup');
 const sttConfirmOkBtn = document.getElementById('sttConfirmOkBtn');
 const sttConfirmCancelBtn = document.getElementById('sttConfirmCancelBtn');
+const similarDocsPopup = document.getElementById('similarDocsPopup');
+const similarDocsCloseBtn = document.getElementById('similarDocsCloseBtn');
+const similarDocsList = document.getElementById('similarDocsList');
 
 function showTextOverlay(url) {
     const overlay = document.getElementById('textOverlay');
@@ -72,6 +75,9 @@ document.addEventListener('keydown', (e) => {
         if (sttConfirmPopup.style.display === 'flex') {
             hideSttConfirmPopup();
         }
+        if (similarDocsPopup.style.display === 'flex') {
+            hideSimilarDocsPopup();
+        }
     }
 });
 
@@ -87,8 +93,57 @@ function hideSttConfirmPopup() {
     sttConfirmPopup.style.display = 'none';
 }
 
+function showSimilarDocuments(filePath) {
+    similarDocsPopup.style.display = 'flex';
+    similarDocsList.innerHTML = '<p style="color: #6c757d; text-align: center;">로딩 중...</p>';
+    
+    // Extract the relative path from the download URL
+    const urlPath = filePath.replace('/download/', '');
+    
+    fetch(`/similar/${encodeURIComponent(urlPath)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                similarDocsList.innerHTML = `<p style="color: #dc3545; text-align: center;">${data.error}</p>`;
+                return;
+            }
+            
+            if (data.length === 0) {
+                similarDocsList.innerHTML = '<p style="color: #6c757d; text-align: center;">유사한 문서가 없습니다.</p>';
+                return;
+            }
+            
+            const items = data.map(doc => {
+                const fileName = doc.file.split('/').pop().replace(/\.(md|txt)$/, '');
+                const similarityPercent = Math.round(doc.score * 100);
+                
+                return `
+                    <div class="similar-doc-item" onclick="downloadSimilarDocument('${doc.link}')">
+                        <div class="similar-doc-name">${fileName}</div>
+                        <div class="similar-doc-score">유사도: ${similarityPercent}%</div>
+                    </div>
+                `;
+            }).join('');
+            
+            similarDocsList.innerHTML = items;
+        })
+        .catch(error => {
+            console.error('유사 문서 검색 오류:', error);
+            similarDocsList.innerHTML = '<p style="color: #dc3545; text-align: center;">검색 중 오류가 발생했습니다.</p>';
+        });
+}
+
+function hideSimilarDocsPopup() {
+    similarDocsPopup.style.display = 'none';
+}
+
+function downloadSimilarDocument(downloadLink) {
+    window.open(downloadLink, '_blank');
+}
+
 summaryCancelBtn.addEventListener('click', hideSummaryPopup);
 sttConfirmCancelBtn.addEventListener('click', hideSttConfirmPopup);
+similarDocsCloseBtn.addEventListener('click', hideSimilarDocsPopup);
 
 function editFilename(recordId, currentFilename) {
     const filenameElement = document.getElementById(`filename-${recordId}`);
@@ -588,10 +643,18 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
         span.style.color = 'white';
         span.style.cursor = 'pointer';
         span.style.textDecoration = 'underline';
-        span.title = '클릭하여 내용 보기';
-        span.onclick = () => {
-            showTextOverlay(downloadUrl);
-        };
+        
+        if (task === 'embedding') {
+            span.title = '클릭하여 유사 문서 보기';
+            span.onclick = () => {
+                showSimilarDocuments(downloadUrl);
+            };
+        } else {
+            span.title = '클릭하여 내용 보기';
+            span.onclick = () => {
+                showTextOverlay(downloadUrl);
+            };
+        }
     } else if (record) {
         // Check if this task is already in queue
         const existingTask = taskQueue.find(t =>

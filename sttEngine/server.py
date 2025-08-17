@@ -831,6 +831,10 @@ class UploadHandler(BaseHTTPRequestHandler):
                     "details": str(e)
                 }
                 self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
+        elif self.path.startswith("/similar/"):
+            # Extract file path from URL
+            file_path = unquote(self.path[len("/similar/"):])
+            self._serve_similar_documents(file_path)
         else:
             self.send_response(404)
             self.end_headers()
@@ -873,6 +877,66 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_response(500)
             self.end_headers()
             self.wfile.write(f"Error getting task progress: {str(e)}".encode())
+
+    def _serve_similar_documents(self, file_path: str):
+        """Find similar documents based on the provided file's content."""
+        try:
+            # Read the content of the provided file
+            full_path = OUTPUT_DIR / file_path
+            if not full_path.exists():
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                error_response = {"error": "파일을 찾을 수 없습니다."}
+                self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
+                return
+            
+            # Read file content to use as search query
+            try:
+                with open(full_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+            except UnicodeDecodeError:
+                try:
+                    with open(full_path, 'r', encoding='cp949') as f:
+                        content = f.read()
+                except UnicodeDecodeError:
+                    with open(full_path, 'r', encoding='euc-kr') as f:
+                        content = f.read()
+            
+            # Use the content to search for similar documents (top 6 to exclude self)
+            hits = search_vectors(content, BASE_DIR, top_k=6)
+            
+            # Filter out the current document itself and limit to top 5
+            similar_docs = []
+            current_file_name = os.path.basename(file_path)
+            
+            for hit in hits:
+                hit_file_name = os.path.basename(hit["file"])
+                # Skip if it's the same file
+                if hit_file_name != current_file_name:
+                    similar_docs.append({
+                        "file": hit["file"],
+                        "score": hit["score"],
+                        "link": f"/download/{hit['file']}"
+                    })
+                if len(similar_docs) >= 5:
+                    break
+            
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(similar_docs, ensure_ascii=False).encode())
+            
+        except Exception as e:
+            print(f"유사 문서 검색 중 오류: {e}")
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            error_response = {
+                "error": "유사 문서 검색 중 오류가 발생했습니다. 색인이 생성되어 있는지 확인해주세요.",
+                "details": str(e)
+            }
+            self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
 
     def _parse_multipart(self, data, boundary):
         """Simple multipart/form-data parser"""
