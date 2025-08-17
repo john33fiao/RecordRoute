@@ -316,7 +316,7 @@ function updateQueueDisplay() {
     const sortOrder = document.getElementById('queueSortSelect').value;
     queueList.innerHTML = '';
 
-    if (taskQueue.length === 0) {
+    if (taskQueue.length === 0 && !currentTask) {
         queueList.innerHTML = '<p style="color: #6c757d; font-style: italic;">진행 중인 작업이 없습니다.</p>';
         cancelAllBtn.style.display = 'none';
         return;
@@ -338,7 +338,14 @@ function updateQueueDisplay() {
 
     if (sortOrder === 'oldest') {
         // 추가순: 단순 리스트로 표시
-        taskQueue.forEach((task, index) => {
+        // Add currentTask first if it exists
+        const allTasks = [];
+        if (currentTask) {
+            allTasks.push({...currentTask, status: 'processing'});
+        }
+        allTasks.push(...taskQueue);
+        
+        allTasks.forEach((task, index) => {
             const item = document.createElement('div');
             item.style.cssText = `
                 border: 1px solid #dee2e6;
@@ -434,6 +441,13 @@ function updateQueueDisplay() {
             tasksByCategory[category] = [];
         });
 
+        // Add currentTask first if it exists
+        if (currentTask) {
+            if (tasksByCategory[currentTask.task]) {
+                tasksByCategory[currentTask.task].push({...currentTask, status: 'processing'});
+            }
+        }
+        
         taskQueue.forEach(task => {
             if (tasksByCategory[task.task]) {
                 tasksByCategory[task.task].push(task);
@@ -675,7 +689,9 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
                         .then(data => {
                             if (data.has_stt) {
                                 // Proceed with embedding using existing STT
-                                addTaskToQueue(record.id, record.file_path, task, span, record.filename);
+                                console.log(`Adding embedding task for record ${record.id} to queue`);
+                                const taskId = addTaskToQueue(record.id, record.file_path, task, span, record.filename);
+                                console.log(`Task added with ID: ${taskId}`);
                                 setQueuedState(span);
                             } else {
                                 alert('STT 작업이 완료되지 않았습니다. STT를 먼저 실행해주세요.');
@@ -689,8 +705,6 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
                     
                     // Normal case - just add the single task
                     addTaskToQueue(record.id, record.file_path, task, span, record.filename);
-
-                    // Show queued state
                     setQueuedState(span);
                 } else {
                     // Re-enable the button if task already exists
