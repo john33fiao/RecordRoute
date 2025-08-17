@@ -46,9 +46,60 @@ def write_atomic(path: Path, data: str):
         f.write(data)
     tmp_path.replace(path)
 
+def remove_word_repetitions(text: str) -> str:
+    """한 줄 내에서 반복되는 단어 제거 (첫 번째만 유지)"""
+    words = text.split()
+    if len(words) <= 1:
+        return text
+    
+    # 연속된 중복 단어 제거
+    cleaned_words = []
+    prev_word = None
+    consecutive_count = 0
+    
+    for word in words:
+        if word == prev_word:
+            consecutive_count += 1
+            # 같은 단어가 3번 이상 반복되면 건너뛰기
+            if consecutive_count >= 3:
+                continue
+        else:
+            consecutive_count = 1
+        
+        cleaned_words.append(word)
+        prev_word = word
+    
+    # 전체 줄에서 동일 단어의 총 빈도 확인 (비연속 중복도 제거)
+    if len(cleaned_words) > 1:
+        word_positions = {}
+        final_words = []
+        
+        for i, word in enumerate(cleaned_words):
+            if word in word_positions:
+                # 이미 나온 단어가 다시 나타날 때의 처리
+                prev_positions = word_positions[word]
+                # 같은 단어가 5번 이상 나오면 더 이상 추가하지 않음
+                if len(prev_positions) >= 5:
+                    continue
+                # 짧은 단어(2글자 이하)가 3번 이상 나오면 건너뛰기
+                elif len(word) <= 2 and len(prev_positions) >= 3:
+                    continue
+            else:
+                word_positions[word] = []
+            
+            word_positions[word].append(i)
+            final_words.append(word)
+        
+        return ' '.join(final_words)
+    
+    return ' '.join(cleaned_words)
+
 def normalize_text(text: str, normalize_punct: bool) -> str:
-    """텍스트 정규화: 생략부호 및 공백 처리"""
+    """텍스트 정규화: 반복 단어 제거, 생략부호 및 공백 처리"""
     text = text.strip()
+    
+    # 단어 반복 제거
+    text = remove_word_repetitions(text)
     
     if normalize_punct:
         # 연속된 마침표 4개 이상을 '...'로 정규화
@@ -389,7 +440,7 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
             text = segment.get("text", "").strip()
             if not should_keep_segment(text, filter_fillers, min_seg_length):
                 continue
-            text = normalize_text(text, normalize_punct)
+            text = normalize_text(text, normalize_punct or True)  # 반복 단어 제거는 항상 활성화
             processed_segments.append(
                 (
                     segment.get("start", 0.0),
@@ -414,7 +465,7 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
             if not should_keep_segment(original_text, True, 10):
                 markdown_content += "## 변환 결과\n\n음성 내용을 인식할 수 없거나 주로 무음/반복 패턴으로 구성되어 있습니다.\n\n**참고사항:**\n- 녹음 품질이 낮거나 배경소음이 많은 경우\n- 실제 음성 내용이 없는 경우\n- 매우 조용한 음성이나 중얼거림인 경우\n\n다른 Whisper 모델(large, base 등)을 시도하거나 녹음 파일을 확인해 보세요."
             else:
-                markdown_content += normalize_text(original_text, normalize_punct)
+                markdown_content += normalize_text(original_text, normalize_punct or True)  # 반복 단어 제거는 항상 활성화
 
         # 원자적 저장
         if progress_callback:
