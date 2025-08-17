@@ -176,10 +176,11 @@ def call_ollama_with_timeout(
 ) -> str:
     """타임아웃을 적용한 Ollama 호출"""
     def _call_ollama():
-        return ollama.generate(
+        return ollama.chat(
             model=model,
-            prompt=prompt,
-            options=options
+            messages=[{"role": "user", "content": prompt}],
+            options=options,
+            stream=False,
         )
     
     with ThreadPoolExecutor(max_workers=1) as executor:
@@ -213,12 +214,14 @@ def call_ollama_with_retry(
             logging.debug(f"모델 호출 시도 {attempt + 1}/{MAX_RETRIES}")
             
             response = call_ollama_with_timeout(model, prompt, options, OLLAMA_TIMEOUT)
-            
+
             # 응답 형식 처리
             try:
-                result = response['response']
+                result = response["message"]["content"]
             except (TypeError, KeyError):
-                raise SummarizationError(f"지원하지 않는 응답 타입({type(response)})이거나 'response' 키가 없습니다.")
+                raise SummarizationError(
+                    f"지원하지 않는 응답 타입({type(response)})이거나 'message.content' 키가 없습니다."
+                )
             
             if not result or not result.strip():
                 raise SummarizationError("빈 응답 수신")
