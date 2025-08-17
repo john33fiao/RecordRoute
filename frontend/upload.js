@@ -6,6 +6,7 @@ let currentTask = null;
 let taskIdCounter = 0;
 const categoryOrder = ['stt', 'embedding', 'summary'];
 let currentCategory = null;
+let currentOverlayFile = null; // Track currently viewed file in overlay
 
 // Function to normalize Korean text to NFC form for proper display
 function normalizeKorean(text) {
@@ -26,10 +27,17 @@ const modelSettingsCloseBtn = document.getElementById('modelSettingsCloseBtn');
 const modelSettingsCancelBtn = document.getElementById('modelSettingsCancelBtn');
 const modelSettingsConfirmBtn = document.getElementById('modelSettingsConfirmBtn');
 
-function showTextOverlay(url) {
+function showTextOverlay(url, fileType = null) {
     const overlay = document.getElementById('textOverlay');
     const content = document.getElementById('overlayContent');
     const download = document.getElementById('overlayDownload');
+    
+    // Store current file info for deletion
+    currentOverlayFile = {
+        url: url,
+        type: fileType || (url.includes('.summary.') ? 'summary' : 'stt')
+    };
+    
     overlay.style.display = 'flex';
     content.textContent = '로딩중...';
     download.href = url;
@@ -70,6 +78,17 @@ function stopProgressPolling() {
 
 document.getElementById('overlayClose').addEventListener('click', () => {
     document.getElementById('textOverlay').style.display = 'none';
+});
+
+document.getElementById('overlayDelete').addEventListener('click', () => {
+    if (!currentOverlayFile) return;
+    
+    const fileTypeName = currentOverlayFile.type === 'summary' ? '요약을' : 'STT를';
+    const confirmed = confirm(`현재 조회중인 ${fileTypeName} 삭제하시겠습니까?`);
+    
+    if (confirmed) {
+        deleteCurrentFile();
+    }
 });
 
 // Add Esc key listener for text overlay
@@ -170,6 +189,54 @@ function showModelSettingsPopup() {
 
 function hideModelSettingsPopup() {
     modelSettingsPopup.style.display = 'none';
+}
+
+
+async function deleteCurrentFile() {
+    if (!currentOverlayFile) return;
+    
+    try {
+        // Extract file identifier from URL
+        const fileIdentifier = currentOverlayFile.url.replace('/download/', '');
+        
+        const response = await fetch('/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                file_identifier: fileIdentifier,
+                file_type: currentOverlayFile.type
+            })
+        });
+        
+        if (response.ok) {
+            // Close overlay
+            document.getElementById('textOverlay').style.display = 'none';
+            
+            // Clear current overlay file
+            currentOverlayFile = null;
+            
+            // Reload history to reflect changes
+            loadHistory();
+            
+            // Show success message
+            const status = document.getElementById('status');
+            const originalContent = status.innerHTML;
+            status.innerHTML = '<div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 10px; border-radius: 5px; margin: 10px 0; color: #155724;">✅ 파일이 삭제되었습니다!</div>';
+            
+            // Clear message after 3 seconds
+            setTimeout(() => {
+                if (status.innerHTML.includes('파일이 삭제되었습니다')) {
+                    status.innerHTML = originalContent;
+                }
+            }, 3000);
+        } else {
+            const errorData = await response.json();
+            alert(`삭제 실패: ${errorData.error || '알 수 없는 오류'}`);
+        }
+    } catch (error) {
+        console.error('Delete error:', error);
+        alert('삭제 중 오류가 발생했습니다.');
+    }
 }
 
 async function loadAvailableModels() {
@@ -797,7 +864,7 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
         } else {
             span.title = '클릭하여 내용 보기';
             span.onclick = () => {
-                showTextOverlay(downloadUrl);
+                showTextOverlay(downloadUrl, task);
             };
         }
     } else if (record) {
@@ -1273,9 +1340,9 @@ async function processNextTask() {
                 taskElement.style.color = 'white';
                 taskElement.style.cursor = 'pointer';
                 taskElement.style.textDecoration = 'underline';
-                taskElement.title = '클릭하여 다운로드';
+                taskElement.title = '클릭하여 내용 보기';
                 taskElement.onclick = () => {
-                    window.open(result[currentTask.task], '_blank');
+                    showTextOverlay(result[currentTask.task], currentTask.task);
                 };
             }
         } else {

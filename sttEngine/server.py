@@ -565,6 +565,77 @@ def reset_upload_record(record_id: str) -> bool:
 
     return False
 
+
+def delete_file(file_identifier: str, file_type: str) -> tuple[bool, str]:
+    """Delete a specific file (STT or summary) and update history.
+    
+    Args:
+        file_identifier: File UUID from download URL
+        file_type: Type of file ('stt' or 'summary')
+    
+    Returns:
+        Tuple of (success, error_message)
+    """
+    try:
+        # Get file info by UUID
+        file_info = get_file_by_uuid(file_identifier)
+        if not file_info:
+            return False, "파일을 찾을 수 없습니다."
+        
+        # Get the actual file path
+        file_path = Path(BASE_DIR) / file_info["file_path"]
+        
+        if not file_path.exists():
+            return False, "파일이 존재하지 않습니다."
+        
+        # Verify file type matches
+        if file_type == 'stt' and not file_path.name.endswith('.md'):
+            return False, "STT 파일이 아닙니다."
+        elif file_type == 'summary' and not file_path.name.endswith('.summary.md'):
+            return False, "요약 파일이 아닙니다."
+        
+        # Delete the file
+        try:
+            file_path.unlink()
+        except Exception as e:
+            print(f"Failed to delete {file_path}: {e}")
+            return False, "파일 삭제에 실패했습니다."
+        
+        # Update history record
+        history = load_upload_history()
+        record_id = file_info["record_id"]
+        
+        for record in history:
+            if record["id"] == record_id:
+                # Update completion status
+                record["completed_tasks"][file_type] = False
+                
+                # Remove download link
+                if file_type in record["download_links"]:
+                    del record["download_links"][file_type]
+                
+                # If deleting summary, also clear title_summary
+                if file_type == 'summary':
+                    record["title_summary"] = ""
+                
+                break
+        
+        # Remove from file registry
+        registry = load_file_registry()
+        if file_identifier in registry:
+            del registry[file_identifier]
+            save_file_registry(registry)
+        
+        # Save updated history
+        save_upload_history(history)
+        
+        return True, ""
+        
+    except Exception as e:
+        print(f"Error deleting file: {e}")
+        return False, f"삭제 중 오류가 발생했습니다: {str(e)}"
+
+
 def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = None, model_settings: dict = None):
     """Run the requested workflow steps sequentially.
 
@@ -1563,6 +1634,39 @@ class UploadHandler(BaseHTTPRequestHandler):
                 return
             
             self._serve_similar_documents_with_filename(file_identifier, user_filename)
+            return
+
+        if self.path == "/delete":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length)) if length else {}
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Invalid JSON payload")
+                return
+            
+            file_identifier = payload.get("file_identifier")
+            file_type = payload.get("file_type")
+            
+            if not file_identifier or not file_type:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Missing file_identifier or file_type")
+                return
+            
+            success, error_msg = delete_file(file_identifier, file_type)
+            
+            if success:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True}).encode())
+            else:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": error_msg}).encode())
             return
 
         self.send_response(404)
