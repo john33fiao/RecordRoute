@@ -277,6 +277,103 @@ def generate_and_store_title_summary(record_id: str, file_path: Path):
         print(f"One-line summary generation failed: {e}")
 
 
+def find_existing_stt_file(original_file_path: Path):
+    """Find existing STT result file for the given original file."""
+    # Check in output directory structure
+    upload_folder_name = original_file_path.parent.name
+    individual_output_dir = OUTPUT_DIR / upload_folder_name
+    
+    if individual_output_dir.exists():
+        # Look for STT result file (*.md, but not *.summary.md or *.corrected.md)
+        stem = original_file_path.stem
+        potential_files = [
+            individual_output_dir / f"{stem}.md",
+            individual_output_dir / f"{stem}.corrected.md"  # Include corrected version
+        ]
+        
+        for stt_file in potential_files:
+            if stt_file.exists() and not stt_file.name.endswith('.summary.md'):
+                return stt_file
+    
+    return None
+
+
+def run_incremental_embedding(base_dir: Path = None):
+    """Run incremental embedding on all existing STT result files."""
+    if base_dir is None:
+        base_dir = OUTPUT_DIR
+    
+    try:
+        # Get embedding model name
+        try:
+            from sttEngine.config import get_model_for_task, get_default_model
+            model_name = get_model_for_task("EMBEDDING", get_default_model("EMBEDDING"))
+        except:
+            model_name = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
+        
+        # Load existing index
+        index = load_index()
+        processed_count = 0
+        
+        # Find all STT result files
+        for md_file in base_dir.glob("**/*.md"):
+            # Skip summary files
+            if md_file.name.endswith('.summary.md'):
+                continue
+                
+            # Check if already processed and up-to-date
+            checksum = file_hash(md_file)
+            key = str(md_file.resolve())
+            if index.get(key, {}).get("sha256") == checksum:
+                continue  # Already up-to-date
+            
+            try:
+                # Read text content
+                text = md_file.read_text(encoding="utf-8")
+                
+                # Generate embedding
+                vector = embed_text_ollama(text, model_name)
+                
+                # Create vector directory if not exists
+                VECTOR_DIR.mkdir(parents=True, exist_ok=True)
+                
+                # Save embedding vector with unique name
+                vector_file = VECTOR_DIR / f"{md_file.parent.name}_{md_file.stem}.npy"
+                np.save(vector_file, vector)
+                
+                # Update index
+                index[key] = {
+                    "sha256": checksum, 
+                    "vector": vector_file.name
+                }
+                
+                processed_count += 1
+                print(f"임베딩 생성 완료: {md_file.name}")
+                
+            except Exception as e:
+                print(f"임베딩 생성 실패 {md_file.name}: {e}")
+                continue
+        
+        # Save updated index
+        save_index(index)
+        print(f"증분 임베딩 완료: {processed_count}개 파일 처리됨")
+        return processed_count
+        
+    except Exception as e:
+        print(f"증분 임베딩 실행 실패: {e}")
+        return 0
+
+
+def file_hash(path: Path) -> str:
+    """Return a stable SHA256 checksum for the given file."""
+    import hashlib
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def generate_embedding(file_path: Path, record_id: str = None):
     """Generate embedding for a text file and store it."""
     try:
@@ -302,12 +399,7 @@ def generate_embedding(file_path: Path, record_id: str = None):
         
         # Update index
         index = load_index()
-        import hashlib
-        h = hashlib.sha256()
-        with file_path.open("rb") as f:
-            for chunk in iter(lambda: f.read(8192), b""):
-                h.update(chunk)
-        checksum = h.hexdigest()
+        checksum = file_hash(file_path)
         
         index[str(file_path.resolve())] = {
             "sha256": checksum, 
@@ -512,43 +604,60 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
             
             # For audio files, check if we have the text file (STT completed)
             if file_type == 'audio' and current_file == file_path:
-                # current_file is still the original audio file, STT hasn't been completed
-                # Automatically run STT before proceeding with embedding
-                if task_id:
-                    update_task_progress(task_id, "STT 자동 실행 시작")
-                try:
-                    def progress_callback(message):
-                        if task_id:
-                            update_task_progress(task_id, message)
-
-                    transcribe_audio_files(
-                        input_dir=str(current_file.parent),
-                        output_dir=str(individual_output_dir),
-                        model_identifier="large",
-                        language=None,
-                        initial_prompt="",
-                        workers=1,
-                        recursive=False,
-                        filter_fillers=False,
-                        min_seg_length=2,
-                        normalize_punct=False,
-                        progress_callback=progress_callback
-                    )
-                except Exception as e:
-                    print(f"STT process failed: {e}")
+                # current_file is still the original audio file, check for existing STT result first
+                existing_stt = find_existing_stt_file(file_path)
+                
+                if existing_stt:
+                    # Use existing STT result
                     if task_id:
-                        update_task_progress(task_id, f"STT 실패: {e}")
-                    return {"error": f"STT process failed: {e}"}
+                        update_task_progress(task_id, f"기존 STT 결과 발견: {existing_stt.name}")
+                    current_file = existing_stt
+                    
+                    # Update results to include existing STT
+                    download_url = f"/download/{upload_folder_name}/{existing_stt.name}"
+                    results["stt"] = download_url
+                    
+                    # Update history if needed
+                    if record_id:
+                        update_task_completion(record_id, "stt", download_url)
+                        generate_and_store_title_summary(record_id, current_file)
+                else:
+                    # No existing STT result, run STT first
+                    if task_id:
+                        update_task_progress(task_id, "STT 자동 실행 시작")
+                    try:
+                        def progress_callback(message):
+                            if task_id:
+                                update_task_progress(task_id, message)
 
-                stt_file = individual_output_dir / f"{file_path.stem}.md"
-                download_url = f"/download/{upload_folder_name}/{stt_file.name}"
-                results["stt"] = download_url
-                current_file = stt_file
+                        transcribe_audio_files(
+                            input_dir=str(current_file.parent),
+                            output_dir=str(individual_output_dir),
+                            model_identifier="large",
+                            language=None,
+                            initial_prompt="",
+                            workers=1,
+                            recursive=False,
+                            filter_fillers=False,
+                            min_seg_length=2,
+                            normalize_punct=False,
+                            progress_callback=progress_callback
+                        )
+                    except Exception as e:
+                        print(f"STT process failed: {e}")
+                        if task_id:
+                            update_task_progress(task_id, f"STT 실패: {e}")
+                        return {"error": f"STT process failed: {e}"}
 
-                # Update history
-                if record_id:
-                    update_task_completion(record_id, "stt", download_url)
-                    generate_and_store_title_summary(record_id, current_file)
+                    stt_file = individual_output_dir / f"{file_path.stem}.md"
+                    download_url = f"/download/{upload_folder_name}/{stt_file.name}"
+                    results["stt"] = download_url
+                    current_file = stt_file
+
+                    # Update history
+                    if record_id:
+                        update_task_completion(record_id, "stt", download_url)
+                        generate_and_store_title_summary(record_id, current_file)
 
             if task_id:
                 update_task_progress(task_id, "임베딩 생성 시작")
@@ -980,6 +1089,65 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"success": True}).encode())
+            return
+
+        if self.path == "/incremental_embedding":
+            try:
+                processed_count = run_incremental_embedding()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "processed_count": processed_count,
+                    "message": f"증분 임베딩 완료: {processed_count}개 파일 처리됨"
+                }).encode())
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": False,
+                    "error": str(e)
+                }).encode())
+            return
+
+        if self.path == "/check_existing_stt":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length)) if length else {}
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Invalid JSON payload")
+                return
+            
+            file_path = payload.get("file_path")
+            if not file_path:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Missing file_path")
+                return
+            
+            try:
+                original_file = BASE_DIR / file_path
+                existing_stt = find_existing_stt_file(original_file)
+                
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "has_stt": existing_stt is not None,
+                    "stt_file": str(existing_stt.relative_to(BASE_DIR)) if existing_stt else None
+                }).encode())
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "has_stt": False,
+                    "error": str(e)
+                }).encode())
             return
 
         self.send_response(404)

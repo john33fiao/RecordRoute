@@ -6,9 +6,9 @@ import argparse
 import logging
 import traceback
 import platform
+import subprocess
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import subprocess
 
 # .env 파일의 환경변수 자동 로드
 try:
@@ -222,7 +222,6 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
             import sys
             import io
             import re
-            import subprocess
             
             # 오디오 파일 길이 가져오기
             def get_audio_duration(audio_file):

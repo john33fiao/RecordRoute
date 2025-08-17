@@ -659,10 +659,31 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
                     
                     // Check if this is an embedding task for audio file without STT completion
                     if (task === 'embedding' && record.file_type === 'audio' && !record.completed_tasks.stt) {
-                        // Re-enable the button for alert
+                        // Check if existing STT result exists, if so proceed with incremental embedding
+                        // Otherwise show alert
                         span.style.pointerEvents = 'auto';
                         span.style.opacity = '1';
-                        alert('오디오 파일의 경우 STT 작업을 먼저 완료해야 합니다.');
+                        
+                        // Try to find existing STT result by attempting embedding with existing file check
+                        // If no existing STT found, show alert
+                        fetch('/check_existing_stt', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ file_path: record.file_path })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.has_stt) {
+                                // Proceed with embedding using existing STT
+                                addTaskToQueue(record.id, record.file_path, task, span, record.filename);
+                                setQueuedState(span);
+                            } else {
+                                alert('STT 작업이 완료되지 않았습니다. STT를 먼저 실행해주세요.');
+                            }
+                        })
+                        .catch(() => {
+                            alert('STT 완료 여부를 확인할 수 없습니다. STT를 먼저 실행해주세요.');
+                        });
                         return;
                     }
                     
