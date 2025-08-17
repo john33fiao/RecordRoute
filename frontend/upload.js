@@ -21,6 +21,10 @@ const sttConfirmCancelBtn = document.getElementById('sttConfirmCancelBtn');
 const similarDocsPopup = document.getElementById('similarDocsPopup');
 const similarDocsCloseBtn = document.getElementById('similarDocsCloseBtn');
 const similarDocsList = document.getElementById('similarDocsList');
+const modelSettingsPopup = document.getElementById('modelSettingsPopup');
+const modelSettingsCloseBtn = document.getElementById('modelSettingsCloseBtn');
+const modelSettingsCancelBtn = document.getElementById('modelSettingsCancelBtn');
+const modelSettingsConfirmBtn = document.getElementById('modelSettingsConfirmBtn');
 
 function showTextOverlay(url) {
     const overlay = document.getElementById('textOverlay');
@@ -83,6 +87,9 @@ document.addEventListener('keydown', (e) => {
         }
         if (similarDocsPopup.style.display === 'flex') {
             hideSimilarDocsPopup();
+        }
+        if (modelSettingsPopup.style.display === 'flex') {
+            hideModelSettingsPopup();
         }
     }
 });
@@ -156,6 +163,105 @@ function hideSimilarDocsPopup() {
     similarDocsPopup.style.display = 'none';
 }
 
+function showModelSettingsPopup() {
+    modelSettingsPopup.style.display = 'flex';
+    loadAvailableModels();
+}
+
+function hideModelSettingsPopup() {
+    modelSettingsPopup.style.display = 'none';
+}
+
+async function loadAvailableModels() {
+    try {
+        const response = await fetch('/models');
+        if (response.ok) {
+            const data = await response.json();
+            
+            // Update summarize model dropdown
+            const summarizeSelect = document.getElementById('summarizeModel');
+            summarizeSelect.innerHTML = '';
+            
+            if (data.models && data.models.length > 0) {
+                data.models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model;
+                    option.textContent = model;
+                    if (model === data.default.summarize) {
+                        option.textContent += ' (기본값)';
+                        option.selected = true;
+                    }
+                    summarizeSelect.appendChild(option);
+                });
+            } else {
+                const option = document.createElement('option');
+                option.value = data.default.summarize;
+                option.textContent = data.default.summarize + ' (기본값)';
+                option.selected = true;
+                summarizeSelect.appendChild(option);
+            }
+            
+            // Update embedding model dropdown (usually only one model available)
+            const embeddingSelect = document.getElementById('embeddingModel');
+            embeddingSelect.innerHTML = '';
+            
+            const embeddingOption = document.createElement('option');
+            embeddingOption.value = data.default.embedding;
+            embeddingOption.textContent = data.default.embedding + ' (기본값)';
+            embeddingOption.selected = true;
+            embeddingSelect.appendChild(embeddingOption);
+            
+            // Set current values from localStorage if available
+            const savedSettings = JSON.parse(localStorage.getItem('modelSettings') || '{}');
+            if (savedSettings.whisper) {
+                document.getElementById('whisperModel').value = savedSettings.whisper;
+            }
+            if (savedSettings.summarize) {
+                document.getElementById('summarizeModel').value = savedSettings.summarize;
+            }
+            if (savedSettings.embedding) {
+                document.getElementById('embeddingModel').value = savedSettings.embedding;
+            }
+            
+        } else {
+            console.error('Failed to load models');
+            const summarizeSelect = document.getElementById('summarizeModel');
+            const embeddingSelect = document.getElementById('embeddingModel');
+            summarizeSelect.innerHTML = '<option value="">모델 로딩 실패</option>';
+            embeddingSelect.innerHTML = '<option value="">모델 로딩 실패</option>';
+        }
+    } catch (error) {
+        console.error('Error loading models:', error);
+        const summarizeSelect = document.getElementById('summarizeModel');
+        const embeddingSelect = document.getElementById('embeddingModel');
+        summarizeSelect.innerHTML = '<option value="">네트워크 오류</option>';
+        embeddingSelect.innerHTML = '<option value="">네트워크 오류</option>';
+    }
+}
+
+function saveModelSettings() {
+    const settings = {
+        whisper: document.getElementById('whisperModel').value,
+        summarize: document.getElementById('summarizeModel').value,
+        embedding: document.getElementById('embeddingModel').value
+    };
+    
+    localStorage.setItem('modelSettings', JSON.stringify(settings));
+    hideModelSettingsPopup();
+    
+    // Show success message
+    const status = document.getElementById('status');
+    const originalContent = status.innerHTML;
+    status.innerHTML = '<div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 10px; border-radius: 5px; margin: 10px 0; color: #155724;">✅ 모델 설정이 저장되었습니다!</div>';
+    
+    // Clear message after 3 seconds
+    setTimeout(() => {
+        if (status.innerHTML.includes('모델 설정이 저장되었습니다')) {
+            status.innerHTML = originalContent;
+        }
+    }, 3000);
+}
+
 function downloadSimilarDocument(downloadLink) {
     window.open(downloadLink, '_blank');
 }
@@ -163,6 +269,9 @@ function downloadSimilarDocument(downloadLink) {
 summaryCancelBtn.addEventListener('click', hideSummaryPopup);
 sttConfirmCancelBtn.addEventListener('click', hideSttConfirmPopup);
 similarDocsCloseBtn.addEventListener('click', hideSimilarDocsPopup);
+modelSettingsCloseBtn.addEventListener('click', hideModelSettingsPopup);
+modelSettingsCancelBtn.addEventListener('click', hideModelSettingsPopup);
+modelSettingsConfirmBtn.addEventListener('click', saveModelSettings);
 
 function editFilename(recordId, currentFilename) {
     const filenameElement = document.getElementById(`filename-${recordId}`);
@@ -1058,6 +1167,9 @@ async function processNextTask() {
         // Create AbortController for this task
         currentTask.abortController = new AbortController();
 
+        // Get saved model settings
+        const savedSettings = JSON.parse(localStorage.getItem('modelSettings') || '{}');
+        
         const response = await fetch('/process', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1065,7 +1177,8 @@ async function processNextTask() {
                 file_path: currentTask.filePath, 
                 steps: [currentTask.task],
                 record_id: currentTask.recordId,
-                task_id: currentTask.taskId  // Send task_id to server
+                task_id: currentTask.taskId,  // Send task_id to server
+                model_settings: savedSettings  // Send model settings to server
             }),
             signal: currentTask.abortController.signal
         });
@@ -1487,6 +1600,9 @@ document.getElementById('queueSortSelect').addEventListener('change', function()
 
 // Add event listener for process all button
 document.getElementById('processAllBtn').addEventListener('click', processAllIncomplete);
+
+// Add event listener for settings button
+document.getElementById('settingsBtn').addEventListener('click', showModelSettingsPopup);
 
 document.addEventListener('DOMContentLoaded', function() {
     loadHistory();

@@ -7,8 +7,13 @@
 </head>
 <body>
     <h1>Upload File</h1>
-    <input type="file" id="fileInput" accept="audio/*,.md,.txt,.text,.markdown,.pdf" multiple />
-    <button id="uploadBtn">Upload</button>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <div>
+            <input type="file" id="fileInput" accept="audio/*,.md,.txt,.text,.markdown,.pdf" multiple />
+            <button id="uploadBtn">Upload</button>
+        </div>
+        <button id="settingsBtn" style="background: #6c757d; color: white; border: none; border-radius: 3px; padding: 8px 16px; cursor: pointer; font-size: 14px;">⚙️ 설정</button>
+    </div>
     <div id="status"></div>
 
     <div id="workflow" style="display:none; margin-top:1em;">
@@ -87,6 +92,45 @@
             </div>
             <div id="similarDocsList">
                 <p style="color: #6c757d; text-align: center;">로딩 중...</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="modelSettingsPopup">
+        <div class="content">
+            <div class="header">
+                <h3>모델 설정</h3>
+                <button id="modelSettingsCloseBtn">×</button>
+            </div>
+            <div class="settings-content">
+                <div class="setting-group">
+                    <label for="whisperModel">Whisper 모델 (STT):</label>
+                    <select id="whisperModel">
+                        <option value="large-v3-turbo">large-v3-turbo (기본값)</option>
+                        <option value="large-v3">large-v3</option>
+                        <option value="large-v2">large-v2</option>
+                        <option value="medium">medium</option>
+                        <option value="small">small</option>
+                        <option value="base">base</option>
+                        <option value="tiny">tiny</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label for="summarizeModel">요약 모델:</label>
+                    <select id="summarizeModel">
+                        <option value="">로딩 중...</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label for="embeddingModel">임베딩 모델:</label>
+                    <select id="embeddingModel">
+                        <option value="">로딩 중...</option>
+                    </select>
+                </div>
+                <div class="buttons">
+                    <button id="modelSettingsCancelBtn">취소</button>
+                    <button id="modelSettingsConfirmBtn">확인</button>
+                </div>
             </div>
         </div>
     </div>

@@ -32,6 +32,7 @@ from sttEngine.workflow.summarize import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TEMPERATURE,
 )
+from sttEngine.config import get_default_model
 from sttEngine.one_line_summary import generate_one_line_summary
 from vector_search import search as search_vectors
 from sttEngine.embedding_pipeline import embed_text_ollama, load_index, save_index
@@ -563,7 +564,7 @@ def reset_upload_record(record_id: str) -> bool:
 
     return False
 
-def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = None):
+def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = None, model_settings: dict = None):
     """Run the requested workflow steps sequentially.
 
     Args:
@@ -656,11 +657,16 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 if task_id:
                     update_task_progress(task_id, message)
                     
+            # Get Whisper model from settings, default to large-v3-turbo
+            whisper_model = "large-v3-turbo"
+            if model_settings and model_settings.get("whisper"):
+                whisper_model = model_settings["whisper"]
+            
             try:
                 transcribe_audio_files(
                     input_dir=str(current_file.parent),
                     output_dir=str(individual_output_dir),
-                    model_identifier="large",
+                    model_identifier=whisper_model,
                     language=None,
                     initial_prompt="",
                     workers=1,
@@ -683,7 +689,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
 
             # Update history
             if record_id:
-                file_path_str = str(md_file.relative_to(BASE_DIR))
+                file_path_str = str(stt_file.relative_to(BASE_DIR))
                 update_task_completion(record_id, "stt", file_path_str)
                 generate_and_store_title_summary(record_id, current_file)
 
@@ -721,10 +727,15 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                             if task_id:
                                 update_task_progress(task_id, message)
 
+                        # Get Whisper model from settings, default to large-v3-turbo
+                        whisper_model = "large-v3-turbo"
+                        if model_settings and model_settings.get("whisper"):
+                            whisper_model = model_settings["whisper"]
+                            
                         transcribe_audio_files(
                             input_dir=str(current_file.parent),
                             output_dir=str(individual_output_dir),
-                            model_identifier="large",
+                            model_identifier=whisper_model,
                             language=None,
                             initial_prompt="",
                             workers=1,
@@ -770,6 +781,11 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
             if task_id:
                 update_task_progress(task_id, "요약 생성 시작")
                 
+            # Get summarize model from settings, default to DEFAULT_MODEL
+            summarize_model = DEFAULT_MODEL
+            if model_settings and model_settings.get("summarize"):
+                summarize_model = model_settings["summarize"]
+                
             try:
                 text = read_text_with_fallback(Path(current_file))
                 if task_id:
@@ -777,7 +793,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     
                 summary = summarize_text_mapreduce(
                     text=text,
-                    model=DEFAULT_MODEL,
+                    model=summarize_model,
                     chunk_size=DEFAULT_CHUNK_SIZE,
                     max_tokens=None,
                     temperature=DEFAULT_TEMPERATURE,
@@ -951,6 +967,8 @@ class UploadHandler(BaseHTTPRequestHandler):
             # Extract file identifier from URL (can be UUID or file path)
             file_identifier = unquote(self.path[len("/similar/"):])
             self._serve_similar_documents(file_identifier)
+        elif self.path == "/models":
+            self._serve_available_models()
         else:
             self.send_response(404)
             self.end_headers()
@@ -1187,6 +1205,55 @@ class UploadHandler(BaseHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
 
+    def _serve_available_models(self):
+        """Serve available Ollama models as JSON."""
+        try:
+            import subprocess
+            result = subprocess.run(['ollama', 'list'], capture_output=True, text=True, timeout=10)
+            
+            if result.returncode != 0:
+                raise Exception(f"Ollama list failed: {result.stderr}")
+            
+            # Parse ollama list output
+            lines = result.stdout.strip().split('\n')
+            models = []
+            
+            # Skip header line if present
+            for line in lines[1:] if len(lines) > 1 else lines:
+                if line.strip():
+                    # Extract model name (first column)
+                    parts = line.split()
+                    if parts:
+                        model_name = parts[0]
+                        # Filter out model names with slashes or special characters typically not used for LLM models
+                        if '/' not in model_name and model_name not in ['mxbai-embed-large']:
+                            models.append(model_name)
+            
+            response_data = {
+                "models": models,
+                "default": {
+                    "whisper": "large-v3-turbo",
+                    "summarize": DEFAULT_MODEL,
+                    "embedding": get_default_model("EMBEDDING")
+                }
+            }
+            
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode())
+            
+        except Exception as e:
+            print(f"모델 목록 조회 중 오류: {e}")
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            error_response = {
+                "error": "모델 목록을 조회할 수 없습니다. Ollama가 실행 중인지 확인해주세요.",
+                "details": str(e)
+            }
+            self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
+
     def _parse_multipart(self, data, boundary):
         """Simple multipart/form-data parser"""
         parts = data.split(f'--{boundary}'.encode())
@@ -1312,6 +1379,7 @@ class UploadHandler(BaseHTTPRequestHandler):
             steps = payload.get("steps", [])
             record_id = payload.get("record_id")
             task_id = payload.get("task_id")  # Get task_id from frontend
+            model_settings = payload.get("model_settings", {})  # Get model settings from frontend
             
             if not file_path:
                 self.send_response(400)
@@ -1323,8 +1391,8 @@ class UploadHandler(BaseHTTPRequestHandler):
             if not task_id:
                 task_id = str(uuid.uuid4())
 
-            print(f"Processing task {task_id} with steps {steps}")
-            results = run_workflow(BASE_DIR / file_path, steps, record_id, task_id)
+            print(f"Processing task {task_id} with steps {steps} and model settings {model_settings}")
+            results = run_workflow(BASE_DIR / file_path, steps, record_id, task_id, model_settings)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
