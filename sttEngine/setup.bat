@@ -1,9 +1,36 @@
 @echo off
-echo Whisper 음성 인식 워크플로우 설치 스크립트
-echo ===========================================
+chcp 65001 > nul
+title RecordRoute 초기 설정
 
-:: 가상환경 생성
-echo 1. 가상환경 생성 중...
+set "SCRIPT_DIR=%~dp0"
+cd /d "%SCRIPT_DIR%"
+
+echo ================================
+echo    RecordRoute 초기 설정
+echo ================================
+echo.
+
+REM Python 설치 확인
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo 오류: Python이 설치되지 않았습니다.
+    echo Python 3.8 이상을 설치한 후 다시 실행하세요.
+    pause
+    exit /b 1
+)
+
+echo 1단계: 가상환경 생성...
+if exist "venv" (
+    echo 기존 가상환경이 있습니다. 삭제 후 재생성하시겠습니까? (Y/N)
+    set /p confirm=
+    if /i "%confirm%"=="Y" (
+        rmdir /s /q venv
+    ) else (
+        echo 기존 가상환경을 사용합니다.
+        goto INSTALL_DEPS
+    )
+)
+
 python -m venv venv
 if errorlevel 1 (
     echo 오류: 가상환경 생성에 실패했습니다.
@@ -11,46 +38,54 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: 가상환경 활성화
-echo 2. 가상환경 활성화 중...
-call venv\Scripts\activate.bat
+:INSTALL_DEPS
+echo.
+echo 2단계: 가상환경 활성화 및 의존성 설치...
+call venv\Scripts\activate
 
-:: 필요한 패키지 설치
-echo 3. 패키지 설치 중...
-pip install --upgrade pip
-pip install -r requirements.txt
-
-:: 시스템 의존성 확인
-echo 4. 시스템 의존성 확인 중...
-
-:: Ollama 설치 확인
-ollama --version >nul 2>&1
-if errorlevel 1 (
-    echo [주의] Ollama가 설치되지 않았거나 PATH에 없습니다.
-    echo   - https://ollama.com/download 에서 다운로드하여 설치하세요.
-    echo   - 설치 후 다음 명령어로 필요한 모델을 받아두세요:
-    echo     ollama pull llama3
+if exist "sttEngine\requirements.txt" (
+    pip install -r sttEngine\requirements.txt
 ) else (
-    echo [확인] Ollama가 설치되어 있습니다.
+    echo 경고: sttEngine\requirements.txt 파일을 찾을 수 없습니다.
 )
 
-:: FFmpeg 설치 확인
-ffmpeg -version >nul 2>&1
-if errorlevel 1 (
-    echo [주의] FFmpeg가 설치되지 않았거나 PATH에 없습니다.
-    echo   - Whisper가 오디오 파일을 처리하려면 FFmpeg가 필요합니다.
-    echo   - https://ffmpeg.org/download.html 에서 다운로드하여 설치하고,
-    echo     실행 파일 경로를 시스템 PATH 환경 변수에 추가해주세요.
-    echo   - (권장) Chocolatey 사용 시: choco install ffmpeg
-) else (
-    echo [확인] FFmpeg가 설치되어 있습니다.
+if exist "requirements.txt" (
+    pip install -r requirements.txt
 )
 
+echo.
+echo 3단계: Ollama 설치 확인...
+where ollama >nul 2>&1
+if errorlevel 1 (
+    echo Ollama가 설치되지 않았습니다.
+    echo https://ollama.ai 에서 다운로드하여 설치하세요.
+    echo 설치 후 'ollama pull gemma3:4b-it-qat' 명령어를 실행하세요.
+) else (
+    echo Ollama가 설치되어 있습니다.
+    echo 필요한 모델을 다운로드합니다...
+    ollama list | findstr "gemma3:4b" >nul
+    if errorlevel 1 (
+        echo gemma3:4b 모델을 다운로드합니다...
+        ollama pull gemma3:4b-it-qat
+    ) else (
+        echo gemma3:4b 모델이 이미 설치되어 있습니다.
+    )
+)
 
 echo.
-echo 설치 과정이 완료되었습니다!
+echo 4단계: FFmpeg 확인...
+where ffmpeg >nul 2>&1
+if errorlevel 1 (
+    echo FFmpeg가 설치되지 않았습니다.
+    echo winget install FFmpeg 또는 수동 설치가 필요합니다.
+) else (
+    echo FFmpeg가 설치되어 있습니다.
+)
+
 echo.
-echo --- 사용법 ---
-echo 1. 가상환경 활성화: venv\Scripts\activate.bat
-echo 2. 워크플로우 실행: python run_workflow.py
+echo ================================
+echo       설정이 완료되었습니다!
+echo ================================
+echo 이제 run.bat 파일을 실행하여 서버를 시작할 수 있습니다.
+echo.
 pause
