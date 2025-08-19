@@ -348,3 +348,43 @@
 #modelSettingsConfirmBtn:hover {
     background: #0056b3;
 }
+
+/* Light/Dark mode */
+body {
+    background: #ffffff;
+    color: #212529;
+}
+.theme-toggle {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    padding: 8px;
+    cursor: pointer;
+}
+body.dark-mode {
+    background: #121212;
+    color: #e9ecef;
+}
+body.dark-mode .theme-toggle {
+    background: #adb5bd;
+    color: #000;
+}
+body.dark-mode input,
+body.dark-mode select,
+body.dark-mode button {
+    background: #333;
+    color: #e9ecef;
+    border-color: #555;
+}
+body.dark-mode #textOverlay .content,
+body.dark-mode #summaryPopup .content,
+body.dark-mode #sttConfirmPopup .content,
+body.dark-mode #modelSettingsPopup .content {
+    background: #1e1e1e;
+    color: #e9ecef;
+}
+

@@ -26,6 +26,39 @@ const modelSettingsPopup = document.getElementById('modelSettingsPopup');
 const modelSettingsCloseBtn = document.getElementById('modelSettingsCloseBtn');
 const modelSettingsCancelBtn = document.getElementById('modelSettingsCancelBtn');
 const modelSettingsConfirmBtn = document.getElementById('modelSettingsConfirmBtn');
+const themeToggle = document.getElementById('themeToggle');
+
+function applyTheme(theme) {
+    if (theme === 'dark') {
+        document.body.classList.add('dark-mode');
+        themeToggle.textContent = '☀️';
+    } else {
+        document.body.classList.remove('dark-mode');
+        themeToggle.textContent = '🌙';
+    }
+    localStorage.setItem('theme', theme);
+}
+
+function initTheme() {
+    const saved = localStorage.getItem('theme');
+    if (saved) {
+        applyTheme(saved);
+    } else {
+        const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        applyTheme(prefersDark ? 'dark' : 'light');
+    }
+
+    themeToggle.addEventListener('click', () => {
+        const isDark = document.body.classList.contains('dark-mode');
+        applyTheme(isDark ? 'light' : 'dark');
+    });
+
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+        if (!localStorage.getItem('theme')) {
+            applyTheme(e.matches ? 'dark' : 'light');
+        }
+    });
+}
 
 function showTextOverlay(url, fileType = null) {
     const overlay = document.getElementById('textOverlay');
@@ -1711,6 +1744,7 @@ document.getElementById('processAllBtn').addEventListener('click', processAllInc
 document.getElementById('settingsBtn').addEventListener('click', showModelSettingsPopup);
 
 document.addEventListener('DOMContentLoaded', function() {
+    initTheme();
     loadHistory();
     checkRunningTasks();
     startTaskMonitoring();
