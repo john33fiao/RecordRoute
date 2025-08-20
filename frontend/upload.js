@@ -643,36 +643,27 @@ function updateQueueDisplay() {
         
         allTasks.forEach((task, index) => {
             const item = document.createElement('div');
-            item.style.cssText = `
-                border: 1px solid #dee2e6;
-                border-radius: 5px;
-                padding: 8px 12px;
-                margin-bottom: 8px;
-                background-color: ${task.status === 'processing' ? '#fff3cd' : '#f8f9fa'};
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            `;
+            item.className = task.status === 'processing' ? 'queue-item queue-item-processing' : 'queue-item';
             
             const statusText = task.status === 'processing' ? '진행중' : `대기중 (${index + 1}번째)`;
-            const statusColor = task.status === 'processing' ? '#856404' : '#6c757d';
             const taskName = taskNames[task.task] || task.task;
             const modelName = getModelForTask(task.task);
             
             const info = document.createElement('span');
+            const statusClass = task.status === 'processing' ? 'status-processing' : 'status-waiting';
             info.innerHTML = `
                 <strong>${normalizeKorean(task.filename)}</strong> - ${taskName}
-                ${modelName ? `<span style="color: #6c757d; font-size: 11px; margin-left: 5px;">(${modelName})</span>` : ''}
-                <span style="color: ${statusColor}; font-size: 12px; margin-left: 10px;">[${statusText}]</span>
+                ${modelName ? `<span class="model-info">(${modelName})</span>` : ''}
+                <span class="status-info ${statusClass}">[${statusText}]</span>
             `;
 
             const infoContainer = document.createElement('div');
-            infoContainer.style.flex = '1';
+            infoContainer.className = 'info-container';
             infoContainer.appendChild(info);
             
             if (task.status === 'processing' && task.progress) {
                 const progressDiv = document.createElement('div');
-                progressDiv.style.cssText = 'color: #856404; font-size: 12px; margin-top: 4px;';
+                progressDiv.className = 'progress-info';
                 
                 // 진행률 퍼센트 추출
                 const percentMatch = task.progress.match(/(\d+)%/);
@@ -681,22 +672,11 @@ function updateQueueDisplay() {
                     
                     // 진행률 바 생성
                     const progressContainer = document.createElement('div');
-                    progressContainer.style.cssText = `
-                        width: 100%;
-                        height: 4px;
-                        background-color: #e9ecef;
-                        border-radius: 2px;
-                        margin: 2px 0;
-                        overflow: hidden;
-                    `;
+                    progressContainer.className = 'progress-container';
                     
                     const progressBar = document.createElement('div');
-                    progressBar.style.cssText = `
-                        width: ${percent}%;
-                        height: 100%;
-                        background-color: #007bff;
-                        transition: width 0.3s ease;
-                    `;
+                    progressBar.className = 'progress-bar';
+                    progressBar.style.width = `${percent}%`;
                     
                     progressContainer.appendChild(progressBar);
                     progressDiv.appendChild(progressContainer);
@@ -712,19 +692,7 @@ function updateQueueDisplay() {
 
             const cancelBtn = document.createElement('button');
             cancelBtn.textContent = '×';
-            cancelBtn.style.cssText = `
-                background: #dc3545;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                width: 24px;
-                height: 24px;
-                cursor: pointer;
-                font-size: 16px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            `;
+            cancelBtn.className = 'cancel-btn';
             cancelBtn.title = '작업 취소';
             cancelBtn.onclick = () => removeTaskFromQueue(task.id);
             
@@ -759,52 +727,38 @@ function updateQueueDisplay() {
 
             // Create category header
             const categoryHeader = document.createElement('div');
-            categoryHeader.style.cssText = `
-                background: #007bff;
-                color: white;
-                padding: 6px 12px;
-                margin: 10px 0 5px 0;
-                border-radius: 5px 5px 0 0;
-                font-weight: bold;
-                font-size: 14px;
-            `;
+            categoryHeader.className = 'queue-category-header';
             categoryHeader.textContent = `${categoryNames[category]} (${categoryTasks.length}개)`;
             queueList.appendChild(categoryHeader);
 
             // Add tasks in this category
             categoryTasks.forEach((task, index) => {
                 const item = document.createElement('div');
-                item.style.cssText = `
-                    border: 1px solid #dee2e6;
-                    border-top: none;
-                    padding: 8px 12px;
-                    margin-bottom: ${index === categoryTasks.length - 1 ? '10px' : '0'};
-                    background-color: ${task.status === 'processing' ? '#fff3cd' : '#f8f9fa'};
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    ${index === categoryTasks.length - 1 ? 'border-radius: 0 0 5px 5px;' : ''}
-                `;
+                let className = task.status === 'processing' ? 'queue-category-item queue-category-item-processing' : 'queue-category-item';
+                if (index === categoryTasks.length - 1) {
+                    className += ' last-item';
+                }
+                item.className = className;
                 
                 const globalIndex = taskQueue.findIndex(t => t.id === task.id);
                 const statusText = task.status === 'processing' ? '진행중' : `대기중 (${globalIndex + 1}번째)`;
-                const statusColor = task.status === 'processing' ? '#856404' : '#6c757d';
                 const modelName = getModelForTask(task.task);
+                const statusClass = task.status === 'processing' ? 'status-processing' : 'status-waiting';
                 
                 const info = document.createElement('span');
                 info.innerHTML = `
                     <strong>${normalizeKorean(task.filename)}</strong>
-                    ${modelName ? `<span style="color: #6c757d; font-size: 11px; margin-left: 5px;">(${modelName})</span>` : ''}
-                    <span style="color: ${statusColor}; font-size: 12px; margin-left: 10px;">[${statusText}]</span>
+                    ${modelName ? `<span class="model-info">(${modelName})</span>` : ''}
+                    <span class="status-info ${statusClass}">[${statusText}]</span>
                 `;
 
                 const infoContainer = document.createElement('div');
-                infoContainer.style.flex = '1';
+                infoContainer.className = 'info-container';
                 infoContainer.appendChild(info);
 
                 if (task.status === 'processing' && task.progress) {
                     const progressDiv = document.createElement('div');
-                    progressDiv.style.cssText = 'color: #856404; font-size: 12px; margin-top: 4px;';
+                    progressDiv.className = 'progress-info';
                     
                     // 진행률 퍼센트 추출
                     const percentMatch = task.progress.match(/(\d+)%/);
@@ -813,22 +767,11 @@ function updateQueueDisplay() {
                         
                         // 진행률 바 생성
                         const progressContainer = document.createElement('div');
-                        progressContainer.style.cssText = `
-                            width: 100%;
-                            height: 4px;
-                            background-color: #e9ecef;
-                            border-radius: 2px;
-                            margin: 2px 0;
-                            overflow: hidden;
-                        `;
+                        progressContainer.className = 'progress-container';
                         
                         const progressBar = document.createElement('div');
-                        progressBar.style.cssText = `
-                            width: ${percent}%;
-                            height: 100%;
-                            background-color: #007bff;
-                            transition: width 0.3s ease;
-                        `;
+                        progressBar.className = 'progress-bar';
+                        progressBar.style.width = `${percent}%`;
                         
                         progressContainer.appendChild(progressBar);
                         progressDiv.appendChild(progressContainer);
@@ -843,19 +786,7 @@ function updateQueueDisplay() {
 
                 const cancelBtn = document.createElement('button');
                 cancelBtn.textContent = '×';
-                cancelBtn.style.cssText = `
-                    background: #dc3545;
-                    color: white;
-                    border: none;
-                    border-radius: 3px;
-                    width: 24px;
-                    height: 24px;
-                    cursor: pointer;
-                    font-size: 16px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                `;
+                cancelBtn.className = 'cancel-btn';
                 cancelBtn.title = '작업 취소';
                 cancelBtn.onclick = () => removeTaskFromQueue(task.id);
                 
@@ -1049,20 +980,14 @@ function displayHistory(history) {
     
     history.forEach(record => {
         const item = document.createElement('div');
-        item.style.cssText = `
-            border: 1px solid #dee2e6;
-            border-radius: 5px;
-            padding: 10px;
-            margin-bottom: 10px;
-            background-color: #f8f9fa;
-        `;
+        item.className = 'history-item';
 
         const typeLabel = record.file_type === 'audio' ? '오디오' : record.file_type === 'pdf' ? 'PDF' : '텍스트';
         const dateTime = formatDateTime(record.timestamp);
         const duration = record.duration ? ` ${record.duration}` : '';
 
         const header = document.createElement('div');
-        header.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;';
+        header.className = 'history-header';
 
         const info = document.createElement('span');
         info.innerHTML = `
@@ -1081,15 +1006,7 @@ function displayHistory(history) {
 
         const resetBtn = document.createElement('button');
         resetBtn.textContent = '초기화';
-        resetBtn.style.cssText = `
-            background: #dc3545;
-            color: white;
-            border: none;
-            border-radius: 3px;
-            padding: 2px 8px;
-            cursor: pointer;
-            font-size: 12px;
-        `;
+        resetBtn.className = 'reset-btn';
 
         const hasCompleted = Object.values(record.completed_tasks).some(v => v);
         const queued = taskQueue.some(t => t.recordId === record.id);
@@ -1117,25 +1034,14 @@ function displayHistory(history) {
             };
         } else {
             resetBtn.disabled = true;
-            resetBtn.style.background = '#6c757d';
-            resetBtn.style.cursor = 'not-allowed';
         }
 
         const batchBtn = document.createElement('button');
         batchBtn.textContent = '일괄 진행';
-        batchBtn.style.cssText = `
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 3px;
-            padding: 2px 8px;
-            cursor: pointer;
-            font-size: 12px;
-            margin-right: 5px;
-        `;
+        batchBtn.className = 'batch-btn';
 
         const buttonContainer = document.createElement('div');
-        buttonContainer.style.cssText = 'display:flex; align-items:center;';
+        buttonContainer.className = 'button-container';
 
         buttonContainer.appendChild(batchBtn);
         buttonContainer.appendChild(resetBtn);
@@ -1164,8 +1070,6 @@ function displayHistory(history) {
 
         if (hasCompleted || queued || isProcessing) {
             batchBtn.disabled = true;
-            batchBtn.style.background = '#6c757d';
-            batchBtn.style.cursor = 'not-allowed';
         } else {
             batchBtn.onclick = () => {
                 const steps = [];
@@ -1194,15 +1098,13 @@ function displayHistory(history) {
                 });
 
                 batchBtn.disabled = true;
-                batchBtn.style.background = '#6c757d';
-                batchBtn.style.cursor = 'not-allowed';
             };
         }
 
         item.appendChild(header);
         if (record.title_summary) {
             const summary = document.createElement('div');
-            summary.style.cssText = 'margin:4px 0; color:#333; font-size:13px;';
+            summary.className = 'task-summary';
             summary.textContent = record.title_summary;
             item.appendChild(summary);
         }
