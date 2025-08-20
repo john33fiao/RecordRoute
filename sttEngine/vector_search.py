@@ -14,7 +14,7 @@ from search_cache import get_cached_search_result, cache_search_result
 
 # 설정 모듈 임포트
 sys.path.append(str(Path(__file__).parent / "sttEngine"))
-from sttEngine.config import get_model_for_task, get_default_model
+from config import get_model_for_task, get_default_model
 
 
 def embed_text_ollama(text: str, model_name: str) -> np.ndarray:

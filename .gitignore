@@ -1,10 +1,3 @@
-# 테스트용 폴더 제외
-test/
-whisper_output/
-
-# 업로드 폴더 제외
-uploads/
-
 # macOS 시스템 파일 제외
 .DS_Store
 
@@ -21,10 +14,4 @@ __pycache__/
 *.pyd
 
 # 내장 DB 제외
-upload_history.json
-
-# 파이썬 캐시 폴더 제외
-# 임베딩 벡터 저장소 제외
-vector_store/
-
-file_registry.json
+DB

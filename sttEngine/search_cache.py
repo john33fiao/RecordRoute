@@ -8,7 +8,7 @@ from typing import Dict, List, Any, Optional
 import hashlib
 
 # 캐시 디렉토리 설정
-CACHE_DIR = Path(__file__).parent.parent / "vector_store" / "cache"
+CACHE_DIR = Path(__file__).parent.parent / "db" / "cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # 캐시 만료 시간 (24시간)

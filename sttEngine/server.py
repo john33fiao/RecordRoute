@@ -2,7 +2,7 @@
 
 The server exposes:
   * ``GET /`` – serve the upload HTML page.
-  * ``POST /upload`` – accept an audio file and store it under ``uploads/``.
+  * ``POST /upload`` – accept an audio file and store it under ``DB/uploads/``.
   * ``POST /process`` – run selected workflow steps for the uploaded file.
   * ``GET /download/<file>`` – return processed files for download.
 
@@ -23,8 +23,8 @@ import threading
 import time
 import shutil
 
-from sttEngine.workflow.transcribe import transcribe_audio_files
-from sttEngine.workflow.summarize import (
+from .workflow.transcribe import transcribe_audio_files
+from .workflow.summarize import (
     summarize_text_mapreduce,
     read_text_with_fallback,
     save_output,
@@ -32,20 +32,20 @@ from sttEngine.workflow.summarize import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TEMPERATURE,
 )
-from sttEngine.config import get_default_model
-from sttEngine.one_line_summary import generate_one_line_summary
-from vector_search import search as search_vectors
-from search_cache import cleanup_expired_cache, get_cache_stats
-from sttEngine.embedding_pipeline import embed_text_ollama, load_index, save_index
-from sttEngine.ollama_utils import ensure_ollama_server, check_ollama_model_available
+from .config import get_default_model
+from .one_line_summary import generate_one_line_summary
+from .vector_search import search as search_vectors
+from .search_cache import cleanup_expired_cache, get_cache_stats
+from .embedding_pipeline import embed_text_ollama, load_index, save_index
+from ollama_utils import ensure_ollama_server, check_ollama_model_available
 import numpy as np
 import os
 
 
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent)).resolve()
-UPLOAD_DIR = BASE_DIR / "uploads"
-OUTPUT_DIR = BASE_DIR / "whisper_output"
-VECTOR_DIR = BASE_DIR / "vector_store"
+UPLOAD_DIR = BASE_DIR / "DB" / "uploads"
+OUTPUT_DIR = BASE_DIR / "DB" / "whisper_output"
+VECTOR_DIR = BASE_DIR / "DB" / "vector_store"
 HISTORY_FILE = BASE_DIR / "DB" / "upload_history.json"
 FILE_REGISTRY_FILE = BASE_DIR / "DB" / "file_registry.json"
 
@@ -300,7 +300,7 @@ def migrate_existing_files():
                 
                 if not already_registered:
                     # Register the file and update download link
-                    full_path = OUTPUT_DIR / file_path
+                    full_path = BASE_DIR / file_path
                     if full_path.exists():
                         file_uuid = register_file(str(full_path.relative_to(BASE_DIR)), record_id, task_type, os.path.basename(file_path))
                         # Update the download link to use UUID
@@ -358,7 +358,7 @@ def find_existing_stt_file(original_file_path: Path):
     """Find existing STT result file for the given original file."""
     stem = original_file_path.stem
     
-    # Extract UUID from the original file path (uploads/UUID/filename)
+    # Extract UUID from the original file path (DB/uploads/UUID/filename)
     upload_uuid = original_file_path.parent.name
     print(f"[DEBUG] 업로드 UUID: {upload_uuid}")
     
@@ -1006,6 +1006,11 @@ class UploadHandler(BaseHTTPRequestHandler):
             if file_info:
                 file_path = file_info["file_path"]
                 filename = file_info["original_filename"]
+                
+                # Handle legacy paths without DB/ prefix
+                if not file_path.startswith("DB/"):
+                    file_path = f"DB/{file_path}"
+                
                 full_path = BASE_DIR / file_path
             else:
                 self.send_response(404)
@@ -1015,7 +1020,7 @@ class UploadHandler(BaseHTTPRequestHandler):
             # Legacy path-based system
             file_path = file_identifier
             filename = os.path.basename(file_path)
-            full_path = OUTPUT_DIR / file_path
+            full_path = BASE_DIR / file_path
         
         if full_path.exists():
             self.send_response(200)
@@ -1152,6 +1157,11 @@ class UploadHandler(BaseHTTPRequestHandler):
                 file_info = get_file_by_uuid(file_identifier)
                 if file_info:
                     file_path = file_info["file_path"]
+                    
+                    # Handle legacy paths without DB/ prefix
+                    if not file_path.startswith("DB/"):
+                        file_path = f"DB/{file_path}"
+                    
                     full_path = BASE_DIR / file_path
                     current_file_name = file_info["original_filename"]
                 else:
@@ -1164,7 +1174,7 @@ class UploadHandler(BaseHTTPRequestHandler):
             else:
                 # Legacy path-based system
                 file_path = file_identifier
-                full_path = OUTPUT_DIR / file_path
+                full_path = BASE_DIR / file_path
                 current_file_name = os.path.basename(file_path)
             
             if not full_path.exists():
@@ -1241,6 +1251,11 @@ class UploadHandler(BaseHTTPRequestHandler):
                 file_info = get_file_by_uuid(file_identifier)
                 if file_info:
                     file_path = file_info["file_path"]
+                    
+                    # Handle legacy paths without DB/ prefix
+                    if not file_path.startswith("DB/"):
+                        file_path = f"DB/{file_path}"
+                    
                     full_path = BASE_DIR / file_path
                     current_file_name = user_filename or file_info["original_filename"]
                 else:
@@ -1253,7 +1268,7 @@ class UploadHandler(BaseHTTPRequestHandler):
             else:
                 # Legacy path-based system
                 file_path = file_identifier
-                full_path = OUTPUT_DIR / file_path
+                full_path = BASE_DIR / file_path
                 current_file_name = user_filename or os.path.basename(file_path)
             
             if not full_path.exists():

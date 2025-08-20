@@ -2,7 +2,7 @@
 
 from pathlib import Path
 import ollama
-from sttEngine.workflow.summarize import read_text_with_fallback, DEFAULT_MODEL
+from workflow.summarize import read_text_with_fallback, DEFAULT_MODEL
 from ollama_utils import safe_ollama_call
 
 

@@ -10,7 +10,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent.resolve()
 # Python 실행 파일 자동 감지 (Windows 호환)
 PYTHON_EXEC = Path(os.environ.get("PYTHON_EXEC", sys.executable))
-OUTPUT_DIR = BASE_DIR.parent / "whisper_output"
+OUTPUT_DIR = BASE_DIR.parent / "DB" / "whisper_output"
 
 # 실행할 스크립트 경로
 WORKFLOW_DIR = BASE_DIR / "workflow"

@@ -622,8 +622,8 @@ def main():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="./whisper_output",
-        help="변환된 마크다운 파일을 저장할 출력 디렉토리 경로\n(기본값: ./whisper_output)"
+        default="./DB/whisper_output",
+        help="변환된 마크다운 파일을 저장할 출력 디렉토리 경로\n(기본값: ./DB/whisper_output)"
     )
     
     # .env 파일에서 플랫폼별 기본 모델 로드
