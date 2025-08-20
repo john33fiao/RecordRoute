@@ -46,8 +46,8 @@ BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent)).resolve(
 UPLOAD_DIR = BASE_DIR / "uploads"
 OUTPUT_DIR = BASE_DIR / "whisper_output"
 VECTOR_DIR = BASE_DIR / "vector_store"
-HISTORY_FILE = BASE_DIR / "upload_history.json"
-FILE_REGISTRY_FILE = BASE_DIR / "file_registry.json"
+HISTORY_FILE = BASE_DIR / "DB" / "upload_history.json"
+FILE_REGISTRY_FILE = BASE_DIR / "DB" / "file_registry.json"
 
 # Global dictionary to track running processes
 running_processes = {}
