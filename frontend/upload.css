@@ -388,3 +388,70 @@ body.dark-mode #modelSettingsPopup .content {
     color: #e9ecef;
 }
 
+/* Dark mode for history list items */
+body.dark-mode #history-list > div {
+    background-color: #2d2d2d !important;
+    border-color: #555 !important;
+    color: #e9ecef !important;
+}
+
+body.dark-mode #history-list strong {
+    color: #fff !important;
+}
+
+body.dark-mode #history-list .duration {
+    color: #adb5bd !important;
+}
+
+body.dark-mode #history-list button {
+    background: #495057 !important;
+    border-color: #6c757d !important;
+    color: #fff !important;
+}
+
+body.dark-mode #history-list button:disabled {
+    background: #343a40 !important;
+    color: #6c757d !important;
+}
+
+/* Dark mode for task summary text */
+body.dark-mode #history-list div[style*="color:#333"] {
+    color: #e9ecef !important;
+}
+
+/* Dark mode for queue items */
+body.dark-mode #queue-list > div {
+    background-color: #2d2d2d !important;
+    border-color: #555 !important;
+    color: #e9ecef !important;
+}
+
+body.dark-mode #queue-list div[style*="#f8f9fa"] {
+    background-color: #2d2d2d !important;
+}
+
+body.dark-mode #queue-list div[style*="#fff3cd"] {
+    background-color: #664d03 !important;
+    color: #fff3cd !important;
+}
+
+/* Dark mode for similar documents popup */
+body.dark-mode #similarDocsPopup .content {
+    background: #1e1e1e;
+    color: #e9ecef;
+}
+
+body.dark-mode .similar-doc-item {
+    background: #2d2d2d !important;
+    border-color: #555 !important;
+    color: #e9ecef !important;
+}
+
+body.dark-mode .similar-doc-item:hover {
+    background: #3d3d3d !important;
+}
+
+body.dark-mode .similar-doc-name {
+    color: #fff !important;
+}
+
