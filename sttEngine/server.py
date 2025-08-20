@@ -35,6 +35,7 @@ from sttEngine.workflow.summarize import (
 from sttEngine.config import get_default_model
 from sttEngine.one_line_summary import generate_one_line_summary
 from vector_search import search as search_vectors
+from search_cache import cleanup_expired_cache, get_cache_stats
 from sttEngine.embedding_pipeline import embed_text_ollama, load_index, save_index
 from sttEngine.ollama_utils import ensure_ollama_server, check_ollama_model_available
 import numpy as np
@@ -1095,6 +1096,10 @@ class UploadHandler(BaseHTTPRequestHandler):
             self._serve_similar_documents(file_identifier)
         elif self.path == "/models":
             self._serve_available_models()
+        elif self.path == "/cache/stats":
+            self._serve_cache_stats()
+        elif self.path == "/cache/cleanup":
+            self._serve_cache_cleanup()
         else:
             self.send_response(404)
             self.end_headers()
@@ -1719,6 +1724,41 @@ class UploadHandler(BaseHTTPRequestHandler):
 
         self.send_response(404)
         self.end_headers()
+
+    def _serve_cache_stats(self):
+        """Serve cache statistics as JSON."""
+        try:
+            stats = get_cache_stats()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(stats, ensure_ascii=False).encode())
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(f"Error getting cache stats: {str(e)}".encode())
+
+    def _serve_cache_cleanup(self):
+        """Clean up expired cache entries and return cleanup stats."""
+        try:
+            cleaned_count = cleanup_expired_cache()
+            response = {
+                "success": True,
+                "cleaned_entries": cleaned_count,
+                "message": f"정리된 만료된 캐시 항목: {cleaned_count}개"
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(response, ensure_ascii=False).encode())
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
+            error_response = {
+                "success": False,
+                "error": f"캐시 정리 중 오류: {str(e)}"
+            }
+            self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
 
 
 if __name__ == "__main__":

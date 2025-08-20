@@ -10,6 +10,7 @@ import requests
 import json
 
 from embedding_pipeline import VECTOR_DIR, INDEX_FILE, load_index
+from search_cache import get_cached_search_result, cache_search_result
 
 # 설정 모듈 임포트
 sys.path.append(str(Path(__file__).parent / "sttEngine"))
@@ -40,6 +41,12 @@ def embed_text_ollama(text: str, model_name: str) -> np.ndarray:
 
 def search(query: str, base_dir: Path, top_k: int = 10) -> List[Dict[str, Any]]:
     """Return top_k most similar documents for the given query."""
+    # 캐시된 결과 확인
+    cached_results = get_cached_search_result(query, top_k)
+    if cached_results is not None:
+        print(f"캐시에서 검색 결과 반환: {len(cached_results)}개 항목")
+        return cached_results
+    
     try:
         model_name = get_model_for_task("EMBEDDING", get_default_model("EMBEDDING"))
     except:
@@ -68,7 +75,13 @@ def search(query: str, base_dir: Path, top_k: int = 10) -> List[Dict[str, Any]]:
             results.append({"file": rel_path, "score": score})
         
         results.sort(key=lambda x: x["score"], reverse=True)
-        return results[:top_k]
+        final_results = results[:top_k]
+        
+        # 결과를 캐시에 저장
+        cache_search_result(query, top_k, final_results)
+        print(f"새로운 검색 결과를 캐시에 저장: {len(final_results)}개 항목")
+        
+        return final_results
     
     except Exception as e:
         print(f"검색 중 오류 발생: {e}")
