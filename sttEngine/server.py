@@ -35,7 +35,7 @@ from .workflow.summarize import (
 from .config import get_default_model
 from .one_line_summary import generate_one_line_summary
 from .vector_search import search as search_vectors
-from .search_cache import cleanup_expired_cache, get_cache_stats
+from .search_cache import cleanup_expired_cache, get_cache_stats, delete_cache_record
 from .embedding_pipeline import embed_text_ollama, load_index, save_index
 from ollama_utils import ensure_ollama_server, check_ollama_model_available
 import numpy as np
@@ -1243,7 +1243,7 @@ class UploadHandler(BaseHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
 
-    def _serve_similar_documents_with_filename(self, file_identifier: str, user_filename: str = None):
+    def _serve_similar_documents_with_filename(self, file_identifier: str, user_filename: str = None, refresh: bool = False):
         """Find similar documents with optional user filename for display."""
         try:
             # Determine file path based on identifier (UUID or path)
@@ -1293,6 +1293,8 @@ class UploadHandler(BaseHTTPRequestHandler):
                         content = f.read()
             
             # Use the content to search for similar documents (top 6 to exclude self)
+            if refresh:
+                delete_cache_record(content, 6)
             hits = search_vectors(content, BASE_DIR, top_k=6)
             
             # Filter out the current document itself and limit to top 5
@@ -1695,14 +1697,15 @@ class UploadHandler(BaseHTTPRequestHandler):
             
             file_identifier = payload.get("file_identifier")
             user_filename = payload.get("user_filename")
-            
+            refresh = payload.get("refresh", False)
+
             if not file_identifier:
                 self.send_response(400)
                 self.end_headers()
                 self.wfile.write(b"Missing file_identifier")
                 return
-            
-            self._serve_similar_documents_with_filename(file_identifier, user_filename)
+
+            self._serve_similar_documents_with_filename(file_identifier, user_filename, refresh)
             return
 
         if self.path == "/delete":
