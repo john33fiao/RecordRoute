@@ -718,13 +718,22 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
             whisper_model = "large-v3-turbo"
             if model_settings and model_settings.get("whisper"):
                 whisper_model = model_settings["whisper"]
-            
+
+            # Get Whisper language from settings, default to Korean
+            language = "ko"
+            if model_settings and model_settings.get("language") is not None:
+                lang = model_settings.get("language")
+                if lang in ("", "auto"):
+                    language = None
+                else:
+                    language = lang
+
             try:
                 transcribe_audio_files(
                     input_dir=str(current_file.parent),
                     output_dir=str(individual_output_dir),
                     model_identifier=whisper_model,
-                    language=None,
+                    language=language,
                     initial_prompt="",
                     workers=1,
                     recursive=False,
@@ -788,12 +797,21 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                         whisper_model = "large-v3-turbo"
                         if model_settings and model_settings.get("whisper"):
                             whisper_model = model_settings["whisper"]
-                            
+
+                        # Get Whisper language from settings, default to Korean
+                        language = "ko"
+                        if model_settings and model_settings.get("language") is not None:
+                            lang = model_settings.get("language")
+                            if lang in ("", "auto"):
+                                language = None
+                            else:
+                                language = lang
+
                         transcribe_audio_files(
                             input_dir=str(current_file.parent),
                             output_dir=str(individual_output_dir),
                             model_identifier=whisper_model,
-                            language=None,
+                            language=language,
                             initial_prompt="",
                             workers=1,
                             recursive=False,
@@ -867,12 +885,21 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                         whisper_model = "large-v3-turbo"
                         if model_settings and model_settings.get("whisper"):
                             whisper_model = model_settings["whisper"]
-                            
+
+                        # Get Whisper language from settings, default to Korean
+                        language = "ko"
+                        if model_settings and model_settings.get("language") is not None:
+                            lang = model_settings.get("language")
+                            if lang in ("", "auto"):
+                                language = None
+                            else:
+                                language = lang
+
                         transcribe_audio_files(
                             input_dir=str(current_file.parent),
                             output_dir=str(individual_output_dir),
                             model_identifier=whisper_model,
-                            language=None,
+                            language=language,
                             initial_prompt="",
                             workers=1,
                             recursive=False,
