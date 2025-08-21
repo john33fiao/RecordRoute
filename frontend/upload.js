@@ -326,6 +326,9 @@ async function loadAvailableModels() {
             if (savedSettings.whisper) {
                 document.getElementById('whisperModel').value = savedSettings.whisper;
             }
+            if (savedSettings.language) {
+                document.getElementById('whisperLanguage').value = savedSettings.language;
+            }
             if (savedSettings.summarize) {
                 document.getElementById('summarizeModel').value = savedSettings.summarize;
             }
@@ -352,6 +355,7 @@ async function loadAvailableModels() {
 function saveModelSettings() {
     const settings = {
         whisper: document.getElementById('whisperModel').value,
+        language: document.getElementById('whisperLanguage').value,
         summarize: document.getElementById('summarizeModel').value,
         embedding: document.getElementById('embeddingModel').value
     };
