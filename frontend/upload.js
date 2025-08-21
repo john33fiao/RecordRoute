@@ -7,6 +7,8 @@ let taskIdCounter = 0;
 const categoryOrder = ['stt', 'embedding', 'summary'];
 let currentCategory = null;
 let currentOverlayFile = null; // Track currently viewed file in overlay
+let lastSimilarDocFilePath = null;
+let lastSimilarDocUserFilename = null;
 
 // Function to normalize Korean text to NFC form for proper display
 function normalizeKorean(text) {
@@ -21,6 +23,7 @@ const sttConfirmOkBtn = document.getElementById('sttConfirmOkBtn');
 const sttConfirmCancelBtn = document.getElementById('sttConfirmCancelBtn');
 const similarDocsPopup = document.getElementById('similarDocsPopup');
 const similarDocsCloseBtn = document.getElementById('similarDocsCloseBtn');
+const similarDocsRefreshBtn = document.getElementById('similarDocsRefreshBtn');
 const similarDocsList = document.getElementById('similarDocsList');
 const modelSettingsPopup = document.getElementById('modelSettingsPopup');
 const modelSettingsCloseBtn = document.getElementById('modelSettingsCloseBtn');
@@ -158,19 +161,26 @@ function hideSttConfirmPopup() {
     sttConfirmPopup.style.display = 'none';
 }
 
-function showSimilarDocuments(filePath, userFilename = null) {
+function showSimilarDocuments(filePath, userFilename = null, refresh = false) {
+    if (!refresh) {
+        lastSimilarDocFilePath = filePath;
+        lastSimilarDocUserFilename = userFilename;
+    }
     similarDocsPopup.style.display = 'flex';
     similarDocsList.innerHTML = '<p style="color: #6c757d; text-align: center;">로딩 중...</p>';
-    
+
     // Extract the UUID or relative path from the download URL
     const fileIdentifier = filePath.replace('/download/', '');
-    
+
     // Create request with optional user filename
     const requestData = { file_identifier: fileIdentifier };
     if (userFilename) {
         requestData.user_filename = userFilename;
     }
-    
+    if (refresh) {
+        requestData.refresh = true;
+    }
+
     fetch('/similar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -369,6 +379,11 @@ function downloadSimilarDocument(downloadLink) {
 summaryCancelBtn.addEventListener('click', hideSummaryPopup);
 sttConfirmCancelBtn.addEventListener('click', hideSttConfirmPopup);
 similarDocsCloseBtn.addEventListener('click', hideSimilarDocsPopup);
+similarDocsRefreshBtn.addEventListener('click', () => {
+    if (lastSimilarDocFilePath) {
+        showSimilarDocuments(lastSimilarDocFilePath, lastSimilarDocUserFilename, true);
+    }
+});
 modelSettingsCloseBtn.addEventListener('click', hideModelSettingsPopup);
 modelSettingsCancelBtn.addEventListener('click', hideModelSettingsPopup);
 modelSettingsConfirmBtn.addEventListener('click', saveModelSettings);

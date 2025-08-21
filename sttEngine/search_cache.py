@@ -72,7 +72,7 @@ def get_cached_search_result(query: str, top_k: int) -> Optional[List[Dict[str, 
     return record.get('results', [])
 
 
-def cache_search_result(query: str, top_k: int, results: List[Dict[str, Any]], 
+def cache_search_result(query: str, top_k: int, results: List[Dict[str, Any]],
                        existing_uuid: Optional[str] = None) -> str:
     """검색 결과를 캐시에 저장"""
     query_hash = get_query_hash(query, top_k)
@@ -99,6 +99,17 @@ def cache_search_result(query: str, top_k: int, results: List[Dict[str, Any]],
     
     save_cache_record(query_hash, record)
     return search_uuid
+
+
+def delete_cache_record(query: str, top_k: int) -> bool:
+    """Delete cached search result for a given query."""
+    query_hash = get_query_hash(query, top_k)
+    cache_file = CACHE_DIR / f"{query_hash}.json"
+    try:
+        cache_file.unlink()
+        return True
+    except FileNotFoundError:
+        return False
 
 
 def cleanup_expired_cache() -> int:
