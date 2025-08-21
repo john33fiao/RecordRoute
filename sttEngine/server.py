@@ -1007,7 +1007,8 @@ class UploadHandler(BaseHTTPRequestHandler):
                 file_path = file_info["file_path"]
                 filename = file_info["original_filename"]
                 
-                # Handle legacy paths without DB/ prefix
+                # Handle legacy paths without DB/ prefix and normalize path separators
+                file_path = file_path.replace('\\', '/')  # Normalize to forward slashes
                 if not file_path.startswith("DB/"):
                     file_path = f"DB/{file_path}"
                 
