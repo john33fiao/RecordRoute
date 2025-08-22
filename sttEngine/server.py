@@ -1226,14 +1226,20 @@ class UploadHandler(BaseHTTPRequestHandler):
                         content = f.read()
             
             # Use the content to search for similar documents (top 6 to exclude self)
+            print(f"[DEBUG] 유사 문서 검색 시작 - 현재 파일: {current_file_name}")
             hits = search_vectors(content, BASE_DIR, top_k=6)
+            print(f"[DEBUG] 벡터 검색 결과: {len(hits)}개")
+            for i, hit in enumerate(hits):
+                print(f"[DEBUG] {i+1}. {hit['file']} (score: {hit['score']:.3f})")
             
             # Filter out the current document itself and limit to top 5
             similar_docs = []
             registry = load_file_registry()
+            print(f"[DEBUG] 레지스트리에 등록된 파일 수: {len(registry)}")
             
             for hit in hits:
                 hit_file_name = os.path.basename(hit["file"])
+                print(f"[DEBUG] 검토 중인 파일: {hit_file_name} vs 현재 파일: {current_file_name}")
                 # Skip if it's the same file
                 if hit_file_name != current_file_name:
                     # Try to find UUID for this file in registry
@@ -1251,8 +1257,13 @@ class UploadHandler(BaseHTTPRequestHandler):
                         "score": hit["score"],
                         "link": download_link
                     })
+                    print(f"[DEBUG] 유사 문서 추가됨: {hit_file_name} (score: {hit['score']:.3f})")
+                else:
+                    print(f"[DEBUG] 같은 파일로 제외됨: {hit_file_name}")
                 if len(similar_docs) >= 5:
                     break
+            
+            print(f"[DEBUG] 최종 유사 문서 수: {len(similar_docs)}")
             
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -1280,12 +1291,16 @@ class UploadHandler(BaseHTTPRequestHandler):
                 if file_info:
                     file_path = file_info["file_path"]
                     
-                    # Handle legacy paths without DB/ prefix
+                    # Handle legacy paths without DB/ prefix and normalize path separators
+                    file_path = file_path.replace('\\', '/')  # Normalize to forward slashes
                     if not file_path.startswith("DB/"):
                         file_path = f"DB/{file_path}"
                     
                     full_path = BASE_DIR / file_path
                     current_file_name = user_filename or file_info["original_filename"]
+                    print(f"[DEBUG] 유사문서 검색 - 파일 경로: {file_path}")
+                    print(f"[DEBUG] 유사문서 검색 - 전체 경로: {full_path}")
+                    print(f"[DEBUG] 유사문서 검색 - 파일 존재: {full_path.exists()}")
                 else:
                     self.send_response(404)
                     self.send_header("Content-Type", "application/json")
