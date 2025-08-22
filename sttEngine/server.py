@@ -1236,30 +1236,31 @@ class UploadHandler(BaseHTTPRequestHandler):
             similar_docs = []
             registry = load_file_registry()
             print(f"[DEBUG] 레지스트리에 등록된 파일 수: {len(registry)}")
-            
+
+            current_path_norm = os.path.normpath(file_path)
             for hit in hits:
-                hit_file_name = os.path.basename(hit["file"])
-                print(f"[DEBUG] 검토 중인 파일: {hit_file_name} vs 현재 파일: {current_file_name}")
-                # Skip if it's the same file
-                if hit_file_name != current_file_name:
+                hit_path_norm = os.path.normpath(hit["file"])
+                print(f"[DEBUG] 검토 중인 파일: {hit_path_norm} vs 현재 파일: {current_path_norm}")
+                # Skip if it's the same file (compare normalized paths)
+                if hit_path_norm != current_path_norm:
                     # Try to find UUID for this file in registry
                     file_uuid = None
                     for uuid_key, file_info in registry.items():
-                        if file_info["file_path"] == hit["file"]:
+                        if os.path.normpath(file_info["file_path"]) == hit_path_norm:
                             file_uuid = uuid_key
                             break
-                    
+
                     # Use UUID if available, otherwise fallback to path
                     download_link = f"/download/{file_uuid}" if file_uuid else f"/download/{hit['file']}"
-                    
+
                     similar_docs.append({
                         "file": hit["file"],
                         "score": hit["score"],
                         "link": download_link
                     })
-                    print(f"[DEBUG] 유사 문서 추가됨: {hit_file_name} (score: {hit['score']:.3f})")
+                    print(f"[DEBUG] 유사 문서 추가됨: {hit_path_norm} (score: {hit['score']:.3f})")
                 else:
-                    print(f"[DEBUG] 같은 파일로 제외됨: {hit_file_name}")
+                    print(f"[DEBUG] 같은 파일로 제외됨: {hit_path_norm}")
                 if len(similar_docs) >= 5:
                     break
             
@@ -1343,20 +1344,21 @@ class UploadHandler(BaseHTTPRequestHandler):
             similar_docs = []
             registry = load_file_registry()
             history = load_upload_history()
-            
+
+            current_path_norm = os.path.normpath(file_path)
             for hit in hits:
-                hit_file_name = os.path.basename(hit["file"])
-                # Skip if it's the same file (compare original filenames)
-                if hit_file_name != os.path.basename(current_file_name):
+                hit_path_norm = os.path.normpath(hit["file"])
+                # Skip if it's the same file (compare normalized paths)
+                if hit_path_norm != current_path_norm:
                     # Try to find UUID for this file in registry
                     file_uuid = None
                     record_id = None
                     for uuid_key, file_info in registry.items():
-                        if file_info["file_path"] == hit["file"]:
+                        if os.path.normpath(file_info["file_path"]) == hit_path_norm:
                             file_uuid = uuid_key
                             record_id = file_info.get("record_id")
                             break
-                    
+
                     # Find user filename from history if available
                     user_filename_found = None
                     if record_id:
@@ -1364,13 +1366,13 @@ class UploadHandler(BaseHTTPRequestHandler):
                             if record["id"] == record_id:
                                 user_filename_found = record.get("filename")
                                 break
-                    
+
                     # Use UUID if available, otherwise fallback to path
                     download_link = f"/download/{file_uuid}" if file_uuid else f"/download/{hit['file']}"
-                    
+
                     # Use user filename if available, otherwise original filename
                     display_filename = user_filename_found or os.path.basename(hit["file"])
-                    
+
                     similar_docs.append({
                         "file": hit["file"],
                         "score": hit["score"],
