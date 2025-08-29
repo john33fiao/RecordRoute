@@ -60,6 +60,9 @@ def is_cache_expired(timestamp_str: str) -> bool:
 
 def get_cached_search_result(query: str, top_k: int) -> Optional[List[Dict[str, Any]]]:
     """캐시된 검색 결과 조회"""
+    # 캐시 사용 전 만료된 항목을 정리하여 디스크 사용량을 관리
+    cleanup_expired_cache()
+
     query_hash = get_query_hash(query, top_k)
     record = load_cache_record(query_hash)
     
