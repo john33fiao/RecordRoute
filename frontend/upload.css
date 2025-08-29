@@ -549,6 +549,26 @@ body.dark-mode #modelSettingsPopup .content {
     justify-content: center;
 }
 
+.move-btn {
+    background: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 4px;
+}
+
+.queue-btn-group {
+    display: flex;
+    align-items: center;
+}
+
 .model-info {
     color: #6c757d;
     font-size: 11px;
@@ -635,6 +655,11 @@ body.dark-mode .progress-container {
 
 body.dark-mode .cancel-btn {
     background: #dc3545;
+    color: #fff;
+}
+
+body.dark-mode .move-btn {
+    background: #495057;
     color: #fff;
 }
 

@@ -4,6 +4,7 @@ let recordId = null;
 let taskQueue = [];
 let currentTask = null;
 let taskIdCounter = 0;
+let taskOrderCounter = 0;
 const categoryOrder = ['stt', 'embedding', 'summary'];
 let currentCategory = null;
 let currentOverlayFile = null; // Track currently viewed file in overlay
@@ -484,7 +485,7 @@ function sortTaskQueue() {
     
     if (sortOrder === 'oldest') {
         // 추가순 (오래된 순): 추가 순서대로 정렬
-        taskQueue.sort((a, b) => a.id - b.id);
+        taskQueue.sort((a, b) => a.order - b.order);
     } else {
         // 기본값 (카테고리별): 현재 진행 중인 카테고리 우선 정렬
         let startIndex = 0;
@@ -496,7 +497,7 @@ function sortTaskQueue() {
         const order = categoryOrder.slice(startIndex).concat(categoryOrder.slice(0, startIndex));
         taskQueue.sort((a, b) => {
             const diff = order.indexOf(a.task) - order.indexOf(b.task);
-            return diff !== 0 ? diff : a.id - b.id;
+            return diff !== 0 ? diff : a.order - b.order;
         });
     }
 }
@@ -535,7 +536,8 @@ function addTaskToQueue(recordId, filePath, task, taskElement, filename) {
         taskElement: taskElement,
         filename: filename,
         status: 'queued',
-        abortController: null
+        abortController: null,
+        order: ++taskOrderCounter
     };
     
     taskQueue.push(taskItem);
@@ -590,6 +592,27 @@ function removeTaskFromQueue(taskId) {
         processNextTask();
     }
 }
+
+function moveTask(taskId, direction) {
+    const index = taskQueue.findIndex(t => t.id === taskId);
+    if (index === -1) return;
+    const task = taskQueue[index];
+    let swapIndex = index + direction;
+    while (swapIndex >= 0 && swapIndex < taskQueue.length) {
+        if (taskQueue[swapIndex].task === task.task) {
+            const temp = task.order;
+            task.order = taskQueue[swapIndex].order;
+            taskQueue[swapIndex].order = temp;
+            sortTaskQueue();
+            updateQueueDisplay();
+            break;
+        }
+        swapIndex += direction;
+    }
+}
+
+function moveTaskUp(taskId) { moveTask(taskId, -1); }
+function moveTaskDown(taskId) { moveTask(taskId, 1); }
 
 function cancelAllTasks() {
     const tasks = [...taskQueue];
@@ -714,9 +737,29 @@ function updateQueueDisplay() {
             cancelBtn.className = 'cancel-btn';
             cancelBtn.title = '작업 취소';
             cancelBtn.onclick = () => removeTaskFromQueue(task.id);
-            
+
+            const btnContainer = document.createElement('div');
+            btnContainer.className = 'queue-btn-group';
+            if (task.status !== 'processing') {
+                const upBtn = document.createElement('button');
+                upBtn.textContent = '▲';
+                upBtn.className = 'move-btn';
+                upBtn.title = '위로 이동';
+                upBtn.onclick = () => moveTaskUp(task.id);
+
+                const downBtn = document.createElement('button');
+                downBtn.textContent = '▼';
+                downBtn.className = 'move-btn';
+                downBtn.title = '아래로 이동';
+                downBtn.onclick = () => moveTaskDown(task.id);
+
+                btnContainer.appendChild(upBtn);
+                btnContainer.appendChild(downBtn);
+            }
+            btnContainer.appendChild(cancelBtn);
+
             item.appendChild(infoContainer);
-            item.appendChild(cancelBtn);
+            item.appendChild(btnContainer);
             queueList.appendChild(item);
         });
     } else {
@@ -808,9 +851,29 @@ function updateQueueDisplay() {
                 cancelBtn.className = 'cancel-btn';
                 cancelBtn.title = '작업 취소';
                 cancelBtn.onclick = () => removeTaskFromQueue(task.id);
-                
+
+                const btnContainer = document.createElement('div');
+                btnContainer.className = 'queue-btn-group';
+                if (task.status !== 'processing') {
+                    const upBtn = document.createElement('button');
+                    upBtn.textContent = '▲';
+                    upBtn.className = 'move-btn';
+                    upBtn.title = '위로 이동';
+                    upBtn.onclick = () => moveTaskUp(task.id);
+
+                    const downBtn = document.createElement('button');
+                    downBtn.textContent = '▼';
+                    downBtn.className = 'move-btn';
+                    downBtn.title = '아래로 이동';
+                    downBtn.onclick = () => moveTaskDown(task.id);
+
+                    btnContainer.appendChild(upBtn);
+                    btnContainer.appendChild(downBtn);
+                }
+                btnContainer.appendChild(cancelBtn);
+
                 item.appendChild(infoContainer);
-                item.appendChild(cancelBtn);
+                item.appendChild(btnContainer);
                 queueList.appendChild(item);
             });
         });
