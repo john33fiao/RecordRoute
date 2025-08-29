@@ -223,7 +223,8 @@ def add_upload_record(file_path: Path, file_type: str, duration: str = None):
             "embedding": False
         },
         "download_links": {},
-        "title_summary": ""
+        "title_summary": "",
+        "tags": []
     }
     
     history.insert(0, record)  # Add to beginning (most recent first)
@@ -1096,6 +1097,29 @@ class UploadHandler(BaseHTTPRequestHandler):
         elif self.path.startswith("/progress/"):
             task_id = self.path[len("/progress/"):]
             self._serve_task_progress(task_id)
+        elif self.path.startswith("/file_search"):
+            from urllib.parse import urlparse, parse_qs
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            query = params.get("q", [""])[0].lower()
+
+            results = []
+            if query:
+                history = load_upload_history()
+                for record in history:
+                    filename = record.get("filename", "")
+                    tags = record.get("tags", [])
+                    if query in filename.lower() or any(query in t.lower() for t in tags):
+                        results.append({
+                            "id": record.get("id"),
+                            "filename": filename,
+                            "tags": tags
+                        })
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(results, ensure_ascii=False).encode())
         elif self.path.startswith("/search"):
             from urllib.parse import urlparse, parse_qs
             parsed = urlparse(self.path)
