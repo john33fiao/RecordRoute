@@ -1618,7 +1618,12 @@ function startTaskMonitoring() {
 document.getElementById('searchBtn').addEventListener('click', async () => {
     const q = document.getElementById('searchInput').value.trim();
     if (!q) return;
-    
+
+    if (currentTask || taskQueue.length > 0) {
+        alert('현재 다른 작업이 진행 중입니다. 작업이 모두 완료된 후 검색을 이용해 주세요.');
+        return;
+    }
+
     const searchBtn = document.getElementById('searchBtn');
     const originalText = searchBtn.textContent;
     
