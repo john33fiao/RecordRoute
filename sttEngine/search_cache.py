@@ -15,9 +15,11 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_EXPIRY_HOURS = 24
 
 
-def get_query_hash(query: str, top_k: int) -> str:
+def get_query_hash(query: str, top_k: int,
+                   start_date: Optional[str] = None,
+                   end_date: Optional[str] = None) -> str:
     """검색 쿼리와 파라미터에 대한 해시값 생성"""
-    query_data = f"{query}:{top_k}"
+    query_data = f"{query}:{top_k}:{start_date or ''}:{end_date or ''}"
     return hashlib.md5(query_data.encode('utf-8')).hexdigest()
 
 
@@ -58,12 +60,14 @@ def is_cache_expired(timestamp_str: str) -> bool:
         return True
 
 
-def get_cached_search_result(query: str, top_k: int) -> Optional[List[Dict[str, Any]]]:
+def get_cached_search_result(query: str, top_k: int,
+                             start_date: Optional[str] = None,
+                             end_date: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
     """캐시된 검색 결과 조회"""
     # 캐시 사용 전 만료된 항목을 정리하여 디스크 사용량을 관리
     cleanup_expired_cache()
 
-    query_hash = get_query_hash(query, top_k)
+    query_hash = get_query_hash(query, top_k, start_date, end_date)
     record = load_cache_record(query_hash)
     
     if not record:
@@ -76,9 +80,11 @@ def get_cached_search_result(query: str, top_k: int) -> Optional[List[Dict[str, 
 
 
 def cache_search_result(query: str, top_k: int, results: List[Dict[str, Any]],
-                       existing_uuid: Optional[str] = None) -> str:
+                       existing_uuid: Optional[str] = None,
+                       start_date: Optional[str] = None,
+                       end_date: Optional[str] = None) -> str:
     """검색 결과를 캐시에 저장"""
-    query_hash = get_query_hash(query, top_k)
+    query_hash = get_query_hash(query, top_k, start_date, end_date)
     
     # 기존 UUID 유지하거나 새로 생성
     if existing_uuid:
@@ -97,16 +103,20 @@ def cache_search_result(query: str, top_k: int, results: List[Dict[str, Any]],
         "top_k": top_k,
         "timestamp": datetime.now().isoformat(),
         "query_hash": query_hash,
-        "results": results
+        "results": results,
+        "start_date": start_date,
+        "end_date": end_date
     }
     
     save_cache_record(query_hash, record)
     return search_uuid
 
 
-def delete_cache_record(query: str, top_k: int) -> bool:
+def delete_cache_record(query: str, top_k: int,
+                        start_date: Optional[str] = None,
+                        end_date: Optional[str] = None) -> bool:
     """Delete cached search result for a given query."""
-    query_hash = get_query_hash(query, top_k)
+    query_hash = get_query_hash(query, top_k, start_date, end_date)
     cache_file = CACHE_DIR / f"{query_hash}.json"
     try:
         cache_file.unlink()

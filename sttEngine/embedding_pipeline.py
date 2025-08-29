@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 from typing import Dict
 import os
+from datetime import datetime
 
 import numpy as np
 import requests
@@ -95,7 +96,11 @@ def process_file(model_name: str, path: Path, index: Dict[str, Dict[str, str]]) 
     out_file = VECTOR_DIR / f"{path.stem}.npy"
     np.save(out_file, vector)
 
-    index[key] = {"sha256": checksum, "vector": out_file.name}
+    index[key] = {
+        "sha256": checksum,
+        "vector": out_file.name,
+        "timestamp": datetime.fromtimestamp(path.stat().st_mtime).isoformat()
+    }
 
 
 def main(src_dir: str) -> None:

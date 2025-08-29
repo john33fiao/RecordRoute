@@ -1101,11 +1101,15 @@ class UploadHandler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
             query = params.get("q", [""])[0]
-            
+            start_date = params.get("start", [None])[0]
+            end_date = params.get("end", [None])[0]
+
             try:
                 results = []
                 if query:
-                    hits = search_vectors(query, BASE_DIR)
+                    hits = search_vectors(query, BASE_DIR,
+                                          start_date=start_date,
+                                          end_date=end_date)
                     results = [{"file": r["file"], "score": r["score"], "link": f"/download/{r['file']}"} for r in hits]
                 
                 self.send_response(200)
