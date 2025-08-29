@@ -3,11 +3,12 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 import numpy as np
 import requests
 import json
+from datetime import datetime
 
 from embedding_pipeline import VECTOR_DIR, INDEX_FILE, load_index
 from search_cache import get_cached_search_result, cache_search_result
@@ -39,10 +40,16 @@ def embed_text_ollama(text: str, model_name: str) -> np.ndarray:
         raise
 
 
-def search(query: str, base_dir: Path, top_k: int = 10) -> List[Dict[str, Any]]:
-    """Return top_k most similar documents for the given query."""
+def search(query: str, base_dir: Path, top_k: int = 10,
+           start_date: Optional[str] = None,
+           end_date: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Return top_k most similar documents for the given query.
+
+    날짜/시간 필터링을 위해 ISO 형식의 ``start_date``와 ``end_date``를
+    선택적으로 받을 수 있다.
+    """
     # 캐시된 결과 확인
-    cached_results = get_cached_search_result(query, top_k)
+    cached_results = get_cached_search_result(query, top_k, start_date, end_date)
     if cached_results is not None:
         print(f"캐시에서 검색 결과 반환: {len(cached_results)}개 항목")
         return cached_results
@@ -57,8 +64,24 @@ def search(query: str, base_dir: Path, top_k: int = 10) -> List[Dict[str, Any]]:
         query_vec = embed_text_ollama(query, model_name)
         index = load_index()
         results: List[Dict[str, Any]] = []
-        
+
+        start_dt = datetime.fromisoformat(start_date) if start_date else None
+        end_dt = datetime.fromisoformat(end_date) if end_date else None
+
         for path_str, meta in index.items():
+            timestamp_str = meta.get("timestamp")
+            if start_dt or end_dt:
+                if not timestamp_str:
+                    continue
+                try:
+                    doc_time = datetime.fromisoformat(timestamp_str)
+                except ValueError:
+                    continue
+                if start_dt and doc_time < start_dt:
+                    continue
+                if end_dt and doc_time > end_dt:
+                    continue
+
             vec_file = VECTOR_DIR / meta.get("vector", "")
             if not vec_file.exists():
                 continue
@@ -78,7 +101,8 @@ def search(query: str, base_dir: Path, top_k: int = 10) -> List[Dict[str, Any]]:
         final_results = results[:top_k]
         
         # 결과를 캐시에 저장
-        cache_search_result(query, top_k, final_results)
+        cache_search_result(query, top_k, final_results,
+                            start_date=start_date, end_date=end_date)
         print(f"새로운 검색 결과를 캐시에 저장: {len(final_results)}개 항목")
         
         return final_results
