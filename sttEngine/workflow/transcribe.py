@@ -22,6 +22,9 @@ except ImportError:
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
 from config import get_model_for_task, get_default_model
+from logger import setup_logging
+
+setup_logging()
 
 # Whisper가 지원하는 파일 확장자 목록
 SUPPORTED_EXTS = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'}
