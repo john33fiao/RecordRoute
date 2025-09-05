@@ -23,6 +23,8 @@ import threading
 import time
 import shutil
 import hashlib
+import asyncio
+import websockets
 
 from .workflow.transcribe import transcribe_audio_files
 from .workflow.summarize import (
@@ -57,6 +59,40 @@ process_lock = threading.Lock()
 # Global dictionary to track task progress
 task_progress = {}
 progress_lock = threading.Lock()
+
+# WebSocket server setup for real-time progress updates
+connected_clients = set()
+websocket_loop = asyncio.new_event_loop()
+
+
+async def _send_progress(task_id, message):
+    data = json.dumps({"task_id": task_id, "message": message})
+    if connected_clients:
+        await asyncio.gather(
+            *[client.send(data) for client in list(connected_clients) if not client.closed]
+        )
+
+
+def broadcast_progress(task_id, message):
+    if websocket_loop.is_running():
+        asyncio.run_coroutine_threadsafe(_send_progress(task_id, message), websocket_loop)
+
+
+async def websocket_handler(websocket):
+    connected_clients.add(websocket)
+    try:
+        async for _ in websocket:
+            pass
+    finally:
+        connected_clients.discard(websocket)
+
+
+def start_websocket_server():
+    asyncio.set_event_loop(websocket_loop)
+    server = websockets.serve(websocket_handler, "0.0.0.0", 8765)
+    websocket_loop.run_until_complete(server)
+    print("WebSocket server running on ws://localhost:8765")
+    websocket_loop.run_forever()
 
 
 def register_process(task_id: str, process):
@@ -124,6 +160,7 @@ def update_task_progress(task_id: str, message: str):
             'timestamp': time.time()
         }
         print(f"Task {task_id}: {message}")
+    broadcast_progress(task_id, message)
 
 
 def get_task_progress(task_id: str):
@@ -1877,7 +1914,11 @@ if __name__ == "__main__":
     
     # Migrate existing files to UUID system
     migrate_existing_files()
-    
+
+    # Start WebSocket server for progress updates
+    ws_thread = threading.Thread(target=start_websocket_server, daemon=True)
+    ws_thread.start()
+
     # Use ThreadingHTTPServer to allow concurrent request handling.
     # This lets the server respond to cancellation requests while
     # long-running tasks are processing in separate threads.

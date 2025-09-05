@@ -11,6 +11,25 @@ let currentOverlayFile = null; // Track currently viewed file in overlay
 let lastSimilarDocFilePath = null;
 let lastSimilarDocUserFilename = null;
 
+let progressSocket = null;
+
+function initWebSocket() {
+    progressSocket = new WebSocket('ws://localhost:8765');
+    progressSocket.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            const tasks = [currentTask, ...taskQueue];
+            const task = tasks.find(t => t && t.taskId === data.task_id);
+            if (task) {
+                task.progress = data.message;
+                updateQueueDisplay();
+            }
+        } catch (e) {
+            console.error('WebSocket message error:', e);
+        }
+    };
+}
+
 // Function to normalize Korean text to NFC form for proper display
 function normalizeKorean(text) {
     if (typeof text !== 'string') return text;
@@ -88,30 +107,9 @@ function showTextOverlay(url, fileType = null) {
         });
 }
 
-// Progress polling to update queue items
-function startProgressPolling(task) {
-    stopProgressPolling();
-    window.progressPollingInterval = setInterval(() => {
-        fetch(`/progress/${task.taskId}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.message) {
-                    task.progress = data.message;
-                    updateQueueDisplay();
-                }
-            })
-            .catch(error => {
-                console.log('Progress polling error:', error);
-            });
-    }, 1000);
-}
-
-function stopProgressPolling() {
-    if (window.progressPollingInterval) {
-        clearInterval(window.progressPollingInterval);
-        window.progressPollingInterval = null;
-    }
-}
+// Progress updates are pushed via WebSocket; polling functions are no-ops
+function startProgressPolling(task) {}
+function stopProgressPolling() {}
 
 document.getElementById('overlayClose').addEventListener('click', () => {
     document.getElementById('textOverlay').style.display = 'none';
@@ -1270,10 +1268,9 @@ async function processNextTask() {
         taskElement.style.cursor = 'default';
         taskElement.onclick = null;
         
-        // Initialize progress message and start polling for updates
+        // Initialize progress message; updates will come via WebSocket
         currentTask.progress = '작업 준비 중...';
         updateQueueDisplay();
-        startProgressPolling(currentTask);
 
         // Create AbortController for this task
         currentTask.abortController = new AbortController();
@@ -1737,4 +1734,5 @@ document.addEventListener('DOMContentLoaded', function() {
     loadHistory();
     checkRunningTasks();
     startTaskMonitoring();
+    initWebSocket();
 });
