@@ -13,6 +13,9 @@ from typing import List, Optional
 sys.path.append(str(Path(__file__).parent.parent))
 from config import get_model_for_task, get_default_model, get_config_value
 from ollama_utils import safe_ollama_call
+from logger import setup_logging
+
+setup_logging()
 
 # 플랫폼별 기본 모델 설정 (.env 파일에서 로드)
 try:

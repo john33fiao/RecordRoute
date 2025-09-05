@@ -18,6 +18,10 @@ import uuid
 from pathlib import Path
 import re
 from urllib.parse import unquote
+
+from logger import setup_logging
+
+setup_logging()
 from datetime import datetime
 import threading
 import time

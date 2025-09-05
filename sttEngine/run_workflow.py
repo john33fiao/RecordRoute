@@ -5,6 +5,10 @@ import subprocess
 import platform
 from pathlib import Path
 
+from logger import setup_logging
+
+setup_logging()
+
 # --- Configuration ---
 # 이 스크립트가 있는 디렉토리를 기준으로 경로 설정
 BASE_DIR = Path(__file__).parent.resolve()
