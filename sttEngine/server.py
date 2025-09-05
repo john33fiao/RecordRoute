@@ -22,6 +22,7 @@ from datetime import datetime
 import threading
 import time
 import shutil
+import hashlib
 
 from .workflow.transcribe import transcribe_audio_files
 from .workflow.summarize import (
@@ -187,6 +188,11 @@ def get_audio_duration(file_path: Path):
         return None
 
 
+def compute_file_hash(data: bytes) -> str:
+    """Compute SHA256 hash for given file data."""
+    return hashlib.sha256(data).hexdigest()
+
+
 def load_upload_history():
     """Load upload history from JSON file."""
     if HISTORY_FILE.exists():
@@ -206,10 +212,10 @@ def save_upload_history(history):
     except IOError:
         pass
 
-def add_upload_record(file_path: Path, file_type: str, duration: str = None):
+def add_upload_record(file_path: Path, file_type: str, duration: str = None, file_hash: str = None):
     """Add a new upload record to history."""
     history = load_upload_history()
-    
+
     record = {
         "id": str(uuid.uuid4()),
         "timestamp": datetime.now().isoformat(),
@@ -224,17 +230,18 @@ def add_upload_record(file_path: Path, file_type: str, duration: str = None):
         },
         "download_links": {},
         "title_summary": "",
-        "tags": []
+        "tags": [],
+        "file_hash": file_hash
     }
-    
+
     history.insert(0, record)  # Add to beginning (most recent first)
-    
+
     # Keep only last 100 records
     if len(history) > 100:
         history = history[:100]
-    
+
     save_upload_history(history)
-    return record["id"]
+    return record
 
 def load_file_registry():
     """Load file registry from JSON file."""
@@ -1547,9 +1554,20 @@ class UploadHandler(BaseHTTPRequestHandler):
                     self.wfile.write(b"No file uploaded")
                     return
 
+                history = load_upload_history()
                 uploaded_files = []
                 for file_info in file_entries:
                     if not file_info.get('filename'):
+                        continue
+
+                    file_hash = compute_file_hash(file_info['data'])
+                    existing = next((r for r in history if r.get('file_hash') == file_hash), None)
+                    if existing:
+                        uploaded_files.append({
+                            "duplicate": True,
+                            "original_record_id": existing["id"],
+                            "filename": file_info['filename']
+                        })
                         continue
 
                     uid = uuid.uuid4().hex
@@ -1570,12 +1588,13 @@ class UploadHandler(BaseHTTPRequestHandler):
                         duration = get_audio_duration(file_path)
 
                     # Add to upload history
-                    record_id = add_upload_record(file_path, file_type, duration)
+                    record = add_upload_record(file_path, file_type, duration, file_hash)
+                    history.insert(0, record)
 
                     uploaded_files.append({
                         "file_path": str(file_path.relative_to(BASE_DIR)),
                         "file_type": file_type,
-                        "record_id": record_id
+                        "record_id": record["id"]
                     })
 
                 self.send_response(200)
