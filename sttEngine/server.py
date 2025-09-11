@@ -19,7 +19,10 @@ from pathlib import Path
 import re
 from urllib.parse import unquote
 
-from logger import setup_logging
+try:
+    from .logger import setup_logging
+except ImportError:  # pragma: no cover - fallback for script execution
+    from logger import setup_logging
 
 setup_logging()
 from datetime import datetime
