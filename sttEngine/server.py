@@ -95,11 +95,15 @@ async def websocket_handler(websocket):
 
 
 def start_websocket_server():
+    """Start the WebSocket server in its own asyncio event loop."""
     asyncio.set_event_loop(websocket_loop)
-    server = websockets.serve(websocket_handler, "0.0.0.0", 8765)
-    websocket_loop.run_until_complete(server)
-    print("WebSocket server running on ws://localhost:8765")
-    websocket_loop.run_forever()
+
+    async def run_server():
+        async with websockets.serve(websocket_handler, "0.0.0.0", 8765):
+            print("WebSocket server running on ws://localhost:8765")
+            await asyncio.Future()  # run forever
+
+    websocket_loop.run_until_complete(run_server())
 
 
 def register_process(task_id: str, process):
