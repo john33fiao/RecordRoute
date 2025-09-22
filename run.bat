@@ -51,6 +51,36 @@ if not exist "%WEB_SERVER%" (
     exit /b 1
 )
 
+REM 의존성 확인 및 설치 (requirements.txt가 변경되었거나 새 패키지가 필요한 경우)
+set "REQUIREMENTS_FILE=%SCRIPT_DIR%\sttEngine\requirements.txt"
+set "REQUIREMENTS_STATE_FILE=%SCRIPT_DIR%\venv\.requirements_hash"
+
+if exist "%REQUIREMENTS_FILE%" (
+    echo "필요한 파이썬 패키지를 확인합니다..."
+    set "REQ_HASH="
+    for /f "delims=" %%H in ('"%VENV_PYTHON%" -c "import hashlib, pathlib, sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())" "%REQUIREMENTS_FILE%"') do set "REQ_HASH=%%H"
+
+    set "INSTALLED_HASH="
+    if exist "%REQUIREMENTS_STATE_FILE%" (
+        set /p INSTALLED_HASH=<"%REQUIREMENTS_STATE_FILE%"
+    )
+
+    if not "!REQ_HASH!"=="!INSTALLED_HASH!" (
+        echo "의존성을 설치/업데이트합니다..."
+        "%VENV_PYTHON%" -m pip install -r "%REQUIREMENTS_FILE%"
+        if errorlevel 1 (
+            echo "경고: 의존성 설치에 실패했습니다. 설치 로그를 확인하세요."
+        ) else (
+            >"%REQUIREMENTS_STATE_FILE%" echo !REQ_HASH!
+            echo "필요한 패키지가 준비되었습니다."
+        )
+    ) else (
+        echo "필요한 파이썬 패키지가 이미 설치되어 있습니다."
+    )
+) else (
+    echo "경고: requirements.txt 파일을 찾을 수 없습니다."
+)
+
 REM Ollama 서버 상태 확인 및 시작
 echo "Ollama 서버 상태를 확인합니다..."
 curl -s http://localhost:11434/api/version >nul 2>&1

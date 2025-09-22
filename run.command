@@ -57,6 +57,35 @@ else
     echo "Ollama 서버가 이미 실행 중입니다."
 fi
 
+# 의존성 확인 및 설치 (requirements.txt가 변경되었거나 새 패키지가 필요한 경우)
+REQUIREMENTS_FILE="$SCRIPT_DIR/sttEngine/requirements.txt"
+REQUIREMENTS_STATE_FILE="$SCRIPT_DIR/venv/.requirements_hash"
+
+if [ -f "$REQUIREMENTS_FILE" ]; then
+    echo "필요한 파이썬 패키지를 확인합니다..."
+
+    REQ_HASH=$("$VENV_PYTHON" -c "import hashlib, pathlib, sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())" "$REQUIREMENTS_FILE")
+    INSTALLED_HASH=""
+
+    if [ -f "$REQUIREMENTS_STATE_FILE" ]; then
+        INSTALLED_HASH=$(cat "$REQUIREMENTS_STATE_FILE")
+    fi
+
+    if [ "$REQ_HASH" != "$INSTALLED_HASH" ]; then
+        echo "의존성을 설치/업데이트합니다..."
+        if "$VENV_PYTHON" -m pip install -r "$REQUIREMENTS_FILE"; then
+            echo "$REQ_HASH" > "$REQUIREMENTS_STATE_FILE"
+            echo "필요한 패키지가 준비되었습니다."
+        else
+            echo "경고: 의존성 설치에 실패했습니다. 설치 로그를 확인하고 다시 시도하세요."
+        fi
+    else
+        echo "필요한 파이썬 패키지가 이미 설치되어 있습니다."
+    fi
+else
+    echo "경고: requirements.txt 파일을 찾을 수 없습니다."
+fi
+
 # 웹서버 실행
 echo "가상환경의 파이썬으로 웹서버를 실행합니다..."
 echo "서버 URL: http://localhost:8080"
