@@ -58,6 +58,7 @@ OUTPUT_DIR = BASE_DIR / "DB" / "whisper_output"
 VECTOR_DIR = BASE_DIR / "DB" / "vector_store"
 HISTORY_FILE = BASE_DIR / "DB" / "upload_history.json"
 FILE_REGISTRY_FILE = BASE_DIR / "DB" / "file_registry.json"
+SEARCHABLE_SUFFIXES = {".md", ".txt", ".text", ".markdown"}
 
 # Global dictionary to track running processes
 running_processes = {}
@@ -308,6 +309,83 @@ def save_file_registry(registry):
             json.dump(registry, f, ensure_ascii=False, indent=2)
     except IOError:
         pass
+
+
+def _timestamp_to_sort_key(timestamp_str: str) -> float:
+    """Convert ISO timestamp string to numeric sort key."""
+    if not timestamp_str:
+        return float('-inf')
+    try:
+        return datetime.fromisoformat(timestamp_str).timestamp()
+    except ValueError:
+        return float('-inf')
+
+
+def _collect_searchable_documents():
+    """Return documents eligible for keyword search and similarity mapping."""
+    documents = []
+    path_index = {}
+    registry = load_file_registry()
+
+    for file_uuid, info in registry.items():
+        rel_path = info.get("file_path")
+        if not rel_path:
+            continue
+
+        full_path = (BASE_DIR / rel_path).resolve()
+        if not full_path.exists():
+            continue
+
+        if full_path.suffix.lower() not in SEARCHABLE_SUFFIXES:
+            continue
+
+        doc = {
+            "uuid": file_uuid,
+            "info": info,
+            "full_path": full_path,
+            "relative_path": rel_path,
+        }
+
+        documents.append(doc)
+        path_index.setdefault(rel_path, doc)
+
+    return documents, path_index
+
+
+def _collect_keyword_matches(query: str, documents, history_map, limit: int = 5):
+    """Return top keyword matches sorted by frequency and recency."""
+    if not query:
+        return []
+
+    pattern = re.compile(re.escape(query), re.IGNORECASE)
+    matches = []
+
+    for doc in documents:
+        try:
+            text = read_text_with_fallback(doc["full_path"])
+        except Exception as exc:  # pragma: no cover - defensive logging
+            print(f"키워드 검색을 위한 파일 읽기 실패 {doc['full_path']}: {exc}")
+            continue
+
+        count = len(pattern.findall(text))
+        if count <= 0:
+            continue
+
+        record = history_map.get(doc["info"].get("record_id"), {})
+        timestamp = record.get("timestamp")
+
+        matches.append({
+            "file_uuid": doc["uuid"],
+            "file": doc["relative_path"],
+            "display_name": doc["info"].get("original_filename") or Path(doc["relative_path"]).name,
+            "count": count,
+            "uploaded_at": timestamp,
+            "source_filename": record.get("filename"),
+            "link": f"/download/{doc['uuid']}",
+        })
+
+    matches.sort(key=lambda item: (-item["count"], -_timestamp_to_sort_key(item.get("uploaded_at"))))
+    return matches[:limit]
 
 def register_file(file_path: str, record_id: str, task_type: str, original_filename: str = None):
     """Register a file with UUID and return the file UUID."""
@@ -1177,25 +1255,84 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(results, ensure_ascii=False).encode())
         elif self.path.startswith("/search"):
             from urllib.parse import urlparse, parse_qs
+
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
-            query = params.get("q", [""])[0]
+            query = params.get("q", [""])[0].strip()
             start_date = params.get("start", [None])[0]
             end_date = params.get("end", [None])[0]
 
             try:
-                results = []
+                response_data = {
+                    "keywordMatches": [],
+                    "similarDocuments": []
+                }
+
                 if query:
-                    hits = search_vectors(query, BASE_DIR,
-                                          start_date=start_date,
-                                          end_date=end_date)
-                    results = [{"file": r["file"], "score": r["score"], "link": f"/download/{r['file']}"} for r in hits]
-                
+                    documents, path_index = _collect_searchable_documents()
+                    history = load_upload_history()
+                    history_map = {record.get("id"): record for record in history}
+
+                    keyword_matches = _collect_keyword_matches(query, documents, history_map)
+                    response_data["keywordMatches"] = keyword_matches
+
+                    keyword_paths = {item["file"] for item in keyword_matches}
+                    keyword_uuids = {item["file_uuid"] for item in keyword_matches}
+
+                    hits = search_vectors(
+                        query,
+                        BASE_DIR,
+                        top_k=10,
+                        start_date=start_date,
+                        end_date=end_date
+                    )
+
+                    similar_documents = []
+                    for hit in hits:
+                        rel_path = hit.get("file")
+                        if not rel_path:
+                            continue
+
+                        doc = path_index.get(rel_path)
+                        if doc and (doc["uuid"] in keyword_uuids or rel_path in keyword_paths):
+                            continue  # Already listed in keyword matches
+                        if not doc and rel_path in keyword_paths:
+                            continue
+
+                        display_name = Path(rel_path).name
+                        link = f"/download/{rel_path}"
+                        uploaded_at = None
+                        source_filename = None
+                        file_uuid = None
+
+                        if doc:
+                            record = history_map.get(doc["info"].get("record_id"), {})
+                            uploaded_at = record.get("timestamp")
+                            source_filename = record.get("filename")
+                            display_name = doc["info"].get("original_filename") or display_name
+                            link = f"/download/{doc['uuid']}"
+                            file_uuid = doc["uuid"]
+
+                        similar_documents.append({
+                            "file_uuid": file_uuid,
+                            "file": rel_path,
+                            "display_name": display_name,
+                            "score": hit.get("score"),
+                            "uploaded_at": uploaded_at,
+                            "source_filename": source_filename,
+                            "link": link,
+                        })
+
+                        if len(similar_documents) >= 5:
+                            break
+
+                    response_data["similarDocuments"] = similar_documents
+
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps(results, ensure_ascii=False).encode())
-            
+                self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode())
+
             except Exception as e:
                 print(f"검색 요청 처리 중 오류: {e}")
                 self.send_response(500)
