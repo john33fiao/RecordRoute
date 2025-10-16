@@ -243,6 +243,13 @@
     color: #6c757d;
 }
 
+.similar-doc-summary {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #495057;
+    line-height: 1.4;
+}
+
 #modelSettingsPopup {
     position: fixed;
     top: 0;
@@ -681,5 +688,9 @@ body.dark-mode .similar-doc-item:hover {
 
 body.dark-mode .similar-doc-name {
     color: #fff;
+}
+
+body.dark-mode .similar-doc-summary {
+    color: #ced4da;
 }
 
