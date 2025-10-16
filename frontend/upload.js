@@ -60,6 +60,12 @@ const modelSettingsCloseBtn = document.getElementById('modelSettingsCloseBtn');
 const modelSettingsCancelBtn = document.getElementById('modelSettingsCancelBtn');
 const modelSettingsConfirmBtn = document.getElementById('modelSettingsConfirmBtn');
 const themeToggle = document.getElementById('themeToggle');
+const searchResultsContainer = document.getElementById('searchResults');
+const keywordGroup = document.getElementById('keywordGroup');
+const similarGroup = document.getElementById('similarGroup');
+const keywordResultsList = document.getElementById('keywordResults');
+const similarResultsList = document.getElementById('similarResults');
+const searchMessage = document.getElementById('searchMessage');
 
 function applyTheme(theme) {
     if (theme === 'dark') {
@@ -518,12 +524,99 @@ function formatDateTime(isoString) {
     const date = new Date(isoString);
     return date.toLocaleString('ko-KR', {
         year: 'numeric',
-        month: '2-digit', 
+        month: '2-digit',
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit'
     });
+}
+
+function resetSearchDisplay() {
+    if (!searchResultsContainer) return;
+    searchResultsContainer.classList.add('hidden');
+    if (keywordGroup) keywordGroup.classList.add('hidden');
+    if (similarGroup) similarGroup.classList.add('hidden');
+    if (keywordResultsList) keywordResultsList.innerHTML = '';
+    if (similarResultsList) similarResultsList.innerHTML = '';
+    if (searchMessage) {
+        searchMessage.textContent = '';
+        searchMessage.classList.remove('error');
+    }
+}
+
+function appendKeywordResult(item) {
+    if (!keywordResultsList) return;
+    const li = document.createElement('li');
+
+    const link = document.createElement('a');
+    link.href = encodeURI(item.link || `/download/${item.file}`);
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = normalizeKorean(item.display_name || item.file || '문서');
+    li.appendChild(link);
+
+    const meta = document.createElement('div');
+    meta.className = 'search-meta';
+
+    const countSpan = document.createElement('span');
+    countSpan.textContent = `사용 횟수: ${item.count}`;
+    meta.appendChild(countSpan);
+
+    if (item.source_filename) {
+        const originalSpan = document.createElement('span');
+        originalSpan.textContent = `원본: ${normalizeKorean(item.source_filename)}`;
+        meta.appendChild(originalSpan);
+    }
+
+    if (item.uploaded_at) {
+        const uploadedSpan = document.createElement('span');
+        uploadedSpan.textContent = `업로드: ${formatDateTime(item.uploaded_at)}`;
+        meta.appendChild(uploadedSpan);
+    }
+
+    if (meta.childNodes.length > 0) {
+        li.appendChild(meta);
+    }
+
+    keywordResultsList.appendChild(li);
+}
+
+function appendSimilarResult(item) {
+    if (!similarResultsList) return;
+    const li = document.createElement('li');
+
+    const link = document.createElement('a');
+    link.href = encodeURI(item.link || `/download/${item.file}`);
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = normalizeKorean(item.display_name || item.file || '문서');
+    li.appendChild(link);
+
+    const meta = document.createElement('div');
+    meta.className = 'search-meta';
+
+    const scoreSpan = document.createElement('span');
+    const scoreValue = typeof item.score === 'number' && !Number.isNaN(item.score)
+        ? item.score.toFixed(3)
+        : '정보 없음';
+    scoreSpan.textContent = `유사도: ${scoreValue}`;
+    meta.appendChild(scoreSpan);
+
+    if (item.source_filename) {
+        const originalSpan = document.createElement('span');
+        originalSpan.textContent = `원본: ${normalizeKorean(item.source_filename)}`;
+        meta.appendChild(originalSpan);
+    }
+
+    if (item.uploaded_at) {
+        const uploadedSpan = document.createElement('span');
+        uploadedSpan.textContent = `업로드: ${formatDateTime(item.uploaded_at)}`;
+        meta.appendChild(uploadedSpan);
+    }
+
+    li.appendChild(meta);
+    similarResultsList.appendChild(li);
 }
 
 function addTaskToQueue(recordId, filePath, task, taskElement, filename) {
@@ -1628,7 +1721,14 @@ function startTaskMonitoring() {
 // Load history on page load
 document.getElementById('searchBtn').addEventListener('click', async () => {
     const q = document.getElementById('searchInput').value.trim();
-    if (!q) return;
+
+    if (!q) {
+        resetSearchDisplay();
+        if (searchMessage) {
+            searchMessage.textContent = '검색어를 입력하세요.';
+        }
+        return;
+    }
 
     if (currentTask || taskQueue.length > 0) {
         alert('현재 다른 작업이 진행 중입니다. 작업이 모두 완료된 후 검색을 이용해 주세요.');
@@ -1637,50 +1737,91 @@ document.getElementById('searchBtn').addEventListener('click', async () => {
 
     const searchBtn = document.getElementById('searchBtn');
     const originalText = searchBtn.textContent;
-    
+
+    resetSearchDisplay();
+
     try {
-        // 검색 중 표시
         searchBtn.textContent = '검색 중...';
         searchBtn.disabled = true;
-        
+
         const resp = await fetch(`/search?q=${encodeURIComponent(q)}`);
         const data = await resp.json();
-        
-        const list = document.getElementById('searchResults');
-        list.innerHTML = '';
-        
+
         if (!resp.ok) {
-            // 서버 오류 처리
             const errorMsg = data.error || '검색 중 오류가 발생했습니다.';
-            list.innerHTML = `<li style="color: #dc3545; font-weight: bold;">${errorMsg}</li>`;
+            if (searchMessage) {
+                searchMessage.textContent = errorMsg;
+                searchMessage.classList.add('error');
+            }
             if (data.details) {
                 console.error('검색 오류 상세:', data.details);
             }
-        } else if (Array.isArray(data) && data.length === 0) {
-            list.innerHTML = '<li style="color: #6c757d; font-style: italic;">검색 결과가 없습니다.</li>';
-        } else if (Array.isArray(data)) {
-            data.forEach(item => {
-                const li = document.createElement('li');
-                const a = document.createElement('a');
-                a.href = item.link;
-                a.textContent = `${normalizeKorean(item.file)} (유사도: ${item.score.toFixed(3)})`;
-                a.target = '_blank';
-                a.style.textDecoration = 'none';
-                a.style.color = '#007bff';
-                a.onmouseover = () => a.style.textDecoration = 'underline';
-                a.onmouseout = () => a.style.textDecoration = 'none';
-                li.appendChild(a);
-                list.appendChild(li);
-            });
-        } else {
-            list.innerHTML = '<li style="color: #dc3545;">예상치 못한 응답 형식입니다.</li>';
+            return;
         }
+
+        if (Array.isArray(data)) {
+            if (data.length === 0) {
+                if (searchMessage) {
+                    searchMessage.textContent = '검색 결과가 없습니다.';
+                }
+                return;
+            }
+
+            if (searchResultsContainer) {
+                searchResultsContainer.classList.remove('hidden');
+            }
+            if (similarGroup) {
+                similarGroup.classList.remove('hidden');
+            }
+
+            data.forEach(item => {
+                appendSimilarResult({
+                    display_name: item.display_name || item.file,
+                    file: item.file,
+                    link: item.link || `/download/${item.file}`,
+                    score: item.score,
+                    uploaded_at: item.uploaded_at,
+                    source_filename: item.source_filename
+                });
+            });
+            return;
+        }
+
+        const keywordMatches = Array.isArray(data.keywordMatches) ? data.keywordMatches : [];
+        const similarDocuments = Array.isArray(data.similarDocuments) ? data.similarDocuments : [];
+
+        if (keywordMatches.length === 0 && similarDocuments.length === 0) {
+            if (searchMessage) {
+                searchMessage.textContent = '검색 결과가 없습니다.';
+            }
+            return;
+        }
+
+        if (searchResultsContainer) {
+            searchResultsContainer.classList.remove('hidden');
+        }
+
+        if (keywordMatches.length > 0 && keywordGroup) {
+            keywordGroup.classList.remove('hidden');
+            keywordMatches.forEach(item => appendKeywordResult(item));
+        } else if (keywordGroup) {
+            keywordGroup.classList.add('hidden');
+        }
+
+        if (similarDocuments.length > 0 && similarGroup) {
+            similarGroup.classList.remove('hidden');
+            similarDocuments.forEach(item => appendSimilarResult(item));
+        } else if (similarGroup) {
+            similarGroup.classList.add('hidden');
+        }
+
     } catch (err) {
-        const list = document.getElementById('searchResults');
-        list.innerHTML = `<li style="color: #dc3545; font-weight: bold;">네트워크 오류: ${err.message}</li>`;
+        if (searchMessage) {
+            searchMessage.textContent = `네트워크 오류: ${err.message}`;
+            searchMessage.classList.add('error');
+        }
         console.error('검색 네트워크 오류:', err);
     } finally {
-        // 검색 버튼 복원
         searchBtn.textContent = originalText;
         searchBtn.disabled = false;
     }

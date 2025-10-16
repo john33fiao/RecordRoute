@@ -50,9 +50,21 @@
 
     <div id="search-section" style="margin-top:2em;">
         <h2>키워드 검색</h2>
-        <input type="text" id="searchInput" placeholder="검색어를 입력하세요" />
-        <button id="searchBtn">검색</button>
-        <ul id="searchResults"></ul>
+        <div class="search-controls">
+            <input type="text" id="searchInput" placeholder="검색어를 입력하세요" />
+            <button id="searchBtn">검색</button>
+        </div>
+        <div id="searchMessage" class="search-message"></div>
+        <div id="searchResults" class="search-results hidden">
+            <div id="keywordGroup" class="search-group hidden">
+                <h3>키워드 일치 문서</h3>
+                <ul id="keywordResults"></ul>
+            </div>
+            <div id="similarGroup" class="search-group hidden">
+                <h3>연관 문서</h3>
+                <ul id="similarResults"></ul>
+            </div>
+        </div>
     </div>
 
     <div id="textOverlay">
