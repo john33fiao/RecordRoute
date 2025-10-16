@@ -219,7 +219,7 @@ function showSimilarDocuments(filePath, userFilename = null, refresh = false) {
 
                 return `
                     <div class="similar-doc-item" onclick="downloadSimilarDocument('${doc.link}')">
-                        <div class="similar-doc-name">${escapeHtml(normalizeKorean(fileName) || '')}</div>
+                        <div class="similar-doc-name">${escapeHtml(normalizeKorean(fileName || ''))}</div>
                         <div class="similar-doc-score">유사도: ${similarityPercent}%</div>
                         ${summaryHtml}
                     </div>
