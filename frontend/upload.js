@@ -35,6 +35,16 @@ function normalizeKorean(text) {
     if (typeof text !== 'string') return text;
     return text.normalize('NFC');
 }
+
+function escapeHtml(text) {
+    if (typeof text !== 'string') return '';
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
 const summaryPopup = document.getElementById('summaryPopup');
 const summaryOnlyBtn = document.getElementById('summaryOnlyBtn');
 const summaryCancelBtn = document.getElementById('summaryCancelBtn');
@@ -199,15 +209,19 @@ function showSimilarDocuments(filePath, userFilename = null, refresh = false) {
             
             const items = data.map(doc => {
                 // Use display_name if available, otherwise fallback to original filename
-                const fileName = doc.display_name ? 
-                    doc.display_name.replace(/\.(md|txt)$/, '') : 
+                const fileName = doc.display_name ?
+                    doc.display_name.replace(/\.(md|txt)$/, '') :
                     doc.file.split('/').pop().replace(/\.(md|txt)$/, '');
                 const similarityPercent = Math.round(doc.score * 100);
-                
+                const summaryRaw = typeof doc.title_summary === 'string' ? doc.title_summary : '';
+                const summaryText = summaryRaw.trim();
+                const summaryHtml = summaryText ? `<div class="similar-doc-summary">${escapeHtml(summaryText)}</div>` : '';
+
                 return `
                     <div class="similar-doc-item" onclick="downloadSimilarDocument('${doc.link}')">
-                        <div class="similar-doc-name">${normalizeKorean(fileName)}</div>
+                        <div class="similar-doc-name">${escapeHtml(normalizeKorean(fileName || ''))}</div>
                         <div class="similar-doc-score">유사도: ${similarityPercent}%</div>
+                        ${summaryHtml}
                     </div>
                 `;
             }).join('');

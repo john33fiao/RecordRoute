@@ -1444,10 +1444,12 @@ class UploadHandler(BaseHTTPRequestHandler):
 
                     # Find user filename from history if available
                     user_filename_found = None
+                    title_summary = ""
                     if record_id:
                         for record in history:
                             if record["id"] == record_id:
                                 user_filename_found = record.get("filename")
+                                title_summary = (record.get("title_summary") or "").strip()
                                 break
 
                     # Use UUID if available, otherwise fallback to path
@@ -1460,7 +1462,8 @@ class UploadHandler(BaseHTTPRequestHandler):
                         "file": hit["file"],
                         "score": hit["score"],
                         "link": download_link,
-                        "display_name": display_filename
+                        "display_name": display_filename,
+                        "title_summary": title_summary
                     })
                 if len(similar_docs) >= 5:
                     break
