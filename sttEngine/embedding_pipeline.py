@@ -2,9 +2,9 @@
 
 Scans a directory for `*.summary.md` files that have completed the
 STT→교정→요약 workflow and generates embeddings using the
-`snowflake-arctic-embed:latest` model. Embeddings and minimal metadata are
-stored in `vector_store/` with a JSON index so that only newly added or
-modified files are processed on subsequent runs.
+`bge-m3:latest` model. Embeddings and minimal metadata are stored in
+`vector_store/` with a JSON index so that only newly added or modified
+files are processed on subsequent runs.
 """
 
 from __future__ import annotations
@@ -109,7 +109,7 @@ def main(src_dir: str) -> None:
         model_name = get_model_for_task("EMBEDDING", get_default_model("EMBEDDING"))
     except:
         # 환경변수 설정이 없을 때 기본 모델 사용
-        model_name = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
+        model_name = os.environ.get("EMBEDDING_MODEL", "bge-m3:latest")
     
     index = load_index()
     for file in Path(src_dir).glob("*.summary.md"):

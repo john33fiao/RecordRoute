@@ -774,7 +774,7 @@ function updateQueueDisplay() {
         } else if (task === 'summary') {
             return savedSettings.summarize || 'gpt-oss:20b';
         } else if (task === 'embedding') {
-            return savedSettings.embedding || 'nomic-embed-text';
+            return savedSettings.embedding || 'bge-m3:latest';
         }
         return '';
     };
