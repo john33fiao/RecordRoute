@@ -522,7 +522,7 @@ def run_incremental_embedding(base_dir: Path = None):
             from sttEngine.config import get_model_for_task, get_default_model
             model_name = get_model_for_task("EMBEDDING", get_default_model("EMBEDDING"))
         except:
-            model_name = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
+            model_name = os.environ.get("EMBEDDING_MODEL", "bge-m3:latest")
         
         # Load existing index
         index = load_index()
@@ -593,7 +593,7 @@ def generate_embedding(file_path: Path, record_id: str = None):
             from sttEngine.config import get_model_for_task, get_default_model
             model_name = get_model_for_task("EMBEDDING", get_default_model("EMBEDDING"))
         except:
-            model_name = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
+            model_name = os.environ.get("EMBEDDING_MODEL", "bge-m3:latest")
         
         # Read text content
         text = file_path.read_text(encoding="utf-8")

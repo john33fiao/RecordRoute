@@ -99,8 +99,8 @@ PLATFORM_DEFAULTS = {
         "UNIX": "gpt-oss:20b"
     },
     "EMBEDDING": {
-        "WINDOWS": "snowflake-arctic-embed2:latest",
-        "UNIX": "snowflake-arctic-embed2:latest"
+        "WINDOWS": "bge-m3:latest",
+        "UNIX": "bge-m3:latest"
     }
 }
 

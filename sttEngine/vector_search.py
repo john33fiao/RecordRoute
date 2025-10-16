@@ -58,7 +58,7 @@ def search(query: str, base_dir: Path, top_k: int = 10,
         model_name = get_model_for_task("EMBEDDING", get_default_model("EMBEDDING"))
     except:
         # 환경변수 설정이 없을 때 기본 모델 사용
-        model_name = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
+        model_name = os.environ.get("EMBEDDING_MODEL", "bge-m3:latest")
     
     try:
         query_vec = embed_text_ollama(query, model_name)
