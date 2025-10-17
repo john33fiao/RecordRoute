@@ -1,6 +1,3 @@
-let uploadedPath = null;
-let fileType = null;
-let recordId = null;
 let taskQueue = [];
 let currentTask = null;
 let taskIdCounter = 0;
@@ -1541,28 +1538,6 @@ async function processNextTask() {
     }
 }
 
-function updateWorkflowOptions(fileType) {
-    const sttCheckbox = document.getElementById('stepStt');
-    const sttLabel = sttCheckbox.parentElement;
-    if (fileType === 'audio') {
-        // Show STT checkbox for audio files
-        sttLabel.style.display = 'block';
-        sttLabel.style.visibility = 'visible';
-        sttCheckbox.checked = false;
-        sttCheckbox.disabled = false;
-    } else {
-        // Hide STT checkbox for non-audio files
-        sttLabel.style.display = 'none';
-        sttLabel.style.visibility = 'hidden';
-        sttCheckbox.checked = false;
-        sttCheckbox.disabled = true;
-    }
-
-    // Reset embedding and summary checkboxes
-    document.getElementById('stepEmbedding').checked = false;
-    document.getElementById('stepSummary').checked = false;
-}
-
 document.getElementById('uploadBtn').addEventListener('click', async () => {
     const input = document.getElementById('fileInput');
     const status = document.getElementById('status');
@@ -1583,26 +1558,9 @@ document.getElementById('uploadBtn').addEventListener('click', async () => {
         if (resp.ok) {
             const data = await resp.json();
             if (data.length === 1) {
-                const fileData = data[0];
-                uploadedPath = fileData.file_path;
-                fileType = fileData.file_type;
-                recordId = fileData.record_id;
-
-                updateWorkflowOptions(fileType);
-                document.getElementById('workflow').style.display = 'block';
-
-                if (fileType === 'audio') {
-                    status.textContent = 'Upload complete! Select workflow steps.';
-                } else if (fileType === 'text') {
-                    status.textContent = 'Upload complete! Select text processing steps.';
-                } else if (fileType === 'pdf') {
-                    status.textContent = 'Upload complete! Select summary step.';
-                } else {
-                    status.textContent = 'Upload complete! File type not fully supported, but you can try processing.';
-                }
+                status.textContent = 'Upload complete! 히스토리에서 작업을 선택하거나 "전체 진행" 버튼을 사용하세요.';
             } else {
-                status.textContent = `${data.length}개의 파일이 업로드되었습니다. 히스토리에서 작업을 선택하세요.`;
-                document.getElementById('workflow').style.display = 'none';
+                status.textContent = `${data.length}개의 파일이 업로드되었습니다. 히스토리에서 작업을 선택하거나 "전체 진행" 버튼을 사용하세요.`;
             }
 
             // Reload history to show the new upload(s)
@@ -1614,50 +1572,6 @@ document.getElementById('uploadBtn').addEventListener('click', async () => {
     } catch (err) {
         status.textContent = 'Error: ' + err.message;
     }
-});
-
-document.getElementById('processBtn').addEventListener('click', async () => {
-    if (!uploadedPath) return;
-
-    const steps = [];
-    if (document.getElementById('stepStt').checked) steps.push('stt');
-    if (document.getElementById('stepEmbedding').checked) steps.push('embedding');
-    if (document.getElementById('stepSummary').checked) steps.push('summary');
-
-    if (steps.length === 0) {
-        alert('최소 하나의 작업을 선택해주세요.');
-        return;
-    }
-
-    const downloads = document.getElementById('downloads');
-    downloads.innerHTML = '<p style="color: blue; font-weight: bold;">작업을 큐에 추가합니다...</p>';
-
-    // Find the current file's name for queue display
-    const history = await loadHistorySync();
-    const currentRecord = history.find(record => record.id === recordId);
-    const filename = currentRecord ? currentRecord.filename : 'Unknown File';
-
-    // Add each step to the queue individually
-    steps.forEach(step => {
-        // Check for existing task before adding
-        const existingTask = taskQueue.find(t => t.recordId === recordId && t.task === step);
-        if (!existingTask) {
-            // Create a temporary task element for queue tracking
-            const tempElement = document.createElement('span');
-            addTaskToQueue(recordId, uploadedPath, step, tempElement, filename);
-        } else {
-            console.log(`Task ${step} for record ${recordId} already in queue, skipping`);
-        }
-    });
-
-    downloads.innerHTML = `<p style="color: green;">선택한 작업들이 큐에 추가되었습니다.</p>`;
-    
-    // Clear the current upload context
-    uploadedPath = null;
-    fileType = null;
-    recordId = null;
-    document.getElementById('workflow').style.display = 'none';
-    document.getElementById('fileInput').value = '';
 });
 
 // Check for running tasks on page load
