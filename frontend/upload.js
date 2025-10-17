@@ -99,20 +99,21 @@ function initTheme() {
     });
 }
 
-function showTextOverlay(url, fileType = null) {
+function showTextOverlay(url, fileType = null, displayName = null) {
     const overlay = document.getElementById('textOverlay');
     const content = document.getElementById('overlayContent');
     const download = document.getElementById('overlayDownload');
-    
+
     // Store current file info for deletion
     currentOverlayFile = {
         url: url,
         type: fileType || (url.includes('.summary.') ? 'summary' : 'stt')
     };
-    
+
     overlay.style.display = 'flex';
     content.textContent = '로딩중...';
     download.href = url;
+    download.setAttribute('download', displayName ? normalizeKorean(displayName) : '');
     fetch(url)
         .then(resp => resp.text())
         .then(text => {
@@ -213,26 +214,48 @@ function showSimilarDocuments(filePath, userFilename = null, refresh = false) {
                 return;
             }
             
-            const items = data.map(doc => {
-                // Use display_name if available, otherwise fallback to original filename
-                const fileName = doc.display_name ?
-                    doc.display_name.replace(/\.(md|txt)$/, '') :
-                    doc.file.split('/').pop().replace(/\.(md|txt)$/, '');
+            similarDocsList.innerHTML = '';
+
+            data.forEach(doc => {
+                const rawFileName = doc.display_name || (doc.file ? doc.file.split('/').pop() : '');
+                const displayName = rawFileName ? rawFileName.replace(/\.(md|txt)$/, '') : '';
                 const similarityPercent = Math.round(doc.score * 100);
                 const summaryRaw = typeof doc.title_summary === 'string' ? doc.title_summary : '';
-                const summaryText = summaryRaw.trim();
-                const summaryHtml = summaryText ? `<div class="similar-doc-summary">${escapeHtml(summaryText)}</div>` : '';
+                const summaryText = normalizeKorean(summaryRaw.trim());
 
-                return `
-                    <div class="similar-doc-item" onclick="downloadSimilarDocument('${doc.link}')">
-                        <div class="similar-doc-name">${escapeHtml(normalizeKorean(fileName || ''))}</div>
-                        <div class="similar-doc-score">유사도: ${similarityPercent}%</div>
-                        ${summaryHtml}
-                    </div>
-                `;
-            }).join('');
-            
-            similarDocsList.innerHTML = items;
+                const item = document.createElement('div');
+                item.className = 'similar-doc-item';
+                item.tabIndex = 0;
+                item.setAttribute('role', 'button');
+                item.addEventListener('click', () => {
+                    viewSimilarDocument(doc.link, rawFileName);
+                });
+                item.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        viewSimilarDocument(doc.link, rawFileName);
+                    }
+                });
+
+                const nameDiv = document.createElement('div');
+                nameDiv.className = 'similar-doc-name';
+                nameDiv.textContent = normalizeKorean(displayName || '');
+                item.appendChild(nameDiv);
+
+                const scoreDiv = document.createElement('div');
+                scoreDiv.className = 'similar-doc-score';
+                scoreDiv.textContent = `유사도: ${similarityPercent}%`;
+                item.appendChild(scoreDiv);
+
+                if (summaryText) {
+                    const summaryDiv = document.createElement('div');
+                    summaryDiv.className = 'similar-doc-summary';
+                    summaryDiv.textContent = summaryText;
+                    item.appendChild(summaryDiv);
+                }
+
+                similarDocsList.appendChild(item);
+            });
         })
         .catch(error => {
             console.error('유사 문서 검색 오류:', error);
@@ -395,8 +418,10 @@ function saveModelSettings() {
     }, 3000);
 }
 
-function downloadSimilarDocument(downloadLink) {
-    window.open(downloadLink, '_blank');
+function viewSimilarDocument(downloadLink, displayName = null) {
+    if (!downloadLink) return;
+
+    showTextOverlay(downloadLink, 'stt', displayName);
 }
 
 summaryCancelBtn.addEventListener('click', hideSummaryPopup);
