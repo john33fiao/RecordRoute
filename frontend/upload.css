@@ -55,6 +55,10 @@
     text-decoration: none;
     cursor: pointer;
 }
+#overlayCopy {
+    background: #17a2b8;
+    color: white;
+}
 #overlayDownload {
     background: #007bff;
     color: white;

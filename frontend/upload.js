@@ -129,9 +129,49 @@ document.getElementById('overlayClose').addEventListener('click', () => {
     document.getElementById('textOverlay').style.display = 'none';
 });
 
+document.getElementById('overlayCopy').addEventListener('click', () => {
+    const overlayContent = document.getElementById('overlayContent');
+    if (!overlayContent) return;
+
+    const text = normalizeKorean(overlayContent.textContent || '');
+    if (!text.trim()) {
+        alert('복사할 내용이 없습니다.');
+        return;
+    }
+
+    const fallbackCopy = () => {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'absolute';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('copy');
+            alert('내용을 클립보드에 복사했습니다.');
+        } catch (err) {
+            alert('복사에 실패했습니다. 직접 복사해주세요.');
+        }
+        document.body.removeChild(textarea);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text)
+            .then(() => {
+                alert('내용을 클립보드에 복사했습니다.');
+            })
+            .catch(() => {
+                fallbackCopy();
+            });
+    } else {
+        fallbackCopy();
+    }
+});
+
 document.getElementById('overlayDelete').addEventListener('click', () => {
     if (!currentOverlayFile) return;
-    
+
     const fileTypeName = currentOverlayFile.type === 'summary' ? '요약을' : 'STT를';
     const confirmed = confirm(`현재 조회중인 ${fileTypeName} 삭제하시겠습니까?`);
     
