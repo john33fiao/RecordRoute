@@ -343,11 +343,17 @@
 
 #modelSettingsPopup .buttons {
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
     gap: 10px;
     margin-top: 20px;
     padding-top: 20px;
     border-top: 1px solid #dee2e6;
+}
+
+#modelSettingsPopup .buttons .button-group {
+    display: flex;
+    gap: 10px;
 }
 
 #modelSettingsPopup .buttons button {
@@ -357,6 +363,15 @@
     cursor: pointer;
     font-size: 14px;
     font-weight: 500;
+}
+
+#modelSettingsStopBtn {
+    background: #dc3545;
+    color: white;
+}
+
+#modelSettingsStopBtn:hover {
+    background: #b02a37;
 }
 
 #modelSettingsCancelBtn {

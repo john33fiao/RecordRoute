@@ -56,6 +56,7 @@ const modelSettingsPopup = document.getElementById('modelSettingsPopup');
 const modelSettingsCloseBtn = document.getElementById('modelSettingsCloseBtn');
 const modelSettingsCancelBtn = document.getElementById('modelSettingsCancelBtn');
 const modelSettingsConfirmBtn = document.getElementById('modelSettingsConfirmBtn');
+const modelSettingsStopBtn = document.getElementById('modelSettingsStopBtn');
 const themeToggle = document.getElementById('themeToggle');
 const searchResultsContainer = document.getElementById('searchResults');
 const keywordGroup = document.getElementById('keywordGroup');
@@ -438,21 +439,59 @@ function saveModelSettings() {
         summarize: document.getElementById('summarizeModel').value,
         embedding: document.getElementById('embeddingModel').value
     };
-    
+
     localStorage.setItem('modelSettings', JSON.stringify(settings));
     hideModelSettingsPopup();
-    
+
     // Show success message
     const status = document.getElementById('status');
     const originalContent = status.innerHTML;
     status.innerHTML = '<div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 10px; border-radius: 5px; margin: 10px 0; color: #155724;">✅ 모델 설정이 저장되었습니다!</div>';
-    
+
     // Clear message after 3 seconds
     setTimeout(() => {
         if (status.innerHTML.includes('모델 설정이 저장되었습니다')) {
             status.innerHTML = originalContent;
         }
     }, 3000);
+}
+
+async function requestServerShutdown() {
+    const confirmShutdown = confirm('파이썬 서버를 종료하시겠습니까? 진행 중인 작업이 있다면 중단될 수 있습니다.');
+    if (!confirmShutdown) {
+        return;
+    }
+
+    const status = document.getElementById('status');
+    const originalContent = status.innerHTML;
+
+    try {
+        const response = await fetch('/shutdown', { method: 'POST' });
+        const data = await response.json().catch(() => ({}));
+
+        if (response.ok && data.success !== false) {
+            hideModelSettingsPopup();
+            const message = data.message || '서버 종료 요청이 접수되었습니다. 잠시 후 서버가 종료됩니다.';
+            status.innerHTML = '<div style="background: #fff3cd; border: 1px solid #ffeeba; padding: 10px; border-radius: 5px; margin: 10px 0; color: #856404;">🔌 ' + message + '</div>';
+        } else {
+            const errorMessage = data.error || '서버 종료 요청에 실패했습니다.';
+            status.innerHTML = '<div style="background: #f8d7da; border: 1px solid #f5c6cb; padding: 10px; border-radius: 5px; margin: 10px 0; color: #721c24;">⚠️ ' + errorMessage + '</div>';
+            setTimeout(() => {
+                if (status.innerHTML.includes(errorMessage)) {
+                    status.innerHTML = originalContent;
+                }
+            }, 5000);
+        }
+    } catch (error) {
+        console.error('Server shutdown error:', error);
+        const errorMessage = '서버 종료 요청 중 오류가 발생했습니다.';
+        status.innerHTML = '<div style="background: #f8d7da; border: 1px solid #f5c6cb; padding: 10px; border-radius: 5px; margin: 10px 0; color: #721c24;">⚠️ ' + errorMessage + '</div>';
+        setTimeout(() => {
+            if (status.innerHTML.includes(errorMessage)) {
+                status.innerHTML = originalContent;
+            }
+        }, 5000);
+    }
 }
 
 function viewSimilarDocument(downloadLink, displayName = null) {
@@ -472,6 +511,7 @@ similarDocsRefreshBtn.addEventListener('click', () => {
 modelSettingsCloseBtn.addEventListener('click', hideModelSettingsPopup);
 modelSettingsCancelBtn.addEventListener('click', hideModelSettingsPopup);
 modelSettingsConfirmBtn.addEventListener('click', saveModelSettings);
+modelSettingsStopBtn.addEventListener('click', requestServerShutdown);
 
 function editFilename(recordId, currentFilename) {
     const filenameElement = document.getElementById(`filename-${recordId}`);
