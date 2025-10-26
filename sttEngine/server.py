@@ -1675,6 +1675,16 @@ class UploadHandler(BaseHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
 
+    def _schedule_server_shutdown(self):
+        """Schedule a graceful shutdown once the response is sent."""
+
+        def shutdown_server():
+            time.sleep(0.5)
+            print("Client requested server shutdown. Stopping HTTP server...")
+            self.server.shutdown()
+
+        threading.Thread(target=shutdown_server, daemon=True).start()
+
     def _parse_multipart(self, data, boundary):
         """Simple multipart/form-data parser"""
         parts = data.split(f'--{boundary}'.encode())
@@ -1854,6 +1864,20 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"success": success}).encode())
+            return
+
+        if self.path == "/shutdown":
+            print("Shutdown request received via /shutdown endpoint")
+            response_data = {
+                "success": True,
+                "message": "서버 종료 요청이 접수되었습니다. 잠시 후 서버가 종료됩니다."
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode())
+            self._schedule_server_shutdown()
+            self.close_connection = True
             return
 
         if self.path == "/reset":
