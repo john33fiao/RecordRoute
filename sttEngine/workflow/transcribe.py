@@ -21,10 +21,13 @@ except ImportError:
 # 설정 모듈 임포트
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
-from config import get_model_for_task, get_default_model
+from config import get_db_base_path, get_default_model, get_model_for_task
 from logger import setup_logging
 
 setup_logging()
+
+DB_BASE_PATH = get_db_base_path()
+DEFAULT_OUTPUT_DIR = DB_BASE_PATH / "whisper_output"
 
 # Whisper가 지원하는 파일 확장자 목록
 SUPPORTED_EXTS = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'}
@@ -625,8 +628,11 @@ def main():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="./DB/whisper_output",
-        help="변환된 마크다운 파일을 저장할 출력 디렉토리 경로\n(기본값: ./DB/whisper_output)"
+        default=str(DEFAULT_OUTPUT_DIR),
+        help=(
+            "변환된 마크다운 파일을 저장할 출력 디렉토리 경로\n"
+            "(기본값: 환경변수 DB_FOLDER_PATH 또는 /DB 하위 whisper_output)"
+        )
     )
     
     # .env 파일에서 플랫폼별 기본 모델 로드

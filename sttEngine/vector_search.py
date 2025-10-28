@@ -15,7 +15,7 @@ from search_cache import get_cached_search_result, cache_search_result
 
 # 설정 모듈 임포트
 sys.path.append(str(Path(__file__).parent / "sttEngine"))
-from config import get_model_for_task, get_default_model
+from config import get_default_model, get_model_for_task, normalize_db_record_path
 
 
 def embed_text_ollama(text: str, model_name: str) -> np.ndarray:
@@ -91,10 +91,13 @@ def search(query: str, base_dir: Path, top_k: int = 10,
             if denom == 0:
                 continue
             score = float(np.dot(query_vec, doc_vec) / denom)
+            resolved_path = Path(path_str).resolve()
             try:
-                rel_path = str(Path(path_str).resolve().relative_to(base_dir))
+                rel_path = str(resolved_path.relative_to(base_dir))
             except ValueError:
-                rel_path = path_str
+                rel_path = resolved_path.as_posix()
+
+            rel_path = normalize_db_record_path(rel_path, base_dir)
             results.append({"file": rel_path, "score": score})
         
         results.sort(key=lambda x: x["score"], reverse=True)
