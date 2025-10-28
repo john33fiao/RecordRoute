@@ -4,8 +4,9 @@ RecordRoute 설정 관리 모듈
 """
 import os
 import platform
+import sys
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict, Optional
 
 def load_env_file(env_path: Path = None) -> Dict[str, str]:
     """
@@ -108,3 +109,109 @@ def get_default_model(task: str) -> str:
     """작업별 플랫폼 기본 모델 반환"""
     platform_suffix = get_platform_suffix()
     return PLATFORM_DEFAULTS[task][platform_suffix]
+
+
+DB_ALIAS = "DB"
+DEFAULT_DB_FOLDER = "/DB"
+
+
+def get_project_root() -> Path:
+    """프로젝트 루트 경로 반환"""
+    return Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent)).resolve()
+
+
+def _resolve_db_path(path_value: str, base_dir: Path) -> Optional[Path]:
+    """주어진 문자열을 절대 경로로 변환"""
+    if not path_value:
+        return None
+
+    try:
+        candidate = Path(path_value)
+        if not candidate.is_absolute():
+            candidate = (base_dir / candidate).resolve()
+        else:
+            candidate = candidate.resolve()
+        return candidate
+    except Exception:
+        return None
+
+
+def _ensure_directory_accessible(path: Path) -> bool:
+    """경로가 디렉터리로 접근 가능한지 확인"""
+    try:
+        if path.exists():
+            if not path.is_dir():
+                return False
+        else:
+            path.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return False
+
+    return os.access(path, os.R_OK | os.W_OK | os.X_OK)
+
+
+def get_db_base_path(base_dir: Optional[Path] = None) -> Path:
+    """환경변수 기반 DB 폴더 경로 반환 (접근 불가 시 기본값 사용)"""
+    if base_dir is None:
+        base_dir = get_project_root()
+
+    env_value = os.getenv("DB_FOLDER_PATH")
+
+    if env_value:
+        env_path = _resolve_db_path(env_value, base_dir)
+        if env_path and _ensure_directory_accessible(env_path):
+            return env_path
+
+    default_path = _resolve_db_path(DEFAULT_DB_FOLDER, base_dir)
+    if default_path and _ensure_directory_accessible(default_path):
+        return default_path
+
+    fallback = (base_dir / DB_ALIAS).resolve()
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+def normalize_db_record_path(path_str: str, base_dir: Optional[Path] = None) -> str:
+    """DB 경로 문자열을 표준화하여 저장용 경로로 변환"""
+    if not path_str:
+        return ""
+
+    normalized = path_str.replace("\\", "/").lstrip("/")
+    if normalized.startswith(f"{DB_ALIAS}/"):
+        return normalized
+
+    db_root = get_db_base_path(base_dir)
+    path_obj = Path(path_str)
+
+    if path_obj.is_absolute():
+        try:
+            relative = path_obj.resolve().relative_to(db_root)
+            return f"{DB_ALIAS}/{relative.as_posix()}"
+        except ValueError:
+            return normalized
+
+    return f"{DB_ALIAS}/{normalized}"
+
+
+def resolve_db_path(path_str: str, base_dir: Optional[Path] = None) -> Path:
+    """저장된 DB 경로 문자열을 실제 경로로 변환"""
+    if not path_str:
+        raise ValueError("path_str must be a non-empty string")
+
+    normalized = normalize_db_record_path(path_str, base_dir)
+    if normalized.startswith(f"{DB_ALIAS}/"):
+        relative = normalized[len(DB_ALIAS) + 1 :]
+        db_root = get_db_base_path(base_dir)
+        return (db_root / relative).resolve()
+
+    return Path(normalized).resolve()
+
+
+def to_db_record_path(path: Path, base_dir: Optional[Path] = None) -> str:
+    """실제 경로를 저장용 DB 경로 문자열로 변환"""
+    db_root = get_db_base_path(base_dir)
+    try:
+        relative = path.resolve().relative_to(db_root)
+        return f"{DB_ALIAS}/{relative.as_posix()}"
+    except ValueError:
+        return path.resolve().as_posix()
