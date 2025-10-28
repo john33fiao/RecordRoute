@@ -311,6 +311,67 @@ def save_file_registry(registry):
         pass
 
 
+def is_valid_uuid(value: str) -> bool:
+    """Check whether a string is a valid UUID value."""
+    if not value:
+        return False
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def resolve_file_identifier(file_identifier: str):
+    """Resolve a file identifier (UUID or path) to an absolute path and metadata."""
+    if not file_identifier:
+        return None, None, None, None
+
+    identifier = file_identifier.strip()
+    if identifier.startswith("/download/"):
+        identifier = identifier[len("/download/"):]
+
+    identifier = identifier.lstrip("/").replace('\\', '/')
+
+    registry = load_file_registry()
+
+    if is_valid_uuid(identifier):
+        file_info = registry.get(identifier)
+        if not file_info:
+            return None, None, None, identifier
+
+        file_path = file_info.get("file_path", "").replace('\\', '/')
+        if not file_path.startswith("DB/"):
+            file_path = f"DB/{file_path}"
+
+        full_path = BASE_DIR / file_path
+        record_id = file_info.get("record_id")
+        task_type = file_info.get("task_type")
+        return full_path, record_id, task_type, identifier
+
+    # Legacy path-based identifier
+    file_path = identifier
+    if not file_path.startswith("DB/"):
+        file_path = f"DB/{file_path}"
+
+    full_path = BASE_DIR / file_path
+    record_id = None
+    task_type = None
+    resolved_identifier = identifier
+
+    for uuid_key, info in registry.items():
+        stored_path = info.get("file_path", "").replace('\\', '/')
+        if not stored_path.startswith("DB/"):
+            stored_path = f"DB/{stored_path}"
+        if (BASE_DIR / stored_path) == full_path:
+            record_id = info.get("record_id")
+            task_type = info.get("task_type")
+            resolved_identifier = uuid_key
+            break
+
+    return full_path, record_id, task_type, resolved_identifier
+
+
 def _timestamp_to_sort_key(timestamp_str: str) -> float:
     """Convert ISO timestamp string to numeric sort key."""
     if not timestamp_str:
@@ -687,8 +748,8 @@ def reset_upload_record(record_id: str) -> bool:
     return False
 
 def delete_file(file_identifier: str, file_type: str) -> tuple[bool, str]:
-    """Delete a specific file (STT or summary) and update history. 
-    
+    """Delete a specific file (STT or summary) and update history.
+
     Args:
         file_identifier: File UUID from download URL
         file_type: Type of file ('stt' or 'summary')
@@ -754,6 +815,169 @@ def delete_file(file_identifier: str, file_type: str) -> tuple[bool, str]:
     except Exception as e:
         print(f"Error deleting file: {e}")
         return False, f"삭제 중 오류가 발생했습니다: {str(e)}"
+
+
+def update_stt_text(file_identifier: str, new_text: str) -> tuple[bool, str, str | None]:
+    """Update the contents of an STT result file."""
+
+    if not file_identifier:
+        return False, "파일 식별자가 필요합니다.", None
+
+    file_path, record_id, task_type, _ = resolve_file_identifier(file_identifier)
+
+    if not file_path or not file_path.exists():
+        return False, "파일을 찾을 수 없습니다.", record_id
+
+    if file_path.name.endswith('.summary.md'):
+        return False, "요약 파일은 수정할 수 없습니다.", record_id
+
+    if task_type and task_type not in ("stt", "embedding"):
+        return False, "STT 파일만 수정할 수 있습니다.", record_id
+
+    if file_path.suffix.lower() not in {'.md', '.txt', '.text', '.markdown'}:
+        return False, "지원하지 않는 파일 형식입니다.", record_id
+
+    try:
+        file_path.write_text(new_text, encoding='utf-8')
+    except Exception as exc:
+        print(f"Failed to write updated STT text: {exc}")
+        return False, "텍스트를 저장하지 못했습니다.", record_id
+
+    if not record_id:
+        history = load_upload_history()
+        resolved_path = file_path.resolve()
+        for record in history:
+            folder = record.get("folder_name")
+            if not folder:
+                continue
+            output_dir = (OUTPUT_DIR / folder).resolve()
+            try:
+                resolved_path.relative_to(output_dir)
+                record_id = record["id"]
+                break
+            except ValueError:
+                continue
+
+    return True, "", record_id
+
+
+def reset_summary_and_embedding(record_id: str) -> tuple[bool, str]:
+    """Reset summary and embedding artifacts for a record."""
+
+    if not record_id:
+        return False, "record_id가 필요합니다."
+
+    history = load_upload_history()
+    record = next((item for item in history if item.get("id") == record_id), None)
+
+    if not record:
+        return False, "기록을 찾을 수 없습니다."
+
+    download_links = record.get("download_links", {})
+    registry = load_file_registry()
+    registry_changed = False
+    summary_reset = False
+    embedding_reset = False
+
+    def cleanup_task(task_name: str, delete_file: bool):
+        nonlocal registry_changed, summary_reset, embedding_reset
+
+        link = download_links.get(task_name)
+        if not link:
+            return
+
+        file_path, _, _, resolved_identifier = resolve_file_identifier(link)
+
+        if delete_file and file_path and file_path.exists():
+            try:
+                file_path.unlink()
+            except Exception:
+                pass
+
+        if resolved_identifier and is_valid_uuid(resolved_identifier):
+            entry = registry.get(resolved_identifier)
+            if entry and entry.get("task_type") == task_name:
+                del registry[resolved_identifier]
+                registry_changed = True
+        else:
+            if file_path:
+                try:
+                    relative_path = str(file_path.relative_to(BASE_DIR)).replace('\\', '/')
+                except ValueError:
+                    relative_path = file_path.as_posix()
+
+                candidates = {relative_path}
+                if relative_path.startswith('DB/'):
+                    candidates.add(relative_path[3:])
+
+                for key, info in list(registry.items()):
+                    stored_path = info.get("file_path", "").replace('\\', '/')
+                    if info.get("task_type") == task_name and stored_path in candidates:
+                        del registry[key]
+                        registry_changed = True
+
+        download_links.pop(task_name, None)
+        record["completed_tasks"][task_name] = False
+
+        if task_name == "summary":
+            record["title_summary"] = ""
+            summary_reset = True
+        elif task_name == "embedding":
+            embedding_reset = True
+
+    cleanup_task("summary", delete_file=True)
+    cleanup_task("embedding", delete_file=False)
+
+    if embedding_reset:
+        try:
+            output_dir = OUTPUT_DIR / record.get("folder_name", "")
+            output_resolved = output_dir.resolve()
+            index = load_index()
+            keys_to_remove = []
+
+            for key, meta in list(index.items()):
+                try:
+                    Path(key).resolve().relative_to(output_resolved)
+                    keys_to_remove.append((key, meta))
+                except (ValueError, FileNotFoundError):
+                    continue
+
+            if keys_to_remove:
+                for key, meta in keys_to_remove:
+                    vector_name = meta.get("vector")
+                    if vector_name:
+                        vector_path = VECTOR_DIR / vector_name
+                        if vector_path.exists():
+                            if not any(
+                                v.get("vector") == vector_name and k != key
+                                for k, v in index.items()
+                            ):
+                                try:
+                                    vector_path.unlink()
+                                except Exception:
+                                    pass
+                    del index[key]
+
+                save_index(index)
+        except Exception as exc:
+            print(f"Failed to clean embedding vectors: {exc}")
+
+    if registry_changed:
+        save_file_registry(registry)
+
+    save_upload_history(history)
+
+    if summary_reset and embedding_reset:
+        message = "색인 및 요약이 초기화되었습니다."
+    elif summary_reset:
+        message = "요약이 초기화되었습니다."
+    elif embedding_reset:
+        message = "색인이 초기화되었습니다."
+    else:
+        message = "초기화할 항목이 없습니다."
+
+    return True, message
+
 
 def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = None, model_settings: dict = None):
     """Run the requested workflow steps sequentially.
@@ -1986,6 +2210,68 @@ class UploadHandler(BaseHTTPRequestHandler):
                     "has_stt": False,
                     "error": str(e)
                 }).encode())
+            return
+
+        if self.path == "/update_stt_text":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length)) if length else {}
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": "Invalid JSON payload"}).encode())
+                return
+
+            file_identifier = payload.get("file_identifier")
+            content = payload.get("content", "")
+
+            if not isinstance(content, str):
+                content = str(content)
+
+            success, message, record_id = update_stt_text(file_identifier, content)
+
+            if success:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "record_id": record_id
+                }).encode())
+            else:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": False,
+                    "error": message,
+                    "record_id": record_id
+                }).encode())
+            return
+
+        if self.path == "/reset_summary_embedding":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length)) if length else {}
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": "Invalid JSON payload"}).encode())
+                return
+
+            record_id = payload.get("record_id")
+            success, message = reset_summary_and_embedding(record_id)
+
+            status_code = 200 if success else 400
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": success,
+                "message": message
+            }).encode())
             return
 
         if self.path == "/similar":

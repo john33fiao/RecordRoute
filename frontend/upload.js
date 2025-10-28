@@ -8,6 +8,10 @@ let currentOverlayFile = null; // Track currently viewed file in overlay
 let lastSimilarDocFilePath = null;
 let lastSimilarDocUserFilename = null;
 
+let overlayEditing = false;
+let lastEditedRecordId = null;
+let lastEditedFileIdentifier = null;
+
 let progressSocket = null;
 
 function initWebSocket() {
@@ -42,6 +46,31 @@ function escapeHtml(text) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
 }
+function showTemporaryStatus(message, variant = 'success', duration = 3000) {
+    const status = document.getElementById('status');
+    if (!status) return;
+
+    const variants = {
+        success: { background: '#d4edda', border: '#c3e6cb', color: '#155724', icon: '✅' },
+        error: { background: '#f8d7da', border: '#f5c6cb', color: '#721c24', icon: '⚠️' },
+        warning: { background: '#fff3cd', border: '#ffeeba', color: '#856404', icon: '⚠️' },
+        info: { background: '#d1ecf1', border: '#bee5eb', color: '#0c5460', icon: 'ℹ️' }
+    };
+
+    const style = variants[variant] || variants.info;
+    const originalContent = status.innerHTML;
+    const messageHtml = `<div style="background: ${style.background}; border: 1px solid ${style.border}; padding: 10px; border-radius: 5px; margin: 10px 0; color: ${style.color};">${style.icon} ${message}</div>`;
+
+    status.innerHTML = messageHtml;
+
+    if (duration > 0) {
+        setTimeout(() => {
+            if (status.innerHTML === messageHtml) {
+                status.innerHTML = originalContent;
+            }
+        }, duration);
+    }
+}
 const summaryPopup = document.getElementById('summaryPopup');
 const summaryOnlyBtn = document.getElementById('summaryOnlyBtn');
 const summaryCancelBtn = document.getElementById('summaryCancelBtn');
@@ -57,6 +86,12 @@ const modelSettingsCloseBtn = document.getElementById('modelSettingsCloseBtn');
 const modelSettingsCancelBtn = document.getElementById('modelSettingsCancelBtn');
 const modelSettingsConfirmBtn = document.getElementById('modelSettingsConfirmBtn');
 const modelSettingsStopBtn = document.getElementById('modelSettingsStopBtn');
+const overlayEdit = document.getElementById('overlayEdit');
+const overlaySave = document.getElementById('overlaySave');
+const overlayEditor = document.getElementById('overlayEditor');
+const sttEditResetPopup = document.getElementById('sttEditResetPopup');
+const sttEditResetConfirmBtn = document.getElementById('sttEditResetConfirmBtn');
+const sttEditResetCloseBtn = document.getElementById('sttEditResetCloseBtn');
 const themeToggle = document.getElementById('themeToggle');
 const searchResultsContainer = document.getElementById('searchResults');
 const keywordGroup = document.getElementById('keywordGroup');
@@ -102,24 +137,149 @@ function showTextOverlay(url, fileType = null, displayName = null) {
     const content = document.getElementById('overlayContent');
     const download = document.getElementById('overlayDownload');
 
-    // Store current file info for deletion
+    let resolvedUrl = url;
+    let identifier = null;
+
+    if (typeof url === 'string') {
+        try {
+            const parsed = new URL(url, window.location.origin);
+            resolvedUrl = parsed.pathname + parsed.search;
+            if (parsed.pathname.startsWith('/download/')) {
+                identifier = parsed.pathname.substring('/download/'.length);
+            }
+        } catch (err) {
+            resolvedUrl = url;
+        }
+
+        if (!identifier && resolvedUrl.includes('/download/')) {
+            identifier = resolvedUrl.split('/download/')[1];
+        }
+    }
+
+    if (identifier) {
+        identifier = identifier.split('?')[0];
+    }
+
+    const resolvedType = fileType || (resolvedUrl && resolvedUrl.includes('.summary.') ? 'summary' : 'stt');
+
+    // Store current file info for deletion or editing
     currentOverlayFile = {
         url: url,
-        type: fileType || (url.includes('.summary.') ? 'summary' : 'stt')
+        type: resolvedType,
+        identifier: identifier
     };
+
+    lastEditedRecordId = null;
+    lastEditedFileIdentifier = null;
+    exitOverlayEditMode(false);
+    hideSttEditResetPopup();
+
+    if (overlayEdit) {
+        if (resolvedType === 'stt') {
+            overlayEdit.style.display = 'inline-block';
+            overlayEdit.textContent = '수정';
+        } else {
+            overlayEdit.style.display = 'none';
+        }
+    }
+
+    if (overlaySave) {
+        overlaySave.style.display = 'none';
+        overlaySave.disabled = false;
+        overlaySave.textContent = '저장';
+    }
+
+    if (overlayEditor) {
+        overlayEditor.value = '';
+    }
 
     overlay.style.display = 'flex';
     content.textContent = '로딩중...';
     download.href = url;
     download.setAttribute('download', displayName ? normalizeKorean(displayName) : '');
+
     fetch(url)
         .then(resp => resp.text())
         .then(text => {
             content.textContent = text;
+            if (overlayEditor) {
+                overlayEditor.value = text;
+            }
         })
         .catch(() => {
-            content.textContent = '파일을 불러오지 못했습니다.';
+            const errorText = '파일을 불러오지 못했습니다.';
+            content.textContent = errorText;
+            if (overlayEditor) {
+                overlayEditor.value = errorText;
+            }
         });
+}
+
+function enterOverlayEditMode() {
+    if (!overlayEditor) return;
+    const content = document.getElementById('overlayContent');
+    if (content) {
+        overlayEditor.value = overlayEditor.value || content.textContent || '';
+        content.style.display = 'none';
+    }
+
+    overlayEditor.style.display = 'block';
+    overlayEditing = true;
+
+    if (overlaySave) {
+        overlaySave.style.display = 'inline-block';
+        overlaySave.disabled = false;
+        overlaySave.textContent = '저장';
+    }
+
+    if (overlayEdit) {
+        overlayEdit.textContent = '취소';
+    }
+
+    setTimeout(() => {
+        overlayEditor.focus();
+        const length = overlayEditor.value.length;
+        overlayEditor.setSelectionRange(length, length);
+    }, 0);
+}
+
+function exitOverlayEditMode(resetEditorValue = true) {
+    const content = document.getElementById('overlayContent');
+
+    if (overlayEditor) {
+        overlayEditor.style.display = 'none';
+        if (resetEditorValue && content) {
+            overlayEditor.value = content.textContent || '';
+        }
+    }
+
+    if (content) {
+        content.style.display = 'block';
+    }
+
+    overlayEditing = false;
+
+    if (overlaySave) {
+        overlaySave.style.display = 'none';
+        overlaySave.disabled = false;
+        overlaySave.textContent = '저장';
+    }
+
+    if (overlayEdit) {
+        overlayEdit.textContent = '수정';
+    }
+}
+
+function showSttEditResetPopup() {
+    if (sttEditResetPopup) {
+        sttEditResetPopup.style.display = 'flex';
+    }
+}
+
+function hideSttEditResetPopup() {
+    if (sttEditResetPopup) {
+        sttEditResetPopup.style.display = 'none';
+    }
 }
 
 // Progress updates are pushed via WebSocket; polling functions are no-ops
@@ -127,7 +287,12 @@ function startProgressPolling(task) {}
 function stopProgressPolling() {}
 
 document.getElementById('overlayClose').addEventListener('click', () => {
-    document.getElementById('textOverlay').style.display = 'none';
+    const overlay = document.getElementById('textOverlay');
+    overlay.style.display = 'none';
+    exitOverlayEditMode();
+    hideSttEditResetPopup();
+    lastEditedRecordId = null;
+    lastEditedFileIdentifier = null;
 });
 
 document.getElementById('overlayCopy').addEventListener('click', () => {
@@ -170,6 +335,79 @@ document.getElementById('overlayCopy').addEventListener('click', () => {
     }
 });
 
+if (overlayEdit) {
+    overlayEdit.addEventListener('click', () => {
+        if (!currentOverlayFile || currentOverlayFile.type !== 'stt') {
+            return;
+        }
+
+        if (!overlayEditing) {
+            enterOverlayEditMode();
+        } else {
+            exitOverlayEditMode();
+        }
+    });
+}
+
+if (overlaySave) {
+    overlaySave.addEventListener('click', async () => {
+        if (!overlayEditing || !overlayEditor) {
+            return;
+        }
+
+        const identifier = currentOverlayFile && currentOverlayFile.identifier;
+        if (!identifier) {
+            showTemporaryStatus('편집할 파일 정보를 확인할 수 없습니다.', 'error', 4000);
+            return;
+        }
+
+        const newText = overlayEditor.value;
+        overlaySave.disabled = true;
+        overlaySave.textContent = '저장중...';
+
+        try {
+            const response = await fetch('/update_stt_text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    file_identifier: identifier,
+                    content: newText
+                })
+            });
+
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok || data.success === false) {
+                const errorMessage = data.error || '텍스트 저장에 실패했습니다.';
+                throw new Error(errorMessage);
+            }
+
+            const overlayContent = document.getElementById('overlayContent');
+            if (overlayContent) {
+                overlayContent.textContent = newText;
+            }
+
+            overlayEditor.value = newText;
+            exitOverlayEditMode(false);
+
+            showTemporaryStatus('STT 텍스트가 저장되었습니다.', 'success');
+
+            lastEditedRecordId = data.record_id || null;
+            lastEditedFileIdentifier = identifier;
+
+            if (lastEditedRecordId) {
+                showSttEditResetPopup();
+            }
+        } catch (error) {
+            console.error('STT update error:', error);
+            showTemporaryStatus(error.message || '텍스트 저장 중 오류가 발생했습니다.', 'error', 5000);
+        } finally {
+            overlaySave.disabled = false;
+            overlaySave.textContent = '저장';
+        }
+    });
+}
+
 document.getElementById('overlayDelete').addEventListener('click', () => {
     if (!currentOverlayFile) return;
 
@@ -187,6 +425,10 @@ document.addEventListener('keydown', (e) => {
         const textOverlay = document.getElementById('textOverlay');
         if (textOverlay.style.display === 'flex') {
             textOverlay.style.display = 'none';
+            exitOverlayEditMode();
+            hideSttEditResetPopup();
+            lastEditedRecordId = null;
+            lastEditedFileIdentifier = null;
         }
         if (summaryPopup.style.display === 'flex') {
             hideSummaryPopup();
@@ -199,6 +441,9 @@ document.addEventListener('keydown', (e) => {
         }
         if (modelSettingsPopup.style.display === 'flex') {
             hideModelSettingsPopup();
+        }
+        if (sttEditResetPopup && sttEditResetPopup.style.display === 'flex') {
+            hideSttEditResetPopup();
         }
     }
 });
@@ -512,6 +757,52 @@ modelSettingsCloseBtn.addEventListener('click', hideModelSettingsPopup);
 modelSettingsCancelBtn.addEventListener('click', hideModelSettingsPopup);
 modelSettingsConfirmBtn.addEventListener('click', saveModelSettings);
 modelSettingsStopBtn.addEventListener('click', requestServerShutdown);
+if (sttEditResetConfirmBtn) {
+    sttEditResetConfirmBtn.addEventListener('click', async () => {
+        if (!lastEditedRecordId) {
+            hideSttEditResetPopup();
+            return;
+        }
+
+        sttEditResetConfirmBtn.disabled = true;
+        sttEditResetConfirmBtn.textContent = '초기화 중...';
+
+        try {
+            const response = await fetch('/reset_summary_embedding', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ record_id: lastEditedRecordId })
+            });
+
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok || data.success === false) {
+                const errorMessage = data.error || '초기화에 실패했습니다.';
+                throw new Error(errorMessage);
+            }
+
+            showTemporaryStatus('색인 및 요약이 초기화되었습니다.', 'success');
+            hideSttEditResetPopup();
+            lastEditedRecordId = null;
+            lastEditedFileIdentifier = null;
+            loadHistory();
+        } catch (error) {
+            console.error('Reset summary/embedding error:', error);
+            showTemporaryStatus(error.message || '초기화 중 오류가 발생했습니다.', 'error', 5000);
+        } finally {
+            sttEditResetConfirmBtn.disabled = false;
+            sttEditResetConfirmBtn.textContent = '초기화';
+        }
+    });
+}
+
+if (sttEditResetCloseBtn) {
+    sttEditResetCloseBtn.addEventListener('click', () => {
+        hideSttEditResetPopup();
+        lastEditedRecordId = null;
+        lastEditedFileIdentifier = null;
+    });
+}
 
 function editFilename(recordId, currentFilename) {
     const filenameElement = document.getElementById(`filename-${recordId}`);
