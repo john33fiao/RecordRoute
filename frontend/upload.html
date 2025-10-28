@@ -62,11 +62,14 @@
         <div class="content">
             <div class="buttons">
                 <button id="overlayCopy">복사</button>
+                <button id="overlayEdit" style="display:none;">수정</button>
+                <button id="overlaySave" style="display:none;">저장</button>
                 <a id="overlayDownload" href="#" download>다운로드</a>
                 <button id="overlayDelete" style="background:#dc3545; color:white;">삭제</button>
                 <button id="overlayClose">닫기</button>
             </div>
             <pre id="overlayContent" style="white-space: pre-wrap;"></pre>
+            <textarea id="overlayEditor" style="display:none;"></textarea>
         </div>
     </div>
 
@@ -153,6 +156,16 @@
                         <button id="modelSettingsConfirmBtn">확인</button>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="sttEditResetPopup">
+        <div class="content">
+            <p>텍스트 수정이 완료되었습니다. 저장된 색인 및 요약을 초기화 하시겠습니까?</p>
+            <div class="buttons">
+                <button id="sttEditResetConfirmBtn">초기화</button>
+                <button id="sttEditResetCloseBtn">닫기</button>
             </div>
         </div>
     </div>
