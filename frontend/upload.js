@@ -2191,35 +2191,132 @@ document.getElementById('uploadBtn').addEventListener('click', async () => {
     const input = document.getElementById('fileInput');
     const status = document.getElementById('status');
     const files = Array.from(input.files);
+
     if (files.length === 0) {
         status.textContent = 'Please select a file first.';
         return;
     }
 
+    // Build ordered list to display detailed status updates
+    status.innerHTML = '';
+    const statusList = document.createElement('ol');
+    statusList.className = 'upload-status-list';
+    status.appendChild(statusList);
+
+    const appendStatusLine = (text) => {
+        const item = document.createElement('li');
+        item.textContent = text;
+        statusList.appendChild(item);
+        return item;
+    };
+
+    const selectedCount = files.length;
+    let firstLine = appendStatusLine(`${selectedCount}개 파일이 선택되었습니다. 중복 확인 중...`);
+
+    // Remove duplicate selections before uploading
+    const seenKeys = new Set();
+    const uniqueFiles = [];
+    let duplicateSelectionCount = 0;
+    for (const file of files) {
+        const key = `${file.name}-${file.size}-${file.lastModified}`;
+        if (seenKeys.has(key)) {
+            duplicateSelectionCount += 1;
+            continue;
+        }
+        seenKeys.add(key);
+        uniqueFiles.push(file);
+    }
+
+    firstLine.textContent = `${selectedCount}개 파일이 선택되었으며, ${duplicateSelectionCount}개 파일이 중복으로 제외되었습니다.`;
+
+    if (uniqueFiles.length === 0) {
+        appendStatusLine('모든 파일이 중복으로 제외되어 업로드할 항목이 없습니다.');
+        input.value = '';
+        return;
+    }
+
+    // Prepare upload progress tracking
+    const totalUnique = uniqueFiles.length;
+    const totalSize = uniqueFiles.reduce((sum, file) => sum + (file.size || 0), 0);
+    const cumulativeSizes = [];
+    uniqueFiles.reduce((acc, file) => {
+        const next = acc + (file.size || 0);
+        cumulativeSizes.push(next);
+        return next;
+    }, 0);
+
+    let progressLine = appendStatusLine(`업로드 진행중입니다. (0/${totalUnique})`);
+    let lastReportedCount = 0;
+    const updateProgressLine = (count) => {
+        const safeCount = Math.max(0, Math.min(totalUnique, count));
+        progressLine.textContent = `업로드 진행중입니다. (${safeCount}/${totalUnique})`;
+    };
+
     const formData = new FormData();
-    files.forEach(f => formData.append('files', f));
+    uniqueFiles.forEach(file => formData.append('files', file));
 
     try {
-        const resp = await fetch('/upload', {
-            method: 'POST',
-            body: formData
-        });
-        if (resp.ok) {
-            const data = await resp.json();
-            if (data.length === 1) {
-                status.textContent = 'Upload complete! 히스토리에서 작업을 선택하거나 "전체 진행" 버튼을 사용하세요.';
-            } else {
-                status.textContent = `${data.length}개의 파일이 업로드되었습니다. 히스토리에서 작업을 선택하거나 "전체 진행" 버튼을 사용하세요.`;
-            }
+        const responseData = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/upload');
+            xhr.responseType = 'json';
 
-            // Reload history to show the new upload(s)
-            loadHistory();
-            input.value = '';
-        } else {
-            status.textContent = 'Upload failed.';
+            xhr.upload.onprogress = (event) => {
+                if (!event.lengthComputable || totalSize === 0) {
+                    return;
+                }
+
+                const loaded = event.loaded;
+                let uploadedCount = lastReportedCount;
+
+                while (uploadedCount < cumulativeSizes.length && loaded >= cumulativeSizes[uploadedCount]) {
+                    uploadedCount += 1;
+                }
+
+                if (uploadedCount !== lastReportedCount) {
+                    lastReportedCount = uploadedCount;
+                    updateProgressLine(uploadedCount);
+                }
+            };
+
+            xhr.onerror = () => {
+                reject(new Error('네트워크 오류로 업로드에 실패했습니다.'));
+            };
+
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    try {
+                        const parsed = xhr.response ?? JSON.parse(xhr.responseText || '[]');
+                        resolve(parsed);
+                    } catch (error) {
+                        reject(new Error('서버 응답을 해석하지 못했습니다.'));
+                    }
+                } else {
+                    reject(new Error(`Upload failed with status ${xhr.status}`));
+                }
+            };
+
+            xhr.send(formData);
+        });
+
+        const uploads = Array.isArray(responseData) ? responseData : [];
+        const serverDuplicateCount = uploads.filter(item => item && item.duplicate).length;
+        const successCount = uploads.filter(item => item && !item.duplicate).length;
+        const totalDuplicates = duplicateSelectionCount + serverDuplicateCount;
+
+        firstLine.textContent = `${selectedCount}개 파일이 선택되었으며, ${totalDuplicates}개 파일이 중복으로 제외되었습니다.`;
+        updateProgressLine(totalUnique);
+
+        appendStatusLine(`${successCount}개 파일 업로드가 완료되었습니다.`);
+        if (serverDuplicateCount > 0) {
+            appendStatusLine(`${serverDuplicateCount}개 파일은 기존 업로드와 중복되어 기록에 추가되지 않았습니다.`);
         }
+
+        // Reload history to show the new upload(s)
+        await loadHistory();
+        input.value = '';
     } catch (err) {
-        status.textContent = 'Error: ' + err.message;
+        appendStatusLine(`업로드 중 오류가 발생했습니다: ${err.message}`);
     }
 });
 
