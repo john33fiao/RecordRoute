@@ -112,7 +112,7 @@ def get_default_model(task: str) -> str:
 
 
 DB_ALIAS = "DB"
-DEFAULT_DB_FOLDER = "/DB"
+DEFAULT_DB_FOLDER = "DB"
 
 
 def get_project_root() -> Path:

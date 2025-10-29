@@ -631,7 +631,7 @@ def main():
         default=str(DEFAULT_OUTPUT_DIR),
         help=(
             "변환된 마크다운 파일을 저장할 출력 디렉토리 경로\n"
-            "(기본값: 환경변수 DB_FOLDER_PATH 또는 /DB 하위 whisper_output)"
+            "(기본값: 환경변수 DB_FOLDER_PATH 또는 프로젝트 루트의 DB/whisper_output)"
         )
     )
     
