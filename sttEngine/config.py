@@ -167,8 +167,13 @@ def get_db_base_path(base_dir: Optional[Path] = None) -> Path:
 
     if env_value:
         env_path = _resolve_db_path(env_value, base_dir)
-        if env_path and _ensure_directory_accessible(env_path, create_if_missing=False):
-            return env_path
+        if env_path:
+            if _ensure_directory_accessible(env_path, create_if_missing=False):
+                return env_path
+
+            # 경로가 존재하지 않지만 생성 가능한 경우에는 환경 변수에 지정된 경로를 사용한다.
+            if _ensure_directory_accessible(env_path, create_if_missing=True):
+                return env_path
 
     default_path = _resolve_db_path(DEFAULT_DB_FOLDER, base_dir)
     if default_path and _ensure_directory_accessible(default_path):
