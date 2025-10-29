@@ -6,11 +6,13 @@ from workflow.summarize import read_text_with_fallback, DEFAULT_MODEL
 from ollama_utils import safe_ollama_call
 
 
-def generate_one_line_summary(file_path: Path) -> str:
+def generate_one_line_summary(file_path: Path, model: str = None) -> str:
     """Generate a single-line Korean summary for the given text file.
 
     Args:
         file_path: Path to the text file to summarize.
+        model: Optional Ollama model name to use. Defaults to the
+            structured summary model when not provided.
 
     Returns:
         A one-line summary string.
@@ -19,7 +21,7 @@ def generate_one_line_summary(file_path: Path) -> str:
     prompt = "다음 텍스트를 한 줄로 한국어로 요약해 주세요:\n" + text[:4000]
     response = safe_ollama_call(
         ollama.generate,
-        model=DEFAULT_MODEL,
+        model=model or DEFAULT_MODEL,
         prompt=prompt,
         options={"temperature": 0},
     )

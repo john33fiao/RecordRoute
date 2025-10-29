@@ -564,10 +564,10 @@ def update_filename(record_id: str, new_filename: str):
             break
     save_upload_history(history)
 
-def generate_and_store_title_summary(record_id: str, file_path: Path):
+def generate_and_store_title_summary(record_id: str, file_path: Path, model: str = None):
     """Generate one-line summary and store it."""
     try:
-        summary = generate_one_line_summary(file_path)
+        summary = generate_one_line_summary(file_path, model=model)
         update_title_summary(record_id, summary)
     except Exception as e:
         print(f"One-line summary generation failed: {e}")
@@ -1046,7 +1046,6 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 if record_id:
                     file_path_str = to_record_path(text_file)
                     update_task_completion(record_id, "stt", file_path_str)
-                    generate_and_store_title_summary(record_id, current_file)
             else:
                 # If no STT step for text file, use the original file as starting point
                 # Copy to output directory for consistency
@@ -1078,7 +1077,6 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 if record_id:
                     file_path_str = to_record_path(text_file)
                     update_task_completion(record_id, "stt", file_path_str)
-                    generate_and_store_title_summary(record_id, text_file)
 
             current_file = text_file
             
@@ -1139,7 +1137,6 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
             if record_id:
                 file_path_str = to_record_path(stt_file)
                 update_task_completion(record_id, "stt", file_path_str)
-                generate_and_store_title_summary(record_id, current_file)
 
         if "embedding" in steps and current_file:
             # Check if task was cancelled
@@ -1165,7 +1162,6 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     if record_id:
                         file_path_str = to_record_path(current_file)
                         update_task_completion(record_id, "stt", file_path_str)
-                        generate_and_store_title_summary(record_id, current_file)
                 else:
                     # No existing STT result, run STT first
                     if task_id:
@@ -1217,7 +1213,6 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     if record_id:
                         file_path_str = to_record_path(current_file)
                         update_task_completion(record_id, "stt", file_path_str)
-                        generate_and_store_title_summary(record_id, current_file)
 
             if task_id:
                 update_task_progress(task_id, "임베딩 생성 시작")
@@ -1253,7 +1248,6 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     if record_id:
                         file_path_str = to_record_path(current_file)
                         update_task_completion(record_id, "stt", file_path_str)
-                        generate_and_store_title_summary(record_id, current_file)
                 else:
                     # No existing STT result, run STT first
                     if task_id:
@@ -1305,8 +1299,9 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     if record_id:
                         file_path_str = to_record_path(current_file)
                         update_task_completion(record_id, "stt", file_path_str)
-                        generate_and_store_title_summary(record_id, current_file)
                 
+            source_text_path = Path(current_file) if current_file else None
+
             print(f"Starting summary for task {task_id}")
             if task_id:
                 update_task_progress(task_id, "요약 생성 시작")
@@ -1358,7 +1353,8 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
             if record_id:
                 file_path_str = to_record_path(summary_file)
                 update_task_completion(record_id, "summary", file_path_str)
-                generate_and_store_title_summary(record_id, current_file)
+                if source_text_path:
+                    generate_and_store_title_summary(record_id, source_text_path, summarize_model)
 
     except Exception as exc:  # pragma: no cover - best effort error handling
         # Clean up process registration if something goes wrong
