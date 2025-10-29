@@ -26,10 +26,11 @@ import requests
 # ``sttEngine`` 모듈을 찾지 못하는 문제가 있었다.
 # 이를 방지하기 위해 현재 파일의 부모(프로젝트 루트)를 경로에 추가한다.
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from config import get_model_for_task, get_default_model
+from config import get_db_base_path, get_default_model, get_model_for_task
 from ollama_utils import ensure_ollama_server
 
-VECTOR_DIR = Path("DB/vector_store")
+DB_BASE_PATH = get_db_base_path()
+VECTOR_DIR = DB_BASE_PATH / "vector_store"
 INDEX_FILE = VECTOR_DIR / "index.json"
 
 

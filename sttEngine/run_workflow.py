@@ -6,6 +6,7 @@ import platform
 from pathlib import Path
 
 from logger import setup_logging
+from config import get_db_base_path
 
 setup_logging()
 
@@ -14,7 +15,8 @@ setup_logging()
 BASE_DIR = Path(__file__).parent.resolve()
 # Python 실행 파일 자동 감지 (Windows 호환)
 PYTHON_EXEC = Path(os.environ.get("PYTHON_EXEC", sys.executable))
-OUTPUT_DIR = BASE_DIR.parent / "DB" / "whisper_output"
+DB_BASE_PATH = get_db_base_path(BASE_DIR.parent)
+OUTPUT_DIR = DB_BASE_PATH / "whisper_output"
 
 # 실행할 스크립트 경로
 WORKFLOW_DIR = BASE_DIR / "workflow"

@@ -18,14 +18,20 @@ class _LogFile:
             last = logs[-1]
             if last.stat().st_size < self.max_bytes:
                 return open(last, "a", encoding="utf-8")
-        name = datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ".log"
+        name = self._timestamped_name()
         return open(self.directory / name, "a", encoding="utf-8")
 
     def _rollover(self):
         if self._file:
             self._file.close()
-        name = datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ".log"
+        name = self._timestamped_name()
         self._file = open(self.directory / name, "a", encoding="utf-8")
+
+    def _timestamped_name(self) -> str:
+        """Return a filesystem-safe log file name for the current timestamp."""
+        # Windows disallows ``:`` in file names, so we normalize the timestamp by
+        # replacing the separators with ``-``.
+        return datetime.now().strftime("%Y-%m-%d_%H-%M-%S.log")
 
     def write(self, message: str) -> None:
         if not isinstance(message, str):

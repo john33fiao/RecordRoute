@@ -42,7 +42,14 @@ from .workflow.summarize import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TEMPERATURE,
 )
-from .config import get_default_model
+from .config import (
+    DB_ALIAS,
+    get_db_base_path,
+    get_default_model,
+    normalize_db_record_path,
+    resolve_db_path,
+    to_db_record_path,
+)
 from .one_line_summary import generate_one_line_summary
 from .vector_search import search as search_vectors
 from .search_cache import cleanup_expired_cache, get_cache_stats, delete_cache_record
@@ -53,11 +60,12 @@ import os
 
 
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent)).resolve()
-UPLOAD_DIR = BASE_DIR / "DB" / "uploads"
-OUTPUT_DIR = BASE_DIR / "DB" / "whisper_output"
-VECTOR_DIR = BASE_DIR / "DB" / "vector_store"
-HISTORY_FILE = BASE_DIR / "DB" / "upload_history.json"
-FILE_REGISTRY_FILE = BASE_DIR / "DB" / "file_registry.json"
+DB_BASE_PATH = get_db_base_path(BASE_DIR)
+UPLOAD_DIR = DB_BASE_PATH / "uploads"
+OUTPUT_DIR = DB_BASE_PATH / "whisper_output"
+VECTOR_DIR = DB_BASE_PATH / "vector_store"
+HISTORY_FILE = DB_BASE_PATH / "upload_history.json"
+FILE_REGISTRY_FILE = DB_BASE_PATH / "file_registry.json"
 SEARCHABLE_SUFFIXES = {".md", ".txt", ".text", ".markdown"}
 
 # Global dictionary to track running processes
@@ -71,6 +79,21 @@ progress_lock = threading.Lock()
 # WebSocket server setup for real-time progress updates
 connected_clients = set()
 websocket_loop = asyncio.new_event_loop()
+
+
+def normalize_record_path(path_str: str) -> str:
+    """Normalize stored record paths using the configured DB base path."""
+    return normalize_db_record_path(path_str, BASE_DIR)
+
+
+def to_record_path(path: Path) -> str:
+    """Convert an absolute path to a stored record path."""
+    return to_db_record_path(path, BASE_DIR)
+
+
+def resolve_record_path(path_str: str) -> Path:
+    """Resolve a stored record path to an absolute filesystem path."""
+    return resolve_db_path(path_str, BASE_DIR)
 
 
 async def _send_progress(task_id, message):
@@ -271,7 +294,7 @@ def add_upload_record(file_path: Path, file_type: str, duration: str = None, fil
         "filename": file_path.name,
         "file_type": file_type,
         "duration": duration,
-        "file_path": str(file_path.relative_to(BASE_DIR)),
+        "file_path": to_record_path(file_path),
         "folder_name": file_path.parent.name,  # UUID folder name
         "completed_tasks": {
             "stt": False,
@@ -340,30 +363,28 @@ def resolve_file_identifier(file_identifier: str):
         if not file_info:
             return None, None, None, identifier
 
-        file_path = file_info.get("file_path", "").replace('\\', '/')
-        if not file_path.startswith("DB/"):
-            file_path = f"DB/{file_path}"
+        file_path = normalize_record_path(file_info.get("file_path", ""))
+        if not file_path:
+            return None, file_info.get("record_id"), file_info.get("task_type"), identifier
 
-        full_path = BASE_DIR / file_path
+        full_path = resolve_record_path(file_path)
         record_id = file_info.get("record_id")
         task_type = file_info.get("task_type")
         return full_path, record_id, task_type, identifier
 
     # Legacy path-based identifier
-    file_path = identifier
-    if not file_path.startswith("DB/"):
-        file_path = f"DB/{file_path}"
+    file_path = normalize_record_path(identifier)
+    if not file_path:
+        return None, None, None, identifier
 
-    full_path = BASE_DIR / file_path
+    full_path = resolve_record_path(file_path)
     record_id = None
     task_type = None
     resolved_identifier = identifier
 
     for uuid_key, info in registry.items():
-        stored_path = info.get("file_path", "").replace('\\', '/')
-        if not stored_path.startswith("DB/"):
-            stored_path = f"DB/{stored_path}"
-        if (BASE_DIR / stored_path) == full_path:
+        stored_path = normalize_record_path(info.get("file_path", ""))
+        if resolve_record_path(stored_path) == full_path:
             record_id = info.get("record_id")
             task_type = info.get("task_type")
             resolved_identifier = uuid_key
@@ -389,11 +410,11 @@ def _collect_searchable_documents():
     registry = load_file_registry()
 
     for file_uuid, info in registry.items():
-        rel_path = info.get("file_path")
+        rel_path = normalize_record_path(info.get("file_path"))
         if not rel_path:
             continue
 
-        full_path = (BASE_DIR / rel_path).resolve()
+        full_path = resolve_record_path(rel_path)
         if not full_path.exists():
             continue
 
@@ -452,13 +473,15 @@ def register_file(file_path: str, record_id: str, task_type: str, original_filen
     """Register a file with UUID and return the file UUID."""
     registry = load_file_registry()
     file_uuid = str(uuid.uuid4())
-    
+
+    normalized_path = normalize_record_path(file_path)
+
     file_info = {
         "file_uuid": file_uuid,
-        "file_path": file_path,
+        "file_path": normalized_path,
         "record_id": record_id,
         "task_type": task_type,
-        "original_filename": original_filename or os.path.basename(file_path),
+        "original_filename": original_filename or os.path.basename(normalized_path),
         "created_at": datetime.now().isoformat()
     }
     
@@ -484,20 +507,20 @@ def migrate_existing_files():
         # Process each download link
         for task_type, download_url in download_links.items():
             if download_url.startswith("/download/"):
-                file_path = download_url[10:]  # Remove "/download/" prefix
-                
+                file_path = normalize_record_path(download_url[10:])  # Remove "/download/" prefix
+
                 # Check if this file is already registered
                 already_registered = False
                 for file_info in registry.values():
-                    if file_info["file_path"] == file_path and file_info["record_id"] == record_id:
+                    if normalize_record_path(file_info["file_path"]) == file_path and file_info["record_id"] == record_id:
                         already_registered = True
                         break
-                
+
                 if not already_registered:
                     # Register the file and update download link
-                    full_path = BASE_DIR / file_path
+                    full_path = resolve_record_path(file_path)
                     if full_path.exists():
-                        file_uuid = register_file(str(full_path.relative_to(BASE_DIR)), record_id, task_type, os.path.basename(file_path))
+                        file_uuid = register_file(file_path, record_id, task_type, os.path.basename(full_path))
                         # Update the download link to use UUID
                         record["download_links"][task_type] = f"/download/{file_uuid}"
                         updated = True
@@ -681,7 +704,7 @@ def generate_embedding(file_path: Path, record_id: str = None):
         
         # Update task completion
         if record_id:
-            file_path_str = str(file_path.relative_to(BASE_DIR))
+            file_path_str = to_record_path(file_path)
             update_task_completion(record_id, "embedding", file_path_str)
         
         print(f"Embedding generated for {file_path.name}")
@@ -902,16 +925,17 @@ def reset_summary_and_embedding(record_id: str) -> tuple[bool, str]:
         else:
             if file_path:
                 try:
-                    relative_path = str(file_path.relative_to(BASE_DIR)).replace('\\', '/')
-                except ValueError:
+                    relative_path = to_record_path(file_path)
+                except Exception:
                     relative_path = file_path.as_posix()
 
-                candidates = {relative_path}
-                if relative_path.startswith('DB/'):
-                    candidates.add(relative_path[3:])
+                normalized = normalize_record_path(relative_path)
+                candidates = {relative_path, normalized}
+                if normalized.startswith(f"{DB_ALIAS}/"):
+                    candidates.add(normalized[len(DB_ALIAS) + 1 :])
 
                 for key, info in list(registry.items()):
-                    stored_path = info.get("file_path", "").replace('\\', '/')
+                    stored_path = normalize_record_path(info.get("file_path", ""))
                     if info.get("task_type") == task_name and stored_path in candidates:
                         del registry[key]
                         registry_changed = True
@@ -1020,7 +1044,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 
                 # Update history
                 if record_id:
-                    file_path_str = str(text_file.relative_to(BASE_DIR))
+                    file_path_str = to_record_path(text_file)
                     update_task_completion(record_id, "stt", file_path_str)
                     generate_and_store_title_summary(record_id, current_file)
             else:
@@ -1052,7 +1076,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 download_url = f"/download/{upload_folder_name}/{text_file.name}"
                 results["stt"] = download_url
                 if record_id:
-                    file_path_str = str(text_file.relative_to(BASE_DIR))
+                    file_path_str = to_record_path(text_file)
                     update_task_completion(record_id, "stt", file_path_str)
                     generate_and_store_title_summary(record_id, text_file)
 
@@ -1113,7 +1137,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
 
             # Update history
             if record_id:
-                file_path_str = str(stt_file.relative_to(BASE_DIR))
+                file_path_str = to_record_path(stt_file)
                 update_task_completion(record_id, "stt", file_path_str)
                 generate_and_store_title_summary(record_id, current_file)
 
@@ -1139,7 +1163,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     
                     # Update history if needed
                     if record_id:
-                        file_path_str = str(current_file.relative_to(BASE_DIR))
+                        file_path_str = to_record_path(current_file)
                         update_task_completion(record_id, "stt", file_path_str)
                         generate_and_store_title_summary(record_id, current_file)
                 else:
@@ -1191,7 +1215,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
 
                     # Update history
                     if record_id:
-                        file_path_str = str(current_file.relative_to(BASE_DIR))
+                        file_path_str = to_record_path(current_file)
                         update_task_completion(record_id, "stt", file_path_str)
                         generate_and_store_title_summary(record_id, current_file)
 
@@ -1227,7 +1251,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     
                     # Update history if needed
                     if record_id:
-                        file_path_str = str(current_file.relative_to(BASE_DIR))
+                        file_path_str = to_record_path(current_file)
                         update_task_completion(record_id, "stt", file_path_str)
                         generate_and_store_title_summary(record_id, current_file)
                 else:
@@ -1279,7 +1303,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
 
                     # Update history
                     if record_id:
-                        file_path_str = str(current_file.relative_to(BASE_DIR))
+                        file_path_str = to_record_path(current_file)
                         update_task_completion(record_id, "stt", file_path_str)
                         generate_and_store_title_summary(record_id, current_file)
                 
@@ -1332,7 +1356,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
 
             # Update history
             if record_id:
-                file_path_str = str(summary_file.relative_to(BASE_DIR))
+                file_path_str = to_record_path(summary_file)
                 update_task_completion(record_id, "summary", file_path_str)
                 generate_and_store_title_summary(record_id, current_file)
 
@@ -1389,25 +1413,19 @@ class UploadHandler(BaseHTTPRequestHandler):
             # New UUID-based system
             file_info = get_file_by_uuid(file_identifier)
             if file_info:
-                file_path = file_info["file_path"]
+                file_path = normalize_record_path(file_info["file_path"])
                 filename = file_info["original_filename"]
-                
-                # Handle legacy paths without DB/ prefix and normalize path separators
-                file_path = file_path.replace('\\', '/')  # Normalize to forward slashes
-                if not file_path.startswith("DB/"):
-                    file_path = f"DB/{file_path}"
-                
-                full_path = BASE_DIR / file_path
+                full_path = resolve_record_path(file_path)
             else:
                 self.send_response(404)
                 self.end_headers()
                 return
         else:
             # Legacy path-based system
-            file_path = file_identifier
-            filename = os.path.basename(file_path)
-            full_path = BASE_DIR / file_path
-        
+            normalized_path = normalize_record_path(file_identifier)
+            full_path = resolve_record_path(normalized_path)
+            filename = os.path.basename(file_identifier) or full_path.name
+
         if full_path.exists():
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
@@ -1628,13 +1646,8 @@ class UploadHandler(BaseHTTPRequestHandler):
                 # New UUID-based system
                 file_info = get_file_by_uuid(file_identifier)
                 if file_info:
-                    file_path = file_info["file_path"]
-                    
-                    # Handle legacy paths without DB/ prefix
-                    if not file_path.startswith("DB/"):
-                        file_path = f"DB/{file_path}"
-                    
-                    full_path = BASE_DIR / file_path
+                    file_path = normalize_record_path(file_info["file_path"])
+                    full_path = resolve_record_path(file_path)
                     current_file_name = file_info["original_filename"]
                 else:
                     self.send_response(404)
@@ -1645,9 +1658,9 @@ class UploadHandler(BaseHTTPRequestHandler):
                     return
             else:
                 # Legacy path-based system
-                file_path = file_identifier
-                full_path = BASE_DIR / file_path
-                current_file_name = os.path.basename(file_path)
+                file_path = normalize_record_path(file_identifier)
+                full_path = resolve_record_path(file_path)
+                current_file_name = os.path.basename(file_identifier) or full_path.name
             
             if not full_path.exists():
                 self.send_response(404)
@@ -1681,24 +1694,26 @@ class UploadHandler(BaseHTTPRequestHandler):
             registry = load_file_registry()
             print(f"[DEBUG] 레지스트리에 등록된 파일 수: {len(registry)}")
 
-            current_path_norm = os.path.normpath(file_path)
+            current_path_norm = os.path.normpath(normalize_record_path(file_path))
             for hit in hits:
-                hit_path_norm = os.path.normpath(hit["file"])
+                normalized_hit = normalize_record_path(hit["file"])
+                hit_path_norm = os.path.normpath(normalized_hit)
                 print(f"[DEBUG] 검토 중인 파일: {hit_path_norm} vs 현재 파일: {current_path_norm}")
                 # Skip if it's the same file (compare normalized paths)
                 if hit_path_norm != current_path_norm:
                     # Try to find UUID for this file in registry
                     file_uuid = None
                     for uuid_key, file_info in registry.items():
-                        if os.path.normpath(file_info["file_path"]) == hit_path_norm:
+                        stored_norm = os.path.normpath(normalize_record_path(file_info["file_path"]))
+                        if stored_norm == hit_path_norm:
                             file_uuid = uuid_key
                             break
 
                     # Use UUID if available, otherwise fallback to path
-                    download_link = f"/download/{file_uuid}" if file_uuid else f"/download/{hit['file']}"
+                    download_link = f"/download/{file_uuid}" if file_uuid else f"/download/{normalized_hit}"
 
                     similar_docs.append({
-                        "file": hit["file"],
+                        "file": normalized_hit,
                         "score": hit["score"],
                         "link": download_link
                     })
@@ -1734,14 +1749,8 @@ class UploadHandler(BaseHTTPRequestHandler):
                 # New UUID-based system
                 file_info = get_file_by_uuid(file_identifier)
                 if file_info:
-                    file_path = file_info["file_path"]
-                    
-                    # Handle legacy paths without DB/ prefix and normalize path separators
-                    file_path = file_path.replace('\\', '/')  # Normalize to forward slashes
-                    if not file_path.startswith("DB/"):
-                        file_path = f"DB/{file_path}"
-                    
-                    full_path = BASE_DIR / file_path
+                    file_path = normalize_record_path(file_info["file_path"])
+                    full_path = resolve_record_path(file_path)
                     current_file_name = user_filename or file_info["original_filename"]
                     print(f"[DEBUG] 유사문서 검색 - 파일 경로: {file_path}")
                     print(f"[DEBUG] 유사문서 검색 - 전체 경로: {full_path}")
@@ -1755,9 +1764,9 @@ class UploadHandler(BaseHTTPRequestHandler):
                     return
             else:
                 # Legacy path-based system
-                file_path = file_identifier
-                full_path = BASE_DIR / file_path
-                current_file_name = user_filename or os.path.basename(file_path)
+                file_path = normalize_record_path(file_identifier)
+                full_path = resolve_record_path(file_path)
+                current_file_name = user_filename or os.path.basename(file_identifier) or full_path.name
             
             if not full_path.exists():
                 self.send_response(404)
@@ -1789,16 +1798,18 @@ class UploadHandler(BaseHTTPRequestHandler):
             registry = load_file_registry()
             history = load_upload_history()
 
-            current_path_norm = os.path.normpath(file_path)
+            current_path_norm = os.path.normpath(normalize_record_path(file_path))
             for hit in hits:
-                hit_path_norm = os.path.normpath(hit["file"])
+                normalized_hit = normalize_record_path(hit["file"])
+                hit_path_norm = os.path.normpath(normalized_hit)
                 # Skip if it's the same file (compare normalized paths)
                 if hit_path_norm != current_path_norm:
                     # Try to find UUID for this file in registry
                     file_uuid = None
                     record_id = None
                     for uuid_key, file_info in registry.items():
-                        if os.path.normpath(file_info["file_path"]) == hit_path_norm:
+                        stored_norm = os.path.normpath(normalize_record_path(file_info["file_path"]))
+                        if stored_norm == hit_path_norm:
                             file_uuid = uuid_key
                             record_id = file_info.get("record_id")
                             break
@@ -1814,13 +1825,13 @@ class UploadHandler(BaseHTTPRequestHandler):
                                 break
 
                     # Use UUID if available, otherwise fallback to path
-                    download_link = f"/download/{file_uuid}" if file_uuid else f"/download/{hit['file']}"
+                    download_link = f"/download/{file_uuid}" if file_uuid else f"/download/{normalized_hit}"
 
                     # Use user filename if available, otherwise original filename
-                    display_filename = user_filename_found or os.path.basename(hit["file"])
+                    display_filename = user_filename_found or os.path.basename(normalized_hit)
 
                     similar_docs.append({
-                        "file": hit["file"],
+                        "file": normalized_hit,
                         "score": hit["score"],
                         "link": download_link,
                         "display_name": display_filename,
@@ -2014,7 +2025,7 @@ class UploadHandler(BaseHTTPRequestHandler):
                     history.insert(0, record)
 
                     uploaded_files.append({
-                        "file_path": str(file_path.relative_to(BASE_DIR)),
+                        "file_path": to_record_path(file_path),
                         "file_type": file_type,
                         "record_id": record["id"]
                     })
@@ -2059,7 +2070,10 @@ class UploadHandler(BaseHTTPRequestHandler):
                 task_id = str(uuid.uuid4())
 
             print(f"Processing task {task_id} with steps {steps} and model settings {model_settings}")
-            results = run_workflow(BASE_DIR / file_path, steps, record_id, task_id, model_settings)
+            normalized_path = normalize_record_path(file_path)
+            absolute_path = resolve_record_path(normalized_path)
+
+            results = run_workflow(absolute_path, steps, record_id, task_id, model_settings)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -2192,15 +2206,16 @@ class UploadHandler(BaseHTTPRequestHandler):
                 return
             
             try:
-                original_file = BASE_DIR / file_path
+                normalized_path = normalize_record_path(file_path)
+                original_file = resolve_record_path(normalized_path)
                 existing_stt = find_existing_stt_file(original_file)
-                
+
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({
                     "has_stt": existing_stt is not None,
-                    "stt_file": str(existing_stt.relative_to(BASE_DIR)) if existing_stt else None
+                    "stt_file": to_record_path(existing_stt) if existing_stt else None
                 }).encode())
             except Exception as e:
                 self.send_response(500)
@@ -2370,8 +2385,8 @@ class UploadHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    UPLOAD_DIR.mkdir(exist_ok=True)
-    OUTPUT_DIR.mkdir(exist_ok=True)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
     # Migrate existing files to UUID system
     migrate_existing_files()
