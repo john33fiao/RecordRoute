@@ -7,9 +7,36 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 import hashlib
 
+try:  # pragma: no cover - import resolution for both package/script execution
+    from .config import DB_ALIAS, get_db_base_path
+except Exception:  # pragma: no cover - fallback when imported as a script
+    try:
+        from config import DB_ALIAS, get_db_base_path  # type: ignore
+    except Exception:  # pragma: no cover - keep module usable without config
+        DB_ALIAS = "DB"  # type: ignore
+        get_db_base_path = None  # type: ignore
+
+
+def _resolve_cache_directory() -> Path:
+    """Return the cache directory derived from the configured DB base path."""
+
+    if callable(globals().get("get_db_base_path")):
+        try:
+            db_root = Path(get_db_base_path())  # type: ignore[arg-type]
+            cache_dir = (db_root / "cache").resolve()
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            return cache_dir
+        except Exception:
+            pass
+
+    project_root = Path(__file__).resolve().parent.parent
+    fallback = (project_root / DB_ALIAS / "cache").resolve()
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
 # 캐시 디렉토리 설정
-CACHE_DIR = Path(__file__).parent.parent / "db" / "cache"
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_DIR = _resolve_cache_directory()
 
 # 캐시 만료 시간 (24시간)
 CACHE_EXPIRY_HOURS = 24
