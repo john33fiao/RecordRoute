@@ -8,12 +8,19 @@
 <body>
     <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode">🌙</button>
     <h1>Upload File</h1>
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <div>
+    <div class="upload-controls">
+        <div class="upload-input-group">
             <input type="file" id="fileInput" accept="audio/*,.md,.txt,.text,.markdown,.pdf" multiple />
             <button id="uploadBtn">Upload</button>
         </div>
-        <button id="settingsBtn" style="background: #6c757d; color: white; border: none; border-radius: 3px; padding: 8px 16px; cursor: pointer; font-size: 14px;">⚙️ 설정</button>
+        <button id="settingsBtn" class="settings-btn">⚙️ 설정</button>
+    </div>
+    <div id="dropZone" class="drop-zone" role="button" tabindex="0" aria-label="오디오 파일을 드래그 앤 드롭하거나 클릭하여 선택">
+        <div class="drop-zone__message">
+            <strong>파일 드래그 앤 드롭</strong>
+            <span>오디오 파일을 이 영역에 끌어다 놓거나 클릭하여 업로드 대기 목록에 추가하세요.</span>
+        </div>
+        <div class="drop-zone__hint">지원 형식: .flac, .m4a, .mp3, .mp4, .mpeg, .mpga, .oga, .ogg, .wav, .webm</div>
     </div>
     <div id="status"></div>
 
