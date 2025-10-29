@@ -33,7 +33,7 @@ DB_BASE_PATH = get_db_base_path()
 DEFAULT_OUTPUT_DIR = DB_BASE_PATH / "whisper_output"
 
 # Whisper가 지원하는 파일 확장자 목록
-SUPPORTED_EXTS = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'}
+SUPPORTED_EXTS = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.qta', '.wav', '.webm'}
 
 # Whisper가 잘못 인식하는 불필요 문구 목록
 DISCARD_PHRASES = {
