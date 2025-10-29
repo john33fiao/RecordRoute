@@ -1143,6 +1143,10 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 else:
                     language = lang
 
+            device_choice = "auto"
+            if model_settings and model_settings.get("device"):
+                device_choice = model_settings.get("device")
+
             try:
                 transcribe_audio_files(
                     input_dir=str(current_file.parent),
@@ -1155,6 +1159,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     filter_fillers=False,
                     min_seg_length=2,
                     normalize_punct=False,
+                    requested_device=device_choice,
                     progress_callback=progress_callback
                 )
             except Exception as e:
@@ -1220,6 +1225,10 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                             else:
                                 language = lang
 
+                        device_choice = "auto"
+                        if model_settings and model_settings.get("device"):
+                            device_choice = model_settings.get("device")
+
                         transcribe_audio_files(
                             input_dir=str(current_file.parent),
                             output_dir=str(individual_output_dir),
@@ -1231,6 +1240,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                             filter_fillers=False,
                             min_seg_length=2,
                             normalize_punct=False,
+                            requested_device=device_choice,
                             progress_callback=progress_callback
                         )
                     except Exception as e:
@@ -1306,6 +1316,10 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                             else:
                                 language = lang
 
+                        device_choice = "auto"
+                        if model_settings and model_settings.get("device"):
+                            device_choice = model_settings.get("device")
+
                         transcribe_audio_files(
                             input_dir=str(current_file.parent),
                             output_dir=str(individual_output_dir),
@@ -1317,6 +1331,7 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                             filter_fillers=False,
                             min_seg_length=2,
                             normalize_punct=False,
+                            requested_device=device_choice,
                             progress_callback=progress_callback
                         )
                     except Exception as e:

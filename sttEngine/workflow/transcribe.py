@@ -9,6 +9,9 @@ import platform
 import subprocess
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Tuple
+
+import torch
 
 # .env 파일의 환경변수 자동 로드
 try:
@@ -201,6 +204,37 @@ def should_keep_segment(text: str, enable_filter: bool, min_length: int):
     
     return True
 
+
+def resolve_inference_device(requested_device: str) -> Tuple[str, str]:
+    """사용자가 요청한 장치를 토치에서 사용 가능한 장치로 변환합니다."""
+
+    requested = (requested_device or "auto").lower()
+
+    if requested not in {"auto", "cuda", "cpu", "mps"}:
+        return "cpu", f"알 수 없는 장치 '{requested_device}'가 지정되어 CPU로 실행합니다."
+
+    if requested == "cuda":
+        if torch.cuda.is_available():
+            return "cuda", "CUDA 장치를 사용합니다."
+        return "cpu", "CUDA 장치를 찾을 수 없어 CPU로 실행합니다."
+
+    if requested == "mps":
+        if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            return "mps", "Apple MPS 장치를 사용합니다."
+        return "cpu", "MPS 장치를 찾을 수 없어 CPU로 실행합니다."
+
+    if requested == "cpu":
+        return "cpu", "사용자 요청에 따라 CPU로 실행합니다."
+
+    # auto 모드
+    if torch.cuda.is_available():
+        return "cuda", "CUDA 장치를 자동으로 선택했습니다."
+
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return "mps", "MPS 장치를 자동으로 선택했습니다."
+
+    return "cpu", "CUDA/MPS 장치를 찾을 수 없어 CPU로 실행합니다."
+
 def get_unique_output_path(base_path: Path) -> Path:
     """파일명 충돌 시 접미사를 붙여 고유한 경로를 반환"""
     if not base_path.exists():
@@ -222,7 +256,8 @@ def get_unique_output_path(base_path: Path) -> Path:
 def transcribe_single_file(file_path: Path, output_dir: Path, model,
                           language: str, initial_prompt: str,
                           filter_fillers: bool, min_seg_length: int,
-                          normalize_punct: bool, progress_callback=None):
+                          normalize_punct: bool, use_fp16: bool,
+                          progress_callback=None):
     """단일 파일을 변환하고 결과를 저장합니다. m4a 파일은 wav로 자동 변환합니다."""
     
     temp_wav_path = None
@@ -259,7 +294,7 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
             progress_callback(f"'{file_path.name}' Whisper 모델 실행 중...")
         
         transcribe_params = {
-            "fp16": False,
+            "fp16": use_fp16,
             "verbose": True,  # 항상 verbose 활성화하여 진행률 출력 확인
             "temperature": 0.0,
             "no_speech_threshold": 0.6,  # 무음 구간 감지 임계값 상향
@@ -497,11 +532,12 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
 def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: str,
                           language: str, initial_prompt: str, workers: int,
                           recursive: bool, filter_fillers: bool,
-                          min_seg_length: int, normalize_punct: bool, progress_callback=None):
+                          min_seg_length: int, normalize_punct: bool,
+                          requested_device: str, progress_callback=None):
     """
-    지정된 입력 디렉토리 내의 모든 오디오/비디오 파일을 Whisper를 사용하여 
+    지정된 입력 디렉토리 내의 모든 오디오/비디오 파일을 Whisper를 사용하여
     텍스트로 변환하고, 변환된 텍스트를 마크다운(.md) 파일로 저장합니다.
-    
+
     Args:
         input_dir (str): 오디오/비디오 파일이 있는 입력 디렉토리 경로
         output_dir (str): 변환된 마크다운 파일을 저장할 출력 디렉토리 경로
@@ -513,6 +549,7 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
         filter_fillers (bool): 필러 단어 필터링 활성화 여부
         min_seg_length (int): 세그먼트 최소 길이
         normalize_punct (bool): 연속 마침표 정규화 여부
+        requested_device (str): "auto", "cuda", "cpu", "mps" 중 하나로 지정된 장치
     """
     
     input_path_obj = Path(input_dir)
@@ -534,13 +571,23 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
     if recursive:
         logging.info("하위 폴더 포함 검색 활성화")
 
+    # 장치 선택
+    device, device_message = resolve_inference_device(requested_device)
+    use_fp16 = device != "cpu"
+
+    logging.info("선택된 장치: %s", device.upper())
+    if progress_callback:
+        progress_callback(f"실행 장치: {device.upper()}")
+    if device_message:
+        logging.info(device_message)
+
     # Whisper 모델 로드
     if progress_callback:
         progress_callback(f"Whisper 모델 ({os.path.basename(model_identifier)}) 로드 중...")
-    
+
     logging.info("'%s' 모델을 로드하는 중...", os.path.basename(model_identifier))
     try:
-        model = whisper.load_model(model_identifier)
+        model = whisper.load_model(model_identifier, device=device)
         logging.info("모델 로드 완료.")
         if progress_callback:
             progress_callback("모델 로드 완료")
@@ -564,7 +611,7 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
             try:
                 output_path = transcribe_single_file(
                     file_path, output_path_obj, model, language, initial_prompt,
-                    filter_fillers, min_seg_length, normalize_punct, progress_callback
+                    filter_fillers, min_seg_length, normalize_punct, use_fp16, progress_callback
                 )
                 logging.info("변환 완료: %s → %s", file_path.name, output_path.name)
             except Exception as e:
@@ -581,7 +628,7 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
                 executor.submit(
                     transcribe_single_file, file_path, output_path_obj, model,
                     language, initial_prompt, filter_fillers, min_seg_length,
-                    normalize_punct, progress_callback
+                    normalize_punct, use_fp16, progress_callback
                 ): file_path for file_path in files_to_process
             }
             
@@ -671,6 +718,20 @@ def main():
         default=1,
         help="동시 처리 파일 수 (기본값: 1)\n단일 GPU/MPS/CPU에서 병렬 추론은 비권장. 기본값 사용 권장."
     )
+
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        choices=["auto", "cuda", "cpu", "mps"],
+        help=(
+            "Whisper 추론을 수행할 장치를 지정합니다.\n"
+            "auto: 사용 가능한 GPU/MPS를 우선 선택 (기본값)\n"
+            "cuda: NVIDIA GPU 강제 사용\n"
+            "mps: Apple Silicon MPS 사용\n"
+            "cpu: CPU 강제 사용"
+        )
+    )
     
     # 파일 처리 옵션
     parser.add_argument(
@@ -754,7 +815,8 @@ def main():
         recursive=args.recursive,
         filter_fillers=args.filter_fillers,
         min_seg_length=max(2, args.min_seg_length),
-        normalize_punct=args.normalize_punct
+        normalize_punct=args.normalize_punct,
+        requested_device=args.device
     )
 
 if __name__ == "__main__":
