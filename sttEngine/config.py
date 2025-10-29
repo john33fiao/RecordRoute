@@ -136,14 +136,22 @@ def _resolve_db_path(path_value: str, base_dir: Path) -> Optional[Path]:
         return None
 
 
-def _ensure_directory_accessible(path: Path) -> bool:
-    """경로가 디렉터리로 접근 가능한지 확인"""
+def _ensure_directory_accessible(path: Path, *, create_if_missing: bool = True) -> bool:
+    """경로가 디렉터리로 접근 가능한지 확인
+
+    Args:
+        path: 접근성을 확인할 경로.
+        create_if_missing: 경로가 존재하지 않을 때 디렉터리를 생성할지 여부.
+    """
     try:
         if path.exists():
             if not path.is_dir():
                 return False
         else:
-            path.mkdir(parents=True, exist_ok=True)
+            if create_if_missing:
+                path.mkdir(parents=True, exist_ok=True)
+            else:
+                return False
     except Exception:
         return False
 
@@ -151,7 +159,7 @@ def _ensure_directory_accessible(path: Path) -> bool:
 
 
 def get_db_base_path(base_dir: Optional[Path] = None) -> Path:
-    """환경변수 기반 DB 폴더 경로 반환 (접근 불가 시 기본값 사용)"""
+    """환경변수 기반 DB 폴더 경로 반환 (접근 불가 시 기본값 생성 후 사용)"""
     if base_dir is None:
         base_dir = get_project_root()
 
@@ -159,8 +167,13 @@ def get_db_base_path(base_dir: Optional[Path] = None) -> Path:
 
     if env_value:
         env_path = _resolve_db_path(env_value, base_dir)
-        if env_path and _ensure_directory_accessible(env_path):
-            return env_path
+        if env_path:
+            if _ensure_directory_accessible(env_path, create_if_missing=False):
+                return env_path
+
+            # 경로가 존재하지 않지만 생성 가능한 경우에는 환경 변수에 지정된 경로를 사용한다.
+            if _ensure_directory_accessible(env_path, create_if_missing=True):
+                return env_path
 
     default_path = _resolve_db_path(DEFAULT_DB_FOLDER, base_dir)
     if default_path and _ensure_directory_accessible(default_path):
