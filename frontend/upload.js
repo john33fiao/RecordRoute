@@ -203,6 +203,12 @@ const overlayEditor = document.getElementById('overlayEditor');
 const sttEditResetPopup = document.getElementById('sttEditResetPopup');
 const sttEditResetConfirmBtn = document.getElementById('sttEditResetConfirmBtn');
 const sttEditResetCloseBtn = document.getElementById('sttEditResetCloseBtn');
+const resetAllBtn = document.getElementById('resetAllBtn');
+const resetAllPopup = document.getElementById('resetAllPopup');
+const resetAllMasterCheckbox = document.getElementById('resetAllMaster');
+const resetAllOptionCheckboxes = Array.from(document.querySelectorAll('#resetAllPopup .reset-option'));
+const resetAllConfirmBtn = document.getElementById('resetAllConfirmBtn');
+const resetAllCancelBtn = document.getElementById('resetAllCancelBtn');
 const themeToggle = document.getElementById('themeToggle');
 const searchResultsContainer = document.getElementById('searchResults');
 const keywordGroup = document.getElementById('keywordGroup');
@@ -390,6 +396,101 @@ function showSttEditResetPopup() {
 function hideSttEditResetPopup() {
     if (sttEditResetPopup) {
         sttEditResetPopup.style.display = 'none';
+    }
+}
+
+function showResetAllPopup() {
+    if (!resetAllPopup) return;
+
+    resetAllPopup.style.display = 'flex';
+
+    if (resetAllMasterCheckbox) {
+        resetAllMasterCheckbox.checked = true;
+    }
+
+    if (resetAllOptionCheckboxes && resetAllOptionCheckboxes.length > 0) {
+        resetAllOptionCheckboxes.forEach(checkbox => {
+            checkbox.checked = true;
+        });
+    }
+
+    updateResetAllConfirmState();
+}
+
+function hideResetAllPopup() {
+    if (!resetAllPopup) return;
+    resetAllPopup.style.display = 'none';
+
+    if (resetAllConfirmBtn) {
+        resetAllConfirmBtn.disabled = false;
+        resetAllConfirmBtn.textContent = '확인';
+    }
+}
+
+function updateResetAllConfirmState() {
+    if (!resetAllConfirmBtn) return;
+
+    const hasOptions = resetAllOptionCheckboxes && resetAllOptionCheckboxes.length > 0;
+    const selectedCount = hasOptions ? resetAllOptionCheckboxes.filter(opt => opt.checked).length : 0;
+
+    if (resetAllMasterCheckbox) {
+        const allChecked = hasOptions && selectedCount === resetAllOptionCheckboxes.length;
+        resetAllMasterCheckbox.checked = allChecked;
+    }
+
+    resetAllConfirmBtn.disabled = selectedCount === 0;
+}
+
+async function handleResetAllConfirm() {
+    if (!resetAllOptionCheckboxes || resetAllOptionCheckboxes.length === 0) {
+        showTemporaryStatus('초기화할 항목이 없습니다.', 'warning');
+        return;
+    }
+
+    const selectedTasks = resetAllOptionCheckboxes
+        .filter(opt => opt.checked)
+        .map(opt => opt.dataset.task)
+        .filter(Boolean);
+
+    if (selectedTasks.length === 0) {
+        showTemporaryStatus('초기화할 항목을 선택하세요.', 'warning');
+        return;
+    }
+
+    if (!resetAllConfirmBtn) return;
+
+    const originalText = resetAllConfirmBtn.textContent;
+    resetAllConfirmBtn.disabled = true;
+    resetAllConfirmBtn.textContent = '초기화 중...';
+
+    try {
+        const response = await fetch('/reset_all_tasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tasks: selectedTasks })
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || data.success === false) {
+            const errorMessage = data.message || data.error || '초기화에 실패했습니다.';
+            throw new Error(errorMessage);
+        }
+
+        const message = data.message || '선택한 항목이 초기화되었습니다.';
+        showTemporaryStatus(message, 'success', 5000);
+
+        clearQueuedTasksByCategory(new Set(selectedTasks));
+        hideResetAllPopup();
+        loadHistory();
+    } catch (error) {
+        console.error('Bulk reset error:', error);
+        showTemporaryStatus(error.message || '초기화 중 오류가 발생했습니다.', 'error', 5000);
+    } finally {
+        if (resetAllConfirmBtn) {
+            resetAllConfirmBtn.disabled = false;
+            resetAllConfirmBtn.textContent = originalText;
+        }
     }
 }
 
@@ -871,6 +972,36 @@ modelSettingsCloseBtn.addEventListener('click', hideModelSettingsPopup);
 modelSettingsCancelBtn.addEventListener('click', hideModelSettingsPopup);
 modelSettingsConfirmBtn.addEventListener('click', saveModelSettings);
 modelSettingsStopBtn.addEventListener('click', requestServerShutdown);
+if (resetAllBtn) {
+    resetAllBtn.addEventListener('click', showResetAllPopup);
+}
+if (resetAllCancelBtn) {
+    resetAllCancelBtn.addEventListener('click', hideResetAllPopup);
+}
+if (resetAllMasterCheckbox) {
+    resetAllMasterCheckbox.addEventListener('change', () => {
+        const checked = resetAllMasterCheckbox.checked;
+        resetAllOptionCheckboxes.forEach(option => {
+            option.checked = checked;
+        });
+        updateResetAllConfirmState();
+    });
+}
+if (resetAllOptionCheckboxes && resetAllOptionCheckboxes.length > 0) {
+    resetAllOptionCheckboxes.forEach(option => {
+        option.addEventListener('change', updateResetAllConfirmState);
+    });
+}
+if (resetAllConfirmBtn) {
+    resetAllConfirmBtn.addEventListener('click', handleResetAllConfirm);
+}
+if (resetAllPopup) {
+    resetAllPopup.addEventListener('click', (event) => {
+        if (event.target === resetAllPopup) {
+            hideResetAllPopup();
+        }
+    });
+}
 if (sttEditResetConfirmBtn) {
     sttEditResetConfirmBtn.addEventListener('click', async () => {
         if (!lastEditedRecordId) {
@@ -1232,6 +1363,39 @@ function cancelAllTasks() {
 }
 
 document.getElementById('cancelAllBtn').addEventListener('click', cancelAllTasks);
+
+function clearQueuedTasksByCategory(taskNames) {
+    if (!taskNames || (taskNames instanceof Set && taskNames.size === 0)) {
+        return;
+    }
+
+    const taskSet = taskNames instanceof Set ? taskNames : new Set(taskNames);
+
+    const queuedMatches = taskQueue.filter(task => taskSet.has(task.task));
+    queuedMatches.forEach(task => removeTaskFromQueue(task.id));
+
+    if (currentTask && taskSet.has(currentTask.task)) {
+        if (currentTask.taskId) {
+            fetch('/cancel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_id: currentTask.taskId })
+            }).catch(error => {
+                console.error(`Error cancelling running task ${currentTask.taskId}:`, error);
+            });
+        }
+
+        if (currentTask.abortController) {
+            currentTask.abortController.abort();
+        }
+
+        currentTask = null;
+        currentCategory = taskQueue.length > 0 ? taskQueue[0].task : null;
+        stopProgressPolling();
+        updateQueueDisplay();
+        processNextTask();
+    }
+}
 
 function resetTaskElement(taskElement, task) {
     const taskNames = {
