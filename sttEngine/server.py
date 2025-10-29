@@ -67,6 +67,7 @@ VECTOR_DIR = DB_BASE_PATH / "vector_store"
 HISTORY_FILE = DB_BASE_PATH / "upload_history.json"
 FILE_REGISTRY_FILE = DB_BASE_PATH / "file_registry.json"
 SEARCHABLE_SUFFIXES = {".md", ".txt", ".text", ".markdown"}
+TASK_TYPES = ("stt", "embedding", "summary")
 
 # Global dictionary to track running processes
 running_processes = {}
@@ -265,12 +266,48 @@ def compute_file_hash(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _ensure_record_schema(record: dict) -> bool:
+    """Ensure an upload history record has the expected structure."""
+    updated = False
+
+    completed = record.get("completed_tasks")
+    if not isinstance(completed, dict):
+        completed = {}
+        record["completed_tasks"] = completed
+        updated = True
+
+    for task in TASK_TYPES:
+        if task not in completed:
+            completed[task] = False
+            updated = True
+
+    download_links = record.get("download_links")
+    if not isinstance(download_links, dict):
+        record["download_links"] = {}
+        updated = True
+
+    return updated
+
+
 def load_upload_history():
-    """Load upload history from JSON file."""
+    """Load upload history from JSON file and normalize record schema."""
     if HISTORY_FILE.exists():
         try:
             with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                history = json.load(f)
+
+            if not isinstance(history, list):
+                return []
+
+            updated = False
+            for record in history:
+                if _ensure_record_schema(record):
+                    updated = True
+
+            if updated:
+                save_upload_history(history)
+
+            return history
         except (json.JSONDecodeError, IOError):
             return []
     return []
@@ -296,15 +333,14 @@ def add_upload_record(file_path: Path, file_type: str, duration: str = None, fil
         "duration": duration,
         "file_path": to_record_path(file_path),
         "folder_name": file_path.parent.name,  # UUID folder name
-        "completed_tasks": {
-            "stt": False,
-            "embedding": False
-        },
+        "completed_tasks": {task: False for task in TASK_TYPES},
         "download_links": {},
         "title_summary": "",
         "tags": [],
         "file_hash": file_hash
     }
+
+    _ensure_record_schema(record)
 
     history.insert(0, record)  # Add to beginning (most recent first)
 
@@ -759,8 +795,7 @@ def reset_upload_record(record_id: str) -> bool:
                     save_index(index)
 
             record["completed_tasks"] = {
-                "stt": False,
-                "embedding": False,
+                task: False for task in TASK_TYPES
             }
             record["download_links"] = {}
             record["title_summary"] = ""
