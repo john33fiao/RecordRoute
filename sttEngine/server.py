@@ -919,30 +919,30 @@ def update_stt_text(file_identifier: str, new_text: str) -> tuple[bool, str, str
     return True, "", record_id
 
 
-def reset_summary_and_embedding(record_id: str) -> tuple[bool, str]:
-    """Reset summary and embedding artifacts for a record."""
+def reset_tasks_for_record(
+    record: dict,
+    tasks: set[str],
+    registry: dict,
+    index: dict,
+) -> tuple[dict[str, bool], bool, bool]:
+    """Reset selected task artifacts for a single record."""
 
-    if not record_id:
-        return False, "record_id가 필요합니다."
-
-    history = load_upload_history()
-    record = next((item for item in history if item.get("id") == record_id), None)
-
-    if not record:
-        return False, "기록을 찾을 수 없습니다."
+    results = {task: False for task in TASK_TYPES}
+    if not record or not tasks:
+        return results, False, False
 
     download_links = record.get("download_links", {})
-    registry = load_file_registry()
-    registry_changed = False
-    summary_reset = False
-    embedding_reset = False
+    completed_tasks = record.setdefault("completed_tasks", {task: False for task in TASK_TYPES})
 
-    def cleanup_task(task_name: str, delete_file: bool):
-        nonlocal registry_changed, summary_reset, embedding_reset
+    registry_changed = False
+    index_changed = False
+
+    def cleanup_task(task_name: str, delete_file: bool) -> bool:
+        nonlocal registry_changed
 
         link = download_links.get(task_name)
         if not link:
-            return
+            return False
 
         file_path, _, _, resolved_identifier = resolve_file_identifier(link)
 
@@ -976,22 +976,31 @@ def reset_summary_and_embedding(record_id: str) -> tuple[bool, str]:
                         registry_changed = True
 
         download_links.pop(task_name, None)
-        record["completed_tasks"][task_name] = False
+        completed_tasks[task_name] = False
 
         if task_name == "summary":
             record["title_summary"] = ""
-            summary_reset = True
-        elif task_name == "embedding":
-            embedding_reset = True
 
-    cleanup_task("summary", delete_file=True)
-    cleanup_task("embedding", delete_file=False)
+        return True
 
-    if embedding_reset:
+    if "summary" in tasks and cleanup_task("summary", delete_file=True):
+        results["summary"] = True
+
+    embedding_removed = False
+    if "embedding" in tasks and cleanup_task("embedding", delete_file=False):
+        results["embedding"] = True
+        embedding_removed = True
+
+    stt_removed = False
+    if "stt" in tasks and cleanup_task("stt", delete_file=True):
+        results["stt"] = True
+        stt_removed = True
+
+    if embedding_removed:
         try:
-            output_dir = OUTPUT_DIR / record.get("folder_name", "")
+            folder_name = record.get("folder_name", "")
+            output_dir = OUTPUT_DIR / folder_name
             output_resolved = output_dir.resolve()
-            index = load_index()
             keys_to_remove = []
 
             for key, meta in list(index.items()):
@@ -1017,17 +1026,66 @@ def reset_summary_and_embedding(record_id: str) -> tuple[bool, str]:
                                     pass
                     del index[key]
 
-                save_index(index)
+                index_changed = True
         except Exception as exc:
             print(f"Failed to clean embedding vectors: {exc}")
+
+    if stt_removed:
+        try:
+            original_path = record.get("file_path")
+            folder_name = record.get("folder_name")
+            if original_path and folder_name:
+                source_path = resolve_record_path(original_path)
+                output_dir = OUTPUT_DIR / folder_name
+                if source_path and output_dir.exists():
+                    stem = Path(source_path).stem
+                    corrected_file = output_dir / f"{stem}.corrected.md"
+                    if corrected_file.exists():
+                        try:
+                            corrected_file.unlink()
+                        except Exception:
+                            pass
+        except Exception as exc:
+            print(f"Failed to clean STT artifacts: {exc}")
+
+    return results, registry_changed, index_changed
+
+
+def reset_summary_and_embedding(record_id: str) -> tuple[bool, str]:
+    """Reset summary and embedding artifacts for a record."""
+
+    if not record_id:
+        return False, "record_id가 필요합니다."
+
+    history = load_upload_history()
+    record = next((item for item in history if item.get("id") == record_id), None)
+
+    if not record:
+        return False, "기록을 찾을 수 없습니다."
+
+    registry = load_file_registry()
+    index = load_index()
+
+    results, registry_changed, index_changed = reset_tasks_for_record(
+        record,
+        {"summary", "embedding"},
+        registry,
+        index,
+    )
 
     if registry_changed:
         save_file_registry(registry)
 
+    if index_changed:
+        save_index(index)
+
     save_upload_history(history)
 
+    summary_reset = results.get("summary", False)
+    embedding_reset = results.get("embedding", False)
+
     if summary_reset and embedding_reset:
-        message = "색인 및 요약이 초기화되었습니다."
+        message = "색인과 요약이 초기화되었습니다."
     elif summary_reset:
         message = "요약이 초기화되었습니다."
     elif embedding_reset:
@@ -1036,6 +1094,66 @@ def reset_summary_and_embedding(record_id: str) -> tuple[bool, str]:
         message = "초기화할 항목이 없습니다."
 
     return True, message
+
+
+def reset_tasks_for_all_records(tasks: set[str]) -> tuple[bool, dict[str, int], str]:
+    """Reset selected task artifacts for every record in history."""
+
+    valid_tasks = set(TASK_TYPES)
+    requested_tasks = {task for task in tasks if task in valid_tasks}
+
+    if not requested_tasks:
+        return False, {task: 0 for task in valid_tasks}, "유효한 초기화 항목을 선택해주세요."
+
+    history = load_upload_history()
+    if not history:
+        return True, {task: 0 for task in valid_tasks}, "초기화할 기록이 없습니다."
+
+    registry = load_file_registry()
+    index = load_index()
+
+    registry_changed = False
+    index_changed = False
+    reset_counts = {task: 0 for task in valid_tasks}
+
+    for record in history:
+        results, reg_changed, idx_changed = reset_tasks_for_record(
+            record,
+            requested_tasks,
+            registry,
+            index,
+        )
+
+        if reg_changed:
+            registry_changed = True
+        if idx_changed:
+            index_changed = True
+
+        for task in requested_tasks:
+            if results.get(task):
+                reset_counts[task] += 1
+
+    if registry_changed:
+        save_file_registry(registry)
+
+    if index_changed:
+        save_index(index)
+
+    save_upload_history(history)
+
+    labels = {"stt": "STT", "embedding": "색인", "summary": "요약"}
+    summary_parts = [
+        f"{labels[task]} {reset_counts[task]}건"
+        for task in requested_tasks
+        if reset_counts.get(task)
+    ]
+
+    if not summary_parts:
+        message = "초기화할 항목이 없습니다."
+    else:
+        message = ", ".join(summary_parts) + " 초기화되었습니다."
+
+    return True, reset_counts, message
 
 
 def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = None, model_settings: dict = None):
@@ -2332,6 +2450,38 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({
                 "success": success,
                 "message": message
+            }).encode())
+            return
+
+        if self.path == "/reset_all_tasks":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length)) if length else {}
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": "Invalid JSON payload"}).encode())
+                return
+
+            tasks = payload.get("tasks")
+            if not isinstance(tasks, list):
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": "tasks 필드는 배열이어야 합니다."}).encode())
+                return
+
+            success, counts, message = reset_tasks_for_all_records(set(tasks))
+
+            status_code = 200 if success else 400
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": success,
+                "message": message,
+                "counts": counts
             }).encode())
             return
 
