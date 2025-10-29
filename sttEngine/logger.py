@@ -2,6 +2,14 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+try:  # pragma: no cover - fallback import for script execution context
+    from .config import get_db_base_path
+except Exception:  # pragma: no cover - during packaging or direct execution
+    try:
+        from config import get_db_base_path  # type: ignore
+    except Exception:  # pragma: no cover - ensure logger remains usable
+        get_db_base_path = None  # type: ignore
+
 MAX_LOG_SIZE = 1 * 1024 * 1024  # 1MB
 
 class _LogFile:
@@ -44,9 +52,25 @@ class _LogFile:
     def flush(self) -> None:
         self._file.flush()
 
+def _get_log_directory() -> Path:
+    """Resolve the log directory respecting the configured DB folder."""
+    project_root = Path(__file__).resolve().parent.parent
+
+    if callable(globals().get("get_db_base_path")):
+        try:
+            db_root = get_db_base_path()
+            if db_root:
+                db_root = Path(db_root)
+                return (db_root / "log").resolve()
+        except Exception:
+            pass
+
+    return (project_root / "db" / "log").resolve()
+
+
 def setup_logging():
     """Redirect stdout and stderr to log files while keeping console output."""
-    log_dir = Path(__file__).resolve().parent.parent / "db" / "log"
+    log_dir = _get_log_directory()
     logfile = _LogFile(log_dir)
 
     class Tee:
