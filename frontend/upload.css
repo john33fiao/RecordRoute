@@ -1,3 +1,70 @@
+.upload-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.upload-input-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-btn {
+    background: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s ease;
+}
+
+.settings-btn:hover,
+.settings-btn:focus {
+    background-color: #5a6268;
+}
+
+.drop-zone {
+    border: 2px dashed #6c757d;
+    border-radius: 8px;
+    padding: 24px;
+    text-align: center;
+    color: #495057;
+    background-color: #f8f9fa;
+    margin-bottom: 16px;
+    transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.drop-zone:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+}
+
+.drop-zone__message {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 15px;
+}
+
+.drop-zone__hint {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #6c757d;
+}
+
+.drop-zone.dragover {
+    border-color: #17a2b8;
+    background-color: #e8f6ff;
+    color: #0c5460;
+    box-shadow: 0 0 12px rgba(23, 162, 184, 0.3);
+}
+
 .warning-box {
     background: #fff3cd;
     border: 1px solid #ffeaa7;

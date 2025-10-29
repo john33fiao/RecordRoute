@@ -31,6 +31,117 @@ function initWebSocket() {
     };
 }
 
+function isAudioFile(file) {
+    if (!file) return false;
+    if (file.type && file.type.startsWith('audio/')) {
+        return true;
+    }
+
+    const audioExtensions = ['.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'];
+    const name = (file.name || '').toLowerCase();
+    return audioExtensions.some(ext => name.endsWith(ext));
+}
+
+function initializeDropZone() {
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    if (!dropZone || !fileInput) return;
+
+    const preventDefaults = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, preventDefaults, false);
+    });
+
+    const addHighlight = () => dropZone.classList.add('dragover');
+    const removeHighlight = (event) => {
+        const related = event?.relatedTarget;
+        if (!related || !dropZone.contains(related)) {
+            dropZone.classList.remove('dragover');
+        }
+    };
+
+    dropZone.addEventListener('dragenter', addHighlight);
+    dropZone.addEventListener('dragover', addHighlight);
+    dropZone.addEventListener('dragleave', removeHighlight);
+    dropZone.addEventListener('drop', (event) => {
+        dropZone.classList.remove('dragover');
+
+        const droppedFiles = Array.from(event.dataTransfer?.files || []);
+        if (droppedFiles.length === 0) return;
+
+        if (typeof DataTransfer === 'undefined') {
+            showTemporaryStatus('이 브라우저에서는 드래그 앤 드롭 추가가 지원되지 않습니다. 파일 선택 버튼을 이용해주세요.', 'warning', 5000);
+            return;
+        }
+
+        const dataTransfer = new DataTransfer();
+        const existingFiles = Array.from(fileInput.files || []);
+        const existingKeys = new Set(existingFiles.map(file => `${file.name}-${file.size}-${file.lastModified}`));
+        existingFiles.forEach(file => dataTransfer.items.add(file));
+
+        const acceptedFiles = [];
+        const rejectedFiles = [];
+        const duplicateFiles = [];
+
+        droppedFiles.forEach(file => {
+            if (!isAudioFile(file)) {
+                rejectedFiles.push(file.name);
+                return;
+            }
+
+            const key = `${file.name}-${file.size}-${file.lastModified}`;
+            if (existingKeys.has(key)) {
+                duplicateFiles.push(file.name);
+                return;
+            }
+
+            dataTransfer.items.add(file);
+            existingKeys.add(key);
+            acceptedFiles.push(file.name);
+        });
+
+        if (acceptedFiles.length > 0) {
+            fileInput.files = dataTransfer.files;
+            showTemporaryStatus(`${acceptedFiles.length}개의 파일이 업로드 대기 목록에 추가되었습니다.`, 'success');
+        }
+
+        if (duplicateFiles.length > 0) {
+            showTemporaryStatus(`이미 추가된 파일을 제외했습니다: ${duplicateFiles.join(', ')}`, 'info');
+        }
+
+        if (acceptedFiles.length === 0 && rejectedFiles.length === 0) {
+            return;
+        }
+
+        if (rejectedFiles.length > 0) {
+            showTemporaryStatus(`지원되지 않는 형식이 제외되었습니다: ${rejectedFiles.join(', ')}`, 'warning');
+        }
+    });
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        document.addEventListener(eventName, preventDefaults, false);
+    });
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            fileInput.click();
+        }
+    });
+
+    fileInput.addEventListener('change', () => {
+        const files = Array.from(fileInput.files || []);
+        if (files.length > 0) {
+            showTemporaryStatus(`${files.length}개의 파일이 업로드 대기 중입니다.`, 'info');
+        }
+    });
+}
+
 // Function to normalize Korean text to NFC form for proper display
 function normalizeKorean(text) {
     if (typeof text !== 'string') return text;
@@ -2200,4 +2311,5 @@ document.addEventListener('DOMContentLoaded', function() {
     checkRunningTasks();
     startTaskMonitoring();
     initWebSocket();
+    initializeDropZone();
 });
