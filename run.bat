@@ -58,7 +58,7 @@ set "REQUIREMENTS_STATE_FILE=%SCRIPT_DIR%\venv\.requirements_hash"
 if exist "%REQUIREMENTS_FILE%" (
     echo "필요한 파이썬 패키지를 확인합니다..."
     set "REQ_HASH="
-    for /f "delims=" %%H in ('"%VENV_PYTHON%" -c "import hashlib, pathlib, sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())" "%REQUIREMENTS_FILE%"') do set "REQ_HASH=%%H"
+    for /f "delims=" %%H in ('call "%VENV_PYTHON%" -c "import hashlib, pathlib, sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())" "%REQUIREMENTS_FILE%"') do set "REQ_HASH=%%H"
 
     set "INSTALLED_HASH="
     if exist "%REQUIREMENTS_STATE_FILE%" (
