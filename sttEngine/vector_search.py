@@ -6,38 +6,15 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 import numpy as np
-import requests
 import json
 from datetime import datetime
 
-from embedding_pipeline import VECTOR_DIR, INDEX_FILE, load_index
+from embedding_pipeline import VECTOR_DIR, INDEX_FILE, load_index, embed_text_ollama
 from search_cache import get_cached_search_result, cache_search_result
 
 # 설정 모듈 임포트
 sys.path.append(str(Path(__file__).parent / "sttEngine"))
 from config import get_default_model, get_model_for_task, normalize_db_record_path
-
-
-def embed_text_ollama(text: str, model_name: str) -> np.ndarray:
-    """Ollama API를 사용하여 텍스트를 임베딩"""
-    try:
-        response = requests.post(
-            "http://localhost:11434/api/embeddings",
-            json={
-                "model": model_name,
-                "prompt": text
-            },
-            timeout=30
-        )
-        response.raise_for_status()
-        result = response.json()
-        embedding = result.get("embedding", [])
-        if not embedding:
-            raise ValueError("Empty embedding received from Ollama")
-        return np.array(embedding, dtype=np.float32)
-    except Exception as e:
-        print(f"Ollama 임베딩 실패: {e}")
-        raise
 
 
 def search(query: str, base_dir: Path, top_k: int = 10,

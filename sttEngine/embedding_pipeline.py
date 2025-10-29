@@ -58,28 +58,95 @@ def file_hash(path: Path) -> str:
     return h.hexdigest()
 
 
-def embed_text_ollama(text: str, model_name: str) -> np.ndarray:
-    """Ollama API를 사용하여 텍스트를 임베딩"""
+DEFAULT_MAX_CHARS = int(os.environ.get("EMBEDDING_MAX_PROMPT_CHARS", "7500"))
+
+
+def _chunk_text(text: str, max_chars: int = DEFAULT_MAX_CHARS) -> list[str]:
+    """Split text into reasonably sized chunks for the embedding API."""
+
+    if max_chars <= 0 or len(text) <= max_chars:
+        return [text]
+
+    chunks: list[str] = []
+    start = 0
+    text_length = len(text)
+
+    while start < text_length:
+        end = min(start + max_chars, text_length)
+
+        if end < text_length:
+            # Try to split on a natural boundary to avoid mid-word breaks
+            split_pos = text.rfind("\n\n", start, end)
+            if split_pos == -1:
+                split_pos = text.rfind("\n", start, end)
+            if split_pos == -1:
+                split_pos = text.rfind(" ", start, end)
+            if split_pos == -1 or split_pos <= start:
+                split_pos = end
+        else:
+            split_pos = end
+
+        chunk = text[start:split_pos].strip()
+        if chunk:
+            chunks.append(chunk)
+
+        start = split_pos
+        while start < text_length and text[start] in ("\n", " "):
+            start += 1
+
+    return chunks or [text]
+
+
+def _request_embedding(model_name: str, prompt: str) -> np.ndarray:
+    response = requests.post(
+        "http://localhost:11434/api/embeddings",
+        json={
+            "model": model_name,
+            "prompt": prompt
+        },
+        timeout=30
+    )
+
     try:
-        # Ollama 서버 상태 확인 및 필요시 시작
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        detail = response.text.strip()
+        message = f"Ollama 응답 오류 {response.status_code}: {detail or 'no details'}"
+        raise requests.HTTPError(message) from exc
+
+    result = response.json()
+    embedding = result.get("embedding", [])
+    if not embedding:
+        raise ValueError("Empty embedding received from Ollama")
+    return np.array(embedding, dtype=np.float32)
+
+
+def embed_text_ollama(text: str, model_name: str) -> np.ndarray:
+    """Ollama API를 사용하여 텍스트를 임베딩.
+
+    Ollama가 긴 입력에서 500 오류를 반환하는 문제를 피하기 위해 입력을 여러 조각으로
+    나누어 호출한 뒤 평균 임베딩을 사용한다.
+    """
+
+    try:
         server_ok, server_msg = ensure_ollama_server()
         if not server_ok:
             raise Exception(f"Ollama 서버를 사용할 수 없습니다: {server_msg}")
-        
-        response = requests.post(
-            "http://localhost:11434/api/embeddings",
-            json={
-                "model": model_name,
-                "prompt": text
-            },
-            timeout=30
-        )
-        response.raise_for_status()
-        result = response.json()
-        embedding = result.get("embedding", [])
-        if not embedding:
-            raise ValueError("Empty embedding received from Ollama")
-        return np.array(embedding, dtype=np.float32)
+
+        text = text.strip()
+        if not text:
+            raise ValueError("임베딩할 텍스트가 비어 있습니다.")
+
+        chunks = _chunk_text(text)
+        vectors = []
+        for chunk in chunks:
+            vectors.append(_request_embedding(model_name, chunk))
+
+        if len(vectors) == 1:
+            return vectors[0]
+
+        stacked = np.vstack(vectors)
+        return np.mean(stacked, axis=0)
     except Exception as e:
         print(f"Ollama 임베딩 실패: {e}")
         raise
