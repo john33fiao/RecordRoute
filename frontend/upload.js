@@ -853,6 +853,9 @@ async function requestServerShutdown() {
 function viewSimilarDocument(downloadLink, displayName = null) {
     if (!downloadLink) return;
 
+    // Ensure the similar documents popup is hidden before showing the overlay
+    hideSimilarDocsPopup();
+
     showTextOverlay(downloadLink, 'stt', displayName);
 }
 
