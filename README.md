@@ -153,7 +153,7 @@ python sttEngine/workflow/summarize.py input.md --model gpt-oss:20b --temperatur
 
 ## 지원 오디오 포맷
 
-- `.flac`, `.m4a`, `.mp3`, `.mp4`, `.mpeg`, `.mpga`, `.oga`, `.ogg`, `.wav`, `.webm`
+- `.flac`, `.m4a`, `.mp3`, `.mp4`, `.mpeg`, `.mpga`, `.oga`, `.ogg`, `.qta`, `.wav`, `.webm`
 - **M4A 자동 변환**: m4a 파일을 wav로 자동 변환하여 처리
 
 ## 지원 문서 포맷

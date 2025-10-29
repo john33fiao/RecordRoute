@@ -37,7 +37,7 @@ function isAudioFile(file) {
         return true;
     }
 
-    const audioExtensions = ['.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'];
+    const audioExtensions = ['.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.qta', '.wav', '.webm'];
     const name = (file.name || '').toLowerCase();
     return audioExtensions.some(ext => name.endsWith(ext));
 }

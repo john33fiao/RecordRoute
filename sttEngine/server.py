@@ -231,7 +231,7 @@ def get_file_type(file_path: Path):
     Returns:
         'audio' for audio files, 'text' for text files, 'pdf' for PDF files, 'unknown' for others.
     """
-    audio_extensions = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'}
+    audio_extensions = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.qta', '.wav', '.webm'}
     text_extensions = {'.md', '.txt', '.text', '.markdown'}
     pdf_extensions = {'.pdf'}
 
