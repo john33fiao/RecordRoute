@@ -205,6 +205,32 @@ def should_keep_segment(text: str, enable_filter: bool, min_length: int):
     return True
 
 
+def _get_cuda_device_name() -> str:
+    """첫 번째 CUDA 장치의 이름을 반환합니다. 사용 불가 시 빈 문자열 반환."""
+
+    try:
+        if torch.cuda.is_available() and torch.cuda.device_count() > 0:
+            return torch.cuda.get_device_name(0)
+    except Exception:
+        # 장치 이름 조회 실패는 치명적이지 않으므로 무시
+        pass
+
+    return ""
+
+
+def _describe_device(device: str) -> str:
+    """사용자에게 보여줄 친숙한 장치 설명을 생성합니다."""
+
+    if device == "cuda":
+        gpu_name = _get_cuda_device_name()
+        return f"CUDA ({gpu_name})" if gpu_name else "CUDA"
+
+    if device == "mps":
+        return "MPS"
+
+    return "CPU"
+
+
 def resolve_inference_device(requested_device: str) -> Tuple[str, str]:
     """사용자가 요청한 장치를 토치에서 사용 가능한 장치로 변환합니다."""
 
@@ -215,6 +241,9 @@ def resolve_inference_device(requested_device: str) -> Tuple[str, str]:
 
     if requested == "cuda":
         if torch.cuda.is_available():
+            gpu_name = _get_cuda_device_name()
+            if gpu_name:
+                return "cuda", f"CUDA 장치 '{gpu_name}'를 사용합니다."
             return "cuda", "CUDA 장치를 사용합니다."
         return "cpu", "CUDA 장치를 찾을 수 없어 CPU로 실행합니다."
 
@@ -228,6 +257,9 @@ def resolve_inference_device(requested_device: str) -> Tuple[str, str]:
 
     # auto 모드
     if torch.cuda.is_available():
+        gpu_name = _get_cuda_device_name()
+        if gpu_name:
+            return "cuda", f"CUDA 장치 '{gpu_name}'를 자동으로 선택했습니다."
         return "cuda", "CUDA 장치를 자동으로 선택했습니다."
 
     if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
@@ -575,9 +607,10 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
     device, device_message = resolve_inference_device(requested_device)
     use_fp16 = device != "cpu"
 
-    logging.info("선택된 장치: %s", device.upper())
+    device_label = _describe_device(device)
+    logging.info("선택된 장치: %s", device_label)
     if progress_callback:
-        progress_callback(f"실행 장치: {device.upper()}")
+        progress_callback(f"실행 장치: {device_label}")
     if device_message:
         logging.info(device_message)
 

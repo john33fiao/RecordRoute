@@ -465,6 +465,13 @@
     cursor: pointer;
 }
 
+.setting-hint {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #6c757d;
+    line-height: 1.4;
+}
+
 .setting-group select:focus {
     outline: none;
     border-color: #007bff;
@@ -786,6 +793,10 @@ body.dark-mode .queue-category-item-processing {
 }
 
 body.dark-mode .model-info {
+    color: #adb5bd;
+}
+
+body.dark-mode .setting-hint {
     color: #adb5bd;
 }
 

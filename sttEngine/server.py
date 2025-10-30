@@ -32,6 +32,7 @@ import shutil
 import hashlib
 import asyncio
 import websockets
+import torch
 
 from .workflow.transcribe import transcribe_audio_files
 from .workflow.summarize import (
@@ -2037,7 +2038,7 @@ class UploadHandler(BaseHTTPRequestHandler):
             # Parse ollama list output
             lines = result.stdout.strip().split('\n')
             models = []
-            
+
             # Skip header line if present
             for line in lines[1:] if len(lines) > 1 else lines:
                 if line.strip():
@@ -2048,16 +2049,38 @@ class UploadHandler(BaseHTTPRequestHandler):
                         # Filter out model names with slashes or special characters typically not used for LLM models
                         if '/' not in model_name and model_name not in ['mxbai-embed-large']:
                             models.append(model_name)
-            
+
+            cuda_available = torch.cuda.is_available()
+            cuda_name = None
+            if cuda_available:
+                try:
+                    if torch.cuda.device_count() > 0:
+                        cuda_name = torch.cuda.get_device_name(0)
+                except Exception:
+                    cuda_name = None
+
+            mps_available = bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available())
+
             response_data = {
                 "models": models,
                 "default": {
                     "whisper": "large-v3-turbo",
                     "summarize": DEFAULT_MODEL,
-                    "embedding": get_default_model("EMBEDDING")
+                    "embedding": get_default_model("EMBEDDING"),
+                    "device": "auto"
+                },
+                "devices": {
+                    "default": "auto",
+                    "cuda": {
+                        "available": bool(cuda_available),
+                        "name": cuda_name
+                    },
+                    "mps": {
+                        "available": bool(mps_available)
+                    }
                 }
             }
-            
+
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

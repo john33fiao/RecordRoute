@@ -157,6 +157,37 @@ function escapeHtml(text) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
 }
+
+function getSavedModelSettings() {
+    let settings = {};
+
+    try {
+        settings = JSON.parse(localStorage.getItem('modelSettings') || '{}') || {};
+    } catch (error) {
+        console.warn('저장된 모델 설정을 불러오지 못해 기본값으로 초기화합니다.', error);
+        settings = {};
+    }
+
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+        settings = {};
+    }
+
+    let updated = false;
+    if (!settings.device) {
+        settings.device = 'auto';
+        updated = true;
+    }
+
+    if (updated) {
+        try {
+            localStorage.setItem('modelSettings', JSON.stringify(settings));
+        } catch (error) {
+            console.warn('기본 모델 설정을 저장하지 못했습니다.', error);
+        }
+    }
+
+    return settings;
+}
 function showTemporaryStatus(message, variant = 'success', duration = 3000) {
     const status = document.getElementById('status');
     if (!status) return;
@@ -859,7 +890,48 @@ async function loadAvailableModels() {
             embeddingSelect.appendChild(embeddingOption);
             
             // Set current values from localStorage if available
-            const savedSettings = JSON.parse(localStorage.getItem('modelSettings') || '{}');
+            const savedSettings = getSavedModelSettings();
+
+            const deviceSelect = document.getElementById('whisperDevice');
+            if (deviceSelect) {
+                const desiredDevice = (savedSettings.device || 'auto').toLowerCase();
+                const options = Array.from(deviceSelect.options || []);
+                if (options.some(option => option.value === desiredDevice)) {
+                    deviceSelect.value = desiredDevice;
+                } else {
+                    deviceSelect.value = 'auto';
+                }
+            }
+
+            const deviceStatus = document.getElementById('deviceStatus');
+            if (deviceStatus) {
+                const deviceData = data.devices || null;
+
+                if (deviceData) {
+                    const hints = [];
+
+                    if (deviceData.cuda) {
+                        if (deviceData.cuda.available) {
+                            const gpuLabel = deviceData.cuda.name ? `CUDA 사용 가능 – ${deviceData.cuda.name}` : 'CUDA 사용 가능';
+                            hints.push(gpuLabel);
+                        } else {
+                            hints.push('CUDA 사용 불가');
+                        }
+                    }
+
+                    if (deviceData.mps) {
+                        hints.push(deviceData.mps.available ? 'MPS 사용 가능' : 'MPS 사용 불가');
+                    }
+
+                    const defaultLabel = (deviceData.default || 'auto').toUpperCase();
+                    hints.push(`기본 선택: ${defaultLabel}`);
+
+                    deviceStatus.textContent = hints.join(' · ');
+                } else {
+                    deviceStatus.textContent = 'Whisper는 자동으로 사용 가능한 장치를 선택합니다.';
+                }
+            }
+
             if (savedSettings.whisper) {
                 document.getElementById('whisperModel').value = savedSettings.whisper;
             }
@@ -879,6 +951,11 @@ async function loadAvailableModels() {
             const embeddingSelect = document.getElementById('embeddingModel');
             summarizeSelect.innerHTML = '<option value="">모델 로딩 실패</option>';
             embeddingSelect.innerHTML = '<option value="">모델 로딩 실패</option>';
+
+            const deviceStatus = document.getElementById('deviceStatus');
+            if (deviceStatus) {
+                deviceStatus.textContent = '장치 정보를 불러오지 못했습니다. 기본 설정이 사용됩니다.';
+            }
         }
     } catch (error) {
         console.error('Error loading models:', error);
@@ -886,6 +963,11 @@ async function loadAvailableModels() {
         const embeddingSelect = document.getElementById('embeddingModel');
         summarizeSelect.innerHTML = '<option value="">네트워크 오류</option>';
         embeddingSelect.innerHTML = '<option value="">네트워크 오류</option>';
+
+        const deviceStatus = document.getElementById('deviceStatus');
+        if (deviceStatus) {
+            deviceStatus.textContent = '장치 정보를 불러오지 못했습니다. 기본 설정이 사용됩니다.';
+        }
     }
 }
 
@@ -893,6 +975,7 @@ function saveModelSettings() {
     const settings = {
         whisper: document.getElementById('whisperModel').value,
         language: document.getElementById('whisperLanguage').value,
+        device: document.getElementById('whisperDevice').value || 'auto',
         summarize: document.getElementById('summarizeModel').value,
         embedding: document.getElementById('embeddingModel').value
     };
@@ -1438,10 +1521,13 @@ function updateQueueDisplay() {
     };
 
     // Get saved model settings to display model info
-    const savedSettings = JSON.parse(localStorage.getItem('modelSettings') || '{}');
+    const savedSettings = getSavedModelSettings();
+    const deviceLabel = (savedSettings.device || 'auto').toUpperCase();
+
     const getModelForTask = (task) => {
         if (task === 'stt') {
-            return savedSettings.whisper || 'large-v3-turbo';
+            const modelName = savedSettings.whisper || 'large-v3-turbo';
+            return deviceLabel ? `${modelName} · ${deviceLabel}` : modelName;
         } else if (task === 'summary') {
             return savedSettings.summarize || 'gpt-oss:20b';
         } else if (task === 'embedding') {
@@ -2054,12 +2140,12 @@ async function processNextTask() {
         currentTask.abortController = new AbortController();
 
         // Get saved model settings
-        const savedSettings = JSON.parse(localStorage.getItem('modelSettings') || '{}');
-        
+        const savedSettings = getSavedModelSettings();
+
         const response = await fetch('/process', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
+            body: JSON.stringify({
                 file_path: currentTask.filePath, 
                 steps: [currentTask.task],
                 record_id: currentTask.recordId,

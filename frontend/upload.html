@@ -148,6 +148,16 @@
                     </select>
                 </div>
                 <div class="setting-group">
+                    <label for="whisperDevice">Whisper 실행 장치:</label>
+                    <select id="whisperDevice">
+                        <option value="auto">자동 선택 (권장)</option>
+                        <option value="cuda">CUDA (NVIDIA GPU)</option>
+                        <option value="mps">MPS (Apple Silicon)</option>
+                        <option value="cpu">CPU</option>
+                    </select>
+                    <div id="deviceStatus" class="setting-hint">사용 가능한 장치를 확인 중입니다...</div>
+                </div>
+                <div class="setting-group">
                     <label for="summarizeModel">요약 모델:</label>
                     <select id="summarizeModel">
                         <option value="">로딩 중...</option>
