@@ -46,6 +46,8 @@ def search(query: str, base_dir: Path, top_k: int = 10,
         end_dt = datetime.fromisoformat(end_date) if end_date else None
 
         for path_str, meta in index.items():
+            if isinstance(meta, dict) and meta.get("deleted"):
+                continue
             timestamp_str = meta.get("timestamp")
             if start_dt or end_dt:
                 if not timestamp_str:
