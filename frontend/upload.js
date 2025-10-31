@@ -13,6 +13,7 @@ let lastEditedRecordId = null;
 let lastEditedFileIdentifier = null;
 
 let progressSocket = null;
+const selectedRecords = new Set();
 
 function initWebSocket() {
     progressSocket = new WebSocket('ws://localhost:8765');
@@ -494,6 +495,14 @@ async function handleResetAllConfirm() {
     }
 }
 
+function updateDeleteButtonState() {
+    const deleteBtn = document.getElementById('deleteSelectedBtn');
+    if (!deleteBtn) return;
+    const count = selectedRecords.size;
+    deleteBtn.disabled = count === 0;
+    deleteBtn.textContent = count > 0 ? `삭제 (${count})` : '삭제';
+}
+
 // Progress updates are pushed via WebSocket; polling functions are no-ops
 function startProgressPolling(task) {}
 function stopProgressPolling() {}
@@ -774,7 +783,7 @@ function hideModelSettingsPopup() {
 
 async function deleteCurrentFile() {
     if (!currentOverlayFile) return;
-    
+
     try {
         // Extract file identifier from URL
         const fileIdentifier = currentOverlayFile.url.replace('/download/', '');
@@ -816,6 +825,64 @@ async function deleteCurrentFile() {
     } catch (error) {
         console.error('Delete error:', error);
         alert('삭제 중 오류가 발생했습니다.');
+    }
+}
+
+async function deleteSelectedRecords() {
+    if (selectedRecords.size === 0) return;
+
+    const confirmDelete = confirm('선택한 항목을 삭제하시겠습니까? 삭제된 파일은 DB/삭제 폴더로 이동합니다.');
+    if (!confirmDelete) return;
+
+    const recordIds = Array.from(selectedRecords);
+    recordIds.forEach(cancelTasksForRecord);
+
+    try {
+        const response = await fetch('/delete_records', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ record_ids: recordIds })
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            const message = data && data.error ? data.error : '삭제 요청이 실패했습니다.';
+            showTemporaryStatus(message, 'error');
+            return;
+        }
+
+        const results = data && data.results ? data.results : {};
+        const successfulIds = [];
+        const failedEntries = [];
+
+        Object.entries(results).forEach(([id, info]) => {
+            if (info && info.success) {
+                successfulIds.push(id);
+            } else {
+                failedEntries.push({
+                    id,
+                    error: info && info.error ? info.error : '알 수 없는 오류'
+                });
+            }
+        });
+
+        if (successfulIds.length > 0) {
+            successfulIds.forEach(id => selectedRecords.delete(id));
+            showTemporaryStatus(`${successfulIds.length}개 항목이 삭제되었습니다.`, 'success');
+        }
+
+        if (failedEntries.length > 0) {
+            const errorMessages = failedEntries.map(entry => `${entry.id}: ${entry.error}`).join(', ');
+            const variant = failedEntries.length === recordIds.length ? 'error' : 'warning';
+            showTemporaryStatus(`일부 항목 삭제에 실패했습니다: ${errorMessages}`, variant, 5000);
+        }
+
+        updateDeleteButtonState();
+        loadHistory();
+    } catch (error) {
+        console.error('Delete records error:', error);
+        showTemporaryStatus('선택한 항목 삭제 중 오류가 발생했습니다.', 'error', 5000);
+        loadHistory();
     }
 }
 
@@ -1397,6 +1464,33 @@ function clearQueuedTasksByCategory(taskNames) {
     }
 }
 
+function cancelTasksForRecord(recordId) {
+    const relatedTasks = taskQueue.filter(task => task.recordId === recordId);
+    relatedTasks.forEach(task => removeTaskFromQueue(task.id));
+
+    if (currentTask && currentTask.recordId === recordId) {
+        if (currentTask.taskId) {
+            fetch('/cancel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_id: currentTask.taskId })
+            }).catch(error => {
+                console.error(`Error cancelling running task ${currentTask.taskId}:`, error);
+            });
+        }
+
+        if (currentTask.abortController) {
+            currentTask.abortController.abort();
+        }
+
+        currentTask = null;
+        currentCategory = taskQueue.length > 0 ? taskQueue[0].task : null;
+        stopProgressPolling();
+        updateQueueDisplay();
+        processNextTask();
+    }
+}
+
 function resetTaskElement(taskElement, task) {
     const taskNames = {
         'stt': 'STT',
@@ -1830,13 +1924,19 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
 function displayHistory(history) {
     const historyList = document.getElementById('history-list');
     historyList.innerHTML = '';
-    
+    const visibleRecordIds = new Set();
+
     if (history.length === 0) {
+        if (selectedRecords.size > 0) {
+            selectedRecords.clear();
+        }
+        updateDeleteButtonState();
         historyList.innerHTML = '<p style="color: #6c757d; font-style: italic;">업로드 기록이 없습니다.</p>';
         return;
     }
-    
+
     history.forEach(record => {
+        visibleRecordIds.add(record.id);
         const item = document.createElement('div');
         item.className = 'history-item';
 
@@ -1853,7 +1953,7 @@ function displayHistory(history) {
             ${dateTime}
             <strong id="filename-${record.id}" class="filename-display" title="클릭하여 파일명 수정">${normalizeKorean(record.filename)}</strong><span class="duration">${duration}</span>
         `;
-        
+
         // Add click event to filename for editing
         setTimeout(() => {
             const filenameElement = document.getElementById(`filename-${record.id}`);
@@ -1861,6 +1961,26 @@ function displayHistory(history) {
                 filenameElement.onclick = () => editFilename(record.id, record.filename);
             }
         }, 0);
+
+        const selectionContainer = document.createElement('div');
+        selectionContainer.className = 'history-selection';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'history-select';
+        checkbox.dataset.recordId = record.id;
+        checkbox.checked = selectedRecords.has(record.id);
+        checkbox.addEventListener('change', (event) => {
+            if (event.target.checked) {
+                selectedRecords.add(record.id);
+            } else {
+                selectedRecords.delete(record.id);
+            }
+            updateDeleteButtonState();
+        });
+
+        selectionContainer.appendChild(checkbox);
+        selectionContainer.appendChild(info);
 
         const resetBtn = document.createElement('button');
         resetBtn.textContent = '초기화';
@@ -1904,7 +2024,7 @@ function displayHistory(history) {
         buttonContainer.appendChild(batchBtn);
         buttonContainer.appendChild(resetBtn);
 
-        header.appendChild(info);
+        header.appendChild(selectionContainer);
         header.appendChild(buttonContainer);
 
         const tasks = document.createElement('div');
@@ -1969,6 +2089,13 @@ function displayHistory(history) {
         item.appendChild(tasks);
         historyList.appendChild(item);
     });
+
+    for (const id of Array.from(selectedRecords)) {
+        if (!visibleRecordIds.has(id)) {
+            selectedRecords.delete(id);
+        }
+    }
+    updateDeleteButtonState();
 }
 
 async function loadHistory() {
@@ -2562,6 +2689,12 @@ document.getElementById('queueSortSelect').addEventListener('change', function()
     sortTaskQueue();
     updateQueueDisplay();
 });
+
+const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+if (deleteSelectedBtn) {
+    deleteSelectedBtn.addEventListener('click', deleteSelectedRecords);
+    updateDeleteButtonState();
+}
 
 // Add event listener for process all button
 document.getElementById('processAllBtn').addEventListener('click', processAllIncomplete);

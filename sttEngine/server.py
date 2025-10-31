@@ -16,6 +16,7 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
+from typing import Any
 import re
 from urllib.parse import unquote
 
@@ -66,6 +67,10 @@ OUTPUT_DIR = DB_BASE_PATH / "whisper_output"
 VECTOR_DIR = DB_BASE_PATH / "vector_store"
 HISTORY_FILE = DB_BASE_PATH / "upload_history.json"
 FILE_REGISTRY_FILE = DB_BASE_PATH / "file_registry.json"
+DELETED_DIR = DB_BASE_PATH / "deleted"
+DELETED_UPLOAD_DIR = DELETED_DIR / "uploads"
+DELETED_OUTPUT_DIR = DELETED_DIR / "whisper_output"
+DELETED_VECTOR_DIR = DELETED_DIR / "vector_store"
 SEARCHABLE_SUFFIXES = {".md", ".txt", ".text", ".markdown"}
 TASK_TYPES = ("stt", "embedding", "summary")
 
@@ -286,6 +291,18 @@ def _ensure_record_schema(record: dict) -> bool:
         record["download_links"] = {}
         updated = True
 
+    if not isinstance(record.get("deleted"), bool):
+        record["deleted"] = False
+        updated = True
+
+    if "deleted_at" not in record:
+        record["deleted_at"] = None
+        updated = True
+
+    if not isinstance(record.get("deleted_assets"), dict):
+        record["deleted_assets"] = {}
+        updated = True
+
     return updated
 
 
@@ -313,6 +330,13 @@ def load_upload_history():
     return []
 
 
+def get_active_history(history: list[dict] | None = None) -> list[dict]:
+    """Return history entries that are not marked as deleted."""
+    if history is None:
+        history = load_upload_history()
+    return [record for record in history if not record.get("deleted")]
+
+
 def save_upload_history(history):
     """Save upload history to JSON file."""
     try:
@@ -337,7 +361,10 @@ def add_upload_record(file_path: Path, file_type: str, duration: str = None, fil
         "download_links": {},
         "title_summary": "",
         "tags": [],
-        "file_hash": file_hash
+        "file_hash": file_hash,
+        "deleted": False,
+        "deleted_at": None,
+        "deleted_assets": {}
     }
 
     _ensure_record_schema(record)
@@ -356,7 +383,22 @@ def load_file_registry():
     if FILE_REGISTRY_FILE.exists():
         try:
             with open(FILE_REGISTRY_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                registry = json.load(f)
+
+            if isinstance(registry, dict):
+                updated = False
+                for info in registry.values():
+                    if not isinstance(info, dict):
+                        continue
+                    if not isinstance(info.get("deleted"), bool):
+                        info["deleted"] = False
+                        updated = True
+                    if "deleted_at" not in info:
+                        info["deleted_at"] = None
+                        updated = True
+                if updated:
+                    save_file_registry(registry)
+                return registry
         except (json.JSONDecodeError, IOError):
             return {}
     return {}
@@ -446,6 +488,8 @@ def _collect_searchable_documents():
     registry = load_file_registry()
 
     for file_uuid, info in registry.items():
+        if isinstance(info, dict) and info.get("deleted"):
+            continue
         rel_path = normalize_record_path(info.get("file_path"))
         if not rel_path:
             continue
@@ -518,7 +562,9 @@ def register_file(file_path: str, record_id: str, task_type: str, original_filen
         "record_id": record_id,
         "task_type": task_type,
         "original_filename": original_filename or os.path.basename(normalized_path),
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now().isoformat(),
+        "deleted": False,
+        "deleted_at": None
     }
     
     registry[file_uuid] = file_info
@@ -537,6 +583,8 @@ def migrate_existing_files():
     updated = False
     
     for record in history:
+        if record.get("deleted"):
+            continue
         record_id = record["id"]
         download_links = record.get("download_links", {})
         
@@ -575,6 +623,8 @@ def update_task_completion(record_id: str, task: str, file_path: str):
     
     for record in history:
         if record["id"] == record_id:
+            if record.get("deleted"):
+                return file_uuid
             record["completed_tasks"][task] = True
             record["download_links"][task] = download_url
             break
@@ -587,6 +637,8 @@ def update_title_summary(record_id: str, summary: str):
     history = load_upload_history()
     for record in history:
         if record["id"] == record_id:
+            if record.get("deleted"):
+                return
             record["title_summary"] = summary
             break
     save_upload_history(history)
@@ -596,6 +648,8 @@ def update_filename(record_id: str, new_filename: str):
     history = load_upload_history()
     for record in history:
         if record["id"] == record_id:
+            if record.get("deleted"):
+                return
             record["filename"] = new_filename
             break
     save_upload_history(history)
@@ -676,8 +730,11 @@ def run_incremental_embedding(base_dir: Path = None):
                 
                 # Update index
                 index[key] = {
-                    "sha256": checksum, 
-                    "vector": vector_file.name
+                    "sha256": checksum,
+                    "vector": vector_file.name,
+                    "deleted": False,
+                    "deleted_path": None,
+                    "vector_deleted_path": None,
                 }
                 
                 processed_count += 1
@@ -733,8 +790,11 @@ def generate_embedding(file_path: Path, record_id: str = None):
         checksum = file_hash(file_path)
         
         index[str(file_path.resolve())] = {
-            "sha256": checksum, 
-            "vector": vector_file.name
+            "sha256": checksum,
+            "vector": vector_file.name,
+            "deleted": False,
+            "deleted_path": None,
+            "vector_deleted_path": None,
         }
         save_index(index)
         
@@ -756,6 +816,8 @@ def reset_upload_record(record_id: str) -> bool:
 
     for record in history:
         if record["id"] == record_id:
+            if record.get("deleted"):
+                return False
             folder = record.get("folder_name")
             output_dir = OUTPUT_DIR / folder if folder else None
             try:
@@ -846,6 +908,8 @@ def delete_file(file_identifier: str, file_type: str) -> tuple[bool, str]:
         
         for record in history:
             if record["id"] == record_id:
+                if record.get("deleted"):
+                    return False, "삭제된 항목입니다."
                 # Update completion status
                 record["completed_tasks"][file_type] = False
                 
@@ -873,6 +937,210 @@ def delete_file(file_identifier: str, file_type: str) -> tuple[bool, str]:
     except Exception as e:
         print(f"Error deleting file: {e}")
         return False, f"삭제 중 오류가 발생했습니다: {str(e)}"
+
+
+def _delete_single_record_assets(
+    record: dict,
+    registry: dict,
+    index: dict,
+    moved_vector_names: set[str],
+) -> dict:
+    """Move record assets to the deleted area and update metadata."""
+
+    record_id = record.get("id")
+    folder_name = record.get("folder_name")
+    deleted_at = datetime.now().isoformat()
+
+    upload_dir = (UPLOAD_DIR / folder_name).resolve() if folder_name else None
+    deleted_upload_dir = (DELETED_UPLOAD_DIR / folder_name).resolve() if folder_name else None
+    output_dir = (OUTPUT_DIR / folder_name).resolve() if folder_name else None
+    deleted_output_dir = (DELETED_OUTPUT_DIR / folder_name).resolve() if folder_name else None
+    vector_dir = VECTOR_DIR.resolve()
+    deleted_vector_dir = DELETED_VECTOR_DIR.resolve()
+
+    registry_changed = False
+    index_changed = False
+
+    files_assets: dict[str, list[str]] = {}
+    record_assets: dict[str, Any] = {}
+
+    registry_updates: list[tuple[str, dict, Path]] = []
+    for file_uuid, info in (registry or {}).items():
+        if not isinstance(info, dict):
+            continue
+        if info.get("record_id") != record_id:
+            continue
+
+        file_path_str = info.get("file_path")
+        if not file_path_str:
+            continue
+
+        try:
+            absolute_path = resolve_record_path(file_path_str)
+        except Exception:
+            absolute_path = None
+
+        new_path: Path | None = None
+        if absolute_path is not None:
+            if upload_dir:
+                try:
+                    rel = absolute_path.relative_to(upload_dir)
+                    new_path = deleted_upload_dir / rel
+                except ValueError:
+                    pass
+            if new_path is None and output_dir:
+                try:
+                    rel = absolute_path.relative_to(output_dir)
+                    new_path = deleted_output_dir / rel
+                except ValueError:
+                    pass
+            if new_path is None:
+                try:
+                    rel = absolute_path.relative_to(vector_dir)
+                    new_path = deleted_vector_dir / rel
+                except ValueError:
+                    pass
+
+        if new_path is None:
+            continue
+
+        registry_updates.append((file_uuid, info, new_path))
+
+    index_entries: list[tuple[str, dict, Path]] = []
+    vector_names: set[str] = set()
+    if output_dir:
+        for key, meta in (index or {}).items():
+            if not isinstance(meta, dict):
+                continue
+            try:
+                rel = Path(key).resolve().relative_to(output_dir)
+            except (ValueError, FileNotFoundError):
+                continue
+
+            deleted_path = (deleted_output_dir / rel) if deleted_output_dir else None
+            if deleted_path is None:
+                continue
+
+            index_entries.append((key, meta, deleted_path))
+
+            vector_name = meta.get("vector")
+            if vector_name:
+                vector_names.add(vector_name)
+
+    if upload_dir and upload_dir.exists():
+        deleted_upload_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(upload_dir), str(deleted_upload_dir))
+        record_assets["uploads"] = to_record_path(deleted_upload_dir)
+
+    if output_dir and output_dir.exists():
+        deleted_output_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(output_dir), str(deleted_output_dir))
+        record_assets["outputs"] = to_record_path(deleted_output_dir)
+
+    for file_uuid, info, new_path in registry_updates:
+        info["file_path"] = to_record_path(new_path)
+        info["deleted"] = True
+        info["deleted_at"] = deleted_at
+        task_type = info.get("task_type")
+        if task_type:
+            files_assets.setdefault(task_type, []).append(info["file_path"])
+        registry_changed = True
+
+    if files_assets:
+        record_assets["files"] = files_assets
+
+    moved_vector_paths: list[str] = []
+    for key, meta, deleted_path in index_entries:
+        meta["deleted"] = True
+        meta["deleted_at"] = deleted_at
+        meta["deleted_path"] = str(deleted_path)
+        vector_name = meta.get("vector")
+        if vector_name:
+            deleted_vector_path = DELETED_VECTOR_DIR / vector_name
+            meta["vector_deleted_path"] = str(deleted_vector_path)
+        index_changed = True
+
+    for vector_name in vector_names:
+        target_path = DELETED_VECTOR_DIR / vector_name
+        if vector_name not in moved_vector_names:
+            source_path = VECTOR_DIR / vector_name
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            if source_path.exists():
+                shutil.move(str(source_path), str(target_path))
+            moved_vector_names.add(vector_name)
+        moved_vector_paths.append(to_record_path(target_path))
+
+    if moved_vector_paths:
+        record_assets["vectors"] = moved_vector_paths
+
+    record["deleted"] = True
+    record["deleted_at"] = deleted_at
+    record["deleted_assets"] = record_assets
+
+    return {
+        "registry_changed": registry_changed,
+        "index_changed": index_changed,
+    }
+
+
+def delete_records(record_ids: list[str]) -> tuple[bool, dict[str, dict]]:
+    """Delete multiple upload records by moving their assets to a deleted folder."""
+
+    if not record_ids:
+        return False, {}
+
+    history = load_upload_history()
+    registry = load_file_registry()
+    index = load_index()
+
+    history_by_id = {record.get("id"): record for record in history}
+    results: dict[str, dict] = {}
+
+    history_changed = False
+    registry_changed = False
+    index_changed = False
+    moved_vector_names: set[str] = set()
+
+    for record_id in record_ids:
+        record = history_by_id.get(record_id)
+        if not record:
+            results[record_id] = {
+                "success": False,
+                "error": "기록을 찾을 수 없습니다.",
+            }
+            continue
+
+        if record.get("deleted"):
+            results[record_id] = {
+                "success": False,
+                "error": "이미 삭제된 항목입니다.",
+            }
+            continue
+
+        try:
+            summary = _delete_single_record_assets(record, registry, index, moved_vector_names)
+            history_changed = True
+            registry_changed = registry_changed or summary.get("registry_changed", False)
+            index_changed = index_changed or summary.get("index_changed", False)
+            results[record_id] = {"success": True}
+        except Exception as exc:
+            results[record_id] = {
+                "success": False,
+                "error": str(exc),
+            }
+
+    if history_changed:
+        save_upload_history(history)
+    if registry_changed:
+        save_file_registry(registry)
+    if index_changed:
+        save_index(index)
+
+    overall_success = (
+        bool(results)
+        and all(result.get("success") for result in results.values())
+    )
+    return overall_success, results
 
 
 def update_stt_text(file_identifier: str, new_text: str) -> tuple[bool, str, str | None]:
@@ -928,7 +1196,7 @@ def reset_tasks_for_record(
     """Reset selected task artifacts for a single record."""
 
     results = {task: False for task in TASK_TYPES}
-    if not record or not tasks:
+    if not record or not tasks or record.get("deleted"):
         return results, False, False
 
     download_links = record.get("download_links", {})
@@ -1117,6 +1385,8 @@ def reset_tasks_for_all_records(tasks: set[str]) -> tuple[bool, dict[str, int], 
     reset_counts = {task: 0 for task in valid_tasks}
 
     for record in history:
+        if record.get("deleted"):
+            continue
         results, reg_changed, idx_changed = reset_tasks_for_record(
             record,
             requested_tasks,
@@ -1577,6 +1847,10 @@ class UploadHandler(BaseHTTPRequestHandler):
             # New UUID-based system
             file_info = get_file_by_uuid(file_identifier)
             if file_info:
+                if file_info.get("deleted"):
+                    self.send_response(404)
+                    self.end_headers()
+                    return
                 file_path = normalize_record_path(file_info["file_path"])
                 filename = file_info["original_filename"]
                 full_path = resolve_record_path(file_path)
@@ -1644,7 +1918,7 @@ class UploadHandler(BaseHTTPRequestHandler):
 
             results = []
             if query:
-                history = load_upload_history()
+                history = get_active_history()
                 for record in history:
                     filename = record.get("filename", "")
                     tags = record.get("tags", [])
@@ -1676,7 +1950,7 @@ class UploadHandler(BaseHTTPRequestHandler):
 
                 if query:
                     documents, path_index = _collect_searchable_documents()
-                    history = load_upload_history()
+                    history = get_active_history()
                     history_map = {record.get("id"): record for record in history}
 
                     keyword_matches = _collect_keyword_matches(query, documents, history_map)
@@ -1766,7 +2040,7 @@ class UploadHandler(BaseHTTPRequestHandler):
     def _serve_history(self):
         """Serve upload history as JSON."""
         try:
-            history = load_upload_history()
+            history = get_active_history()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -2541,6 +2815,38 @@ class UploadHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": error_msg}).encode())
             return
 
+        if self.path == "/delete_records":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length)) if length else {}
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Invalid JSON payload")
+                return
+
+            record_ids = payload.get("record_ids")
+            if not isinstance(record_ids, list):
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": False,
+                    "error": "record_ids 필드는 배열이어야 합니다.",
+                }).encode())
+                return
+
+            success, results = delete_records([str(r) for r in record_ids])
+            status_code = 200 if success else 207
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": success,
+                "results": results,
+            }, ensure_ascii=False).encode())
+            return
+
         self.send_response(404)
         self.end_headers()
 
@@ -2583,7 +2889,10 @@ class UploadHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    
+    DELETED_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    DELETED_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    DELETED_VECTOR_DIR.mkdir(parents=True, exist_ok=True)
+
     # Migrate existing files to UUID system
     migrate_existing_files()
 

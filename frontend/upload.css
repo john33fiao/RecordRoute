@@ -553,6 +553,10 @@ body.dark-mode button {
     color: #e9ecef;
     border-color: #555;
 }
+body.dark-mode #deleteSelectedBtn:disabled {
+    background: #3a3f44 !important;
+    color: #adb5bd !important;
+}
 body.dark-mode #textOverlay .content,
 body.dark-mode #summaryPopup .content,
 body.dark-mode #sttConfirmPopup .content,
@@ -575,6 +579,19 @@ body.dark-mode #modelSettingsPopup .content {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 5px;
+}
+
+.history-selection {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.history-selection .history-select {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    margin: 0;
 }
 
 .button-container {
@@ -607,6 +624,17 @@ body.dark-mode #modelSettingsPopup .content {
 .reset-btn:disabled {
     background: #6c757d;
     cursor: not-allowed;
+}
+
+#deleteSelectedBtn:disabled {
+    background: #adb5bd !important;
+    cursor: not-allowed;
+    color: #f8f9fa !important;
+}
+
+#deleteSelectedBtn:not(:disabled):hover,
+#deleteSelectedBtn:not(:disabled):focus {
+    background: #495057 !important;
 }
 
 .task-summary {
