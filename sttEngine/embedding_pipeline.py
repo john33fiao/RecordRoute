@@ -26,19 +26,171 @@ import requests
 # ``sttEngine`` 모듈을 찾지 못하는 문제가 있었다.
 # 이를 방지하기 위해 현재 파일의 부모(프로젝트 루트)를 경로에 추가한다.
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from config import get_db_base_path, get_default_model, get_model_for_task
+from config import (
+    DB_ALIAS,
+    get_db_base_path,
+    get_default_model,
+    get_model_for_task,
+    resolve_db_path,
+    to_db_record_path,
+)
 from ollama_utils import ensure_ollama_server
 
 DB_BASE_PATH = get_db_base_path()
+WHISPER_OUTPUT_DIR = DB_BASE_PATH / "whisper_output"
 VECTOR_DIR = DB_BASE_PATH / "vector_store"
 INDEX_FILE = VECTOR_DIR / "index.json"
 
 
+def _format_relative_path(relative: Path) -> str:
+    """Return a platform-aware string for a relative path."""
+    parts = relative.parts
+    if not parts:
+        return relative.as_posix()
+    return os.sep.join(parts)
+
+
+def _index_key_for_path(path: Path) -> str:
+    """Generate the canonical index key for a given file path."""
+    resolved = path.resolve()
+
+    for base in (WHISPER_OUTPUT_DIR, DB_BASE_PATH):
+        try:
+            relative = resolved.relative_to(base)
+            return _format_relative_path(relative)
+        except ValueError:
+            continue
+
+    record_path = to_db_record_path(resolved, DB_BASE_PATH)
+    if record_path.startswith(f"{DB_ALIAS}/"):
+        record_path = record_path[len(DB_ALIAS) + 1 :]
+    return record_path.replace("/", os.sep)
+
+
+def _normalize_index_key(key: str) -> str:
+    """Normalize stored keys (absolute, DB alias, etc.) to the canonical form."""
+    if not key:
+        return key
+
+    normalized = key.replace("\\", "/")
+
+    if normalized.startswith(f"{DB_ALIAS}/"):
+        try:
+            resolved = resolve_db_path(normalized, DB_BASE_PATH)
+            return _index_key_for_path(resolved)
+        except Exception:
+            normalized = normalized[len(DB_ALIAS) + 1 :]
+
+    path_obj = Path(normalized)
+    if path_obj.is_absolute():
+        return _index_key_for_path(path_obj)
+
+    if normalized.startswith("whisper_output/"):
+        try:
+            relative = Path(normalized).relative_to("whisper_output")
+            return _format_relative_path(relative)
+        except ValueError:
+            pass
+
+    return _format_relative_path(Path(normalized))
+
+
+def resolve_index_path(key: str, meta: Dict[str, str] | None = None) -> Path:
+    """Resolve an index key back to an absolute filesystem path."""
+    normalized = _normalize_index_key(key).replace("\\", "/")
+
+    if normalized.startswith(f"{DB_ALIAS}/"):
+        return resolve_db_path(normalized, DB_BASE_PATH)
+
+    if len(normalized) > 1 and normalized[1] == ":" and normalized[0].isalpha():
+        return Path(normalized).resolve()
+
+    relative = Path(normalized)
+
+    base_hint = None
+    if isinstance(meta, dict):
+        base_hint = meta.get("base")
+
+    if base_hint == "db":
+        return (DB_BASE_PATH / relative).resolve()
+    if base_hint == "whisper_output":
+        return (WHISPER_OUTPUT_DIR / relative).resolve()
+
+    if relative.is_absolute():
+        return relative.resolve()
+
+    first_part = relative.parts[0] if relative.parts else ""
+
+    if first_part in {"uploads", "vector_store", "deleted", "log"}:
+        return (DB_BASE_PATH / relative).resolve()
+
+    if first_part == "whisper_output":
+        return (DB_BASE_PATH / relative).resolve()
+
+    return (WHISPER_OUTPUT_DIR / relative).resolve()
+
+
 def load_index() -> Dict[str, Dict[str, str]]:
-    """Load the JSON index mapping absolute file paths to metadata."""
+    """Load the JSON index mapping relative file paths to metadata."""
     if INDEX_FILE.exists():
         with INDEX_FILE.open("r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+
+        normalized_index: Dict[str, Dict[str, str]] = {}
+        changed = False
+        for key, value in data.items():
+            meta: Dict[str, str] = dict(value) if isinstance(value, dict) else {}
+            new_key = _normalize_index_key(key)
+
+            if "base" not in meta:
+                original_path = None
+                try:
+                    original_path = Path(key)
+                except Exception:
+                    original_path = None
+
+                resolved_path = None
+                if original_path is not None:
+                    try:
+                        resolved_path = original_path.resolve()
+                    except Exception:
+                        resolved_path = None
+
+                if resolved_path is not None:
+                    for label, base_path in (("whisper_output", WHISPER_OUTPUT_DIR), ("db", DB_BASE_PATH)):
+                        try:
+                            resolved_path.relative_to(base_path)
+                            meta["base"] = label
+                            break
+                        except ValueError:
+                            continue
+                else:
+                    parts = Path(new_key.replace("\\", "/")).parts
+                    if parts:
+                        head = parts[0]
+                        if head in {"uploads", "vector_store", "deleted", "log", "whisper_output"}:
+                            meta["base"] = "db"
+                        else:
+                            meta["base"] = "whisper_output"
+
+            if new_key in normalized_index and normalized_index[new_key] != meta:
+                existing_ts = normalized_index[new_key].get("timestamp")
+                new_ts = meta.get("timestamp")
+                if existing_ts and new_ts:
+                    if new_ts > existing_ts:
+                        normalized_index[new_key] = meta
+                else:
+                    normalized_index[new_key] = meta
+                changed = True
+                continue
+
+            if new_key != key or meta != value:
+                changed = True
+            normalized_index[new_key] = meta
+
+        if changed:
+            save_index(normalized_index)
+        return normalized_index
     return {}
 
 
@@ -155,7 +307,7 @@ def embed_text_ollama(text: str, model_name: str) -> np.ndarray:
 def process_file(model_name: str, path: Path, index: Dict[str, Dict[str, str]]) -> None:
     """Embed a single file if it is new or has changed since last run."""
     checksum = file_hash(path)
-    key = str(path.resolve())
+    key = _index_key_for_path(path)
     if index.get(key, {}).get("sha256") == checksum:
         return  # already up-to-date
 
@@ -164,11 +316,21 @@ def process_file(model_name: str, path: Path, index: Dict[str, Dict[str, str]]) 
     out_file = VECTOR_DIR / f"{path.stem}.npy"
     np.save(out_file, vector)
 
-    index[key] = {
+    entry = {
         "sha256": checksum,
         "vector": out_file.name,
         "timestamp": datetime.fromtimestamp(path.stat().st_mtime).isoformat()
     }
+
+    for label, base_path in (("whisper_output", WHISPER_OUTPUT_DIR), ("db", DB_BASE_PATH)):
+        try:
+            path.resolve().relative_to(base_path)
+            entry["base"] = label
+            break
+        except ValueError:
+            continue
+
+    index[key] = entry
 
 
 def main(src_dir: str) -> None:
