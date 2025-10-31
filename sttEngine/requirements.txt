@@ -1,0 +1,10 @@
+# Core Python dependencies for RecordRoute STT engine (sans PyTorch)
+# PyTorch (CUDA build) is installed explicitly in setup/run scripts to avoid CPU-only wheels.
+
+openai-whisper>=20231117
+ollama>=0.1.0
+multipart
+python-dotenv
+sentence-transformers
+pypdf>=3.0.0
+websockets>=10.0

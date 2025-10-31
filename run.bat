@@ -81,6 +81,25 @@ if exist "%REQUIREMENTS_FILE%" (
     echo "경고: requirements.txt 파일을 찾을 수 없습니다."
 )
 
+REM Ensure CUDA-enabled PyTorch is installed (avoid CPU-only wheels)
+set "TORCH_VER_FILE=%SCRIPT_DIR%\venv\Lib\site-packages\torch\version.py"
+if not exist "%TORCH_VER_FILE%" (
+    echo "PyTorch가 설치되지 않았습니다. CUDA 빌드를 설치합니다 (cu124)..."
+    "%VENV_PYTHON%" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch
+) else (
+    findstr /C:"+cpu'" "%TORCH_VER_FILE%" >nul 2>&1
+    if not errorlevel 1 (
+        echo "CPU 빌드 PyTorch 감지 → CUDA 빌드로 교체합니다 (cu124)..."
+        "%VENV_PYTHON%" -m pip uninstall -y torch >nul 2>&1
+        "%VENV_PYTHON%" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch
+    ) else (
+        echo "PyTorch CUDA 빌드 또는 호환 빌드가 감지되었습니다."
+    )
+)
+
+echo "PyTorch 상태 확인:"
+"%VENV_PYTHON%" -c "import torch; print('Torch:', torch.__version__); print('CUDA runtime:', getattr(getattr(torch,'version',None),'cuda',None)); print('cuda.is_available:', bool(getattr(torch,'cuda',None) and torch.cuda.is_available()))"
+
 REM Ollama 서버 상태 확인 및 시작
 echo "Ollama 서버 상태를 확인합니다..."
 curl -s http://localhost:11434/api/version >nul 2>&1
