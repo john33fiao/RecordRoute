@@ -9,7 +9,13 @@ import numpy as np
 import json
 from datetime import datetime
 
-from embedding_pipeline import VECTOR_DIR, INDEX_FILE, load_index, embed_text_ollama
+from embedding_pipeline import (
+    INDEX_FILE,
+    VECTOR_DIR,
+    embed_text_ollama,
+    load_index,
+    resolve_index_path,
+)
 from search_cache import get_cached_search_result, cache_search_result
 
 # 설정 모듈 임포트
@@ -70,7 +76,10 @@ def search(query: str, base_dir: Path, top_k: int = 10,
             if denom == 0:
                 continue
             score = float(np.dot(query_vec, doc_vec) / denom)
-            resolved_path = Path(path_str).resolve()
+            try:
+                resolved_path = resolve_index_path(path_str, meta if isinstance(meta, dict) else None)
+            except Exception:
+                resolved_path = Path(path_str).resolve()
             try:
                 rel_path = str(resolved_path.relative_to(base_dir))
             except ValueError:
