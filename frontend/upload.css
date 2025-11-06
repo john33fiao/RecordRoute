@@ -147,8 +147,20 @@
     background: #17a2b8;
     color: white;
 }
+#overlayEdit {
+    background: #ffc107;
+    color: #212529;
+}
+#overlaySave {
+    background: #28a745;
+    color: white;
+}
 #overlayDownload {
     background: #007bff;
+    color: white;
+}
+#overlayDelete {
+    background: #dc3545;
     color: white;
 }
 #overlayClose {
