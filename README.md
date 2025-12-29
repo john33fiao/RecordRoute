@@ -25,6 +25,13 @@ RecordRoute/
 ├── README.md              # 프로젝트 소개 및 설치 가이드
 ├── CLAUDE.md             # Claude AI 전용 프로젝트 가이드
 ├── GEMINI.md             # Gemini AI 에이전트 및 개발자 가이드
+├── package.json          # Node.js 프로젝트 설정 (Electron)
+├── main.js               # Electron 메인 프로세스
+├── preload.js            # Electron preload 스크립트 (보안)
+├── RecordRouteAPI.spec   # PyInstaller 빌드 스펙
+├── build-backend.sh      # Python 백엔드 빌드 스크립트 (Unix)
+├── build-backend.bat     # Python 백엔드 빌드 스크립트 (Windows)
+├── build-all.sh          # 전체 빌드 스크립트
 ├── run.bat               # Windows 웹 서버 실행 스크립트
 ├── run.command           # macOS/Linux 웹 서버 실행 스크립트
 ├── frontend/             # 웹 인터페이스
@@ -32,6 +39,7 @@ RecordRoute/
 │   ├── upload.js         # 프론트엔드 로직
 │   └── upload.css        # 프론트엔드 스타일
 └── sttEngine/            # 엔진 및 서버 모듈
+    ├── bootstrap.py         # 모델 부트스트래핑 스크립트
     ├── config.py            # 환경변수 기반 설정 관리
     ├── logger.py            # 파일 기반 로깅 유틸리티
     ├── ollama_utils.py      # Ollama 서버 상태 확인 및 모델 관리
@@ -88,6 +96,46 @@ ollama pull gemma2:9b
 ollama pull mxbai-embed-large
 ```
 *사용자 환경에 따라 `config.py` 또는 `.env` 파일에서 다른 모델을 지정할 수 있습니다.*
+
+### 4. Electron 데스크톱 앱 (Phase 3 완료)
+
+RecordRoute는 Electron 기반 데스크톱 애플리케이션으로도 사용할 수 있습니다.
+
+#### 개발 모드 실행
+```bash
+# Node.js 의존성 설치
+npm install
+
+# Electron 앱 시작 (Python 백엔드 자동 실행)
+npm start
+```
+
+#### 프로덕션 빌드
+```bash
+# 1단계: Python 백엔드 빌드 (PyInstaller)
+./build-backend.sh    # Unix/macOS
+build-backend.bat     # Windows
+
+# 2단계: Electron 앱 빌드
+npm run build         # 현재 플랫폼용 빌드
+npm run build:win     # Windows 설치 파일 생성
+npm run build:mac     # macOS DMG 생성
+npm run build:linux   # Linux AppImage 생성
+
+# 또는 전체 빌드 한 번에
+./build-all.sh --target win    # Windows
+./build-all.sh --target mac    # macOS
+./build-all.sh --target linux  # Linux
+```
+
+**빌드 출력:**
+- Python 백엔드: `bin/RecordRouteAPI/`
+- Electron 앱: `dist/`
+
+**주의사항:**
+- Python 백엔드 빌드 전에 가상환경을 활성화해야 합니다
+- PyInstaller 필요: `pip install pyinstaller`
+- 빌드 프로세스는 플랫폼에 따라 시간이 걸릴 수 있습니다
 
 ## 사용법
 
