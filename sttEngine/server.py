@@ -2887,6 +2887,21 @@ class UploadHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    import argparse
+
+    # Parse command-line arguments for Electron integration
+    parser = argparse.ArgumentParser(description='RecordRoute STT Server')
+    parser.add_argument('--ffmpeg_path', type=str, default='ffmpeg',
+                        help='Path to ffmpeg executable')
+    parser.add_argument('--models_path', type=str, default=None,
+                        help='Path to models directory')
+    args = parser.parse_args()
+
+    # Set environment variables for other modules to access
+    os.environ['FFMPEG_PATH'] = args.ffmpeg_path
+    if args.models_path:
+        os.environ['MODELS_PATH'] = args.models_path
+
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     DELETED_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -2904,7 +2919,7 @@ if __name__ == "__main__":
     # This lets the server respond to cancellation requests while
     # long-running tasks are processing in separate threads.
     server = ThreadingHTTPServer(("127.0.0.1", 8080), UploadHandler)
-    print("Serving on http://localhost:8080")
+    print("Serving HTTP on 127.0.0.1 port 8080")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
