@@ -1,0 +1,17 @@
+{
+  "name": "recordroute",
+  "version": "1.0.0",
+  "description": "음성, 영상, PDF 파일을 텍스트로 변환하고 회의록으로 요약하는 통합 워크플로우 시스템입니다. STT(Speech-to-Text), 텍스트 추출, 요약, 벡터 검색 기능을 제공합니다.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:40219/git/john33fiao/RecordRoute"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
