@@ -31,6 +31,9 @@
     "electron": "^28.0.0",
     "electron-builder": "^24.9.1"
   },
+  "dependencies": {
+    "electron-updater": "^6.1.7"
+  },
   "build": {
     "appId": "com.recordroute.app",
     "productName": "RecordRoute",
@@ -86,6 +89,13 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "RecordRoute"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "john33fiao",
+        "repo": "RecordRoute"
+      }
+    ]
   }
 }

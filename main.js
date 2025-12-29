@@ -1,7 +1,8 @@
 // RecordRoute Electron Main Process
 // Phase 2: Python backend integration
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -145,8 +146,271 @@ function createWindow() {
   });
 }
 
+/**
+ * Create application menu
+ */
+function createMenu() {
+  const isMac = process.platform === 'darwin';
+
+  const template = [
+    // App menu (macOS only)
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about', label: 'RecordRoute에 대하여' },
+        { type: 'separator' },
+        { role: 'services', label: '서비스' },
+        { type: 'separator' },
+        { role: 'hide', label: 'RecordRoute 가리기' },
+        { role: 'hideOthers', label: '다른 앱 가리기' },
+        { role: 'unhide', label: '모두 보기' },
+        { type: 'separator' },
+        { role: 'quit', label: 'RecordRoute 종료' }
+      ]
+    }] : []),
+
+    // File menu
+    {
+      label: '파일',
+      submenu: [
+        {
+          label: '파일 업로드',
+          accelerator: 'CmdOrCtrl+O',
+          click: () => {
+            if (mainWindow) {
+              mainWindow.webContents.executeJavaScript('document.getElementById("file-input")?.click()');
+            }
+          }
+        },
+        { type: 'separator' },
+        {
+          label: '새로고침',
+          accelerator: 'CmdOrCtrl+R',
+          click: () => {
+            if (mainWindow) {
+              mainWindow.reload();
+            }
+          }
+        },
+        { type: 'separator' },
+        isMac ? { role: 'close', label: '창 닫기' } : { role: 'quit', label: '종료' }
+      ]
+    },
+
+    // Edit menu
+    {
+      label: '편집',
+      submenu: [
+        { role: 'undo', label: '실행 취소' },
+        { role: 'redo', label: '다시 실행' },
+        { type: 'separator' },
+        { role: 'cut', label: '잘라내기' },
+        { role: 'copy', label: '복사' },
+        { role: 'paste', label: '붙여넣기' },
+        ...(isMac ? [
+          { role: 'pasteAndMatchStyle', label: '붙여넣기 및 스타일 일치' },
+          { role: 'delete', label: '삭제' },
+          { role: 'selectAll', label: '모두 선택' },
+          { type: 'separator' },
+          {
+            label: '말하기',
+            submenu: [
+              { role: 'startSpeaking', label: '말하기 시작' },
+              { role: 'stopSpeaking', label: '말하기 중지' }
+            ]
+          }
+        ] : [
+          { role: 'delete', label: '삭제' },
+          { type: 'separator' },
+          { role: 'selectAll', label: '모두 선택' }
+        ])
+      ]
+    },
+
+    // View menu
+    {
+      label: '보기',
+      submenu: [
+        { role: 'reload', label: '다시 로드' },
+        { role: 'forceReload', label: '강제 다시 로드' },
+        { role: 'toggleDevTools', label: '개발자 도구' },
+        { type: 'separator' },
+        { role: 'resetZoom', label: '실제 크기' },
+        { role: 'zoomIn', label: '확대' },
+        { role: 'zoomOut', label: '축소' },
+        { type: 'separator' },
+        { role: 'togglefullscreen', label: '전체 화면' }
+      ]
+    },
+
+    // Window menu
+    {
+      label: '창',
+      submenu: [
+        { role: 'minimize', label: '최소화' },
+        { role: 'zoom', label: '확대/축소' },
+        ...(isMac ? [
+          { type: 'separator' },
+          { role: 'front', label: '모두 앞으로 가져오기' },
+          { type: 'separator' },
+          { role: 'window', label: '창' }
+        ] : [
+          { role: 'close', label: '닫기' }
+        ])
+      ]
+    },
+
+    // Help menu
+    {
+      label: '도움말',
+      role: 'help',
+      submenu: [
+        {
+          label: 'RecordRoute 문서',
+          click: async () => {
+            const docPath = path.join(__dirname, 'README.md');
+            if (fs.existsSync(docPath)) {
+              await shell.openPath(docPath);
+            }
+          }
+        },
+        {
+          label: '프로젝트 GitHub',
+          click: async () => {
+            await shell.openExternal('https://github.com/john33fiao/RecordRoute');
+          }
+        },
+        { type: 'separator' },
+        {
+          label: '업데이트 확인',
+          click: () => {
+            if (isDev) {
+              dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: '개발 모드',
+                message: '개발 모드에서는 업데이트를 확인할 수 없습니다.',
+                buttons: ['확인']
+              });
+            } else {
+              autoUpdater.checkForUpdates();
+            }
+          }
+        },
+        { type: 'separator' },
+        {
+          label: 'RecordRoute 정보',
+          click: () => {
+            dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: 'RecordRoute 정보',
+              message: 'RecordRoute',
+              detail: `버전: ${app.getVersion()}\n\n음성, 영상, PDF 파일을 텍스트로 변환하고 회의록으로 요약하는 통합 워크플로우 시스템입니다.`,
+              buttons: ['확인']
+            });
+          }
+        }
+      ]
+    }
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
+/**
+ * Configure auto-updater
+ * Checks for updates and notifies the user
+ */
+function setupAutoUpdater() {
+  // Only check for updates in production
+  if (isDev) {
+    console.log('Auto-updater disabled in development mode');
+    return;
+  }
+
+  // Configure auto-updater
+  autoUpdater.logger = console;
+  autoUpdater.autoDownload = false; // Don't auto-download, ask user first
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  // Check for updates when app starts
+  autoUpdater.checkForUpdates();
+
+  // When update is available
+  autoUpdater.on('update-available', (info) => {
+    console.log('Update available:', info);
+
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: '업데이트 사용 가능',
+      message: `새로운 버전 ${info.version}이 사용 가능합니다.`,
+      detail: '지금 다운로드하시겠습니까?',
+      buttons: ['다운로드', '나중에'],
+      defaultId: 0,
+      cancelId: 1
+    }).then((result) => {
+      if (result.response === 0) {
+        autoUpdater.downloadUpdate();
+      }
+    });
+  });
+
+  // When update is not available
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('Update not available:', info);
+  });
+
+  // Download progress
+  autoUpdater.on('download-progress', (progressObj) => {
+    const message = `다운로드 속도: ${progressObj.bytesPerSecond} - 다운로드됨: ${progressObj.percent}%`;
+    console.log(message);
+
+    // Optionally show progress in window title or status bar
+    if (mainWindow) {
+      mainWindow.setTitle(`RecordRoute - 업데이트 다운로드 중... ${Math.round(progressObj.percent)}%`);
+    }
+  });
+
+  // When update is downloaded
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('Update downloaded:', info);
+
+    // Reset window title
+    if (mainWindow) {
+      mainWindow.setTitle('RecordRoute');
+    }
+
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: '업데이트 준비 완료',
+      message: '업데이트가 다운로드되었습니다.',
+      detail: '앱을 다시 시작하여 업데이트를 설치하시겠습니까?',
+      buttons: ['다시 시작', '나중에'],
+      defaultId: 0,
+      cancelId: 1
+    }).then((result) => {
+      if (result.response === 0) {
+        // Quit and install update
+        autoUpdater.quitAndInstall(false, true);
+      }
+    });
+  });
+
+  // Error handling
+  autoUpdater.on('error', (err) => {
+    console.error('Auto-updater error:', err);
+  });
+
+  // Check for updates every 4 hours
+  setInterval(() => {
+    autoUpdater.checkForUpdates();
+  }, 4 * 60 * 60 * 1000);
+}
+
 // App lifecycle events
 app.whenReady().then(() => {
+  createMenu();  // Create native menu
+  setupAutoUpdater();  // Setup auto-updater
   runPythonServer();
 
   app.on('activate', function () {
