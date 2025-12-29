@@ -1,0 +1,98 @@
+#!/bin/bash
+# RecordRoute Backend Build Script
+# Phase 3: Build Python backend with PyInstaller
+
+set -e  # Exit on error
+
+echo "======================================"
+echo "RecordRoute Backend Build Script"
+echo "======================================"
+echo ""
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Check if virtual environment is activated
+if [ -z "$VIRTUAL_ENV" ]; then
+    echo -e "${YELLOW}Warning: Virtual environment not detected${NC}"
+    echo "Attempting to activate virtual environment..."
+
+    if [ -f "venv/bin/activate" ]; then
+        source venv/bin/activate
+        echo -e "${GREEN}✓ Virtual environment activated${NC}"
+    elif [ -f "venv/Scripts/activate" ]; then
+        source venv/Scripts/activate
+        echo -e "${GREEN}✓ Virtual environment activated${NC}"
+    else
+        echo -e "${RED}✗ Virtual environment not found${NC}"
+        echo "Please create one with: python -m venv venv"
+        exit 1
+    fi
+fi
+
+# Check if PyInstaller is installed
+if ! python -c "import PyInstaller" 2>/dev/null; then
+    echo -e "${YELLOW}PyInstaller not found. Installing...${NC}"
+    pip install pyinstaller
+fi
+
+echo ""
+echo "[Step 1/4] Cleaning previous build..."
+rm -rf build dist bin/RecordRouteAPI bin/RecordRouteAPI.exe
+echo -e "${GREEN}✓ Cleaned${NC}"
+
+echo ""
+echo "[Step 2/4] Building Python backend with PyInstaller..."
+pyinstaller RecordRouteAPI.spec --clean
+
+if [ $? -ne 0 ]; then
+    echo -e "${RED}✗ PyInstaller build failed${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✓ PyInstaller build complete${NC}"
+
+echo ""
+echo "[Step 3/4] Copying executable to bin directory..."
+mkdir -p bin
+
+if [ "$(uname)" == "Darwin" ] || [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
+    # macOS or Linux
+    cp -r dist/RecordRouteAPI bin/
+    echo -e "${GREEN}✓ Copied RecordRouteAPI to bin/${NC}"
+elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ] || [ "$(expr substr $(uname -s) 1 10)" == "MINGW64_NT" ]; then
+    # Windows (Git Bash)
+    cp -r dist/RecordRouteAPI bin/
+    echo -e "${GREEN}✓ Copied RecordRouteAPI to bin/${NC}"
+fi
+
+echo ""
+echo "[Step 4/4] Build summary..."
+echo "------------------------------"
+echo "Output directory: dist/RecordRouteAPI"
+echo "Installed to: bin/RecordRouteAPI"
+
+if [ -f "bin/RecordRouteAPI/RecordRouteAPI" ]; then
+    SIZE=$(du -sh bin/RecordRouteAPI | cut -f1)
+    echo "Build size: $SIZE"
+    echo -e "${GREEN}✓ Build successful!${NC}"
+elif [ -f "bin/RecordRouteAPI/RecordRouteAPI.exe" ]; then
+    SIZE=$(du -sh bin/RecordRouteAPI | cut -f1)
+    echo "Build size: $SIZE"
+    echo -e "${GREEN}✓ Build successful!${NC}"
+else
+    echo -e "${RED}✗ Executable not found${NC}"
+    exit 1
+fi
+
+echo ""
+echo "======================================"
+echo "Backend build complete!"
+echo "======================================"
+echo ""
+echo "Next steps:"
+echo "  1. Test the backend: bin/RecordRouteAPI/RecordRouteAPI"
+echo "  2. Build Electron app: npm run build"
+echo ""

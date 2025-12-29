@@ -30,3 +30,11 @@ yarn-error.log*
 
 # 패키지 잠금 파일 (선택적)
 # package-lock.json
+
+# PyInstaller 빌드 파일
+build/
+*.spec.bak
+bin/RecordRouteAPI/
+
+# Electron 빌드 리소스
+.electron-builder.yml
