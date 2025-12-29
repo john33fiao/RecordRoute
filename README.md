@@ -1,54 +1,68 @@
 # RecordRoute
-음성 파일을 회의록으로 변환하는 통합 워크플로우 시스템입니다. STT(Speech-to-Text), 교정, 요약 기능을 단계적으로 제공합니다.
+음성, 영상, PDF 파일을 텍스트로 변환하고 회의록으로 요약하는 통합 워크플로우 시스템입니다. STT(Speech-to-Text), 텍스트 추출, 요약, 벡터 검색 기능을 제공합니다.
 
 ## 주요 기능
 
- - **음성→텍스트 변환**: OpenAI Whisper를 사용한 고품질 음성 인식
- - **텍스트 교정**: LLM을 이용해 오탈자와 문법을 자동으로 수정
- - **구조화된 요약**: 회의록 형태의 체계적 요약 생성
- - **통합 워크플로우**: STT부터 요약까지 자동화된 처리 파이프라인
- - **웹 기반 인터페이스**: 파일 업로드와 단계별 작업 선택, 작업 큐·업로드 기록 관리, 결과 오버레이 뷰어, 기록 초기화 지원
- - **임베딩 기반 검색**: 문서를 벡터화하여 RAG 질의·유사도 검색·유사 문서 추천 지원
- - **한 줄 요약**: 텍스트 파일을 한 줄로 요약하는 유틸리티
+- **다중 포맷 지원**: 오디오, 비디오, PDF 등 다양한 형식의 파일을 처리합니다.
+- **음성→텍스트 변환**: OpenAI Whisper를 사용한 고품질 음성 인식.
+- **구조화된 요약**: LLM(Ollama)을 이용해 체계적인 회의록 형태의 요약을 생성합니다.
+- **통합 워크플로우**: STT부터 요약, 임베딩까지 이어지는 자동화된 처리 파이프라인.
+- **실시간 웹 인터페이스**:
+    - 파일 업로드 및 단계별 작업 선택.
+    - WebSocket을 통한 실시간 작업 진행 상황 모니터링.
+    - 작업 취소, 기록 삭제, 결과물 수정 등 강력한 관리 기능.
+- **임베딩 및 RAG**:
+    - 문서 벡터화를 통한 시맨틱 검색.
+    - 유사 문서 추천 및 키워드 검색.
+- **유틸리티**:
+    - 한 줄 요약 생성.
+    - 키워드 빈도 분석.
 
 ## 디렉토리 구조
 
 ```
 RecordRoute/
 ├── README.md              # 프로젝트 소개 및 설치 가이드
-├── TODO.md               # 기능 구현 계획
-├── LICENSE                # 라이선스 정보
 ├── CLAUDE.md             # Claude AI 전용 프로젝트 가이드
-├── GEMINI.md             # Gemini AI 전용 프로젝트 가이드
+├── GEMINI.md             # Gemini AI 에이전트 및 개발자 가이드
 ├── run.bat               # Windows 웹 서버 실행 스크립트
 ├── run.command           # macOS/Linux 웹 서버 실행 스크립트
 ├── frontend/             # 웹 인터페이스
 │   ├── upload.html       # 업로드 및 작업 관리 UI
 │   ├── upload.js         # 프론트엔드 로직
 │   └── upload.css        # 프론트엔드 스타일
-└── sttEngine/            # STT 엔진 및 서버 모듈
+└── sttEngine/            # 엔진 및 서버 모듈
     ├── config.py            # 환경변수 기반 설정 관리
-    ├── ollama_utils.py      # Ollama 서버 확인 및 자동 실행
+    ├── logger.py            # 파일 기반 로깅 유틸리티
+    ├── ollama_utils.py      # Ollama 서버 상태 확인 및 모델 관리
     ├── embedding_pipeline.py  # 문서 임베딩 및 벡터 생성
     ├── one_line_summary.py    # 한 줄 요약 유틸리티
+    ├── keyword_frequency.py   # 키워드 빈도 분석 유틸리티
+    ├── search_cache.py        # 검색 결과 캐싱
     ├── requirements.txt       # Python 의존성
-    ├── run_workflow.py        # 워크플로우 통합 실행기
-    ├── server.py              # 업로드 처리 및 워크플로우 실행 서버
+    ├── run_workflow.py        # CLI 기반 워크플로우 실행기
+    ├── server.py              # HTTP/WebSocket 서버 및 API 엔드포인트
     ├── vector_search.py       # 벡터 검색 기능
-    └── workflow/              # 핵심 처리 모듈들
+    └── workflow/              # 핵심 처리 모듈
         ├── transcribe.py      # 음성→텍스트 변환
-        ├── correct.py         # 텍스트 교정
+        ├── correct.py         # (현재 비활성화) 텍스트 교정
         └── summarize.py       # 텍스트 요약
 ```
 
 ## 설치 및 설정
 
-### 1. 자동 설치 (권장)
+### 1. 사전 요구사항
+
+- **Python 3.8 이상**
+- **FFmpeg**: 시스템 PATH에 등록되어 있어야 합니다.
+- **Ollama**: 로컬 LLM을 구동하기 위해 설치 및 실행되어 있어야 합니다.
+
+### 2. 자동 설치 (권장)
 
 #### Windows
 ```bash
-# 1단계: 환경 설정
-sttEngine\setup.bat
+# 1단계: 가상환경 생성 및 의존성 설치
+setup.bat
 
 # 2단계: 웹 서버 실행
 run.bat
@@ -63,165 +77,62 @@ pip install -r sttEngine/requirements.txt
 ./run.command
 ```
 
-### 2. 수동 설치
+### 3. Ollama 모델 다운로드
 
-#### Python 패키지
+워크플로우에 필요한 모델을 미리 다운로드합니다.
 ```bash
-pip install -r sttEngine/requirements.txt
+# 요약 모델 (플랫폼 공통)
+ollama pull gemma2:9b
+
+# 임베딩 모델 (RAG 및 검색용)
+ollama pull mxbai-embed-large
 ```
-
-**포함 패키지:**
- - `openai-whisper>=20231117`: 음성 인식
- - `ollama>=0.1.0`: 로컬 LLM 추론
-
-#### FFmpeg 설치
-다양한 오디오 형식 처리를 위해 필수:
-```bash
-# Windows - Chocolatey 사용 시
-choco install ffmpeg
-
-# macOS
-brew install ffmpeg
-
-# 또는 https://ffmpeg.org/download.html 에서 직접 설치
-```
-
-### 3. Ollama 설정
-
-#### Ollama 설치
-```bash
-# Windows
-winget install Ollama.Ollama
-
-# macOS
-brew install ollama
-
-# 또는 https://ollama.com/download 에서 설치
-```
-
-#### 모델 다운로드
-```bash
-# Windows 사용자
-ollama pull gemma3:4b
-
-# macOS/Linux 사용자
-ollama pull gemma3:12b-it-qat
-ollama pull gpt-oss:20b
-```
-
+*사용자 환경에 따라 `config.py` 또는 `.env` 파일에서 다른 모델을 지정할 수 있습니다.*
 
 ## 사용법
 
-### 웹 인터페이스 실행
-```bash
-# Windows
-run.bat
+### 1. 웹 인터페이스
 
-# macOS/Linux
-./run.command
-```
-웹 브라우저에서 <http://localhost:8080> 에 접속하여 파일을 업로드하고 STT, 요약 작업을 선택합니다. 작업 큐, 업로드 기록(개별 초기화 가능), 결과 오버레이 뷰어, 임베딩 기반 검색·유사 문서 탐색 기능을 제공합니다.
+- **실행**: `run.bat`(Windows) 또는 `./run.command`(macOS/Linux)를 실행합니다.
+- **접속**: 웹 브라우저에서 `http://localhost:8080`으로 접속합니다.
+- **기능**:
+    - 파일을 드래그 앤 드롭하거나 선택하여 업로드합니다.
+    - 원하는 작업(STT, 요약, 임베딩)을 선택하고 처리 시작 버튼을 누릅니다.
+    - 작업 현황은 실시간으로 업데이트되며, 완료된 기록은 목록에서 관리할 수 있습니다.
+    - 결과물 보기, 수정, 다운로드, 삭제, 초기화 등 다양한 작업을 수행할 수 있습니다.
+    - 검색창을 통해 저장된 모든 문서에 대해 키워드 및 시맨틱 검색을 수행할 수 있습니다.
 
-### CLI 워크플로우 실행
+### 2. CLI 워크플로우 실행 (레거시)
+
 ```bash
 python sttEngine/run_workflow.py
 ```
+대화형 프롬프트를 통해 파일을 지정하고 단계를 선택하여 실행할 수 있습니다.
 
-### 단계별 실행
+## 주요 API 엔드포인트
 
-#### 1단계: 음성→텍스트 변환
-```bash
-python sttEngine/workflow/transcribe.py [audio_folder] --model_size large-v3-turbo --language ko --filter_fillers
-```
+`sttEngine/server.py`는 다음과 같은 API를 제공합니다.
 
-**주요 옵션:**
- - `--model_size`: Whisper 모델 크기 (tiny, base, small, medium, large, large-v3-turbo)
- - `--language ko`: 한국어 힌트
- - `--filter_fillers`: 필러 단어 제거
- - `--normalize_punct`: 연속 마침표 정규화
-
-#### 2단계: 텍스트 교정 (선택)
-```bash
-python sttEngine/workflow/correct.py input.md --model gemma3:4b --temperature 0.0
-```
-
-#### 3단계: 텍스트 요약
-```bash
-python sttEngine/workflow/summarize.py input.md --model gemma3:4b --temperature 0.0  # Windows
-python sttEngine/workflow/summarize.py input.md --model gpt-oss:20b --temperature 0.0  # macOS/Linux
-```
-
-## 지원 오디오 포맷
-
-- `.flac`, `.m4a`, `.mp3`, `.mp4`, `.mpeg`, `.mpga`, `.oga`, `.ogg`, `.qta`, `.wav`, `.webm`
-- **M4A 자동 변환**: m4a 파일을 wav로 자동 변환하여 처리
-
-## 지원 문서 포맷
-
-- `.md`, `.txt`, `.text`, `.markdown`
-- `.pdf` (요약 전용)
-
-## 플랫폼별 최적화
-
-### Windows
-- 모델: `gemma3:4b` (요약용)
-- 캐시: `%USERPROFILE%\.cache\whisper\`
-- Python 실행파일: 자동 감지
-
-### macOS/Linux
-- 모델: 요약 `gpt-oss:20b`
-- 캐시: `~/.cache/whisper/`
-- Python 실행파일: `venv/bin/python` (가상환경 사용)
-- 환경변수: `.env` 파일에서 자동 로드
-- **Apple Silicon MPS**: GPU/MPS 우선 사용, CPU fallback 지원
-
-## 처리 단계
-
-### 1단계: 음성→텍스트
-- OpenAI Whisper `large-v3-turbo` 모델 사용
-- 세그먼트 병합 및 필러 단어 필터링
-- 결과: `.md` 파일
-
-### 2단계: 텍스트 교정
-- LLM을 이용한 오탈자 및 문법 수정
-- 결과: `.corrected.md` 파일
-
-### 3단계: 텍스트 요약
-구조화된 회의록 형태의 요약 생성:
-1. 주요 주제
-2. 핵심 내용
-3. 결정 사항
-4. 실행 항목
-5. 리스크/이슈
-6. 차기 일정
-
-결과: `.summary.md` 파일
-
-## 성능 최적화 팁
-
-1. **단일 GPU 환경**: `--workers 1` 사용 권장
-2. **대용량 파일**: 청킹 처리로 메모리 효율성 확보
-3. **플랫폼별 모델**: 최적화된 모델 사용으로 성능 향상
-4. **캐시 활용**: 모델 로딩 시간 단축
+- `POST /upload`: 파일 업로드.
+- `POST /process`: STT, 요약 등 선택된 워크플로우 실행.
+- `GET /history`: 처리 완료된 기록 목록 조회.
+- `GET /download/<file_uuid>`: UUID로 결과 파일 다운로드.
+- `POST /cancel`: 진행 중인 작업 취소.
+- `POST /delete_records`: 기록 및 관련 파일 영구 삭제.
+- `GET /search?q=<query>`: 키워드 및 벡터 검색.
+- `POST /similar`: 특정 문서와 유사한 문서 검색.
+- `POST /update_stt_text`: 변환된 텍스트 결과 수정.
+- `GET /models`: 사용 가능한 Ollama 모델 목록 조회.
+- `ws://localhost:8765`: 실시간 작업 진행 상황을 전송하는 WebSocket 엔드포인트.
 
 ## 트러블슈팅
 
-### 일반적인 문제
-- **모델 로딩 실패**: 캐시 경로와 모델 파일 존재 여부 확인
-- **Ollama 연결 오류**: Ollama 서비스 실행 상태 점검
-- **FFmpeg 오류**: 시스템 PATH 환경변수에 FFmpeg 경로 추가
-- **인코딩 문제**: UTF-8, CP949, EUC-KR 순으로 자동 시도
-- **MPS 오류**: Apple Silicon에서 GPU 실패 시 CPU로 자동 전환
-- **M4A 변환 오류**: FFmpeg 설치 및 PATH 설정 확인
+- **Ollama 연결 오류**: Ollama 서비스가 로컬에서 실행 중인지 확인하세요 (`ollama serve`).
+- **FFmpeg 오류**: FFmpeg가 시스템에 설치되고 PATH에 등록되었는지 확인하세요.
+- **로그 확인**: 문제가 발생하면 `db/log/` 디렉토리에 생성된 로그 파일을 확인하여 원인을 파악할 수 있습니다.
 
 ## 참고사항
 
-- 이 프로젝트는 개인적인 학습 목적으로 진행되었습니다.
-- 상용 서비스에 적용하기 위해서는 추가적인 검토와 개선이 필요합니다.
-- 사용 중 발생하는 문제에 대해서는 책임지지 않습니다.
-
-### 추가 참고사항
-
-- 본 레포지토리는 UX 기획자에 의해, LLM 도구 및 Git에 대한 학습을 목적으로 운영됩니다. 
-- 대부분의 코드는 LLM(Claude > Gemini > ChatGPT 순)으로 작성되었습니다.
-- 구현 예정사항은 [Todo List](/TODO//TODO.md)로 정리합니다.
+- 이 프로젝트는 개인적인 학습 및 포트폴리오 목적으로 진행되었습니다.
+- 대부분의 코드는 LLM(Claude, Gemini 등)의 도움을 받아 작성되었습니다.
+- 구현 예정 기능은 [TODO](/TODO/TODO.md) 문서에 정리되어 있습니다.
