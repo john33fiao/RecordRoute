@@ -2,25 +2,27 @@
 
 ## 1. 프로젝트 개요 (Project Overview)
 
-이 프로젝트는 오디오/비디오 파일로부터 텍스트를 추출하고, 이를 교정 및 요약하는 자동화된 워크플로우를 제공합니다. STT(Speech-to-Text) 엔진을 중심으로 구성되어 있으며, 다음과 같은 3단계 파이프라인을 통해 작동합니다.
+이 프로젝트는 오디오/비디오/PDF 파일로부터 텍스트를 추출하고, 이를 교정 및 요약하는 자동화된 워크플로우를 제공합니다. STT(Speech-to-Text) 엔진을 중심으로 구성되어 있으며, 다음과 같은 3단계 파이프라인을 통해 작동합니다.
 
- 1.  **음성 -> 텍스트 변환 (Transcribe):** `openai-whisper`를 사용하여 미디어 파일에서 텍스트를 추출합니다.
- 2.  **텍스트 교정 (Correct):** `Ollama`를 통해 추출된 텍스트의 오탈자, 문법 등을 교정합니다.
+ 1.  **음성 -> 텍스트 변환 (Transcribe):** `openai-whisper`를 사용하여 미디어 파일에서 텍스트를 추출합니다. PDF 파일의 경우 텍스트를 직접 추출합니다.
+ 2.  **텍스트 교정 (Correct):** `Ollama`를 통해 추출된 텍스트의 오탈자, 문법 등을 교정합니다. (현재는 워크플로우에서 비활성화)
  3.  **텍스트 요약 (Summarize):** 교정된 텍스트를 `Ollama`를 사용해 구조화된 형식으로 요약합니다.
 
 간단한 웹 업로드 페이지를 통해 이러한 작업을 선택적으로 실행할 수 있으며, 작업 큐와 업로드 기록 관리, 결과 오버레이 뷰어, 요약 전 확인 팝업, 업로드 기록 초기화 기능을 제공합니다.
-추가로 문서 임베딩과 벡터 검색, 한 줄 요약 기능을 통해 결과 활용성을 높였습니다.
+추가로 문서 임베딩과 벡터 검색, 한 줄 요약, 실시간 작업 진행 상황 업데이트(WebSocket), 작업 취소, 결과물 수정 및 영구 삭제 등 다양한 관리 기능을 지원합니다.
 
 ## 2. 기술 스택 (Tech Stack)
 
 -   **언어:** Python 3
 -   **음성 인식:** `openai-whisper`
--   **LLM (텍스트 교정/요약):** `Ollama` (gemma3:4b, gemma3:12b-it-qat, gpt-oss:20b 등)
+-   **LLM (텍스트 교정/요약):** `Ollama`
+-   **웹 프레임워크:** `http.server`, `websockets`
 -   **핵심 의존성:**
     -   `openai-whisper`: Python 라이브러리
     -   `ollama`: Python 라이브러리
-    -   `ffmpeg`: 시스템 프로그램 (오디오 처리 및 m4a→wav 변환)
+    -   `ffmpeg`: 시스템 프로그램 (오디오 처리)
     -   `Ollama`: 시스템 서비스 (로컬 LLM 구동을 위해 필요)
+    -   `pypdf`: PDF 텍스트 추출
 
 ## 3. 디렉토리 구조 (Directory Structure)
 
@@ -40,11 +42,14 @@ RecordRoute/
 └── sttEngine/
     ├── config.py            # 환경변수 기반 설정 관리
     ├── embedding_pipeline.py  # 문서 임베딩 및 벡터 생성
+    ├── keyword_frequency.py   # 키워드 빈도 분석 유틸리티
+    ├── logger.py              # 로깅 설정 유틸리티
     ├── ollama_utils.py      # Ollama 서버 및 모델 관리 유틸리티
     ├── one_line_summary.py    # 한 줄 요약 유틸리티
     ├── requirements.txt       # Python 의존성 목록
     ├── run_workflow.py        # 메인 워크플로우 오케스트레이션 스크립트
     ├── run.bat                # Windows용 워크플로우 실행 스크립트
+    ├── search_cache.py        # 검색 결과 캐시 관리
     ├── server.py              # 업로드 처리 및 워크플로우 실행 서버
     ├── setup.bat              # Windows용 의존성 설치 스크립트
     ├── vector_search.py       # 벡터 검색 기능
@@ -77,7 +82,7 @@ run_shell_command(command="cd sttEngine && setup.bat")
 
 1. 의존성 설치 후 실행 스크립트를 호출합니다.
 2. 브라우저에서 `http://localhost:8080` 에 접속하여 파일을 업로드하고 작업을 선택합니다.
-3. 작업은 백그라운드에서 비동기적으로 처리되며, UI는 주기적으로 서버에 진행 상태를 문의하여 업데이트됩니다.
+3. 작업은 백그라운드에서 비동기적으로 처리되며, UI는 WebSocket을 통해 실시간으로 진행 상태를 업데이트 받습니다.
 
 **AI 에이전트 명령어:**
 
@@ -91,13 +96,27 @@ run_shell_command(command="run.bat")
 run_shell_command(command="./run.command")
 ```
 
-**플랫폼별 기본 모델:**
-- Windows: `gemma3:4b`
-- macOS/Linux: 교정 `gemma3:12b-it-qat`, 요약 `gpt-oss:20b`
-
 *참고: 기존 `sttEngine/run_workflow.py`는 CLI용으로 남아 있으며 대화형 입력을 요구합니다.*
 
-## 6. AI 에이전트 활용 가이드 (Gemini Usage Guide)
+## 6. 주요 API 엔드포인트
+
+`sttEngine/server.py`는 다음과 같은 주요 API 엔드포인트를 제공합니다.
+
+-   **`GET /`**: 메인 업로드 페이지 (`upload.html`)를 제공합니다.
+-   **`POST /upload`**: 오디오, 비디오, PDF 파일을 업로드하고 `upload_history.json`에 기록을 추가합니다.
+-   **`POST /process`**: 지정된 파일에 대해 STT, 임베딩, 요약 등의 워크플로우를 실행합니다.
+-   **`GET /history`**: 활성화된(삭제되지 않은) 업로드 기록 목록을 반환합니다.
+-   **`GET /download/<file_uuid>`**: UUID로 식별된 결과 파일을 다운로드합니다.
+-   **`POST /cancel`**: 실행 중인 작업을 ID를 통해 취소합니다.
+-   **`GET /search?q=<query>`**: 키워드 및 벡터 검색을 수행하여 관련 문서를 찾습니다.
+-   **`POST /similar`**: 특정 문서와 유사한 문서를 벡터 검색을 통해 찾습니다.
+-   **`POST /update_stt_text`**: STT 결과 텍스트의 내용을 수정합니다.
+-   **`POST /delete_records`**: 하나 이상의 기록과 관련 파일들을 영구적으로 삭제합니다.
+-   **`POST /reset_summary_embedding`**: 특정 기록의 요약 및 임베딩 결과물을 초기화합니다.
+-   **`GET /models`**: 사용 가능한 Ollama 모델 목록을 반환합니다.
+-   **`GET /ws`**: WebSocket 연결을 위한 엔드포인트로, 클라이언트에 실시간 작업 진행 상황을 전송합니다.
+
+## 7. AI 에이전트 활용 가이드 (Gemini Usage Guide)
 
 다음은 AI 에이전트가 이 프로젝트에서 수행할 수 있는 주요 작업 목록입니다.
 
@@ -125,8 +144,7 @@ run_shell_command(command="./run.command")
 ### 워크플로우 스크립트 수정
 
 -   **요약 프롬프트 변경:** `sttEngine/workflow/summarize.py` 파일의 `BASE_PROMPT` 변수를 수정합니다.
--   **교정 프롬프트 변경:** `sttEngine/workflow/correct.py` 파일의 `SYSTEM_PROMPT` 변수를 수정합니다.
--   **Whisper 모델 변경:** `sttEngine/workflow/transcribe.py`의 `--model_size` 인자 기본값을 변경합니다.
+-   **Whisper 모델 변경:** `sttEngine/workflow/transcribe.py`의 `model_identifier` 인자 기본값을 변경합니다.
 
 **예시 명령어 (요약 프롬프트 수정):**
 ```
@@ -141,16 +159,17 @@ replace(...)
 웹 UI 관련 문제나 작업 처리 중 멈춤 현상 발생 시 다음을 확인합니다.
 
 1.  **서버 로직 확인 (`sttEngine/server.py`):**
-    -   `/process`: 작업을 시작하는 API 엔드포인트. `run_workflow` 함수를 백그라운드 스레드에서 실행하는지 확인합니다.
-    -   `/progress/<task_id>`: 작업 진행 상태를 반환하는 엔드포인트.
+    -   `/process`: 작업을 시작하는 API 엔드포인트. `run_workflow` 함수를 백그라운드에서 실행하는지 확인합니다.
+    -   `/progress/<task_id>`: (이제 WebSocket으로 대체됨) 작업 진행 상태를 반환하는 엔드포인트.
     -   `/history`: 작업 완료 기록을 반환하는 엔드포인트.
+    -   **신규 기능**: `/cancel`, `/delete_records`, `/update_stt_text` 등의 API가 정상적으로 동작하는지 확인합니다.
 
 2.  **프론트엔드 로직 확인 (`frontend/upload.js`):**
     -   `processFile()`: `/process` API를 호출하고 서버로부터 `task_id`를 받는지 확인합니다.
-    -   `pollProgress()`: `task_id`를 사용해 주기적으로 `/progress/<task_id>`를 호출하여 UI를 업데이트하는지 확인합니다.
-    -   브라우저의 개발자 도구(F12) 콘솔에서 자바스크립트 오류가 발생하는지 확인하는 것이 매우 중요합니다.
+    -   **WebSocket 연결**: `ws://localhost:8765`로 WebSocket 연결을 수립하고, 서버로부터 오는 진행 메시지를 처리하는 로직을 확인합니다.
+    -   브라우저의 개발자 도구(F12) 콘솔에서 자바스크립트 오류 및 WebSocket 통신 내용을 확인하는 것이 매우 중요합니다.
 
 3.  **비동기 작업 흐름 이해:**
-    -   사용자가 웹 UI에서 "처리 시작"을 누르면, `server.py`는 작업을 즉시 백그라운드로 넘기고 `202 Accepted`와 `task_id`를 응답합니다.
-    -   `upload.js`는 이 `task_id`를 받아 `pollProgress` 함수를 통해 작업이 완료될 때까지 주기적으로 서버에 상태를 묻습니다.
-    -   이 과정에서 문제가 발생하면, 서버 로그와 브라우저 콘솔 로그를 함께 분석하여 원인을 찾아야 합니다.
+    -   사용자가 웹 UI에서 "처리 시작"을 누르면, `server.py`는 작업을 즉시 백그라운드로 넘기고 `task_id`를 포함한 응답을 보냅니다.
+    -   `upload.js`는 `task_id`를 사용하여 WebSocket을 통해 해당 작업의 진행 상황을 실시간으로 수신하고 UI를 업데이트합니다.
+    -   이 과정에서 문제가 발생하면, 서버 로그(`db/log` 디렉토리)와 브라우저 콘솔 로그를 함께 분석하여 원인을 찾아야 합니다.
