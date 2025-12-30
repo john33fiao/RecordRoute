@@ -26,14 +26,16 @@ RecordRoute/
 ├── CLAUDE.md             # Claude AI 전용 프로젝트 가이드
 ├── GEMINI.md             # Gemini AI 에이전트 및 개발자 가이드
 ├── package.json          # Node.js 프로젝트 설정 (Electron)
-├── main.js               # Electron 메인 프로세스
-├── preload.js            # Electron preload 스크립트 (보안)
 ├── RecordRouteAPI.spec   # PyInstaller 빌드 스펙
-├── build-backend.sh      # Python 백엔드 빌드 스크립트 (Unix)
-├── build-backend.bat     # Python 백엔드 빌드 스크립트 (Windows)
-├── build-all.sh          # 전체 빌드 스크립트
-├── run.bat               # Windows 웹 서버 실행 스크립트
-├── run.command           # macOS/Linux 웹 서버 실행 스크립트
+├── electron/             # Electron 애플리케이션
+│   ├── main.js           # Electron 메인 프로세스
+│   └── preload.js        # Electron preload 스크립트 (보안)
+├── scripts/              # 빌드 및 실행 스크립트
+│   ├── build-backend.sh  # Python 백엔드 빌드 스크립트 (Unix)
+│   ├── build-backend.bat # Python 백엔드 빌드 스크립트 (Windows)
+│   ├── build-all.sh      # 전체 빌드 스크립트
+│   ├── run.command       # macOS/Linux 웹 서버 실행 스크립트
+│   └── start.vbs         # Windows 숨김 실행 스크립트
 ├── frontend/             # 웹 인터페이스
 │   ├── upload.html       # 업로드 및 작업 관리 UI
 │   ├── upload.js         # 프론트엔드 로직
@@ -87,7 +89,7 @@ run.bat
 pip install -r sttEngine/requirements.txt
 
 # 2단계: 웹 서버 실행 (.env 파일에서 환경변수 자동 로드)
-./run.command
+./scripts/run.command
 ```
 
 ### 3. Ollama 모델 다운로드
@@ -118,8 +120,8 @@ npm start
 #### 프로덕션 빌드
 ```bash
 # 1단계: Python 백엔드 빌드 (PyInstaller)
-./build-backend.sh    # Unix/macOS
-build-backend.bat     # Windows
+./scripts/build-backend.sh    # Unix/macOS
+scripts\build-backend.bat     # Windows
 
 # 2단계: Electron 앱 빌드
 npm run build         # 현재 플랫폼용 빌드
@@ -128,9 +130,9 @@ npm run build:mac     # macOS DMG 생성
 npm run build:linux   # Linux AppImage 생성
 
 # 또는 전체 빌드 한 번에
-./build-all.sh --target win    # Windows
-./build-all.sh --target mac    # macOS
-./build-all.sh --target linux  # Linux
+./scripts/build-all.sh --target win    # Windows
+./scripts/build-all.sh --target mac    # macOS
+./scripts/build-all.sh --target linux  # Linux
 ```
 
 **빌드 출력:**
@@ -147,7 +149,7 @@ npm run build:linux   # Linux AppImage 생성
 
 ### 1. 웹 인터페이스
 
-- **실행**: `run.bat`(Windows) 또는 `./run.command`(macOS/Linux)를 실행합니다.
+- **실행**: `./scripts/run.command`(macOS/Linux)를 실행합니다.
 - **접속**: 웹 브라우저에서 `http://localhost:8080`으로 접속합니다.
 - **기능**:
     - 파일을 드래그 앤 드롭하거나 선택하여 업로드합니다.

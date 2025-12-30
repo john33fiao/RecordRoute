@@ -14,12 +14,15 @@ let logStream = null;
 // Determine if running in development or production
 const isDev = !app.isPackaged;
 
+// Project root directory (parent of electron/ folder)
+const projectRoot = path.join(__dirname, '..');
+
 /**
  * Setup logging to file
  * Redirects console.log, console.error, console.warn to log file
  */
 function setupLogging() {
-  const logDir = path.join(__dirname, 'db', 'log');
+  const logDir = path.join(projectRoot, 'db', 'log');
 
   // Create log directory if it doesn't exist
   if (!fs.existsSync(logDir)) {
@@ -108,9 +111,9 @@ function getPythonPath() {
   if (isDev) {
     // Development environment: use virtual environment Python
     if (process.platform === 'win32') {
-      return path.join(__dirname, 'venv', 'Scripts', 'python.exe');
+      return path.join(projectRoot, 'venv', 'Scripts', 'python.exe');
     } else {
-      return path.join(__dirname, 'venv', 'bin', 'python');
+      return path.join(projectRoot, 'venv', 'bin', 'python');
     }
   } else {
     // Production environment: PyInstaller bundled executable
@@ -126,7 +129,7 @@ function getPythonPath() {
  */
 function getServerPath() {
   if (isDev) {
-    return path.join(__dirname, 'sttEngine', 'server.py');
+    return path.join(projectRoot, 'sttEngine', 'server.py');
   } else {
     // Production: executable is the server itself
     return null;
@@ -160,7 +163,7 @@ function runPythonServer() {
 
   // Models directory path
   const modelsPath = isDev
-    ? path.join(__dirname, 'models')
+    ? path.join(projectRoot, 'models')
     : path.join(app.getPath('userData'), 'models');
 
   // Build command arguments
@@ -355,7 +358,7 @@ function createMenu() {
         {
           label: 'RecordRoute 문서',
           click: async () => {
-            const docPath = path.join(__dirname, 'README.md');
+            const docPath = path.join(projectRoot, 'README.md');
             if (fs.existsSync(docPath)) {
               await shell.openPath(docPath);
             }
