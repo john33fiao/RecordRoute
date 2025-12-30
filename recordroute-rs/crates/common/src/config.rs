@@ -1,6 +1,6 @@
 use crate::error::RecordRouteError;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// RecordRoute application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

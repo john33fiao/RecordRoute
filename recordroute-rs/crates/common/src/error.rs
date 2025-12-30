@@ -1,4 +1,3 @@
-use std::fmt;
 
 /// RecordRoute error types
 #[derive(Debug, thiserror::Error)]
