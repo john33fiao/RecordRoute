@@ -1,4 +1,5 @@
 use recordroute_common::{AppConfig, Result};
+use recordroute_llm::{OllamaClient, Summarizer};
 use recordroute_stt::WhisperEngine;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -21,6 +22,12 @@ pub struct AppState {
     /// Whisper STT engine
     pub whisper: Arc<WhisperEngine>,
 
+    /// Ollama client
+    pub ollama: Arc<OllamaClient>,
+
+    /// Summarizer
+    pub summarizer: Arc<Summarizer>,
+
     /// Workflow executor
     pub workflow: Arc<WorkflowExecutor>,
 }
@@ -37,9 +44,17 @@ impl AppState {
         // Initialize Whisper engine
         let whisper = Arc::new(WhisperEngine::new(&config.whisper_model)?);
 
+        // Initialize Ollama client and summarizer
+        let ollama = Arc::new(OllamaClient::new(config.ollama_base_url.clone())?);
+        let summarizer = Arc::new(Summarizer::new(
+            (*ollama).clone(),
+            config.llm_model.clone(),
+        ));
+
         // Initialize workflow executor
         let workflow = Arc::new(WorkflowExecutor::new(
             whisper.clone(),
+            summarizer.clone(),
             config.clone(),
             history.clone(),
             job_manager.clone(),
@@ -50,6 +65,8 @@ impl AppState {
             history,
             job_manager,
             whisper,
+            ollama,
+            summarizer,
             workflow,
         })
     }

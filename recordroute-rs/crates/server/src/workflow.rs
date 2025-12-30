@@ -1,4 +1,5 @@
 use recordroute_common::{AppConfig, Result};
+use recordroute_llm::Summarizer;
 use recordroute_stt::{TranscriptionOptions, WhisperEngine};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -39,6 +40,7 @@ pub struct WorkflowResult {
 /// Workflow executor that orchestrates STT, LLM, and embedding tasks
 pub struct WorkflowExecutor {
     whisper: Arc<WhisperEngine>,
+    summarizer: Arc<Summarizer>,
     config: AppConfig,
     history: Arc<RwLock<HistoryManager>>,
     job_manager: Arc<JobManager>,
@@ -48,12 +50,14 @@ impl WorkflowExecutor {
     /// Create new workflow executor
     pub fn new(
         whisper: Arc<WhisperEngine>,
+        summarizer: Arc<Summarizer>,
         config: AppConfig,
         history: Arc<RwLock<HistoryManager>>,
         job_manager: Arc<JobManager>,
     ) -> Self {
         Self {
             whisper,
+            summarizer,
             config,
             history,
             job_manager,
@@ -95,12 +99,46 @@ impl WorkflowExecutor {
                 .await;
         }
 
-        // Phase 2: Summarization (TODO: Implement when LLM module is ready)
+        // Phase 2: Summarization
         if options.run_summarize {
-            warn!("Summarization not yet implemented (Phase 3)");
-            self.job_manager
-                .update_progress(task_id, 70, "Summarization skipped (not implemented)".to_string())
-                .await;
+            info!("Starting summarization workflow for file: {}", file_uuid);
+
+            // Need transcript text
+            let transcript_text = if let Some(ref transcript_path) = result.transcript_path {
+                tokio::fs::read_to_string(transcript_path).await?
+            } else {
+                // Try to load existing transcript
+                let transcript_file = self.config.db_base_path
+                    .join("whisper_output")
+                    .join(format!("{}.txt", file_uuid));
+
+                if transcript_file.exists() {
+                    tokio::fs::read_to_string(&transcript_file).await?
+                } else {
+                    warn!("No transcript found for summarization");
+                    self.job_manager
+                        .update_progress(task_id, 70, "Summarization skipped (no transcript)".to_string())
+                        .await;
+                    String::new()
+                }
+            };
+
+            if !transcript_text.is_empty() {
+                let summary_path = self
+                    .run_summarize_workflow(file_uuid, &transcript_text, &options, task_id)
+                    .await?;
+                result.summary_path = Some(summary_path.clone());
+
+                // Update history
+                self.history.write().await.update_record(file_uuid, |record| {
+                    record.summarize_done = true;
+                    record.summary_path = Some(summary_path.to_string_lossy().to_string());
+                })?;
+
+                self.job_manager
+                    .update_progress(task_id, 80, "Summarization completed".to_string())
+                    .await;
+            }
         }
 
         // Phase 3: Embedding (TODO: Implement when vector module is ready)
@@ -167,5 +205,49 @@ impl WorkflowExecutor {
         );
 
         Ok(transcript_file)
+    }
+
+    /// Execute summarization workflow
+    async fn run_summarize_workflow(
+        &self,
+        file_uuid: &str,
+        transcript_text: &str,
+        _options: &WorkflowOptions,
+        task_id: &str,
+    ) -> Result<PathBuf> {
+        self.job_manager
+            .update_progress(task_id, 60, "Generating summary...".to_string())
+            .await;
+
+        // Run summarization
+        info!("Summarizing transcript - Length: {} chars", transcript_text.len());
+        let summary = self.summarizer.summarize(transcript_text).await?;
+
+        self.job_manager
+            .update_progress(task_id, 75, "Writing summary...".to_string())
+            .await;
+
+        // Save summary to file
+        let output_dir = self.config.db_base_path.join("whisper_output");
+        tokio::fs::create_dir_all(&output_dir).await?;
+
+        let summary_file = output_dir.join(format!("{}_summary.txt", file_uuid));
+        tokio::fs::write(&summary_file, &summary.text).await?;
+
+        // Save one-line summary separately
+        let oneline_file = output_dir.join(format!("{}_oneline.txt", file_uuid));
+        tokio::fs::write(&oneline_file, &summary.one_line).await?;
+
+        // Update history with one-line summary
+        self.history.write().await.update_record(file_uuid, |record| {
+            record.one_line_summary = Some(summary.one_line.clone());
+        })?;
+
+        info!(
+            "Summary saved to: {:?}, One-line: {}",
+            summary_file, summary.one_line
+        );
+
+        Ok(summary_file)
     }
 }
