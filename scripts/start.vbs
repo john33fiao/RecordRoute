@@ -8,9 +8,9 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 projectRoot = fso.GetParentFolderName(scriptDir)
 
-' start.bat를 숨김 모드로 실행 (0 = 창 숨김, True = 완료 대기)
-' Note: start.bat 파일이 존재하지 않으면 작동하지 않습니다
-WshShell.Run """" & projectRoot & "\start.bat""", 0, False
+' start.bat를 숨김 모드로 실행 (0 = 창 숨김, False = 대기하지 않음)
+' Note: scripts/start.bat 파일이 존재하지 않으면 작동하지 않습니다
+WshShell.Run """" & scriptDir & "\start.bat""", 0, False
 
 Set WshShell = Nothing
 Set fso = Nothing
