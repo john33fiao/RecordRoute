@@ -9,6 +9,7 @@ pub mod routes;
 pub mod state;
 pub mod types;
 pub mod websocket;
+pub mod workflow;
 
 use actix_cors::Cors;
 use actix_files as fs;
