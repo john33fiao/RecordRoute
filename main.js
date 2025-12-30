@@ -9,9 +9,90 @@ const fs = require('fs');
 let pythonProcess = null;
 let mainWindow = null;
 let autoUpdater = null;
+let logStream = null;
 
 // Determine if running in development or production
 const isDev = !app.isPackaged;
+
+/**
+ * Setup logging to file
+ * Redirects console.log, console.error, console.warn to log file
+ */
+function setupLogging() {
+  const logDir = path.join(__dirname, 'db', 'log');
+
+  // Create log directory if it doesn't exist
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+
+  // Create log file with timestamp
+  const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '');
+  const logFile = path.join(logDir, `electron-${timestamp}.log`);
+
+  logStream = fs.createWriteStream(logFile, { flags: 'a' });
+
+  // Write initial log header
+  logStream.write(`=== Electron Log Started at ${new Date().toISOString()} ===\n`);
+  logStream.write(`Platform: ${process.platform}\n`);
+  logStream.write(`Electron Version: ${process.versions.electron}\n`);
+  logStream.write(`Node Version: ${process.versions.node}\n`);
+  logStream.write(`App Version: ${app.getVersion()}\n`);
+  logStream.write(`Development Mode: ${isDev}\n`);
+  logStream.write(`=====================================\n\n`);
+
+  // Store original console methods
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalWarn = console.warn;
+
+  // Override console.log
+  console.log = function(...args) {
+    const message = args.map(arg =>
+      typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+    ).join(' ');
+
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${timestamp}] [LOG] ${message}\n`;
+
+    if (logStream) {
+      logStream.write(logMessage);
+    }
+    originalLog.apply(console, args);
+  };
+
+  // Override console.error
+  console.error = function(...args) {
+    const message = args.map(arg =>
+      typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+    ).join(' ');
+
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${timestamp}] [ERROR] ${message}\n`;
+
+    if (logStream) {
+      logStream.write(logMessage);
+    }
+    originalError.apply(console, args);
+  };
+
+  // Override console.warn
+  console.warn = function(...args) {
+    const message = args.map(arg =>
+      typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+    ).join(' ');
+
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${timestamp}] [WARN] ${message}\n`;
+
+    if (logStream) {
+      logStream.write(logMessage);
+    }
+    originalWarn.apply(console, args);
+  };
+
+  console.log('Logging system initialized');
+}
 
 /**
  * Get the path to the Python executable
@@ -413,6 +494,7 @@ function setupAutoUpdater() {
 
 // App lifecycle events
 app.whenReady().then(() => {
+  setupLogging();  // Setup logging to file
   createMenu();  // Create native menu
   setupAutoUpdater();  // Setup auto-updater
   runPythonServer();
@@ -433,6 +515,13 @@ app.on('window-all-closed', function () {
     pythonProcess = null;
   }
 
+  // Close log stream
+  if (logStream) {
+    console.log('Closing log stream...');
+    logStream.end();
+    logStream = null;
+  }
+
   // Quit app when all windows are closed, except on macOS
   if (process.platform !== 'darwin') {
     app.quit();
@@ -445,5 +534,11 @@ app.on('quit', () => {
     console.log('Cleaning up Python process on quit...');
     pythonProcess.kill();
     pythonProcess = null;
+  }
+
+  if (logStream) {
+    console.log('Cleaning up log stream on quit...');
+    logStream.end();
+    logStream = null;
   }
 });
