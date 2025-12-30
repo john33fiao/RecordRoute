@@ -1,9 +1,8 @@
-"""Utility for generating one-line summaries using Ollama."""
+"""Utility for generating one-line summaries using llama.cpp."""
 
 from pathlib import Path
-import ollama
 from workflow.summarize import read_text_with_fallback, DEFAULT_MODEL
-from ollama_utils import safe_ollama_call
+from llamacpp_utils import generate_text
 
 
 def generate_one_line_summary(file_path: Path, model: str = None) -> str:
@@ -11,7 +10,7 @@ def generate_one_line_summary(file_path: Path, model: str = None) -> str:
 
     Args:
         file_path: Path to the text file to summarize.
-        model: Optional Ollama model name to use. Defaults to the
+        model: Optional GGUF model filename to use. Defaults to the
             structured summary model when not provided.
 
     Returns:
@@ -19,10 +18,11 @@ def generate_one_line_summary(file_path: Path, model: str = None) -> str:
     """
     text = read_text_with_fallback(file_path)
     prompt = "다음 텍스트를 한 줄로 한국어로 요약해 주세요:\n" + text[:4000]
-    response = safe_ollama_call(
-        ollama.generate,
-        model=model or DEFAULT_MODEL,
+    response = generate_text(
+        model_filename=model or DEFAULT_MODEL,
         prompt=prompt,
-        options={"temperature": 0},
+        temperature=0.0,
+        max_tokens=100,
+        stream=False
     )
-    return response.get("response", "").strip().splitlines()[0]
+    return response.strip().splitlines()[0]

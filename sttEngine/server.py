@@ -55,7 +55,7 @@ from .one_line_summary import generate_one_line_summary
 from .vector_search import search as search_vectors
 from .search_cache import cleanup_expired_cache, get_cache_stats, delete_cache_record
 from .embedding_pipeline import embed_text_ollama, load_index, save_index
-from ollama_utils import ensure_ollama_server, check_ollama_model_available
+from llamacpp_utils import MODELS_DIR as GGUF_MODELS_DIR, check_model_available
 import numpy as np
 import os
 
@@ -2295,33 +2295,16 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
 
     def _serve_available_models(self):
-        """Serve available Ollama models as JSON."""
+        """Serve available GGUF models as JSON."""
         try:
-            # Ollama 서버 상태 확인 및 필요시 시작
-            server_ok, server_msg = ensure_ollama_server()
-            if not server_ok:
-                raise Exception(f"Ollama 서버를 사용할 수 없습니다: {server_msg}")
-
-            import subprocess
-            result = subprocess.run(['ollama', 'list'], capture_output=True, text=True, timeout=10)
-
-            if result.returncode != 0:
-                raise Exception(f"Ollama list failed: {result.stderr}")
-
-            # Parse ollama list output
-            lines = result.stdout.strip().split('\n')
+            # GGUF 모델 디렉토리에서 .gguf 파일 목록 가져오기
             models = []
+            if GGUF_MODELS_DIR.exists():
+                for model_file in GGUF_MODELS_DIR.glob("*.gguf"):
+                    models.append(model_file.name)
 
-            # Skip header line if present
-            for line in lines[1:] if len(lines) > 1 else lines:
-                if line.strip():
-                    # Extract model name (first column)
-                    parts = line.split()
-                    if parts:
-                        model_name = parts[0]
-                        # Filter out model names with slashes or special characters typically not used for LLM models
-                        if '/' not in model_name and model_name not in ['mxbai-embed-large']:
-                            models.append(model_name)
+            # 모델명으로 정렬
+            models.sort()
 
             response_data = {
                 "models": models,
@@ -2337,49 +2320,15 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode())
 
-        except FileNotFoundError as e:
-            print(f"Ollama 명령어를 찾을 수 없음: {e}")
-            self.send_response(500)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            error_response = {
-                "error": "Ollama가 설치되지 않았습니다",
-                "details": "Ollama를 설치하려면 https://ollama.ai 에서 다운로드하거나, 또는 향후 llama.cpp로 마이그레이션할 예정입니다.",
-                "install_guide": "macOS/Linux: curl -fsSL https://ollama.ai/install.sh | sh\nWindows: https://ollama.ai/download/windows"
-            }
-            self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
-        except subprocess.TimeoutExpired as e:
-            print(f"Ollama 명령 타임아웃: {e}")
-            self.send_response(500)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            error_response = {
-                "error": "Ollama 응답 시간 초과",
-                "details": "Ollama 서버가 응답하지 않습니다. 네트워크 연결 또는 Ollama 서비스 상태를 확인해주세요."
-            }
-            self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
         except Exception as e:
             error_str = str(e)
             print(f"모델 목록 조회 중 오류: {error_str}")
             self.send_response(500)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-
-            # Provide more specific error messages based on error content
-            if "ollama 명령어를 찾을 수 없습니다" in error_str or "command not found" in error_str.lower():
-                error_message = "Ollama가 설치되지 않았습니다"
-                install_guide = "macOS/Linux: curl -fsSL https://ollama.ai/install.sh | sh\nWindows: https://ollama.ai/download/windows"
-            elif "연결할 수 없습니다" in error_str or "connection" in error_str.lower():
-                error_message = "Ollama 서버에 연결할 수 없습니다"
-                install_guide = "터미널에서 'ollama serve' 명령어로 Ollama 서버를 시작하거나, Ollama 앱을 실행해주세요."
-            else:
-                error_message = "모델 목록을 조회할 수 없습니다"
-                install_guide = "Ollama가 정상적으로 설치되고 실행 중인지 확인해주세요."
-
             error_response = {
-                "error": error_message,
-                "details": error_str,
-                "install_guide": install_guide
+                "error": "모델 목록을 조회할 수 없습니다",
+                "details": error_str
             }
             self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
 

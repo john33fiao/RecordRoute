@@ -90,18 +90,24 @@ def get_config_value(key: str, default: Any = None, value_type: type = str) -> A
 load_env_file()
 
 # 플랫폼별 기본값 (환경변수가 없을 때 사용)
+# SUMMARY 모델: llama.cpp GGUF 파일명 (Ollama에서 전환)
+# EMBEDDING 모델: sentence-transformers 모델명 (변경 없음)
 PLATFORM_DEFAULTS = {
     "TRANSCRIBE": {
         "WINDOWS": "large-v3-turbo",
         "UNIX": "large-v3-turbo"
     },
     "SUMMARY": {
-        "WINDOWS": "gemma3:4b",
-        "UNIX": "gpt-oss:20b"
+        "WINDOWS": "gemma-2-2b-it-Q4_K_M.gguf",
+        "UNIX": "qwen2.5-14b-instruct-q4_k_m.gguf"
+    },
+    "CORRECT": {
+        "WINDOWS": "gemma-2-2b-it-Q4_K_M.gguf",
+        "UNIX": "gemma-2-9b-it-Q4_K_M.gguf"
     },
     "EMBEDDING": {
-        "WINDOWS": "bge-m3:latest",
-        "UNIX": "bge-m3:latest"
+        "WINDOWS": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+        "UNIX": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
     }
 }
 

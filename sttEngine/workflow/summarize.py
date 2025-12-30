@@ -10,36 +10,30 @@ from typing import Dict, List, Optional
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
-try:
-    import ollama
-except ImportError:
-    print("오류: ollama 패키지가 설치되지 않았습니다. 'pip install ollama'로 설치하세요.")
-    sys.exit(1)
-
 # 설정 모듈 임포트
 sys.path.append(str(Path(__file__).parent.parent))
 from config import get_model_for_task, get_default_model, get_config_value
 from logger import setup_logging
 
 setup_logging()
-from ollama_utils import ensure_ollama_server, check_ollama_model_available, safe_ollama_call
+from llamacpp_utils import check_model_available, generate_text
 
 # 설정 상수 - .env 파일에서 로드
 try:
     DEFAULT_MODEL = get_model_for_task("SUMMARY", get_default_model("SUMMARY"))
 except:
-    # 환경변수 설정이 없을 때 기존 로직 사용
+    # 환경변수 설정이 없을 때 기본 GGUF 모델 사용
     if platform.system() == "Windows":
-        DEFAULT_MODEL = "gemma3:4b"
+        DEFAULT_MODEL = "gemma-2-2b-it-Q4_K_M.gguf"
     else:
-        DEFAULT_MODEL = "gpt-oss:20b"
+        DEFAULT_MODEL = "qwen2.5-14b-instruct-q4_k_m.gguf"
 
 DEFAULT_CHUNK_SIZE = get_config_value("DEFAULT_CHUNK_SIZE", 32000, int)  # 청킹 크기 증가로 불필요한 분할 방지
 DEFAULT_TEMPERATURE = get_config_value("DEFAULT_TEMPERATURE_SUMMARY", 0.2, float)
 DEFAULT_NUM_CTX = get_config_value("DEFAULT_NUM_CTX", 8192, int)
 MAX_RETRIES = get_config_value("MAX_RETRIES", 3, int)
 RETRY_DELAY = get_config_value("RETRY_DELAY", 2, int)
-OLLAMA_TIMEOUT = get_config_value("OLLAMA_TIMEOUT", 300, int)  # 5분 타임아웃
+LLM_TIMEOUT = get_config_value("LLM_TIMEOUT", 300, int)  # 5분 타임아웃
 
 # 프롬프트 템플릿
 BASE_PROMPT = """당신은 전문 요약가입니다. 다음 텍스트를 간결하고 구조화된 한국어 요약으로 작성합니다.
@@ -82,21 +76,17 @@ def setup_logging(verbose: bool) -> None:
     logging.basicConfig(level=level, format=format_str, datefmt="%H:%M:%S")
 
 def validate_model(model: str) -> bool:
-    """모델 존재 여부 확인"""
+    """GGUF 모델 파일 존재 여부 확인"""
     try:
-        # Ollama 서버 상태 확인 및 필요시 시작
-        server_ok, server_msg = ensure_ollama_server()
-        if not server_ok:
-            logging.warning(f"Ollama 서버 오류: {server_msg}")
-            return False
-        
-        # 모델 사용 가능성 확인
-        model_ok, model_msg = check_ollama_model_available(model)
+        # 모델 파일 사용 가능성 확인
+        model_ok, model_msg = check_model_available(model)
         if not model_ok:
             logging.warning(f"모델 확인 오류: {model_msg}")
+        else:
+            logging.info(model_msg)
         return model_ok
     except Exception as e:
-        logging.warning(f"모델 목록 조회 실패: {e}")
+        logging.warning(f"모델 확인 실패: {e}")
         return True  # 검증 실패 시 진행 허용
 
 def is_repetitive_text(text: str, max_repetition: int = 5) -> bool:
@@ -274,68 +264,62 @@ def chunk_text(text: str, max_bytes: int, target_chunks: Optional[int] = None) -
     
     return final_chunks
 
-def call_ollama_with_timeout(
+def call_llm_with_timeout(
     model: str,
     prompt: str,
-    options: dict,
-    timeout: int = OLLAMA_TIMEOUT
+    temperature: float,
+    max_tokens: Optional[int],
+    num_ctx: int,
+    timeout: int = LLM_TIMEOUT
 ) -> str:
-    """타임아웃을 적용한 Ollama 호출"""
-    def _call_ollama():
-        return safe_ollama_call(
-            ollama.chat,
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            options=options,
-            stream=False,
+    """타임아웃을 적용한 llama.cpp 호출"""
+    def _call_llm():
+        return generate_text(
+            model_filename=model,
+            prompt=prompt,
+            temperature=temperature,
+            max_tokens=max_tokens or 512,
+            n_ctx=num_ctx,
+            stream=False
         )
-    
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(_call_ollama)
-        try:
-            response = future.result(timeout=timeout)
-            return response
-        except FutureTimeoutError:
-            logging.error(f"Ollama 호출 타임아웃 ({timeout}초)")
-            future.cancel()
-            raise SummarizationError(f"Ollama 호출이 {timeout}초 내에 완료되지 않음")
 
-def call_ollama_with_retry(
-    model: str, 
-    prompt: str, 
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(_call_llm)
+        try:
+            result = future.result(timeout=timeout)
+            return result
+        except FutureTimeoutError:
+            logging.error(f"LLM 호출 타임아웃 ({timeout}초)")
+            future.cancel()
+            raise SummarizationError(f"LLM 호출이 {timeout}초 내에 완료되지 않음")
+
+def call_llm_with_retry(
+    model: str,
+    prompt: str,
     temperature: float = DEFAULT_TEMPERATURE,
     num_ctx: int = DEFAULT_NUM_CTX,
     max_tokens: Optional[int] = None
 ) -> str:
-    """재시도 로직과 타임아웃을 포함한 Ollama 호출"""
-    options = {
-        "temperature": temperature,
-        "num_ctx": num_ctx,
-    }
-    
-    if max_tokens:
-        options["num_predict"] = max_tokens
-    
+    """재시도 로직과 타임아웃을 포함한 llama.cpp 호출"""
     for attempt in range(MAX_RETRIES):
         try:
             logging.debug(f"모델 호출 시도 {attempt + 1}/{MAX_RETRIES}")
-            
-            response = call_ollama_with_timeout(model, prompt, options, OLLAMA_TIMEOUT)
 
-            # 응답 형식 처리
-            try:
-                result = response["message"]["content"]
-            except (TypeError, KeyError):
-                raise SummarizationError(
-                    f"지원하지 않는 응답 타입({type(response)})이거나 'message.content' 키가 없습니다."
-                )
-            
+            result = call_llm_with_timeout(
+                model=model,
+                prompt=prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                num_ctx=num_ctx,
+                timeout=LLM_TIMEOUT
+            )
+
             if not result or not result.strip():
                 raise SummarizationError("빈 응답 수신")
-            
+
             logging.debug(f"모델 응답 수신 (길이: {len(result)} chars)")
             return result.strip()
-            
+
         except Exception as e:
             logging.warning(f"모델 호출 실패 (시도 {attempt + 1}): {e}")
             if attempt < MAX_RETRIES - 1:
@@ -381,7 +365,7 @@ def summarize_text_mapreduce(
     if len(chunks) == 1:
         logging.info("단일 청크 요약 수행")
         prompt = CHUNK_PROMPT.format(chunk=chunks[0])
-        return call_ollama_with_retry(model, prompt, temperature, max_tokens=max_tokens)
+        return call_llm_with_retry(model, prompt, temperature, max_tokens=max_tokens)
     
     # 다중 청크 처리 시작 알림
     logging.info("텍스트가 길어 분할 처리중...")
@@ -407,7 +391,7 @@ def summarize_text_mapreduce(
             prompt_chars = len(prompt)
             print(f"[DEBUG] 청크 {i} 프롬프트 크기: {prompt_chars:,} 문자, {prompt_bytes:,} bytes")
             print(f"[DEBUG] 청크 {i} 내용 첫 200자: {repr(chunk[:200])}")
-            summary = call_ollama_with_retry(model, prompt, temperature, max_tokens=max_tokens)
+            summary = call_llm_with_retry(model, prompt, temperature, max_tokens=max_tokens)
             chunk_summaries.append(summary)
             
             summary_bytes = len(summary.encode('utf-8'))
@@ -445,7 +429,7 @@ def summarize_text_mapreduce(
             
             batch_combined = '\n\n---청크 요약 구분선---\n\n'.join(batch_chunk_summaries)
             batch_prompt = REDUCE_PROMPT.format(summaries=batch_combined)
-            batch_summary = call_ollama_with_retry(model, batch_prompt, temperature, max_tokens=max_tokens)
+            batch_summary = call_llm_with_retry(model, batch_prompt, temperature, max_tokens=max_tokens)
             batch_summaries.append(batch_summary)
         
         # 2차 파이널 리듀스: 1차 리듀스 결과들을 최종 통합
@@ -473,7 +457,7 @@ def summarize_text_mapreduce(
                     if progress_callback:
                         progress_callback(progress_msg)
                     group_prompt = REDUCE_PROMPT.format(summaries=summary_chunk)
-                    group_summary = call_ollama_with_retry(model, group_prompt, temperature, max_tokens=max_tokens)
+                    group_summary = call_llm_with_retry(model, group_prompt, temperature, max_tokens=max_tokens)
                     final_summaries.append(group_summary)
                 
                 final_combined = '\n\n---최종 통합 구분선---\n\n'.join(final_summaries)
@@ -483,7 +467,7 @@ def summarize_text_mapreduce(
         else:
             reduce_prompt = REDUCE_PROMPT.format(summaries=combined_summaries)
     
-    final_summary = call_ollama_with_retry(model, reduce_prompt, temperature, max_tokens=max_tokens)
+    final_summary = call_llm_with_retry(model, reduce_prompt, temperature, max_tokens=max_tokens)
     
     logging.info("맵-리듀스 요약 완료")
     return final_summary
@@ -556,27 +540,27 @@ def read_from_stdin() -> str:
 def main() -> None:
     """메인 함수"""
     parser = argparse.ArgumentParser(
-        description="Ollama를 사용한 텍스트 요약 도구 (맵-리듀스 지원)",
+        description="llama.cpp를 사용한 텍스트 요약 도구 (맵-리듀스 지원)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 사용 예시:
   %(prog)s meeting.txt                    # 기본 요약
   %(prog)s meeting.txt --verbose          # 상세 로그와 함께
   %(prog)s meeting.txt --json             # JSON 형식 출력
-  %(prog)s meeting.txt --model llama3.1   # 다른 모델 사용
+  %(prog)s meeting.txt --model gemma-2-2b-it-Q4_K_M.gguf   # 다른 모델 사용
   cat meeting.txt | %(prog)s --stdin      # 표준 입력 사용
         """
     )
-    
+
     parser.add_argument(
-        "input_file", 
+        "input_file",
         nargs='?',
         help="입력 텍스트 파일 경로 (--stdin 사용 시 생략 가능)"
     )
     parser.add_argument(
-        "--model", 
+        "--model",
         default=DEFAULT_MODEL,
-        help=f"사용할 Ollama 모델 (기본값: {DEFAULT_MODEL})"
+        help=f"사용할 GGUF 모델 파일명 (기본값: {DEFAULT_MODEL})"
     )
     parser.add_argument(
         "--output", "--out",
