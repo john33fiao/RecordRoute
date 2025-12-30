@@ -1,0 +1,32 @@
+[package]
+name = "recordroute-vector"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+recordroute-common = { path = "../common" }
+recordroute-llm = { path = "../llm" }
+
+ndarray = { workspace = true }
+ndarray-linalg = { workspace = true, optional = true }
+candle-core = { workspace = true, optional = true }
+candle-nn = { workspace = true, optional = true }
+candle-transformers = { workspace = true, optional = true }
+# ort = { workspace = true, optional = true }  # Phase 4에서 필요시 추가
+
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+[features]
+default = ["ollama"]
+ollama = []
+candle = ["candle-core", "candle-nn", "candle-transformers"]
+# onnx = ["ort"]  # Phase 4에서 필요시 추가
+simd = ["ndarray-linalg"]

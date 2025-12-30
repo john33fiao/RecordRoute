@@ -1,0 +1,80 @@
+[workspace]
+members = [
+    "crates/common",
+    "crates/recordroute",
+    "crates/stt",
+    "crates/llm",
+    "crates/vector",
+    "crates/server",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# 웹 서버
+actix-web = "4"
+actix-files = "0.6"
+actix-ws = "0.2"
+actix-cors = "0.7"
+
+# 비동기 런타임
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+futures = "0.3"
+
+# 직렬화
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# HTTP 클라이언트
+reqwest = { version = "0.11", features = ["json", "stream"] }
+
+# ML/AI
+candle-core = "0.3"
+candle-nn = "0.3"
+candle-transformers = "0.3"
+ndarray = "0.15"
+ndarray-linalg = "0.16"
+
+# STT (whisper.cpp 바인딩)
+whisper-rs = "0.10"
+
+# 오디오 처리
+symphonia = "0.5"
+
+# PDF 처리
+lopdf = "0.31"
+pdf-extract = "0.7"
+
+# FFmpeg 바인딩
+ffmpeg-next = "6"
+
+# 유틸리티
+uuid = { version = "1", features = ["v4", "serde"] }
+dotenv = "0.15"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-actix-web = "0.7"
+anyhow = "1"
+thiserror = "1"
+chrono = { version = "0.4", features = ["serde"] }
+
+# ONNX Runtime (Phase 4에서 필요시 추가)
+# ort = "2.0.0-rc.10"
+
+# 암호화 & 해싱
+sha2 = "0.10"
+hex = "0.4"
+
+# 설정 관리
+config = "0.13"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true
