@@ -268,6 +268,168 @@ Python `openai-whisper`를 `whisper.cpp` + `whisper-rs` 바인딩으로 대체
 
 ---
 
+## 📦 Phase 7: 모델 관리 및 배포
+
+**상태**: 🚧 계획 단계
+**난이도**: ⭐⭐⭐
+**예상 기간**: 2-3주
+**우선순위**: 높음 (사용자 경험 개선)
+
+### 목표
+Python `bootstrap.py`의 기능을 Rust로 이식하여, 애플리케이션 실행 시 필수 모델 파일의 존재 여부를 확인하고 자동으로 다운로드합니다. "단일 바이너리 배포" 목표에 맞춰 사용자가 수동으로 모델을 다운로드하는 불편함을 제거합니다.
+
+### 배경
+현재 Python 버전의 `sttEngine/bootstrap.py`는 다음 기능을 수행합니다:
+- ✅ Whisper 모델 자동 다운로드 및 검증
+- ✅ GGUF 모델 디렉토리 생성 및 확인
+- ✅ 임베딩 모델 자동 다운로드 (sentence-transformers)
+
+**문제점**:
+- recordroute-rs/README.md에서 `wget`을 통한 수동 다운로드를 안내 → 사용자 경험(UX) 저하
+- Whisper 모델(ggml-*.bin)은 크기가 크므로(100MB ~ 3GB) 바이너리에 포함 불가
+- 런타임 또는 초기 설정 시점에 자동 다운로드 로직 필요
+
+### 작업 항목
+
+#### 7.1. 모델 관리자 구현 (crates/common/model_manager.rs)
+- [ ] **ModelManager 구조체 설계**
+  - [ ] 모델 종류별 설정 (Whisper, GGUF, 임베딩)
+  - [ ] 다운로드 URL 및 메타데이터 관리
+  - [ ] 모델 버전 관리 시스템
+
+- [ ] **Whisper 모델 다운로드**
+  - [ ] `reqwest`를 사용한 HTTP 다운로드
+  - [ ] Hugging Face에서 ggml 모델 자동 다운로드
+    - URL: `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{model}.bin`
+    - 기본 모델: `ggml-base.bin` (142MB)
+  - [ ] 다운로드 진행률 표시 (indicatif 크레이트)
+  - [ ] 중단/재개 기능 (Range 헤더 활용)
+  - [ ] 네트워크 에러 재시도 로직
+
+- [ ] **파일 검증**
+  - [ ] SHA256 해시 계산 및 검증
+  - [ ] 파일 크기 확인
+  - [ ] 손상된 파일 자동 재다운로드
+
+- [ ] **GGUF 모델 관리**
+  - [ ] GGUF 모델 디렉토리 생성 및 확인
+  - [ ] 사용 가능한 GGUF 모델 스캔 및 목록 표시
+  - [ ] 권장 모델 안내 (Ollama 사용 권장)
+
+- [ ] **캐시 및 저장 위치**
+  - [ ] 플랫폼별 표준 캐시 디렉토리 사용
+    - Linux/macOS: `~/.cache/recordroute/models/`
+    - Windows: `%LOCALAPPDATA%\recordroute\models\`
+  - [ ] 환경 변수로 오버라이드 가능 (`RECORDROUTE_MODELS_DIR`)
+  - [ ] 디스크 공간 확인
+
+#### 7.2. CLI 명령어 추가
+- [ ] **`recordroute setup` 명령어**
+  - [ ] 초기 설정 마법사 실행
+  - [ ] 필요한 모델 선택 (tiny/base/small/medium/large)
+  - [ ] 모델 자동 다운로드 실행
+  - [ ] `.env` 파일 자동 생성 및 설정
+
+- [ ] **`recordroute models` 서브커맨드**
+  - [ ] `models list`: 설치된 모델 목록 표시
+  - [ ] `models download <model>`: 특정 모델 다운로드
+  - [ ] `models verify`: 모델 무결성 검증
+  - [ ] `models clean`: 미사용 모델 정리
+
+- [ ] **첫 실행 시 자동 설정**
+  - [ ] 애플리케이션 시작 시 필수 모델 확인
+  - [ ] 모델 없을 경우 대화형 설치 프롬프트 표시
+  - [ ] 또는 자동으로 기본 모델(base) 다운로드
+
+#### 7.3. 사용자 경험 개선
+- [ ] **진행 상태 표시**
+  - [ ] 아스키 프로그레스 바 (indicatif)
+  - [ ] 다운로드 속도 및 남은 시간 표시
+  - [ ] 예상 디스크 공간 사용량 안내
+
+- [ ] **에러 핸들링**
+  - [ ] 네트워크 연결 실패 시 명확한 에러 메시지
+  - [ ] 디스크 공간 부족 시 경고
+  - [ ] 권한 오류 시 해결 방법 안내
+
+- [ ] **오프라인 모드 지원**
+  - [ ] 이미 다운로드된 모델 사용
+  - [ ] 수동 모델 설치 가이드 제공
+
+### 기술 스택
+- **HTTP 클라이언트**: `reqwest` (async 지원)
+- **프로그레스 바**: `indicatif`
+- **해시 계산**: `sha2`
+- **파일 시스템**: `tokio::fs` (비동기)
+- **CLI 인터페이스**: `clap` (서브커맨드 지원)
+- **대화형 프롬프트**: `dialoguer`
+
+### 예상 코드 구조
+
+```rust
+// crates/common/src/model_manager.rs
+pub struct ModelManager {
+    models_dir: PathBuf,
+    client: reqwest::Client,
+}
+
+impl ModelManager {
+    pub async fn ensure_whisper_model(&self, model: &str) -> Result<PathBuf>;
+    pub async fn download_model(&self, url: &str, dest: &PathBuf) -> Result<()>;
+    pub async fn verify_model(&self, path: &PathBuf, expected_hash: &str) -> Result<bool>;
+    pub fn list_installed_models(&self) -> Result<Vec<ModelInfo>>;
+}
+
+// CLI 통합
+// crates/recordroute/src/cli.rs
+#[derive(Subcommand)]
+enum Commands {
+    Setup,
+    Models {
+        #[command(subcommand)]
+        action: ModelsAction,
+    },
+    Serve,
+}
+
+#[derive(Subcommand)]
+enum ModelsAction {
+    List,
+    Download { model: String },
+    Verify,
+    Clean,
+}
+```
+
+### 참고 사항
+- Whisper 모델 크기:
+  - `ggml-tiny.bin`: 75 MB
+  - `ggml-base.bin`: 142 MB
+  - `ggml-small.bin`: 466 MB
+  - `ggml-medium.bin`: 1.5 GB
+  - `ggml-large-v3.bin`: 3.1 GB
+
+- Hugging Face 다운로드 URL 패턴:
+  ```
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{model}.bin
+  ```
+
+- SHA256 해시는 Hugging Face 모델 페이지에서 확인 가능
+
+### 기대 효과
+- ✅ 사용자가 수동으로 모델을 다운로드할 필요 없음
+- ✅ "설치 후 바로 실행 가능" 경험 제공
+- ✅ 모델 무결성 자동 검증으로 안정성 향상
+- ✅ Python 버전과 동등한 편의성 달성
+- ✅ 단일 바이너리 배포 목표에 한 걸음 더 접근
+
+### Python bootstrap.py와의 차이점
+- ✅ **Whisper**: Python은 자동 다운로드, Rust도 동일하게 구현
+- ⚠️ **GGUF 모델**: Python도 수동 다운로드 안내만 제공 (동일)
+- ✅ **임베딩**: Python은 sentence-transformers, Rust는 Ollama API 사용 (별도 다운로드 불필요)
+
+---
+
 ## 📊 예상 타임라인
 
 | Phase | 상태 | 난이도 | 예상 기간 | 우선순위 |
@@ -277,9 +439,12 @@ Python `openai-whisper`를 `whisper.cpp` + `whisper-rs` 바인딩으로 대체
 | Phase 3: 벡터 검색 | 🚧 대기 | ⭐⭐⭐ | 2-3주 | 2 |
 | Phase 4: STT 엔진 | 🚧 대기 | ⭐⭐⭐⭐ | 3-4주 | 3 |
 | Phase 5: HTTP 서버 | ✅ 완료 | ⭐⭐⭐ | - | - |
-| Phase 6: 통합 테스트 | ⏸️ 대기 | ⭐⭐ | 1-2주 | 4 |
+| Phase 6: 통합 테스트 | ⏸️ 대기 | ⭐⭐ | 1-2주 | 5 |
+| Phase 7: 모델 관리 | 🚧 계획 | ⭐⭐⭐ | 2-3주 | 4 |
 
-**총 예상 기간**: 7-11주 (약 2-3개월)
+**총 예상 기간**: 9-14주 (약 2-3.5개월)
+
+**참고**: Phase 7은 Phase 4(STT 엔진)와 병행하거나 독립적으로 진행 가능합니다.
 
 ---
 

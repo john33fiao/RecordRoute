@@ -72,11 +72,22 @@ ollama serve
 ```
 
 4. **Whisper 모델 다운로드**:
+
+> **🚧 향후 개선 예정**: 자동 모델 다운로드 기능이 추가될 예정입니다. ([TODO/Rust.md Phase 7](../TODO/Rust.md#-phase-7-모델-관리-및-배포) 참조)
+
+현재는 수동으로 모델을 다운로드해야 합니다:
 ```bash
 # models/ 디렉토리에 ggml 모델 다운로드
 mkdir -p models
 wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin -O models/ggml-base.bin
 ```
+
+**사용 가능한 모델 크기**:
+- `ggml-tiny.bin` (75 MB) - 가장 빠름, 낮은 정확도
+- `ggml-base.bin` (142 MB) - 권장 (균형)
+- `ggml-small.bin` (466 MB) - 높은 정확도
+- `ggml-medium.bin` (1.5 GB) - 매우 높은 정확도
+- `ggml-large-v3.bin` (3.1 GB) - 최고 정확도
 
 ### 환경 설정
 
