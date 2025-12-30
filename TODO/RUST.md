@@ -1,1153 +1,425 @@
-# RecordRoute Rust 완전 전환 로드맵 🦀
+# RecordRoute Python → Rust 마이그레이션 로드맵 🦀
 
-## 전환 목표
-**Python 코드베이스 전체를 Rust로 완전 전환**하여 최고 수준의 성능, 메모리 안전성 확보, Rust 심화 학습 달성
+## 프로젝트 개요
+RecordRoute는 AI 기반 음성 전사(STT) 및 의미 검색 시스템입니다. 현재 Python 백엔드를 Rust로 점진적으로 마이그레이션하여 성능, 메모리 안전성, 배포 편의성을 개선하는 것이 목표입니다.
 
-## 전환 전략: 완전 네이티브 Rust (Full Rewrite)
+## 현재 상태 (2025-12-30 기준)
 
-모든 Python 의존성을 제거하고 순수 Rust 스택으로 재구축. ML/AI 라이브러리도 Rust 네이티브 대안 사용.
+### ✅ 완료된 작업
+**Phase 1: 기반 인프라** - 완료
+- ✅ Cargo 워크스페이스 구조 생성
+- ✅ crates/common: 설정, 에러, 로거 모듈 구현
+- ✅ crates/server: HTTP/WebSocket 서버 기본 구조
+- ✅ crates/llm: Ollama 클라이언트 및 요약 기능 구조
+- ✅ crates/stt: STT 엔진 기본 구조
+- ✅ crates/vector: 벡터 검색 엔진 기본 구조
 
-### 아키텍처 개요
+**Phase 5: HTTP/WebSocket 서버** - 완료
+- ✅ Actix-web 기반 REST API 엔드포인트
+- ✅ WebSocket 실시간 통신 구조
+- ✅ 파일 업로드/다운로드 라우트
+- ✅ 작업 관리 시스템
+- ✅ 히스토리 관리 시스템
+- ✅ 워크플로우 오케스트레이션
+
+### 🚧 진행 중 / 미완성 작업
+
+**완전 구현 필요한 영역:**
+1. **STT 엔진 (crates/stt/)** - 구조만 존재, 실제 whisper.cpp 통합 필요
+2. **LLM 통합 (crates/llm/)** - 기본 클라이언트는 있으나 상세 구현 필요
+3. **벡터 검색 (crates/vector/)** - 구조만 존재, 임베딩 및 검색 로직 구현 필요
+4. **통합 테스트** - 전체 워크플로우 테스트 필요
+5. **Python 백엔드와의 통합** - 기존 Python 코드 완전 대체 필요
+
+## 마이그레이션 전략: 점진적 하이브리드 접근
+
+rust-migration.md에서 권장한 대로, 완전 재작성보다는 **점진적 마이그레이션**을 채택합니다.
+
+### 목표 아키텍처
+
 ```
 ┌─────────────────────────────────────────────────────────┐
-│              Pure Rust Stack (Zero Python)              │
+│              Rust Main Stack                             │
 │                                                          │
 │  ┌────────────────────────────────────────────────────┐ │
-│  │  HTTP/WebSocket Server (actix-web + tokio)         │ │
-│  │  - REST API 엔드포인트                              │ │
-│  │  - 파일 업로드/다운로드                             │ │
-│  │  - 실시간 WebSocket 스트리밍                        │ │
+│  │  HTTP/WebSocket Server (actix-web)                 │ │
+│  │  ✅ REST API                                        │ │
+│  │  ✅ 파일 업로드/다운로드                            │ │
+│  │  ✅ WebSocket 실시간 통신                           │ │
 │  └────────────────────────────────────────────────────┘ │
-│                                                          │
+│                        ↓                                 │
 │  ┌────────────────────────────────────────────────────┐ │
-│  │  STT Engine (whisper.cpp Rust bindings)            │ │
-│  │  - 오디오 전처리 (symphonia)                        │ │
-│  │  - Whisper 모델 추론                                │ │
-│  │  - 후처리 & 정제                                    │ │
+│  │  Workflow Executor                                  │ │
+│  │  ✅ 작업 관리                                       │ │
+│  │  ✅ 진행률 추적                                     │ │
 │  └────────────────────────────────────────────────────┘ │
-│                                                          │
-│  ┌────────────────────────────────────────────────────┐ │
-│  │  LLM Integration (Ollama HTTP API + llama.cpp)     │ │
-│  │  - Ollama API 클라이언트 (reqwest)                  │ │
-│  │  - 텍스트 청킹 & Map-Reduce 요약                    │ │
-│  │  - 스트리밍 응답 처리                               │ │
-│  └────────────────────────────────────────────────────┘ │
-│                                                          │
-│  ┌────────────────────────────────────────────────────┐ │
-│  │  Embedding & Vector Search (candle + ndarray)      │ │
-│  │  - 텍스트 임베딩 생성 (candle-transformers)         │ │
-│  │  - 벡터 인덱싱 & 코사인 유사도 (ndarray + SIMD)     │ │
-│  │  - 검색 캐싱 (TTL 기반)                             │ │
-│  └────────────────────────────────────────────────────┘ │
-│                                                          │
-│  ┌────────────────────────────────────────────────────┐ │
-│  │  Document Processing                                │ │
-│  │  - PDF 텍스트 추출 (lopdf, pdf-extract)             │ │
-│  │  - 오디오/비디오 변환 (FFmpeg 바인딩)               │ │
-│  └────────────────────────────────────────────────────┘ │
-│                                                          │
-│  ┌────────────────────────────────────────────────────┐ │
-│  │  Storage & Indexing                                 │ │
-│  │  - 파일 시스템 관리                                 │ │
-│  │  - JSON 인덱싱 (serde_json)                         │ │
-│  │  - 구조화 로깅 (tracing)                            │ │
-│  └────────────────────────────────────────────────────┘ │
+│           │              │              │                │
+│           ↓              ↓              ↓                │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
+│  │ STT Engine  │  │ Summarizer  │  │   Vector    │    │
+│  │ 🚧 whisper.cpp│ 🚧 Ollama    │  │ 🚧 Search   │    │
+│  └─────────────┘  └─────────────┘  └─────────────┘    │
 └─────────────────────────────────────────────────────────┘
 ```
 
----
-
-## 핵심 기술 스택 변경
-
-| 기능 | Python | Rust 대안 | 난이도 |
-|------|--------|-----------|--------|
-| **STT** | openai-whisper (PyTorch) | whisper-rs (whisper.cpp 바인딩) | ⭐⭐⭐⭐ |
-| **LLM 요약** | Ollama Python SDK | reqwest (HTTP 클라이언트) | ⭐⭐ |
-| **임베딩** | sentence-transformers | candle-transformers + ONNX | ⭐⭐⭐⭐⭐ |
-| **벡터 연산** | NumPy | ndarray + ndarray-linalg | ⭐⭐⭐ |
-| **PDF 처리** | pypdf | lopdf, pdf-extract | ⭐⭐ |
-| **오디오 처리** | FFmpeg (subprocess) | symphonia, ffmpeg-next | ⭐⭐⭐ |
-| **웹 서버** | http.server | actix-web + actix-ws | ⭐⭐⭐ |
-| **비동기** | asyncio + websockets | tokio + tokio-tungstenite | ⭐⭐⭐⭐ |
+✅ = 완료, 🚧 = 구현 필요
 
 ---
 
-## Phase 1: 기반 인프라 구축 (2-3주)
+## 기술 스택 매핑
 
-### 1.1 프로젝트 초기 설정
-- [ ] Cargo 워크스페이스 생성
-  ```
-  recordroute-rs/
-  ├── Cargo.toml           # 워크스페이스 루트
-  ├── crates/
-  │   ├── recordroute/     # 메인 바이너리
-  │   ├── stt/             # STT 엔진
-  │   ├── llm/             # LLM 통합
-  │   ├── vector/          # 벡터 검색
-  │   ├── server/          # HTTP/WS 서버
-  │   └── common/          # 공통 유틸리티
-  └── models/              # 모델 파일 저장소
-  ```
-
-- [ ] 핵심 의존성 추가 (Cargo.toml)
-  ```toml
-  [workspace]
-  members = ["crates/*"]
-
-  [workspace.dependencies]
-  # 웹 서버
-  actix-web = "4"
-  actix-files = "0.6"
-  actix-ws = "0.2"
-
-  # 비동기 런타임
-  tokio = { version = "1", features = ["full"] }
-  tokio-util = "0.7"
-  futures = "0.3"
-
-  # 직렬화
-  serde = { version = "1", features = ["derive"] }
-  serde_json = "1"
-
-  # HTTP 클라이언트
-  reqwest = { version = "0.11", features = ["json", "stream"] }
-
-  # ML/AI
-  candle-core = "0.3"
-  candle-nn = "0.3"
-  candle-transformers = "0.3"
-  ndarray = "0.15"
-  ndarray-linalg = "0.16"
-
-  # STT (whisper.cpp 바인딩)
-  whisper-rs = "0.10"
-
-  # 오디오 처리
-  symphonia = "0.5"
-
-  # PDF 처리
-  lopdf = "0.31"
-  pdf-extract = "0.7"
-
-  # 유틸리티
-  uuid = { version = "1", features = ["v4", "serde"] }
-  dotenv = "0.15"
-  tracing = "0.1"
-  tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-  anyhow = "1"
-  thiserror = "1"
-  chrono = { version = "0.4", features = ["serde"] }
-  ```
-
-### 1.2 공통 모듈 (crates/common/)
-- [ ] 설정 시스템 (`config.rs`)
-  ```rust
-  pub struct AppConfig {
-      pub db_base_path: PathBuf,
-      pub upload_dir: PathBuf,
-      pub whisper_model: String,
-      pub ollama_base_url: String,
-      pub embedding_model: String,
-  }
-
-  impl AppConfig {
-      pub fn from_env() -> Result<Self>;
-      pub fn get_db_path(&self, alias: &str) -> PathBuf;
-  }
-  ```
-
-- [ ] 로깅 시스템 (`logger.rs`)
-  ```rust
-  pub fn setup_logging(log_dir: &Path) -> Result<()>;
-  pub fn get_logger(module: &str) -> tracing::Subscriber;
-  ```
-
-- [ ] 에러 타입 정의 (`error.rs`)
-  ```rust
-  #[derive(Debug, thiserror::Error)]
-  pub enum RecordRouteError {
-      #[error("STT error: {0}")]
-      Stt(String),
-      #[error("LLM error: {0}")]
-      Llm(String),
-      #[error("Vector search error: {0}")]
-      VectorSearch(String),
-      #[error("IO error: {0}")]
-      Io(#[from] std::io::Error),
-  }
-  ```
+| 기능 | Python | Rust 대안 | 난이도 | 상태 |
+|------|--------|-----------|--------|------|
+| **웹 서버** | http.server | actix-web | ⭐⭐ | ✅ 완료 |
+| **비동기** | asyncio + websockets | tokio + actix-ws | ⭐⭐⭐ | ✅ 완료 |
+| **설정/에러** | config.py | common crate | ⭐ | ✅ 완료 |
+| **LLM 요약** | llama-cpp-python | reqwest (Ollama API) | ⭐⭐ | 🚧 부분 완료 |
+| **STT** | openai-whisper | whisper.cpp + whisper-rs | ⭐⭐⭐⭐ | 🚧 구조만 존재 |
+| **임베딩** | sentence-transformers | Ollama API (임베딩) | ⭐⭐ | 🚧 구조만 존재 |
+| **벡터 검색** | NumPy | ndarray | ⭐⭐⭐ | 🚧 구조만 존재 |
+| **PDF 처리** | pypdf | **삭제 예정** | - | ❌ 제거 |
 
 ---
 
-## Phase 2: STT 엔진 (Whisper.cpp) (4-5주) ⭐ 최고 난이도
+## 단계별 마이그레이션 로드맵
 
-### 2.1 Whisper.cpp 통합 (crates/stt/)
-- [ ] whisper-rs 크레이트 설정
-  - Whisper.cpp 빌드 설정
-  - CUDA/Metal 가속 옵션 (선택사항)
-  - 모델 파일 다운로드 스크립트
+## ✅ Phase 1: 기반 인프라 (완료)
 
-- [ ] Whisper 래퍼 구현 (`whisper.rs`)
-  ```rust
-  pub struct WhisperEngine {
-      ctx: whisper_rs::WhisperContext,
-      model_path: PathBuf,
-  }
+**상태**: ✅ 완료
+**기간**: 완료됨
 
-  impl WhisperEngine {
-      pub fn new(model_path: PathBuf) -> Result<Self>;
-
-      pub async fn transcribe(
-          &self,
-          audio_path: &Path,
-          language: Option<&str>,
-      ) -> Result<Transcription>;
-
-      pub fn transcribe_with_progress<F>(
-          &self,
-          audio_path: &Path,
-          progress_callback: F,
-      ) -> Result<Transcription>
-      where
-          F: Fn(f32) + Send + 'static;
-  }
-
-  pub struct Transcription {
-      pub text: String,
-      pub segments: Vec<Segment>,
-      pub language: String,
-  }
-  ```
-
-### 2.2 오디오 전처리 (`audio.rs`)
-- [ ] 오디오 파일 로딩 (symphonia)
-  ```rust
-  pub fn load_audio(path: &Path) -> Result<AudioBuffer>;
-  pub fn resample_to_16khz(audio: &AudioBuffer) -> Result<AudioBuffer>;
-  pub fn convert_to_mono(audio: &AudioBuffer) -> Result<AudioBuffer>;
-  ```
-
-- [ ] FFmpeg 통합 (비디오 → 오디오 추출)
-  ```rust
-  pub async fn extract_audio_from_video(
-      video_path: &Path,
-      output_path: &Path,
-  ) -> Result<()>;
-  ```
-
-### 2.3 후처리 (`postprocess.rs`)
-- [ ] 텍스트 정제 (transcribe.py의 로직 포팅)
-  ```rust
-  pub fn remove_word_repetitions(text: &str) -> String;
-  pub fn remove_discard_phrases(text: &str) -> String;
-  pub fn normalize_whitespace(text: &str) -> String;
-  ```
-
-- [ ] 원자적 파일 쓰기
-  ```rust
-  pub fn write_transcript_atomic(
-      path: &Path,
-      transcript: &Transcription,
-  ) -> Result<()>;
-  ```
-
-### 2.4 병렬 처리
-- [ ] 다중 파일 동시 처리
-  ```rust
-  pub async fn transcribe_batch(
-      files: &[PathBuf],
-      model: &WhisperEngine,
-      max_parallel: usize,
-  ) -> Vec<Result<Transcription>>;
-  ```
-
-**학습 포인트**:
-- FFI (Foreign Function Interface) 사용
-- 오디오 신호 처리 기초
-- SIMD 최적화 (선택사항)
-- GPU 가속 (CUDA/Metal)
+### 완료 항목
+- ✅ Cargo 워크스페이스 생성 (recordroute-rs/)
+- ✅ 6개 crate 구조 설정 (common, stt, llm, vector, server, recordroute)
+- ✅ 핵심 의존성 추가 (actix-web, tokio, serde 등)
+- ✅ common 모듈: AppConfig, RecordRouteError, logger 구현
+- ✅ 릴리스 프로필 최적화 설정
 
 ---
 
-## Phase 3: LLM 통합 (Ollama API) (2-3주)
+## 🚧 Phase 2: LLM 통합 (Ollama API) - 우선순위 1
 
-### 3.1 Ollama HTTP 클라이언트 (crates/llm/)
-- [ ] API 클라이언트 구현 (`ollama.rs`)
-  ```rust
-  pub struct OllamaClient {
-      base_url: String,
-      client: reqwest::Client,
-  }
+**상태**: 🚧 부분 완료 (구조 존재, 실제 구현 필요)
+**난이도**: ⭐⭐ (비교적 쉬움)
+**예상 기간**: 1-2주
 
-  impl OllamaClient {
-      pub fn new(base_url: String) -> Self;
+### 목표
+Python의 `llama-cpp-python`을 Rust `reqwest` 기반 Ollama HTTP 클라이언트로 대체
 
-      pub async fn generate(
-          &self,
-          model: &str,
-          prompt: &str,
-          temperature: f32,
-      ) -> Result<String>;
+### 작업 항목
+- [ ] **Ollama HTTP 클라이언트 완성** (crates/llm/client.rs)
+  - [ ] `generate()`: 텍스트 생성 API
+  - [ ] `generate_stream()`: 스트리밍 응답 처리
+  - [ ] `embed()`: 텍스트 임베딩 생성
+  - [ ] 에러 핸들링 및 재시도 로직
 
-      pub async fn generate_stream(
-          &self,
-          model: &str,
-          prompt: &str,
-      ) -> Result<impl Stream<Item = Result<String>>>;
+- [ ] **텍스트 요약 구현** (crates/llm/summarize.rs)
+  - [ ] Map-Reduce 알고리즘 구현
+  - [ ] 텍스트 청킹 (2000 토큰 단위)
+  - [ ] 병렬 청크 요약
+  - [ ] 최종 요약 생성
+  - [ ] 한 줄 요약 생성
 
-      pub async fn embed(
-          &self,
-          model: &str,
-          text: &str,
-      ) -> Result<Vec<f32>>;
+- [ ] **프롬프트 템플릿 관리**
+  - [ ] 회의록 요약 프롬프트
+  - [ ] 한 줄 요약 프롬프트
 
-      pub async fn list_models(&self) -> Result<Vec<ModelInfo>>;
-  }
-  ```
+- [ ] **통합 테스트**
+  - [ ] Ollama 서버 연결 테스트
+  - [ ] 실제 텍스트 요약 테스트
+  - [ ] Python 버전과 결과 비교
 
-- [ ] 에러 핸들링 및 재시도 로직
-  ```rust
-  pub async fn generate_with_retry(
-      client: &OllamaClient,
-      model: &str,
-      prompt: &str,
-      max_retries: u32,
-  ) -> Result<String>;
-  ```
-
-### 3.2 텍스트 요약 (summarize.py 포팅)
-- [ ] Map-Reduce 요약 구현 (`summarize.rs`)
-  ```rust
-  pub struct Summarizer {
-      client: OllamaClient,
-      model: String,
-      chunk_size: usize,
-      temperature: f32,
-  }
-
-  impl Summarizer {
-      pub async fn summarize_mapreduce(
-          &self,
-          text: &str,
-      ) -> Result<String>;
-
-      async fn chunk_text(&self, text: &str) -> Vec<String>;
-
-      async fn summarize_chunk(&self, chunk: &str) -> Result<String>;
-
-      async fn merge_summaries(&self, summaries: Vec<String>) -> Result<String>;
-  }
-  ```
-
-- [ ] 프롬프트 템플릿 관리
-  ```rust
-  pub const SUMMARY_PROMPT_TEMPLATE: &str = r#"
-  다음 텍스트를 회의록 형식으로 요약해주세요...
-  "#;
-
-  pub fn format_prompt(template: &str, text: &str) -> String;
-  ```
-
-### 3.3 한 줄 요약 (`one_line_summary.rs`)
-- [ ] 간단한 요약 생성
-  ```rust
-  pub async fn generate_one_line_summary(
-      client: &OllamaClient,
-      text: &str,
-  ) -> Result<String>;
-  ```
-
-**학습 포인트**:
-- HTTP 클라이언트 구현 (reqwest)
-- 스트리밍 응답 처리
-- 비동기 에러 핸들링
+**기대 효과**: LLM 추론 속도 10-20% 향상, Python 의존성 제거
 
 ---
 
-## Phase 4: 임베딩 & 벡터 검색 (4-6주) ⭐⭐⭐ 고난이도
+## 🚧 Phase 3: 벡터 검색 엔진 - 우선순위 2
 
-### 4.1 텍스트 임베딩 (crates/vector/)
+**상태**: 🚧 구조만 존재
+**난이도**: ⭐⭐⭐ (중간)
+**예상 기간**: 2-3주
 
-#### 옵션 A: Ollama API 사용 (간단, 추천)
-- [ ] Ollama 임베딩 엔드포인트 호출
-  ```rust
-  pub async fn embed_text_ollama(
-      client: &OllamaClient,
-      text: &str,
-      model: &str,
-  ) -> Result<Vec<f32>>;
-  ```
+### 목표
+sentence-transformers를 Ollama 임베딩 API + Rust 벡터 검색으로 대체
 
-#### 옵션 B: Candle로 로컬 임베딩 (도전적)
-- [ ] Candle-transformers 설정
-  ```rust
-  use candle_core::{Device, Tensor};
-  use candle_transformers::models::bert::{BertModel, Config};
+### 작업 항목
+- [ ] **임베딩 생성** (crates/vector/engine.rs)
+  - [ ] Ollama API를 통한 임베딩 생성 (`nomic-embed-text` 사용)
+  - [ ] 임베딩 파일 저장/로딩 (JSON 형식)
+  - [ ] 배치 임베딩 지원
 
-  pub struct EmbeddingModel {
-      model: BertModel,
-      tokenizer: tokenizers::Tokenizer,
-      device: Device,
-  }
+- [ ] **벡터 인덱스 관리**
+  - [ ] VectorIndex 구조체 구현
+  - [ ] 인덱스 파일 저장/로딩 (vector_index.json)
+  - [ ] 문서 추가/삭제 기능
+  - [ ] 메타데이터 관리
 
-  impl EmbeddingModel {
-      pub fn load(model_path: &Path) -> Result<Self>;
+- [ ] **유사도 검색** (crates/vector/similarity.rs)
+  - [ ] 코사인 유사도 계산 (ndarray 사용)
+  - [ ] Top-K 검색 알고리즘
+  - [ ] 날짜 필터링 지원
+  - [ ] 성능 최적화 (SIMD 고려)
 
-      pub fn embed(&self, text: &str) -> Result<Vec<f32>>;
+- [ ] **통합 및 테스트**
+  - [ ] 검색 API 엔드포인트 연결
+  - [ ] 정확도 테스트 (Python 버전과 비교)
+  - [ ] 성능 벤치마크
 
-      pub fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>>;
-  }
-  ```
-
-- [ ] ONNX 런타임 통합 (대안)
-  ```rust
-  use ort::{Environment, SessionBuilder, Value};
-
-  pub struct OnnxEmbedder {
-      session: ort::Session,
-  }
-  ```
-
-### 4.2 벡터 검색 (`search.rs`)
-- [ ] 인덱스 구조 정의
-  ```rust
-  #[derive(Serialize, Deserialize)]
-  pub struct VectorIndex {
-      entries: HashMap<String, VectorEntry>,
-  }
-
-  #[derive(Serialize, Deserialize)]
-  pub struct VectorEntry {
-      vector_path: PathBuf,
-      timestamp: DateTime<Utc>,
-      metadata: HashMap<String, String>,
-      deleted: bool,
-  }
-  ```
-
-- [ ] 코사인 유사도 계산 (ndarray + SIMD)
-  ```rust
-  use ndarray::{Array1, ArrayView1};
-
-  pub fn cosine_similarity(a: ArrayView1<f32>, b: ArrayView1<f32>) -> f32 {
-      let dot = a.dot(&b);
-      let norm_a = a.dot(&a).sqrt();
-      let norm_b = b.dot(&b).sqrt();
-      dot / (norm_a * norm_b)
-  }
-
-  // SIMD 최적화 버전
-  #[cfg(target_feature = "avx2")]
-  pub fn cosine_similarity_simd(a: &[f32], b: &[f32]) -> f32;
-  ```
-
-- [ ] 검색 함수 구현
-  ```rust
-  pub struct VectorSearchEngine {
-      index: Arc<RwLock<VectorIndex>>,
-      index_path: PathBuf,
-  }
-
-  impl VectorSearchEngine {
-      pub async fn search(
-          &self,
-          query: &str,
-          top_k: usize,
-          date_filter: Option<DateRange>,
-      ) -> Result<Vec<SearchResult>>;
-
-      pub async fn find_similar(
-          &self,
-          document_id: &str,
-          top_k: usize,
-      ) -> Result<Vec<SearchResult>>;
-
-      pub async fn add_document(
-          &self,
-          path: &Path,
-          embedding: Vec<f32>,
-      ) -> Result<()>;
-  }
-
-  pub struct SearchResult {
-      pub file_path: String,
-      pub score: f32,
-      pub metadata: HashMap<String, String>,
-  }
-  ```
-
-### 4.3 검색 캐싱 (`cache.rs`)
-- [ ] TTL 기반 캐시
-  ```rust
-  pub struct SearchCache {
-      cache: Arc<Mutex<HashMap<CacheKey, CacheEntry>>>,
-      ttl: Duration,
-  }
-
-  #[derive(Hash, Eq, PartialEq)]
-  struct CacheKey {
-      query_hash: u64,
-      top_k: usize,
-      filters: String,
-  }
-
-  struct CacheEntry {
-      results: Vec<SearchResult>,
-      created_at: Instant,
-  }
-
-  impl SearchCache {
-      pub fn get(&self, key: &CacheKey) -> Option<Vec<SearchResult>>;
-      pub fn insert(&self, key: CacheKey, results: Vec<SearchResult>);
-      pub fn cleanup_expired(&self);
-  }
-  ```
-
-- [ ] 백그라운드 정리 태스크
-  ```rust
-  pub async fn start_cache_cleanup_task(
-      cache: Arc<SearchCache>,
-      interval: Duration,
-  );
-  ```
-
-**학습 포인트**:
-- ML 모델 추론 (Candle/ONNX)
-- 고성능 벡터 연산 (SIMD)
-- 동시성 안전 인덱싱
+**기대 효과**: 검색 속도 5-10배 향상, 메모리 사용량 30% 감소
 
 ---
 
-## Phase 5: HTTP/WebSocket 서버 (3-4주)
+## 🚧 Phase 4: STT 엔진 (Whisper.cpp) - 우선순위 3
 
-### 5.1 서버 구조 설계 (crates/server/)
-- [ ] Actix-web 애플리케이션 설정 (`main.rs`)
-  ```rust
-  use actix_web::{web, App, HttpServer};
-  use actix_files as fs;
+**상태**: 🚧 구조만 존재
+**난이도**: ⭐⭐⭐⭐ (어려움)
+**예상 기간**: 3-4주
 
-  #[actix_web::main]
-  async fn main() -> std::io::Result<()> {
-      let config = AppConfig::from_env()?;
+### 목표
+Python `openai-whisper`를 `whisper.cpp` + `whisper-rs` 바인딩으로 대체
 
-      // 공유 상태
-      let app_state = web::Data::new(AppState {
-          config,
-          whisper: WhisperEngine::new(...)?,
-          ollama: OllamaClient::new(...),
-          vector_search: VectorSearchEngine::new(...)?,
-          job_manager: JobManager::new(),
-      });
+### 전략
+**옵션 A** (권장): subprocess로 whisper.cpp 실행 (가장 안정적)
+**옵션 B**: whisper-rs 바인딩 사용 (Rust 네이티브 통합)
 
-      HttpServer::new(move || {
-          App::new()
-              .app_data(app_state.clone())
-              .wrap(tracing_actix_web::TracingLogger::default())
-              .wrap(actix_cors::Cors::permissive())
-              .service(routes::upload)
-              .service(routes::process)
-              .service(routes::history)
-              .service(routes::download)
-              .service(routes::search)
-              .service(routes::websocket)
-              .service(fs::Files::new("/", "frontend").index_file("upload.html"))
-      })
-      .bind(("0.0.0.0", 8080))?
-      .run()
-      .await
-  }
-  ```
+### 작업 항목
+- [ ] **Whisper 엔진 구현** (crates/stt/whisper.rs)
+  - [ ] WhisperEngine 구조체 완성
+  - [ ] 모델 로딩 (`ggml-base.bin` 등)
+  - [ ] `transcribe()` 메서드 구현
+  - [ ] 진행률 콜백 지원
+  - [ ] 언어 감지 및 지정
 
-### 5.2 REST API 라우트 (`routes.rs`)
-- [ ] `POST /upload` - 파일 업로드
-  ```rust
-  #[post("/upload")]
-  async fn upload(
-      mut payload: Multipart,
-      state: web::Data<AppState>,
-  ) -> Result<HttpResponse, Error>;
-  ```
+- [ ] **오디오 전처리** (crates/stt/audio.rs)
+  - [ ] 오디오 파일 로딩 (symphonia 또는 FFmpeg)
+  - [ ] 16kHz 모노 변환
+  - [ ] 비디오 파일에서 오디오 추출
 
-- [ ] `POST /process` - 워크플로우 실행
-  ```rust
-  #[derive(Deserialize)]
-  struct ProcessRequest {
-      file_uuid: String,
-      run_stt: bool,
-      run_summarize: bool,
-      run_embed: bool,
-  }
+- [ ] **텍스트 후처리** (crates/stt/postprocess.rs)
+  - [ ] 반복 단어 제거
+  - [ ] 불필요한 구문 제거 ("자막:...")
+  - [ ] 공백 정규화
+  - [ ] 세그먼트 병합
 
-  #[post("/process")]
-  async fn process(
-      req: web::Json<ProcessRequest>,
-      state: web::Data<AppState>,
-  ) -> Result<HttpResponse, Error>;
-  ```
+- [ ] **통합 및 테스트**
+  - [ ] 워크플로우 연결
+  - [ ] Python 버전과 정확도 비교
+  - [ ] 성능 벤치마크
 
-- [ ] `GET /history` - 작업 기록
-  ```rust
-  #[get("/history")]
-  async fn history(state: web::Data<AppState>) -> Result<HttpResponse, Error>;
-  ```
+**참고**: whisper.cpp 모델 변환 필요 (PyTorch → GGML)
+- 변환 도구: https://github.com/ggerganov/whisper.cpp
+- 기존 GGML 모델: https://huggingface.co/ggerganov/whisper.cpp
 
-- [ ] `GET /search` - 검색
-  ```rust
-  #[derive(Deserialize)]
-  struct SearchQuery {
-      q: String,
-      top_k: Option<usize>,
-      start_date: Option<String>,
-      end_date: Option<String>,
-  }
-
-  #[get("/search")]
-  async fn search(
-      query: web::Query<SearchQuery>,
-      state: web::Data<AppState>,
-  ) -> Result<HttpResponse, Error>;
-  ```
-
-### 5.3 WebSocket 핸들러 (`websocket.rs`)
-- [ ] WebSocket 연결 관리
-  ```rust
-  #[get("/ws")]
-  async fn websocket(
-      req: HttpRequest,
-      stream: web::Payload,
-      state: web::Data<AppState>,
-  ) -> Result<HttpResponse, Error> {
-      ws::start(WsSession::new(state), &req, stream)
-  }
-
-  struct WsSession {
-      id: Uuid,
-      state: web::Data<AppState>,
-  }
-
-  impl Actor for WsSession {
-      type Context = ws::WebsocketContext<Self>;
-  }
-
-  impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
-      fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context);
-  }
-  ```
-
-- [ ] 진행률 브로드캐스트
-  ```rust
-  pub struct ProgressBroadcaster {
-      sessions: Arc<Mutex<HashMap<Uuid, Addr<WsSession>>>>,
-  }
-
-  impl ProgressBroadcaster {
-      pub fn send_progress(&self, job_id: &str, progress: f32, message: &str);
-      pub fn send_complete(&self, job_id: &str, result: JobResult);
-      pub fn send_error(&self, job_id: &str, error: &str);
-  }
-  ```
-
-### 5.4 작업 관리 (`job_manager.rs`)
-- [ ] 비동기 작업 스케줄러
-  ```rust
-  pub struct JobManager {
-      jobs: Arc<Mutex<HashMap<String, JobHandle>>>,
-      broadcaster: Arc<ProgressBroadcaster>,
-  }
-
-  pub struct JobHandle {
-      id: String,
-      status: JobStatus,
-      cancel_token: CancellationToken,
-      handle: JoinHandle<Result<JobResult>>,
-  }
-
-  impl JobManager {
-      pub async fn start_job(
-          &self,
-          job_id: String,
-          task: impl Future<Output = Result<JobResult>> + Send + 'static,
-      ) -> Result<()>;
-
-      pub async fn cancel_job(&self, job_id: &str) -> Result<()>;
-
-      pub fn get_status(&self, job_id: &str) -> Option<JobStatus>;
-  }
-  ```
-
-**학습 포인트**:
-- Actix-web 프레임워크
-- WebSocket 양방향 통신
-- 비동기 작업 관리 (tokio)
-- Actor 모델
+**기대 효과**: STT 속도 20-40% 향상, Python/PyTorch 의존성 제거
 
 ---
 
-## Phase 6: 워크플로우 통합 (2-3주)
+## ✅ Phase 5: HTTP/WebSocket 서버 (완료)
 
-### 6.1 파이프라인 오케스트레이션 (`workflow.rs`)
-- [ ] 전체 워크플로우 구현
-  ```rust
-  pub struct WorkflowExecutor {
-      whisper: Arc<WhisperEngine>,
-      summarizer: Arc<Summarizer>,
-      vector_search: Arc<VectorSearchEngine>,
-      ollama: Arc<OllamaClient>,
-  }
+**상태**: ✅ 완료
+**기간**: 완료됨
 
-  impl WorkflowExecutor {
-      pub async fn execute(
-          &self,
-          file_path: &Path,
-          options: WorkflowOptions,
-          progress: impl Fn(WorkflowStep, f32) + Send + 'static,
-      ) -> Result<WorkflowResult>;
-  }
-
-  pub struct WorkflowOptions {
-      pub run_stt: bool,
-      pub run_summarize: bool,
-      pub run_embed: bool,
-      pub stt_model: String,
-      pub summary_model: String,
-  }
-
-  pub enum WorkflowStep {
-      AudioExtraction,
-      Transcription,
-      Summarization,
-      Embedding,
-  }
-
-  pub struct WorkflowResult {
-      pub transcript_path: Option<PathBuf>,
-      pub summary_path: Option<PathBuf>,
-      pub embedding_id: Option<String>,
-  }
-  ```
-
-- [ ] 단계별 진행률 추적
-  ```rust
-  async fn execute_with_progress<F>(
-      &self,
-      file_path: &Path,
-      options: WorkflowOptions,
-      mut progress_fn: F,
-  ) -> Result<WorkflowResult>
-  where
-      F: FnMut(WorkflowStep, f32) + Send,
-  {
-      if options.run_stt {
-          progress_fn(WorkflowStep::Transcription, 0.0);
-          let transcript = self.whisper.transcribe_with_progress(
-              file_path,
-              |p| progress_fn(WorkflowStep::Transcription, p),
-          ).await?;
-          // ...
-      }
-      // ...
-  }
-  ```
-
-### 6.2 히스토리 관리 (`history.rs`)
-- [ ] 히스토리 레코드 CRUD
-  ```rust
-  #[derive(Serialize, Deserialize)]
-  pub struct HistoryRecord {
-      pub uuid: String,
-      pub filename: String,
-      pub uploaded_at: DateTime<Utc>,
-      pub stt_done: bool,
-      pub summarize_done: bool,
-      pub embed_done: bool,
-      pub stt_path: Option<String>,
-      pub summary_path: Option<String>,
-  }
-
-  pub struct HistoryManager {
-      file_path: PathBuf,
-      records: Arc<RwLock<Vec<HistoryRecord>>>,
-  }
-
-  impl HistoryManager {
-      pub fn load(path: &Path) -> Result<Self>;
-      pub fn add_record(&self, record: HistoryRecord) -> Result<()>;
-      pub fn update_record(&self, uuid: &str, updates: RecordUpdate) -> Result<()>;
-      pub fn delete_records(&self, uuids: &[String]) -> Result<()>;
-      pub fn get_all(&self) -> Vec<HistoryRecord>;
-      pub fn save(&self) -> Result<()>;
-  }
-  ```
-
-### 6.3 PDF 처리 (`pdf.rs`)
-- [ ] PDF 텍스트 추출
-  ```rust
-  pub fn extract_text_from_pdf(path: &Path) -> Result<String> {
-      use lopdf::Document;
-      let doc = Document::load(path)?;
-      // 텍스트 추출 로직
-  }
-  ```
+### 완료 항목
+- ✅ Actix-web 기반 HTTP 서버 설정
+- ✅ REST API 엔드포인트
+  - `/upload`: 파일 업로드
+  - `/process`: 워크플로우 실행
+  - `/history`: 작업 기록 조회
+  - `/download/{file}`: 결과 다운로드
+  - `/search`: 의미 기반 검색
+  - `/tasks`: 작업 상태 조회
+  - `/cancel`: 작업 취소
+- ✅ WebSocket 실시간 통신 (포트 8765)
+- ✅ 작업 관리 시스템 (JobManager)
+- ✅ 히스토리 관리 (HistoryManager)
+- ✅ 워크플로우 오케스트레이션 (WorkflowExecutor)
 
 ---
 
-## Phase 7: 테스트 & 최적화 (지속적)
+## 🎯 Phase 6: 통합 및 테스트
 
-### 7.1 단위 테스트
-- [ ] 각 크레이트별 테스트 작성
-  ```rust
-  #[cfg(test)]
-  mod tests {
-      use super::*;
+**상태**: ⏸️ 대기 중 (Phase 2-4 완료 후 진행)
+**난이도**: ⭐⭐
+**예상 기간**: 1-2주
 
-      #[test]
-      fn test_cosine_similarity() {
-          let a = array![1.0, 0.0, 0.0];
-          let b = array![1.0, 0.0, 0.0];
-          assert_eq!(cosine_similarity(a.view(), b.view()), 1.0);
-      }
+### 목표
+모든 컴포넌트를 통합하고 Python 백엔드와 호환성 확인
 
-      #[tokio::test]
-      async fn test_ollama_client() {
-          // 통합 테스트
-      }
-  }
-  ```
+### 작업 항목
+- [ ] **E2E 통합 테스트**
+  - [ ] 파일 업로드 → STT → 요약 → 임베딩 전체 워크플로우
+  - [ ] 검색 기능 정확도 테스트
+  - [ ] WebSocket 실시간 업데이트 테스트
 
-- [ ] 테스트 커버리지 > 80% 달성
-  ```bash
-  cargo tarpaulin --out Html --output-dir coverage
-  ```
+- [ ] **Python 백엔드와의 호환성**
+  - [ ] API 응답 포맷 호환성 확인
+  - [ ] 히스토리 파일 포맷 호환성
+  - [ ] 벡터 인덱스 포맷 호환성
 
-### 7.2 통합 테스트
-- [ ] E2E 테스트 (tests/ 디렉토리)
-  ```rust
-  #[tokio::test]
-  async fn test_full_workflow() {
-      // 서버 시작
-      // 파일 업로드
-      // 워크플로우 실행
-      // 결과 검증
-  }
-  ```
+- [ ] **성능 벤치마크**
+  - [ ] Python vs Rust 처리 속도 비교
+  - [ ] 메모리 사용량 측정
+  - [ ] 동시 작업 처리 능력 테스트
 
-### 7.3 벤치마크
-- [ ] Criterion.rs 벤치마크 작성
-  ```rust
-  use criterion::{black_box, criterion_group, criterion_main, Criterion};
-
-  fn bench_vector_search(c: &mut Criterion) {
-      c.bench_function("search top 10", |b| {
-          b.iter(|| {
-              // 검색 벤치마크
-          });
-      });
-  }
-
-  criterion_group!(benches, bench_vector_search);
-  criterion_main!(benches);
-  ```
-
-- [ ] Python vs Rust 성능 비교 리포트
-
-### 7.4 프로파일링
-- [ ] Flamegraph 생성
-  ```bash
-  cargo flamegraph --bin recordroute
-  ```
-
-- [ ] 메모리 프로파일링
-  ```bash
-  cargo valgrind --bin recordroute
-  ```
+- [ ] **문서화**
+  - [ ] API 문서 업데이트
+  - [ ] 설정 가이드 작성
+  - [ ] 마이그레이션 가이드 작성
 
 ---
 
-## Phase 8: 배포 & 패키징 (2-3주)
+## 📊 예상 타임라인
 
-### 8.1 크로스 플랫폼 빌드
-- [ ] GitHub Actions CI/CD 설정
-  ```yaml
-  name: Build
-  on: [push, pull_request]
-  jobs:
-    build:
-      strategy:
-        matrix:
-          os: [ubuntu-latest, macos-latest, windows-latest]
-      runs-on: ${{ matrix.os }}
-      steps:
-        - uses: actions/checkout@v3
-        - uses: actions-rs/toolchain@v1
-        - run: cargo build --release
-  ```
+| Phase | 상태 | 난이도 | 예상 기간 | 우선순위 |
+|-------|------|--------|----------|---------|
+| Phase 1: 기반 인프라 | ✅ 완료 | ⭐⭐ | - | - |
+| Phase 2: LLM 통합 | 🚧 진행 중 | ⭐⭐ | 1-2주 | 1 |
+| Phase 3: 벡터 검색 | 🚧 대기 | ⭐⭐⭐ | 2-3주 | 2 |
+| Phase 4: STT 엔진 | 🚧 대기 | ⭐⭐⭐⭐ | 3-4주 | 3 |
+| Phase 5: HTTP 서버 | ✅ 완료 | ⭐⭐⭐ | - | - |
+| Phase 6: 통합 테스트 | ⏸️ 대기 | ⭐⭐ | 1-2주 | 4 |
 
-- [ ] 릴리스 최적화
-  ```toml
-  [profile.release]
-  opt-level = 3
-  lto = "fat"
-  codegen-units = 1
-  strip = true
-  panic = "abort"
-  ```
-
-### 8.2 모델 번들링
-- [ ] Whisper 모델 자동 다운로드 스크립트
-  ```rust
-  pub async fn download_whisper_model(
-      model_name: &str,
-      target_dir: &Path,
-  ) -> Result<PathBuf>;
-  ```
-
-- [ ] 모델 검증 (체크섬)
-
-### 8.3 Electron 통합
-- [ ] Rust 바이너리를 Electron에 번들
-  ```javascript
-  // electron/main.js
-  const { spawn } = require('child_process');
-  const backend = spawn('./bin/recordroute', {
-      env: { ...process.env, RUST_LOG: 'info' }
-  });
-  ```
-
-### 8.4 배포 패키지 생성
-- [ ] Linux: AppImage, .deb
-- [ ] macOS: .dmg, .app
-- [ ] Windows: .msi, .exe
+**총 예상 기간**: 7-11주 (약 2-3개월)
 
 ---
 
-## 임시 마이그레이션 도구 (선택사항)
+## 🎯 마일스톤 및 성공 지표
 
-Python 코드를 점진적으로 전환하는 동안 임시로 PyO3 사용 가능:
+### Milestone 1: LLM 통합 완료 (1-2주 후)
+- ✅ Ollama API 클라이언트 동작
+- ✅ Map-Reduce 요약 생성 가능
+- ✅ Python 버전과 동일한 품질의 요약
 
-```rust
-use pyo3::prelude::*;
+### Milestone 2: 벡터 검색 완료 (3-5주 후)
+- ✅ 의미 기반 검색 동작
+- ✅ Python 버전과 동일한 검색 정확도
+- ✅ 검색 속도 5배 이상 향상
 
-#[pyfunction]
-fn transcribe_fallback(path: &str) -> PyResult<String> {
-    Python::with_gil(|py| {
-        let whisper = py.import("whisper")?;
-        let result = whisper.call_method1("transcribe", (path,))?;
-        result.extract()
-    })
-}
-```
+### Milestone 3: STT 엔진 완료 (6-9주 후)
+- ✅ Whisper.cpp 통합 완료
+- ✅ Python 버전과 동일한 전사 정확도
+- ✅ STT 속도 20% 이상 향상
 
-**전환 우선순위**:
-1. 서버 & 인프라 → Rust (쉬움)
-2. 벡터 검색 → Rust (중간)
-3. LLM 통합 → Rust (쉬움)
-4. STT → Rust (어려움) ← 마지막에 전환
-5. 임베딩 → Rust (매우 어려움) ← Ollama API 사용 권장
+### Milestone 4: MVP 완성 (7-11주 후)
+- ✅ 전체 워크플로우 동작
+- ✅ Python 백엔드 완전 대체 가능
+- ✅ 성능 목표 달성
 
 ---
 
-## 학습 체크포인트 🎓
-
-### Rust 핵심 개념
-- [ ] 소유권 & 차용 (Ownership & Borrowing)
-- [ ] 라이프타임 (Lifetimes)
-- [ ] 트레잇 & 제네릭 (Traits & Generics)
-- [ ] 스마트 포인터 (`Arc`, `Mutex`, `RwLock`)
-- [ ] 에러 핸들링 (`Result`, `Option`, `anyhow`, `thiserror`)
-- [ ] 비동기 프로그래밍 (`async`/`await`, Futures)
-- [ ] 패턴 매칭 & 열거형
-- [ ] 매크로 (선언적, 절차적)
-
-### 고급 Rust
-- [ ] FFI (Foreign Function Interface)
-- [ ] Unsafe Rust (필요 시)
-- [ ] SIMD & 병렬화
-- [ ] 메모리 레이아웃 최적화
-- [ ] 제로 코스트 추상화
-
-### 생태계 라이브러리
-- [ ] **Tokio**: 비동기 런타임
-- [ ] **Actix-web**: 웹 프레임워크
-- [ ] **Serde**: 직렬화/역직렬화
-- [ ] **Reqwest**: HTTP 클라이언트
-- [ ] **ndarray**: 과학 계산
-- [ ] **Candle**: ML 프레임워크
-- [ ] **whisper-rs**: STT 바인딩
-- [ ] **Tracing**: 구조화 로깅
-
----
-
-## 예상 타임라인 (풀타임 기준)
-
-| Phase | 기간 | 누적 기간 | 난이도 |
-|-------|------|-----------|--------|
-| Phase 1: 기반 인프라 | 2-3주 | 3주 | ⭐⭐ |
-| Phase 2: STT 엔진 | 4-5주 | 8주 | ⭐⭐⭐⭐⭐ |
-| Phase 3: LLM 통합 | 2-3주 | 11주 | ⭐⭐ |
-| Phase 4: 벡터 검색 | 4-6주 | 17주 | ⭐⭐⭐⭐ |
-| Phase 5: 웹 서버 | 3-4주 | 21주 | ⭐⭐⭐ |
-| Phase 6: 워크플로우 | 2-3주 | 24주 | ⭐⭐ |
-| Phase 7: 테스트 & 최적화 | 지속적 | - | ⭐⭐⭐ |
-| Phase 8: 배포 | 2-3주 | 27주 | ⭐⭐ |
-
-**총 예상 기간**:
-- 풀타임: 6-7개월
-- 파트타임: 10-12개월
-
----
-
-## 성공 지표
-
-### 성능 목표 (Python 대비)
-- [x] HTTP 요청 처리: **5-10배 빠름**
-- [x] 벡터 검색: **10-20배 빠름**
-- [x] 메모리 사용량: **50-70% 감소**
-- [x] STT 처리: **1.5-3배 빠름** (GPU 가속 시)
-- [x] 바이너리 크기: **< 100MB** (단일 실행파일)
-
-### 품질 목표
-- [x] 테스트 커버리지 > 80%
-- [x] Clippy 경고 0개
-- [x] 메모리 누수 없음
-- [x] 동시성 안전성 검증 (Miri, ThreadSanitizer)
-- [x] 모든 기능 정상 작동 (Python 버전과 동일)
-
----
-
-## 리스크 및 대응 방안
-
-### 리스크 1: Whisper.cpp 통합 복잡도 ⚠️
-- **영향**: 매우 높음 (핵심 기능)
-- **대응**:
-  1. 초기에 Python fallback 유지 (PyO3)
-  2. 간단한 모델부터 테스트 (tiny, base)
-  3. whisper-rs 대신 whisper.cpp HTTP 서버 사용 고려
-- **플랜 B**: whisper.cpp를 별도 서비스로 실행하고 HTTP API로 통신
-
-### 리스크 2: 임베딩 모델 로컬 실행 어려움 ⚠️
-- **영향**: 중간 (Ollama API로 대체 가능)
-- **대응**:
-  1. Ollama API 우선 사용
-  2. Candle은 선택사항으로 진행
-  3. ONNX 런타임 고려
-- **플랜 B**: 임베딩은 Ollama API만 사용 (성능 목표 조정)
-
-### 리스크 3: 개발 시간 초과 ⏰
-- **대응**:
-  1. MVP 정의: Phase 1-3-5만 완료 (STT는 PyO3)
-  2. 우선순위 조정: 임베딩은 Ollama API 사용
-  3. Phase 2를 후순위로 미루고 다른 Phase 먼저 완료
-- **조정**: 6개월 → 9개월로 연장
-
-### 리스크 4: Rust 학습 곡선 📚
-- **대응**:
-  1. Rust Book 먼저 완독 (2-3주)
-  2. 간단한 프로젝트로 연습 (CLI 도구 등)
-  3. 커뮤니티 활용 (Discord, Reddit)
-- **리소스**:
-  - [Rust Book](https://doc.rust-lang.org/book/)
-  - [Rustlings](https://github.com/rust-lang/rustlings)
-  - [Exercism Rust Track](https://exercism.org/tracks/rust)
-
----
-
-## 대안 전략: 하이브리드 MVP
-
-완전 전환이 너무 부담스러우면 다음 하이브리드 전략 고려:
-
-```
-┌─────────────────────┐
-│   Rust Core (MVP)   │
-│  - HTTP/WS 서버     │
-│  - 벡터 검색        │
-│  - 파일 I/O         │
-└──────────┬──────────┘
-           │ PyO3
-           ▼
-┌─────────────────────┐
-│  Python (임시)      │
-│  - Whisper STT      │
-│  - Ollama (HTTP)    │
-└─────────────────────┘
-```
-
-**MVP 목표**: 3-4개월 내 작동하는 버전
-**완전 전환**: 이후 6-9개월 추가
-
----
-
-## 다음 스텝
+## 🚀 다음 단계
 
 ### 즉시 시작 가능한 작업
-1. **Rust 학습** (아직 익숙하지 않다면)
-   - Rust Book 1-10장 읽기
-   - Rustlings 완료
-   - 간단한 HTTP 서버 만들어보기
+1. **Phase 2 시작**: LLM 통합 (가장 쉬움, 빠른 성과)
+   - `crates/llm/client.rs` 완성
+   - Ollama API 테스트
+   - 요약 기능 구현
 
-2. **환경 설정**
+2. **개발 환경 설정**
    ```bash
-   # Rust 설치
-   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   # Ollama 설치 및 실행
+   ollama pull llama3.2
+   ollama pull nomic-embed-text
+   ollama serve
 
-   # 필수 도구 설치
-   cargo install cargo-watch cargo-edit cargo-tarpaulin
-
-   # Whisper.cpp 빌드 테스트
-   git clone https://github.com/ggerganov/whisper.cpp
-   cd whisper.cpp && make
-   ```
-
-3. **프로젝트 초기화**
-   ```bash
-   cargo new --bin recordroute-rs
+   # Rust 프로젝트 빌드
    cd recordroute-rs
-   cargo add actix-web tokio serde
-
-   # 간단한 "Hello World" 서버 작성
+   cargo build
+   cargo test
    ```
 
-4. **Phase 1.1 시작**: 프로젝트 구조 설계 및 Cargo 워크스페이스 생성
+3. **코드 검토 및 개선**
+   - 기존 코드 구조 검토
+   - TODO 주석 확인 및 작업 목록 작성
+   - Clippy 경고 수정
 
 ---
 
-## 참고 자료 📚
+## 📚 참고 자료
 
-### 공식 문서
-- [Rust Book](https://doc.rust-lang.org/book/)
-- [Async Book](https://rust-lang.github.io/async-book/)
-- [Actix-web](https://actix.rs/docs/)
-- [Tokio](https://tokio.rs/tokio/tutorial)
-- [Candle](https://github.com/huggingface/candle)
-- [whisper-rs](https://github.com/tazz4843/whisper-rs)
+### 핵심 문서
+- [rust-migration.md](./rust-migration.md) - 상세 마이그레이션 전략
+- [recordroute-rs/README.md](../recordroute-rs/README.md) - Rust 구현 가이드
+- [recordroute-rs/ARCHITECTURE.md](../recordroute-rs/ARCHITECTURE.md) - 아키텍처 문서
 
-### 유사 프로젝트 (영감)
-- [Qdrant](https://github.com/qdrant/qdrant) - 벡터 검색 엔진 (Rust)
-- [Tantivy](https://github.com/quickwit-oss/tantivy) - 풀텍스트 검색 (Rust)
-- [Ruff](https://github.com/astral-sh/ruff) - Python 린터 (Rust 10-100배 빠름)
-- [uv](https://github.com/astral-sh/uv) - Python 패키지 관리자 (Rust)
+### 기술 문서
+- [Actix-web 공식 문서](https://actix.rs/)
+- [Tokio 비동기 프로그래밍](https://tokio.rs/)
+- [Ollama API 문서](https://github.com/ollama/ollama/blob/main/docs/api.md)
+- [whisper.cpp GitHub](https://github.com/ggerganov/whisper.cpp)
 
-### 블로그 & 튜토리얼
-- ["Rewriting Python in Rust"](https://www.lpalmieri.com/posts/2019-12-01-taking-ml-to-production-with-rust-a-25x-speedup/)
-- ["Building ML Systems in Rust"](https://www.arewelearningyet.com/)
-- ["Actix-web Full Tutorial"](https://actix.rs/docs/getting-started/)
-
-### 커뮤니티
-- [r/rust](https://reddit.com/r/rust)
-- [Rust Discord](https://discord.gg/rust-lang)
-- [This Week in Rust](https://this-week-in-rust.org/)
+### 유사 프로젝트
+- [Qdrant](https://github.com/qdrant/qdrant) - Rust 벡터 검색 엔진
+- [Tantivy](https://github.com/quickwit-oss/tantivy) - Rust 전문 검색 엔진
 
 ---
 
-## 마치며
+## ⚠️ 리스크 및 완화 전략
 
-**완전 전환은 도전적이지만 매우 보람찬 여정**입니다.
+### 리스크 1: Whisper.cpp 통합 복잡도
+- **영향**: 높음 (핵심 기능)
+- **완화 전략**:
+  - 초기에는 subprocess로 whisper.cpp 실행 (안정적)
+  - whisper-rs 바인딩은 선택사항으로 유지
+  - Python fallback 옵션 보유
 
-핵심 포인트:
-- ✅ **MVP 먼저**: Phase 1, 3, 5만 완료해도 큰 성과
-- ✅ **점진적 접근**: PyO3로 시작해서 하나씩 전환
-- ✅ **커뮤니티 활용**: 막히면 질문하세요
-- ✅ **완벽보다 진행**: 작동하는 코드가 완벽한 코드보다 낫습니다
+### 리스크 2: 정확도 저하
+- **영향**: 중간
+- **완화 전략**:
+  - 각 Phase마다 Python 버전과 비교 테스트
+  - 임베딩 모델은 Ollama API 사용 (동일 모델)
+  - Whisper 모델은 동일한 가중치 사용
 
-**시작할 준비 되셨나요?** 🦀🚀
+### 리스크 3: 개발 시간 초과
+- **영향**: 중간
+- **완화 전략**:
+  - Phase 2-3만 먼저 완료 (LLM + 벡터)
+  - STT는 Python 유지 (하이브리드 모드)
+  - 점진적 전환으로 리스크 분산
 
-어떤 Phase부터 시작하고 싶으신가요?
+---
+
+## ✅ 완료 기준
+
+프로젝트는 다음 기준을 모두 만족하면 완료로 간주합니다:
+
+1. **기능 완전성**
+   - ✅ 모든 REST API 엔드포인트 동작
+   - ✅ WebSocket 실시간 통신 정상 작동
+   - ✅ STT, 요약, 임베딩, 검색 모두 동작
+
+2. **품질**
+   - ✅ Python 버전과 동일한 정확도
+   - ✅ 테스트 커버리지 > 70%
+   - ✅ Clippy 경고 0개
+
+3. **성능**
+   - ✅ LLM 추론: 10% 이상 빠름
+   - ✅ 벡터 검색: 5배 이상 빠름
+   - ✅ STT 처리: 20% 이상 빠름
+   - ✅ 메모리 사용: 30% 이상 감소
+
+4. **배포**
+   - ✅ 단일 바이너리 빌드 가능
+   - ✅ Docker 이미지 생성 가능
+   - ✅ 문서화 완료
+
+---
+
+## 💡 마치며
+
+**현재 상태**: recordroute-rs의 기본 구조는 완성되었습니다. 이제 각 컴포넌트의 실제 로직을 구현하는 단계입니다.
+
+**권장 접근**:
+1. **Phase 2 (LLM)부터 시작** - 가장 쉽고 빠른 성과
+2. **Phase 3 (벡터 검색)** - 중간 난이도, 큰 성능 향상
+3. **Phase 4 (STT)** - 가장 어려움, 마지막에 진행
+
+**핵심 포인트**:
+- 🎯 **점진적 접근**: 한 번에 하나씩, 테스트하면서 진행
+- ✅ **품질 우선**: 속도보다 정확도와 안정성이 중요
+- 📊 **측정 기반**: Python 버전과 비교하며 개선
+- 🚀 **실용적 목표**: 완벽보다는 작동하는 코드가 우선
+
+**질문이나 도움이 필요하면 언제든지 문의하세요!** 🦀
+
