@@ -105,7 +105,14 @@ import numpy as np
 import os
 
 
-BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent)).resolve()
+# PyInstaller 환경 감지 및 적절한 BASE_DIR 설정
+if getattr(sys, 'frozen', False):
+    # PyInstaller로 패키징된 경우: 실행 파일의 디렉토리 사용
+    BASE_DIR = Path(sys.executable).parent.resolve()
+else:
+    # 개발 환경: 프로젝트 루트 사용
+    BASE_DIR = Path(__file__).parent.parent.resolve()
+
 DB_BASE_PATH = get_db_base_path(BASE_DIR)
 UPLOAD_DIR = DB_BASE_PATH / "uploads"
 OUTPUT_DIR = DB_BASE_PATH / "whisper_output"
@@ -2917,41 +2924,99 @@ class UploadHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     import argparse
+    import traceback
+    import logging
 
-    # Parse command-line arguments for Electron integration
-    parser = argparse.ArgumentParser(description='RecordRoute STT Server')
-    parser.add_argument('--ffmpeg_path', type=str, default='ffmpeg',
-                        help='Path to ffmpeg executable')
-    parser.add_argument('--models_path', type=str, default=None,
-                        help='Path to models directory')
-    args = parser.parse_args()
+    # 로그 파일 설정 (실행 파일과 같은 위치에 저장)
+    log_file = BASE_DIR / "RecordRouteAPI_error.log"
 
-    # Set environment variables for other modules to access
-    os.environ['FFMPEG_PATH'] = args.ffmpeg_path
-    if args.models_path:
-        os.environ['MODELS_PATH'] = args.models_path
-
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    DELETED_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    DELETED_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    DELETED_VECTOR_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Migrate existing files to UUID system
-    migrate_existing_files()
-
-    # Start WebSocket server for progress updates
-    ws_thread = threading.Thread(target=start_websocket_server, daemon=True)
-    ws_thread.start()
-
-    # Use ThreadingHTTPServer to allow concurrent request handling.
-    # This lets the server respond to cancellation requests while
-    # long-running tasks are processing in separate threads.
-    server = ThreadingHTTPServer(("127.0.0.1", 8080), UploadHandler)
-    print("Serving HTTP on 127.0.0.1 port 8080")
     try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
+        # Parse command-line arguments for Electron integration
+        parser = argparse.ArgumentParser(description='RecordRoute STT Server')
+        parser.add_argument('--ffmpeg_path', type=str, default='ffmpeg',
+                            help='Path to ffmpeg executable')
+        parser.add_argument('--models_path', type=str, default=None,
+                            help='Path to models directory')
+        args = parser.parse_args()
+
+        # Set environment variables for other modules to access
+        os.environ['FFMPEG_PATH'] = args.ffmpeg_path
+        if args.models_path:
+            os.environ['MODELS_PATH'] = args.models_path
+
+        print(f"BASE_DIR: {BASE_DIR}")
+        print(f"DB_BASE_PATH: {DB_BASE_PATH}")
+        print(f"Creating directories...")
+
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        DELETED_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        DELETED_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        DELETED_VECTOR_DIR.mkdir(parents=True, exist_ok=True)
+
+        print("Directories created successfully")
+        print("Migrating existing files...")
+
+        # Migrate existing files to UUID system
+        migrate_existing_files()
+
+        print("Migration complete")
+        print("Starting WebSocket server...")
+
+        # Start WebSocket server for progress updates
+        ws_thread = threading.Thread(target=start_websocket_server, daemon=True)
+        ws_thread.start()
+
+        print("WebSocket server started")
+        print("Starting HTTP server...")
+
+        # Use ThreadingHTTPServer to allow concurrent request handling.
+        # This lets the server respond to cancellation requests while
+        # long-running tasks are processing in separate threads.
+        server = ThreadingHTTPServer(("127.0.0.1", 8080), UploadHandler)
+        print("Serving HTTP on 127.0.0.1 port 8080")
+        print("Server is ready! Press Ctrl+C to stop.")
+
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print("\nShutting down server...")
+        finally:
+            server.server_close()
+            print("Server closed")
+
+    except Exception as e:
+        error_msg = f"""
+{'='*80}
+RecordRouteAPI 시작 오류
+{'='*80}
+시간: {datetime.now().isoformat()}
+오류 유형: {type(e).__name__}
+오류 메시지: {str(e)}
+
+상세 정보:
+{'='*80}
+{traceback.format_exc()}
+{'='*80}
+
+환경 정보:
+- BASE_DIR: {BASE_DIR}
+- DB_BASE_PATH: {DB_BASE_PATH}
+- Python: {sys.version}
+- Platform: {sys.platform}
+- Frozen: {getattr(sys, 'frozen', False)}
+{'='*80}
+"""
+        print(error_msg)
+
+        # 로그 파일에 기록
+        try:
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(error_msg)
+            print(f"\n오류 로그가 '{log_file}' 파일에 저장되었습니다.")
+        except Exception as log_error:
+            print(f"로그 파일 저장 실패: {log_error}")
+
+        # PyInstaller 환경에서는 콘솔 창이 닫히지 않도록 대기
+        if getattr(sys, 'frozen', False):
+            input("\n\n프로그램을 종료하려면 Enter 키를 누르세요...")

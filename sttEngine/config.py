@@ -123,7 +123,12 @@ DEFAULT_DB_FOLDER = "DB"
 
 def get_project_root() -> Path:
     """프로젝트 루트 경로 반환"""
-    return Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent)).resolve()
+    if getattr(sys, 'frozen', False):
+        # PyInstaller로 패키징된 경우: 실행 파일의 디렉토리 사용
+        return Path(sys.executable).parent.resolve()
+    else:
+        # 개발 환경: 프로젝트 루트 사용
+        return Path(__file__).parent.parent.resolve()
 
 
 def _resolve_db_path(path_value: str, base_dir: Path) -> Optional[Path]:
