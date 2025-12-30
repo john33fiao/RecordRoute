@@ -19,7 +19,11 @@ import os
 from datetime import datetime
 
 import numpy as np
-import requests
+
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    SentenceTransformer = None
 
 # 설정 모듈 임포트
 # 패키지 내부 실행 시에는 최상위 디렉토리가 ``sys.path``에 없어
@@ -34,7 +38,6 @@ from config import (
     resolve_db_path,
     to_db_record_path,
 )
-from ollama_utils import ensure_ollama_server
 
 DB_BASE_PATH = get_db_base_path()
 WHISPER_OUTPUT_DIR = DB_BASE_PATH / "whisper_output"
@@ -249,42 +252,39 @@ def _chunk_text(text: str, max_chars: int = DEFAULT_MAX_CHARS) -> list[str]:
     return chunks or [text]
 
 
+# 전역 모델 캐시
+_embedding_model_cache = {}
+
+def _get_embedding_model(model_name: str) -> SentenceTransformer:
+    """임베딩 모델을 로드하고 캐시합니다."""
+    if SentenceTransformer is None:
+        raise ImportError(
+            "sentence-transformers가 설치되지 않았습니다. "
+            "'pip install sentence-transformers' 명령어로 설치하세요."
+        )
+
+    if model_name not in _embedding_model_cache:
+        print(f"임베딩 모델 '{model_name}' 로딩 중...")
+        _embedding_model_cache[model_name] = SentenceTransformer(model_name)
+        print(f"모델 '{model_name}' 로딩 완료")
+
+    return _embedding_model_cache[model_name]
+
 def _request_embedding(model_name: str, prompt: str) -> np.ndarray:
-    response = requests.post(
-        "http://localhost:11434/api/embeddings",
-        json={
-            "model": model_name,
-            "prompt": prompt
-        },
-        timeout=30
-    )
-
-    try:
-        response.raise_for_status()
-    except requests.HTTPError as exc:
-        detail = response.text.strip()
-        message = f"Ollama 응답 오류 {response.status_code}: {detail or 'no details'}"
-        raise requests.HTTPError(message) from exc
-
-    result = response.json()
-    embedding = result.get("embedding", [])
-    if not embedding:
-        raise ValueError("Empty embedding received from Ollama")
-    return np.array(embedding, dtype=np.float32)
+    """sentence-transformers를 사용하여 임베딩 생성"""
+    model = _get_embedding_model(model_name)
+    embedding = model.encode(prompt, convert_to_numpy=True)
+    return embedding.astype(np.float32)
 
 
-def embed_text_ollama(text: str, model_name: str) -> np.ndarray:
-    """Ollama API를 사용하여 텍스트를 임베딩.
+def embed_text(text: str, model_name: str) -> np.ndarray:
+    """sentence-transformers를 사용하여 텍스트를 임베딩.
 
-    Ollama가 긴 입력에서 500 오류를 반환하는 문제를 피하기 위해 입력을 여러 조각으로
+    텍스트가 너무 긴 경우 입력을 여러 조각으로
     나누어 호출한 뒤 평균 임베딩을 사용한다.
     """
 
     try:
-        server_ok, server_msg = ensure_ollama_server()
-        if not server_ok:
-            raise Exception(f"Ollama 서버를 사용할 수 없습니다: {server_msg}")
-
         text = text.strip()
         if not text:
             raise ValueError("임베딩할 텍스트가 비어 있습니다.")
@@ -300,8 +300,11 @@ def embed_text_ollama(text: str, model_name: str) -> np.ndarray:
         stacked = np.vstack(vectors)
         return np.mean(stacked, axis=0)
     except Exception as e:
-        print(f"Ollama 임베딩 실패: {e}")
+        print(f"임베딩 생성 실패: {e}")
         raise
+
+# 하위 호환성을 위한 별칭
+embed_text_ollama = embed_text
 
 
 def process_file(model_name: str, path: Path, index: Dict[str, Dict[str, str]]) -> None:
@@ -338,8 +341,8 @@ def main(src_dir: str) -> None:
     try:
         model_name = get_model_for_task("EMBEDDING", get_default_model("EMBEDDING"))
     except:
-        # 환경변수 설정이 없을 때 기본 모델 사용
-        model_name = os.environ.get("EMBEDDING_MODEL", "bge-m3:latest")
+        # 환경변수 설정이 없을 때 기본 sentence-transformers 모델 사용
+        model_name = os.environ.get("EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
     
     index = load_index()
     for file in Path(src_dir).glob("*.summary.md"):

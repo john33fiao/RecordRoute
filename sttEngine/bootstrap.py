@@ -2,16 +2,20 @@
 # -*- coding: utf-8 -*-
 """
 RecordRoute Model Bootstrap Script
-Phase 3: Automatic model download and initialization
+Phase 5: llama.cpp GGUF model initialization
 
 This script ensures all required models are available before the application starts.
-It downloads Whisper and embedding models on first run or when models are missing.
+It checks for Whisper, sentence-transformers, and GGUF models.
 """
 
 import os
 import sys
 import subprocess
 from pathlib import Path
+
+# Import project modules
+sys.path.append(str(Path(__file__).parent.parent))
+from sttEngine.llamacpp_utils import MODELS_DIR as GGUF_MODELS_DIR
 
 
 def get_models_path():
@@ -66,55 +70,39 @@ def download_whisper_model(model_name='base'):
         return False
 
 
-def check_ollama_running():
-    """Check if Ollama service is running"""
+def check_gguf_models_dir():
+    """Check if GGUF models directory exists and create if needed"""
     try:
-        import ollama
-        # Try to list models to check if Ollama is accessible
-        ollama.list()
-        print("✓ Ollama service is running")
+        GGUF_MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        print(f"✓ GGUF models directory ready at {GGUF_MODELS_DIR}")
         return True
     except Exception as e:
-        print(f"✗ Ollama service not accessible: {e}")
+        print(f"✗ Failed to create GGUF models directory: {e}")
         return False
 
 
-def check_ollama_model(model_name):
-    """Check if specific Ollama model is available"""
+def list_gguf_models():
+    """List available GGUF models"""
     try:
-        import ollama
-        models = ollama.list()
-        model_names = [m['name'] for m in models.get('models', [])]
+        if not GGUF_MODELS_DIR.exists():
+            return []
 
-        # Check if model exists (with or without tag)
-        base_name = model_name.split(':')[0]
-        found = any(base_name in name for name in model_names)
-
-        if found:
-            print(f"✓ Ollama model '{model_name}' is available")
-            return True
-        else:
-            print(f"✗ Ollama model '{model_name}' not found")
-            return False
+        gguf_files = list(GGUF_MODELS_DIR.glob("*.gguf"))
+        return [f.name for f in gguf_files]
     except Exception as e:
-        print(f"✗ Failed to check Ollama model: {e}")
-        return False
+        print(f"✗ Failed to list GGUF models: {e}")
+        return []
 
 
-def download_ollama_model(model_name):
-    """Download Ollama model"""
-    print(f"\n📥 Downloading Ollama model '{model_name}'...")
-    print("This may take several minutes to hours depending on model size and connection.")
-
-    try:
-        import ollama
-        # Pull the model
-        print(f"Pulling model '{model_name}'...")
-        ollama.pull(model_name)
-        print(f"✓ Ollama model '{model_name}' downloaded successfully")
+def check_gguf_model(model_filename):
+    """Check if specific GGUF model file exists"""
+    model_path = GGUF_MODELS_DIR / model_filename
+    if model_path.exists():
+        size_mb = model_path.stat().st_size / (1024 * 1024)
+        print(f"✓ GGUF model '{model_filename}' found ({size_mb:.1f}MB)")
         return True
-    except Exception as e:
-        print(f"✗ Failed to download Ollama model: {e}")
+    else:
+        print(f"✗ GGUF model '{model_filename}' not found")
         return False
 
 
@@ -143,7 +131,7 @@ def check_embedding_model():
 def bootstrap_models():
     """Main bootstrap function"""
     print("=" * 60)
-    print("RecordRoute Model Bootstrap")
+    print("RecordRoute Model Bootstrap (Phase 5: llama.cpp)")
     print("=" * 60)
 
     # Check and download Whisper model
@@ -152,18 +140,23 @@ def bootstrap_models():
         if not download_whisper_model('base'):
             print("⚠ Warning: Whisper model download failed. STT may not work.")
 
-    # Check Ollama
-    print("\n[2/3] Checking Ollama LLM service...")
-    if check_ollama_running():
-        # Check for default models
-        required_models = ['gemma2:2b', 'bge-m3:latest']
-        for model in required_models:
-            if not check_ollama_model(model):
-                print(f"⚠ Recommended model '{model}' not found.")
-                print(f"  You can download it by running: ollama pull {model}")
-    else:
-        print("⚠ Warning: Ollama service not running. Summarization will not work.")
-        print("  Please install and start Ollama from https://ollama.ai")
+    # Check GGUF models
+    print("\n[2/3] Checking GGUF models for llama.cpp...")
+    if check_gguf_models_dir():
+        available_models = list_gguf_models()
+        if available_models:
+            print(f"Found {len(available_models)} GGUF model(s):")
+            for model in available_models:
+                check_gguf_model(model)
+        else:
+            print("⚠ No GGUF models found. Please download GGUF models manually.")
+            print(f"  Model directory: {GGUF_MODELS_DIR}")
+            print("\n  Recommended models:")
+            print("  - Windows: gemma-2-2b-it-Q4_K_M.gguf")
+            print("  - Unix/macOS: qwen2.5-14b-instruct-q4_k_m.gguf")
+            print("\n  Download from Hugging Face:")
+            print("  - https://huggingface.co/models?search=gguf")
+            print(f"  - Save files to: {GGUF_MODELS_DIR}")
 
     # Check embedding model
     print("\n[3/3] Checking embedding model...")
@@ -173,8 +166,8 @@ def bootstrap_models():
     print("\n" + "=" * 60)
     print("Bootstrap complete!")
     print("=" * 60)
-    print("\nNote: If any models are missing, they will be downloaded on first use.")
-    print("You can manually download Ollama models using: ollama pull <model-name>")
+    print("\nNote: Missing models will be downloaded automatically on first use.")
+    print("For GGUF models, please download manually from Hugging Face.")
     print()
 
 
