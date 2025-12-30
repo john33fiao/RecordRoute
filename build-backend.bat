@@ -55,7 +55,22 @@ xcopy /E /I /Y dist\RecordRouteAPI bin\RecordRouteAPI
 echo [OK] Copied RecordRouteAPI to bin\
 
 echo.
-echo [Step 4/4] Build summary...
+echo [Step 4/5] Copying FFmpeg binary...
+
+set FFMPEG_SRC=bin\ffmpeg\win32\ffmpeg.exe
+set FFMPEG_DST=bin\ffmpeg.exe
+
+if exist "%FFMPEG_SRC%" (
+    copy /Y "%FFMPEG_SRC%" "%FFMPEG_DST%" >nul
+    echo [OK] Copied FFmpeg to bin\
+) else (
+    echo [WARNING] FFmpeg binary not found at %FFMPEG_SRC%
+    echo   The build will continue, but you'll need to install FFmpeg separately.
+    echo   See bin\ffmpeg\README.md for instructions.
+)
+
+echo.
+echo [Step 5/5] Build summary...
 echo ------------------------------
 echo Output directory: dist\RecordRouteAPI
 echo Installed to: bin\RecordRouteAPI

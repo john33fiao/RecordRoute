@@ -69,7 +69,36 @@ elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ] || [ "$(expr substr $
 fi
 
 echo ""
-echo "[Step 4/4] Build summary..."
+echo "[Step 4/5] Copying FFmpeg binary..."
+
+# Detect platform
+if [ "$(uname)" == "Darwin" ]; then
+    FFMPEG_SRC="bin/ffmpeg/darwin/ffmpeg"
+    FFMPEG_DST="bin/ffmpeg"
+elif [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
+    FFMPEG_SRC="bin/ffmpeg/linux/ffmpeg"
+    FFMPEG_DST="bin/ffmpeg"
+elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ] || [ "$(expr substr $(uname -s) 1 10)" == "MINGW64_NT" ]; then
+    FFMPEG_SRC="bin/ffmpeg/win32/ffmpeg.exe"
+    FFMPEG_DST="bin/ffmpeg.exe"
+fi
+
+# Check if FFmpeg source exists
+if [ -f "$FFMPEG_SRC" ]; then
+    cp "$FFMPEG_SRC" "$FFMPEG_DST"
+    # Ensure executable permission on Unix
+    if [ "$(uname)" == "Darwin" ] || [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
+        chmod +x "$FFMPEG_DST"
+    fi
+    echo -e "${GREEN}✓ Copied FFmpeg to bin/${NC}"
+else
+    echo -e "${YELLOW}⚠ FFmpeg binary not found at $FFMPEG_SRC${NC}"
+    echo "  The build will continue, but you'll need to install FFmpeg separately."
+    echo "  See bin/ffmpeg/README.md for instructions."
+fi
+
+echo ""
+echo "[Step 5/5] Build summary..."
 echo "------------------------------"
 echo "Output directory: dist/RecordRouteAPI"
 echo "Installed to: bin/RecordRouteAPI"

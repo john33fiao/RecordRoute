@@ -36,5 +36,12 @@ build/
 *.spec.bak
 bin/RecordRouteAPI/
 
+# FFmpeg 바이너리 (플랫폼별 바이너리 제외, README는 포함)
+bin/ffmpeg/win32/
+bin/ffmpeg/darwin/
+bin/ffmpeg/linux/
+bin/ffmpeg
+bin/ffmpeg.exe
+
 # Electron 빌드 리소스
 .electron-builder.yml
