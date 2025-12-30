@@ -87,7 +87,21 @@ impl VectorSearchEngine {
         query: &str,
         top_k: usize,
     ) -> Result<Vec<SearchResult>> {
-        debug!("Searching for: {} (top_k={})", query, top_k);
+        self.search_with_filters(query, top_k, None, None).await
+    }
+
+    /// Search for similar documents with date filtering
+    pub async fn search_with_filters(
+        &self,
+        query: &str,
+        top_k: usize,
+        start_date: Option<chrono::DateTime<chrono::Utc>>,
+        end_date: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<Vec<SearchResult>> {
+        debug!(
+            "Searching for: {} (top_k={}, start_date={:?}, end_date={:?})",
+            query, top_k, start_date, end_date
+        );
 
         // Generate query embedding
         let query_embedding = self.ollama.embed(&self.embedding_model, query).await?;
@@ -95,10 +109,28 @@ impl VectorSearchEngine {
         // Get all active entries
         let index = self.index.read().await;
         let entries = index.active_entries();
+        let total_candidates = entries.len();
 
-        // Compute similarities
+        // Compute similarities with date filtering
         let mut results = Vec::new();
-        for entry in entries {
+        for entry in &entries {
+            // Apply date filter if specified
+            if let Some(doc_timestamp) = entry.metadata.timestamp {
+                if let Some(start) = start_date {
+                    if doc_timestamp < start {
+                        continue;
+                    }
+                }
+                if let Some(end) = end_date {
+                    if doc_timestamp > end {
+                        continue;
+                    }
+                }
+            } else if start_date.is_some() || end_date.is_some() {
+                // Skip documents without timestamp when date filter is active
+                continue;
+            }
+
             // Load embedding
             let embedding_data = tokio::fs::read_to_string(&entry.embedding_path).await?;
             let embedding: Vec<f32> = serde_json::from_str(&embedding_data)?;
@@ -119,7 +151,11 @@ impl VectorSearchEngine {
         // Return top k
         results.truncate(top_k);
 
-        info!("Search completed - {} results", results.len());
+        info!(
+            "Search completed - {} results (filtered from {} candidates)",
+            results.len(),
+            total_candidates
+        );
         Ok(results)
     }
 

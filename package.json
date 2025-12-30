@@ -5,10 +5,11 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder",
-    "build:win": "electron-builder --win",
-    "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux",
+    "build": "npm run build:rust && electron-builder",
+    "build:win": "npm run build:rust && electron-builder --win",
+    "build:mac": "npm run build:rust && electron-builder --mac",
+    "build:linux": "npm run build:rust && electron-builder --linux",
+    "build:rust": "cd recordroute-rs && cargo build --release",
     "pack": "electron-builder --dir",
     "postinstall": "electron-builder install-app-deps"
   },
@@ -48,6 +49,10 @@
       "!frontend/**/*.map"
     ],
     "extraResources": [
+      {
+        "from": "recordroute-rs/target/release/recordroute${ext}",
+        "to": "bin/recordroute${ext}"
+      },
       {
         "from": "bin",
         "to": "bin",

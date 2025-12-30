@@ -1,12 +1,12 @@
 // RecordRoute Electron Main Process
-// Phase 2: Python backend integration
+// Phase 3: Rust backend integration
 
 const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
 
-let pythonProcess = null;
+let rustProcess = null;
 let mainWindow = null;
 let autoUpdater = null;
 let logStream = null;
@@ -103,55 +103,42 @@ function setupLogging() {
 }
 
 /**
- * Get the path to the Python executable
- * - Development: Use virtual environment Python
- * - Production: Use PyInstaller bundled executable (Phase 3)
+ * Get the path to the Rust executable
+ * - Development: Use cargo-built binary from target/release
+ * - Production: Use bundled executable in resources
  */
-function getPythonPath() {
+function getRustBinaryPath() {
   if (isDev) {
-    // Development environment: use virtual environment Python
-    if (process.platform === 'win32') {
-      return path.join(projectRoot, 'venv', 'Scripts', 'python.exe');
-    } else {
-      return path.join(projectRoot, 'venv', 'bin', 'python');
-    }
+    // Development environment: use target/release binary
+    const exeName = process.platform === 'win32' ? 'recordroute.exe' : 'recordroute';
+    return path.join(projectRoot, 'recordroute-rs', 'target', 'release', exeName);
   } else {
-    // Production environment: PyInstaller bundled executable
-    const exeName = process.platform === 'win32' ? 'RecordRouteAPI.exe' : 'RecordRouteAPI';
+    // Production environment: bundled executable
+    const exeName = process.platform === 'win32' ? 'recordroute.exe' : 'recordroute';
     return path.join(process.resourcesPath, 'bin', exeName);
   }
 }
 
 /**
- * Get the path to server.py
- * - Development: Direct path to server.py
- * - Production: Bundled in executable, return null
+ * Start the Rust backend server
  */
-function getServerPath() {
-  if (isDev) {
-    return path.join(projectRoot, 'sttEngine', 'server.py');
-  } else {
-    // Production: executable is the server itself
-    return null;
-  }
-}
+function runRustServer() {
+  console.log('Starting Rust server...');
 
-/**
- * Start the Python backend server
- */
-function runPythonServer() {
-  console.log('Starting Python server...');
+  const rustBinaryPath = getRustBinaryPath();
 
-  const pythonPath = getPythonPath();
-  const serverPath = getServerPath();
+  // Check if Rust executable exists
+  if (!fs.existsSync(rustBinaryPath)) {
+    console.error(`Rust executable not found: ${rustBinaryPath}`);
+    console.error('Please build the Rust backend:');
+    console.error('  cd recordroute-rs');
+    console.error('  cargo build --release');
 
-  // Check if Python executable exists
-  if (!fs.existsSync(pythonPath)) {
-    console.error(`Python executable not found: ${pythonPath}`);
-    console.error('Please ensure the virtual environment is created:');
-    console.error('  python -m venv venv');
-    console.error('  source venv/bin/activate  # or venv\\Scripts\\activate on Windows');
-    console.error('  pip install -r sttEngine/requirements.txt');
+    // Show error dialog
+    dialog.showErrorBox(
+      'Backend Not Found',
+      `Rust backend executable not found at:\n${rustBinaryPath}\n\nPlease build the project first:\ncd recordroute-rs\ncargo build --release`
+    );
     return;
   }
 
@@ -166,46 +153,85 @@ function runPythonServer() {
     ? path.join(projectRoot, 'models')
     : path.join(app.getPath('userData'), 'models');
 
+  // Database directory path
+  const dbPath = path.join(projectRoot, 'db');
+
   // Build command arguments
-  // In development, use -m flag to run as module (supports relative imports)
-  const args = isDev
-    ? ['-m', 'sttEngine.server', `--ffmpeg_path=${ffmpegPath}`, `--models_path=${modelsPath}`]
-    : [`--ffmpeg_path=${ffmpegPath}`, `--models_path=${modelsPath}`];
+  const args = [
+    'serve',
+    '--host', '127.0.0.1',
+    '--port', '8000',
+    '--db-path', dbPath,
+  ];
 
-  console.log('Python path:', pythonPath);
+  // Add optional FFmpeg path if needed
+  if (process.env.FFMPEG_PATH || !isDev) {
+    process.env.FFMPEG_PATH = ffmpegPath;
+  }
+
+  console.log('Rust binary path:', rustBinaryPath);
   console.log('Server args:', args);
+  console.log('Database path:', dbPath);
+  console.log('Models path:', modelsPath);
 
-  // Spawn Python process
-  pythonProcess = spawn(pythonPath, args);
+  // Set environment variables
+  process.env.RECORDROUTE_MODELS_DIR = modelsPath;
+  process.env.RUST_LOG = isDev ? 'debug' : 'info';
+
+  // Spawn Rust process
+  rustProcess = spawn(rustBinaryPath, args, {
+    env: { ...process.env },
+    cwd: projectRoot
+  });
 
   // Handle stdout
-  pythonProcess.stdout.on('data', (data) => {
+  rustProcess.stdout.on('data', (data) => {
     const output = data.toString();
-    console.log(`Python: ${output}`);
+    console.log(`Rust: ${output}`);
 
     // Detect when server is ready and create window
-    if (output.includes('Serving HTTP on')) {
-      console.log('Python server is ready!');
+    if (output.includes('Server listening on') || output.includes('Listening on')) {
+      console.log('Rust server is ready!');
       if (!mainWindow) {
-        createWindow();
+        // Give server a moment to fully initialize
+        setTimeout(() => {
+          createWindow();
+        }, 500);
       }
     }
   });
 
   // Handle stderr
-  pythonProcess.stderr.on('data', (data) => {
-    console.error(`Python Error: ${data}`);
+  rustProcess.stderr.on('data', (data) => {
+    const output = data.toString();
+    // Rust uses stderr for info logs too, so don't treat all as errors
+    if (output.toLowerCase().includes('error') || output.toLowerCase().includes('panic')) {
+      console.error(`Rust Error: ${output}`);
+    } else {
+      console.log(`Rust: ${output}`);
+    }
   });
 
   // Handle process errors
-  pythonProcess.on('error', (err) => {
-    console.error('Failed to start Python process:', err);
+  rustProcess.on('error', (err) => {
+    console.error('Failed to start Rust process:', err);
+    dialog.showErrorBox(
+      'Server Start Failed',
+      `Failed to start Rust backend:\n${err.message}`
+    );
   });
 
   // Handle process exit
-  pythonProcess.on('close', (code) => {
-    console.log(`Python process exited with code ${code}`);
-    pythonProcess = null;
+  rustProcess.on('close', (code) => {
+    console.log(`Rust process exited with code ${code}`);
+    rustProcess = null;
+
+    if (code !== 0 && code !== null) {
+      dialog.showErrorBox(
+        'Server Crashed',
+        `Rust backend exited unexpectedly with code ${code}.\nCheck the logs for details.`
+      );
+    }
   });
 }
 
@@ -394,7 +420,7 @@ function createMenu() {
               type: 'info',
               title: 'RecordRoute 정보',
               message: 'RecordRoute',
-              detail: `버전: ${app.getVersion()}\n\n음성, 영상, PDF 파일을 텍스트로 변환하고 회의록으로 요약하는 통합 워크플로우 시스템입니다.`,
+              detail: `버전: ${app.getVersion()}\n\n음성, 영상, PDF 파일을 텍스트로 변환하고 회의록으로 요약하는 통합 워크플로우 시스템입니다.\n\nPowered by Rust + Whisper.cpp + Ollama`,
               buttons: ['확인']
             });
           }
@@ -505,22 +531,22 @@ app.whenReady().then(() => {
   setupLogging();  // Setup logging to file
   createMenu();  // Create native menu
   setupAutoUpdater();  // Setup auto-updater
-  runPythonServer();
+  runRustServer();
 
   app.on('activate', function () {
     // On macOS re-create window when dock icon is clicked
-    if (BrowserWindow.getAllWindows().length === 0 && pythonProcess) {
+    if (BrowserWindow.getAllWindows().length === 0 && rustProcess) {
       createWindow();
     }
   });
 });
 
 app.on('window-all-closed', function () {
-  // Kill Python process when app is closing
-  if (pythonProcess) {
-    console.log('Terminating Python process...');
-    pythonProcess.kill();
-    pythonProcess = null;
+  // Kill Rust process when app is closing
+  if (rustProcess) {
+    console.log('Terminating Rust process...');
+    rustProcess.kill();
+    rustProcess = null;
   }
 
   // Quit app when all windows are closed, except on macOS
@@ -531,9 +557,14 @@ app.on('window-all-closed', function () {
 
 // Ensure cleanup on app quit
 app.on('quit', () => {
-  if (pythonProcess) {
-    console.log('Cleaning up Python process on quit...');
-    pythonProcess.kill();
-    pythonProcess = null;
+  if (rustProcess) {
+    console.log('Cleaning up Rust process on quit...');
+    rustProcess.kill();
+    rustProcess = null;
+  }
+
+  // Close log stream
+  if (logStream) {
+    logStream.end();
   }
 });
