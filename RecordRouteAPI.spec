@@ -1,8 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec file for RecordRoute API Server
-# Phase 3: Bundle Python backend into standalone executable
+# Phase 3 & 4: Bundle Python backend into standalone executable
 
 import sys
+import os
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
@@ -11,38 +12,79 @@ block_cipher = None
 datas = []
 hiddenimports = []
 
+# ============================================================================
+# Core Dependencies
+# ============================================================================
+
 # Collect whisper model files and data
+# Note: Large model files should be downloaded at runtime via bootstrap
 datas += collect_data_files('whisper')
 hiddenimports += collect_submodules('whisper')
 
-# Collect sentence-transformers data
+# Collect sentence-transformers data (for embedding/RAG)
 datas += collect_data_files('sentence_transformers')
 hiddenimports += collect_submodules('sentence_transformers')
 
-# Collect torch and related libraries
+# ============================================================================
+# Deep Learning Frameworks
+# ============================================================================
+
+# PyTorch and related libraries
 hiddenimports += collect_submodules('torch')
 hiddenimports += collect_submodules('torchaudio')
 hiddenimports += collect_submodules('torchvision')
 
-# Collect other ML/AI libraries
-hiddenimports += collect_submodules('numpy')
+# Transformers ecosystem
 hiddenimports += collect_submodules('transformers')
 hiddenimports += collect_submodules('tokenizers')
 
-# Collect ollama
+# ============================================================================
+# LLM Integration
+# ============================================================================
+
+# Ollama integration (Phase 3)
 hiddenimports += collect_submodules('ollama')
 
-# Collect websockets
+# Future: llama.cpp integration (Phase 5)
+# Uncomment when transitioning to llama.cpp
+# hiddenimports += collect_submodules('llama_cpp')
+# datas += collect_data_files('llama_cpp')
+
+# ============================================================================
+# Utilities & Supporting Libraries
+# ============================================================================
+
+# Web server and networking
 hiddenimports += collect_submodules('websockets')
+hiddenimports += collect_submodules('http')
+hiddenimports += collect_submodules('http.server')
 
-# Collect pypdf
+# File processing
 hiddenimports += collect_submodules('pypdf')
+hiddenimports += collect_submodules('multipart')
 
-# Additional hidden imports
+# Scientific computing
+hiddenimports += collect_submodules('numpy')
+
+# Tokenization
 hiddenimports += [
-    'multipart',
     'tiktoken_ext.openai_public',
     'tiktoken_ext',
+]
+
+# ============================================================================
+# RecordRoute Application Modules
+# ============================================================================
+
+# Include workflow modules
+datas += [
+    ('sttEngine/workflow', 'workflow'),
+    ('sttEngine/config.py', '.'),
+    ('sttEngine/logger.py', '.'),
+    ('sttEngine/search_cache.py', '.'),
+    ('sttEngine/vector_search.py', '.'),
+    ('sttEngine/embedding_pipeline.py', '.'),
+    ('sttEngine/ollama_utils.py', '.'),
 ]
 
 a = Analysis(
@@ -55,12 +97,21 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
+        # Exclude unnecessary packages to reduce bundle size
         'matplotlib',
         'scipy',
         'pandas',
         'jupyter',
         'notebook',
         'IPython',
+        'sphinx',
+        'pytest',
+        'setuptools',
+        # Qt libraries (if not needed)
+        'PyQt5',
+        'PyQt6',
+        'PySide2',
+        'PySide6',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -76,16 +127,16 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name='RecordRouteAPI',
-    debug=False,
+    debug=False,  # Set to True for debugging PyInstaller issues
     bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
+    strip=False,  # Don't strip symbols (better for debugging)
+    upx=True,  # Compress with UPX (reduces size)
     console=True,  # Keep console for debugging; set to False for production
     disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
+    argv_emulation=False,  # macOS-specific, set to True if needed
+    target_arch=None,  # Auto-detect architecture
+    codesign_identity=None,  # macOS code signing (Phase 4)
+    entitlements_file=None,  # macOS entitlements (Phase 4)
 )
 
 coll = COLLECT(
@@ -94,7 +145,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
-    upx_exclude=[],
+    upx=True,  # Compress executables with UPX
+    upx_exclude=[],  # Exclude specific files from UPX compression if needed
     name='RecordRouteAPI',
 )
