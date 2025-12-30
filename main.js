@@ -78,8 +78,9 @@ function runPythonServer() {
     : path.join(app.getPath('userData'), 'models');
 
   // Build command arguments
+  // In development, use -m flag to run as module (supports relative imports)
   const args = isDev
-    ? [serverPath, `--ffmpeg_path=${ffmpegPath}`, `--models_path=${modelsPath}`]
+    ? ['-m', 'sttEngine.server', `--ffmpeg_path=${ffmpegPath}`, `--models_path=${modelsPath}`]
     : [`--ffmpeg_path=${ffmpegPath}`, `--models_path=${modelsPath}`];
 
   console.log('Python path:', pythonPath);
