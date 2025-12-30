@@ -2,13 +2,13 @@
 // Phase 2: Python backend integration
 
 const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
-const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
 
 let pythonProcess = null;
 let mainWindow = null;
+let autoUpdater = null;
 
 // Determine if running in development or production
 const isDev = !app.isPackaged;
@@ -291,7 +291,7 @@ function createMenu() {
                 message: '개발 모드에서는 업데이트를 확인할 수 없습니다.',
                 buttons: ['확인']
               });
-            } else {
+            } else if (autoUpdater) {
               autoUpdater.checkForUpdates();
             }
           }
@@ -327,6 +327,9 @@ function setupAutoUpdater() {
     console.log('Auto-updater disabled in development mode');
     return;
   }
+
+  // Load electron-updater only in production mode
+  autoUpdater = require('electron-updater').autoUpdater;
 
   // Configure auto-updater
   autoUpdater.logger = console;
