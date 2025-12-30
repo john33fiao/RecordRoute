@@ -1,6 +1,7 @@
 use recordroute_common::{AppConfig, Result};
 use recordroute_llm::{OllamaClient, Summarizer};
 use recordroute_stt::WhisperEngine;
+use recordroute_vector::VectorSearchEngine;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -28,6 +29,9 @@ pub struct AppState {
     /// Summarizer
     pub summarizer: Arc<Summarizer>,
 
+    /// Vector search engine
+    pub vector_search: Arc<VectorSearchEngine>,
+
     /// Workflow executor
     pub workflow: Arc<WorkflowExecutor>,
 }
@@ -51,10 +55,14 @@ impl AppState {
             config.llm_model.clone(),
         ));
 
+        // Initialize vector search engine
+        let vector_search = Arc::new(VectorSearchEngine::new(&config, ollama.clone())?);
+
         // Initialize workflow executor
         let workflow = Arc::new(WorkflowExecutor::new(
             whisper.clone(),
             summarizer.clone(),
+            vector_search.clone(),
             config.clone(),
             history.clone(),
             job_manager.clone(),
@@ -67,6 +75,7 @@ impl AppState {
             whisper,
             ollama,
             summarizer,
+            vector_search,
             workflow,
         })
     }

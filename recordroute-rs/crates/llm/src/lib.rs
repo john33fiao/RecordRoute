@@ -10,4 +10,4 @@ mod types;
 pub use client::OllamaClient;
 pub use chunking::{chunk_text, split_paragraphs, TextChunk};
 pub use summarize::Summarizer;
-pub use types::{GenerateOptions, GenerateRequest, GenerateResponse, Summary};
+pub use types::{EmbedRequest, EmbedResponse, GenerateOptions, GenerateRequest, GenerateResponse, Summary};

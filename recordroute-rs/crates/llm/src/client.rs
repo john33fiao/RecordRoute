@@ -2,7 +2,7 @@ use recordroute_common::Result;
 use reqwest::Client;
 use tracing::{debug, info};
 
-use crate::types::{GenerateRequest, GenerateResponse};
+use crate::types::{EmbedRequest, EmbedResponse, GenerateRequest, GenerateResponse};
 
 /// Ollama API client
 #[derive(Debug, Clone)]
@@ -101,5 +101,36 @@ impl OllamaClient {
         let response = self.client.get(&url).send().await
             .map_err(|e| anyhow::anyhow!("Failed to connect to Ollama: {}", e))?;
         Ok(response.status().is_success())
+    }
+
+    /// Generate embedding for text
+    pub async fn embed(&self, model: impl Into<String>, text: impl Into<String>) -> Result<Vec<f32>> {
+        let url = format!("{}/api/embeddings", self.base_url);
+        let text = text.into();
+        let model = model.into();
+
+        debug!("Generating embedding - Model: {}, Text length: {}", model, text.len());
+
+        let request = EmbedRequest {
+            model,
+            prompt: text,
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send embedding request: {}", e))?
+            .error_for_status()
+            .map_err(|e| anyhow::anyhow!("Ollama embedding API error: {}", e))?;
+
+        let result: EmbedResponse = response.json().await
+            .map_err(|e| anyhow::anyhow!("Failed to parse embedding response: {}", e))?;
+
+        debug!("Received embedding - Dimension: {}", result.embedding.len());
+
+        Ok(result.embedding)
     }
 }

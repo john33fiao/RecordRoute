@@ -51,6 +51,23 @@ pub struct GenerateResponse {
     pub context: Vec<i32>,
 }
 
+/// Ollama embedding request
+#[derive(Debug, Clone, Serialize)]
+pub struct EmbedRequest {
+    /// Model name (e.g., "nomic-embed-text")
+    pub model: String,
+
+    /// Text to embed
+    pub prompt: String,
+}
+
+/// Ollama embedding response
+#[derive(Debug, Clone, Deserialize)]
+pub struct EmbedResponse {
+    /// Embedding vector
+    pub embedding: Vec<f32>,
+}
+
 /// Summarization result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Summary {

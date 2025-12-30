@@ -1,6 +1,7 @@
 use recordroute_common::{AppConfig, Result};
 use recordroute_llm::Summarizer;
 use recordroute_stt::{TranscriptionOptions, WhisperEngine};
+use recordroute_vector::{VectorMetadata, VectorSearchEngine};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -41,6 +42,7 @@ pub struct WorkflowResult {
 pub struct WorkflowExecutor {
     whisper: Arc<WhisperEngine>,
     summarizer: Arc<Summarizer>,
+    vector_search: Arc<VectorSearchEngine>,
     config: AppConfig,
     history: Arc<RwLock<HistoryManager>>,
     job_manager: Arc<JobManager>,
@@ -51,6 +53,7 @@ impl WorkflowExecutor {
     pub fn new(
         whisper: Arc<WhisperEngine>,
         summarizer: Arc<Summarizer>,
+        vector_search: Arc<VectorSearchEngine>,
         config: AppConfig,
         history: Arc<RwLock<HistoryManager>>,
         job_manager: Arc<JobManager>,
@@ -58,6 +61,7 @@ impl WorkflowExecutor {
         Self {
             whisper,
             summarizer,
+            vector_search,
             config,
             history,
             job_manager,
@@ -141,12 +145,53 @@ impl WorkflowExecutor {
             }
         }
 
-        // Phase 3: Embedding (TODO: Implement when vector module is ready)
+        // Phase 3: Embedding
         if options.run_embed {
-            warn!("Embedding not yet implemented (Phase 4)");
-            self.job_manager
-                .update_progress(task_id, 90, "Embedding skipped (not implemented)".to_string())
-                .await;
+            info!("Starting embedding workflow for file: {}", file_uuid);
+
+            // Need transcript or summary text
+            let text_to_embed = if let Some(ref summary_path) = result.summary_path {
+                tokio::fs::read_to_string(summary_path).await?
+            } else if let Some(ref transcript_path) = result.transcript_path {
+                tokio::fs::read_to_string(transcript_path).await?
+            } else {
+                // Try to load existing files
+                let summary_file = self.config.db_base_path
+                    .join("whisper_output")
+                    .join(format!("{}_summary.txt", file_uuid));
+
+                let transcript_file = self.config.db_base_path
+                    .join("whisper_output")
+                    .join(format!("{}.txt", file_uuid));
+
+                if summary_file.exists() {
+                    tokio::fs::read_to_string(&summary_file).await?
+                } else if transcript_file.exists() {
+                    tokio::fs::read_to_string(&transcript_file).await?
+                } else {
+                    warn!("No text found for embedding");
+                    self.job_manager
+                        .update_progress(task_id, 90, "Embedding skipped (no text)".to_string())
+                        .await;
+                    String::new()
+                }
+            };
+
+            if !text_to_embed.is_empty() {
+                let embedding_id = self
+                    .run_embed_workflow(file_uuid, &text_to_embed, file_path, &options, task_id)
+                    .await?;
+                result.embedding_id = Some(embedding_id);
+
+                // Update history
+                self.history.write().await.update_record(file_uuid, |record| {
+                    record.embed_done = true;
+                })?;
+
+                self.job_manager
+                    .update_progress(task_id, 95, "Embedding completed".to_string())
+                    .await;
+            }
         }
 
         self.job_manager
@@ -249,5 +294,71 @@ impl WorkflowExecutor {
         );
 
         Ok(summary_file)
+    }
+
+    /// Execute embedding workflow
+    async fn run_embed_workflow(
+        &self,
+        file_uuid: &str,
+        text: &str,
+        file_path: &Path,
+        _options: &WorkflowOptions,
+        task_id: &str,
+    ) -> Result<String> {
+        self.job_manager
+            .update_progress(task_id, 85, "Generating embedding...".to_string())
+            .await;
+
+        // Get filename and paths for metadata
+        let filename = file_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let transcript_path = self.config.db_base_path
+            .join("whisper_output")
+            .join(format!("{}.txt", file_uuid));
+
+        let summary_path = self.config.db_base_path
+            .join("whisper_output")
+            .join(format!("{}_summary.txt", file_uuid));
+
+        let one_line_file = self.config.db_base_path
+            .join("whisper_output")
+            .join(format!("{}_oneline.txt", file_uuid));
+
+        let one_line_summary = if one_line_file.exists() {
+            Some(tokio::fs::read_to_string(&one_line_file).await?)
+        } else {
+            None
+        };
+
+        // Create metadata
+        let metadata = VectorMetadata {
+            filename,
+            file_path: file_path.to_string_lossy().to_string(),
+            transcript_path: if transcript_path.exists() {
+                Some(transcript_path.to_string_lossy().to_string())
+            } else {
+                None
+            },
+            summary_path: if summary_path.exists() {
+                Some(summary_path.to_string_lossy().to_string())
+            } else {
+                None
+            },
+            one_line_summary,
+            tags: Vec::new(),
+        };
+
+        // Add to vector index
+        self.vector_search
+            .add_document(file_uuid, text, metadata)
+            .await?;
+
+        info!("Embedding added to vector index: {}", file_uuid);
+
+        Ok(file_uuid.to_string())
     }
 }
