@@ -6,13 +6,12 @@ import sys
 import time
 import re
 import platform
-import ollama
 from typing import List, Optional
 
 # 설정 모듈 임포트
 sys.path.append(str(Path(__file__).parent.parent))
 from config import get_model_for_task, get_default_model, get_config_value
-from ollama_utils import safe_ollama_call
+from llamacpp_utils import generate_text
 from logger import setup_logging
 
 setup_logging()
@@ -21,11 +20,11 @@ setup_logging()
 try:
     DEFAULT_MODEL = get_model_for_task("CORRECT", get_default_model("CORRECT"))
 except:
-    # 환경변수 설정이 없을 때 기존 로직 사용
+    # 환경변수 설정이 없을 때 기본 GGUF 모델 사용
     if platform.system() == "Windows":
-        DEFAULT_MODEL = "gemma3:4b"
+        DEFAULT_MODEL = "gemma-2-2b-it-Q4_K_M.gguf"
     else:
-        DEFAULT_MODEL = "gemma3:12b-it-qat"
+        DEFAULT_MODEL = "gemma-2-9b-it-Q4_K_M.gguf"
 
 SYSTEM_PROMPT = (
     "당신은 한국어 텍스트를 전문적으로 교정하는 편집자입니다. "
@@ -152,66 +151,50 @@ def validate_correction(original: str, corrected: str) -> bool:
     
     return True
 
-def chat_once(model: str, system: str, user: str, temperature: float = 0.0, 
+def chat_once(model: str, system: str, user: str, temperature: float = 0.0,
               num_ctx: int = 8192, retries: int = 3, backoff: float = 1.5) -> str:
     """단일 교정 요청 (재시도 및 에러 처리 포함)"""
     last_error = None
-    
+
+    # llama.cpp는 시스템 프롬프트를 직접 지원하지 않으므로 결합
+    full_prompt = f"{system}\n\n{user}\n\n{CORRECTION_INSTRUCTIONS}"
+
     for attempt in range(1, retries + 1):
         try:
             logging.debug("모델 %s에 요청 중... (시도 %d/%d)", model, attempt, retries)
-            
-            # ollama.chat() 호출 방식 수정 - 기본 형태로 단순화
-            messages = [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user + "\n\n" + CORRECTION_INSTRUCTIONS},
-            ]
-            
-            try:
-                # 최신 ollama 라이브러리 방식 (safe_ollama_call 사용)
-                resp = safe_ollama_call(
-                    ollama.chat,
-                    model=model,
-                    messages=messages,
-                    options={
-                        "temperature": temperature,
-                        "num_ctx": num_ctx,
-                    }
-                )
-            except TypeError as te:
-                # 구 버전 ollama 라이브러리 방식
-                logging.warning("새로운 ollama.chat 방식 실패, 구 버전 방식으로 재시도: %s", te)
-                resp = safe_ollama_call(ollama.chat, model, messages)
-            
-            # 응답 검증
-            # if not isinstance(resp, dict):
-            #     raise RuntimeError(f"예상하지 못한 응답 형식입니다. type: {type(resp)}")
-            
-            message = resp.get("message", {})
-            content = message.get("content")
-            
+
+            # llama.cpp를 사용한 텍스트 생성
+            content = generate_text(
+                model_filename=model,
+                prompt=full_prompt,
+                temperature=temperature,
+                max_tokens=num_ctx // 2,  # 응답 길이 제한 (컨텍스트의 절반)
+                n_ctx=num_ctx,
+                stream=False
+            )
+
             if not content:
-                raise RuntimeError("모델 응답에 content가 없습니다.")
-            
+                raise RuntimeError("모델 응답이 비어있습니다.")
+
             # 기본적인 응답 정제 (마크다운 코드 블록 제거)
             content = content.strip()
             if content.startswith("```") and content.endswith("```"):
                 lines = content.split('\n')
                 if len(lines) > 2:
                     content = '\n'.join(lines[1:-1])
-            
+
             logging.debug("교정 완료. 응답 길이: %d자", len(content))
             return content
-            
+
         except Exception as e:
             last_error = e
             logging.warning("시도 %d/%d 실패: %s", attempt, retries, str(e))
-            
+
             if attempt < retries:
                 sleep_time = backoff ** attempt
                 logging.info("%.1f초 후 재시도합니다...", sleep_time)
                 time.sleep(sleep_time)
-    
+
     raise RuntimeError(f"모델 통신 {retries}회 시도 모두 실패: {last_error}")
 
 def correct_text_file(input_file: Path, output_file: Optional[Path] = None, 
@@ -316,7 +299,7 @@ def process_multiple_files(input_files: List[Path], **kwargs) -> None:
 def main():
     """메인 함수"""
     parser = argparse.ArgumentParser(
-        description="Ollama를 사용해 한국어 텍스트를 문어체로 교정합니다.",
+        description="llama.cpp를 사용해 한국어 텍스트를 문어체로 교정합니다.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 사용 예시:
@@ -324,23 +307,23 @@ def main():
   %(prog)s -o output.md input.txt          # 출력 파일 지정
   %(prog)s --inplace document.txt          # 원본 파일 덮어쓰기 (백업 생성)
   %(prog)s --strip-heading meeting.md     # 첫 번째 헤더 제거
-  %(prog)s -m llama2 --temperature 0.1 *.txt  # 모델과 옵션 지정
+  %(prog)s -m gemma-2-2b-it-Q4_K_M.gguf --temperature 0.1 *.txt  # 모델과 옵션 지정
         """
     )
-    
+
     # 입력 파일
-    parser.add_argument("input_files", nargs="+", type=Path, 
+    parser.add_argument("input_files", nargs="+", type=Path,
                        help="입력 파일 경로 (여러 파일 지원)")
-    
+
     # 출력 옵션
-    parser.add_argument("-o", "--output", type=Path, 
+    parser.add_argument("-o", "--output", type=Path,
                        help="출력 파일 경로 (.md). 미지정 시 <원본명>.corrected.md")
-    parser.add_argument("--inplace", action="store_true", 
+    parser.add_argument("--inplace", action="store_true",
                        help="백업 생성 후 같은 파일에 덮어쓰기")
-    
+
     # 모델 옵션
-    parser.add_argument("-m", "--model", default=DEFAULT_MODEL, 
-                       help=f"사용할 Ollama 모델 (기본: {DEFAULT_MODEL})")
+    parser.add_argument("-m", "--model", default=DEFAULT_MODEL,
+                       help=f"사용할 GGUF 모델 파일명 (기본: {DEFAULT_MODEL})")
     # .env 파일에서 기본 온도 설정 로드
     default_temp = get_config_value("DEFAULT_TEMPERATURE_CORRECT", 0.0, float)
     

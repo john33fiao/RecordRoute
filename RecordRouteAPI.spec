@@ -39,16 +39,16 @@ hiddenimports += collect_submodules('transformers')
 hiddenimports += collect_submodules('tokenizers')
 
 # ============================================================================
-# LLM Integration
+# LLM Integration (Phase 5: llama.cpp)
 # ============================================================================
 
-# Ollama integration (Phase 3)
-hiddenimports += collect_submodules('ollama')
+# llama.cpp integration for self-contained LLM execution
+hiddenimports += collect_submodules('llama_cpp')
+datas += collect_data_files('llama_cpp')
 
-# Future: llama.cpp integration (Phase 5)
-# Uncomment when transitioning to llama.cpp
-# hiddenimports += collect_submodules('llama_cpp')
-# datas += collect_data_files('llama_cpp')
+# Hugging Face Hub for model downloads
+hiddenimports += collect_submodules('huggingface_hub')
+datas += collect_data_files('huggingface_hub')
 
 # ============================================================================
 # Utilities & Supporting Libraries
