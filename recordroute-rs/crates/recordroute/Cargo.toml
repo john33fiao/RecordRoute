@@ -1,0 +1,21 @@
+[package]
+name = "recordroute"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "recordroute"
+path = "src/main.rs"
+
+[dependencies]
+recordroute-common = { path = "../common" }
+recordroute-server = { path = "../server" }
+recordroute-stt = { path = "../stt" }
+recordroute-llm = { path = "../llm" }
+recordroute-vector = { path = "../vector" }
+
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+dotenv = { workspace = true }

@@ -1,0 +1,22 @@
+[package]
+name = "recordroute-stt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+recordroute-common = { path = "../common" }
+
+whisper-rs = { workspace = true }
+symphonia = { workspace = true }
+ffmpeg-next = { workspace = true, optional = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+regex = "1"
+
+[features]
+default = []
+ffmpeg = ["ffmpeg-next"]

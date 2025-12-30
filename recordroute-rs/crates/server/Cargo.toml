@@ -1,0 +1,29 @@
+[package]
+name = "recordroute-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+recordroute-common = { path = "../common" }
+recordroute-stt = { path = "../stt" }
+recordroute-llm = { path = "../llm" }
+recordroute-vector = { path = "../vector" }
+
+actix-web = { workspace = true }
+actix-files = { workspace = true }
+actix-ws = { workspace = true }
+actix-cors = { workspace = true }
+actix-multipart = "0.6"
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tokio-tungstenite = "0.21"
+futures = { workspace = true }
+futures-util = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-actix-web = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }

@@ -1,0 +1,39 @@
+# Rust
+/target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# X½ À
+.env
+.env.local
+
+# \ø
+*.log
+/db/log/
+
+# pt0 t¤
+/db/
+!db/.gitkeep
+
+# ¨x |
+/models/*.bin
+/models/*.gguf
+!models/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# LÜ Dð)¸
+*.exe
+*.dll
+*.so
+*.dylib
