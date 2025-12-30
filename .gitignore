@@ -45,3 +45,6 @@ bin/ffmpeg.exe
 
 # Electron 빌드 리소스
 .electron-builder.yml
+# Server backup files
+sttEngine/server.py.backup
+sttEngine/server.py.old
