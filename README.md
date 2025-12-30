@@ -3,16 +3,17 @@
 
 ## 주요 기능
 
-- **다중 포맷 지원**: 오디오, 비디오, PDF 등 다양한 형식의 파일을 처리합니다.
-- **음성→텍스트 변환**: OpenAI Whisper를 사용한 고품질 음성 인식.
-- **구조화된 요약**: LLM(Ollama)을 이용해 체계적인 회의록 형태의 요약을 생성합니다.
-- **통합 워크플로우**: STT부터 요약, 임베딩까지 이어지는 자동화된 처리 파이프라인.
+- **고성능 Rust 백엔드**: 전체 백엔드가 Rust로 재작성되어 더 빠르고 안정적인 처리를 보장합니다.
+- **다양한 오디오 포맷 지원**: MP3, WAV, M4A, MP4 등 FFmpeg가 지원하는 대부분의 오디오/비디오 파일을 처리합니다.
+- **음성→텍스트 변환**: `whisper.cpp`를 사용한 고품질 음성 인식.
+- **구조화된 요약**: Ollama(`llama.cpp`)를 이용해 체계적인 회의록 형태의 요약을 생성합니다.
+- **자동화된 워크플로우**: 전사, 요약, 임베딩까지 이어지는 자동화된 처리 파이프라인.
 - **실시간 웹 인터페이스**:
     - 파일 업로드 및 단계별 작업 선택.
     - WebSocket을 통한 실시간 작업 진행 상황 모니터링.
-    - 작업 취소, 기록 삭제, 결과물 수정 등 강력한 관리 기능.
+    - 작업 취소, 기록 삭제 등 강력한 관리 기능.
 - **임베딩 및 RAG**:
-    - 문서 벡터화를 통한 시맨틱 검색.
+    - `llama.cpp` 기반 임베딩 모델을 통해 문서 벡터화 및 시맨틱 검색.
     - 유사 문서 추천 및 키워드 검색.
 - **유틸리티**:
     - 한 줄 요약 생성.
@@ -23,169 +24,138 @@
 ```
 RecordRoute/
 ├── README.md              # 프로젝트 소개 및 설치 가이드
-├── AGENTS.md             # AI 에이전트 개발 가이드
 ├── package.json          # Node.js 프로젝트 설정 (Electron)
-├── requirements.txt      # Python 백엔드 의존성
-├── RecordRouteAPI.spec   # PyInstaller 빌드 스펙 (Python)
 ├── electron/             # Electron 데스크톱 애플리케이션
-│   ├── main.js           # 메인 프로세스
-│   └── preload.js        # Preload 스크립트
 ├── frontend/             # 웹 인터페이스 (HTML/CSS/JS)
-│   ├── upload.html       # 업로드 및 작업 관리 UI
-│   ├── upload.js         # 프론트엔드 로직
-│   └── upload.css        # 프론트엔드 스타일
 ├── scripts/              # 빌드 및 실행 스크립트
-│   ├── build-all.sh      # 전체 빌드 스크립트
-│   ├── build-backend.sh  # Python 백엔드 빌드 (Unix)
-│   ├── build-backend.bat # Python 백엔드 빌드 (Windows)
-│   ├── run.command       # macOS/Linux 웹 서버 실행
-│   └── start.vbs         # Windows 숨김 실행
-├── sttEngine/            # Python 백엔드 (레거시 또는 개발용)
-│   ├── server.py         # FastAPI/WebSocket 서버
-│   ├── run_workflow.py   # CLI 워크플로우 실행기
-│   ├── requirements.txt  # Python 의존성
-│   └── workflow/         # 핵심 처리 모듈 (STT, 요약 등)
-└── recordroute-rs/       # Rust 백엔드 (차세대)
-    ├── Cargo.toml        # Rust 프로젝트 설정
-    └── crates/           # Rust 워크스페이스 크레이트
-        ├── common        # 공통 모듈 (설정, 에러 등)
-        ├── llm           # LLM 클라이언트 (Ollama)
-        ├── recordroute   # 메인 바이너리
-        ├── server        # Axum 웹 서버 및 API
-        ├── stt           # STT 엔진 (Whisper)
-        └── vector        # 벡터 검색 엔진
+│
+├── recordroute-rs/       # 메인 Rust 백엔드
+│   ├── Cargo.toml        # Rust 워크스페이스 설정
+│   ├── API.md            # API 상세 문서
+│   ├── ARCHITECTURE.md   # 아키텍처 상세 문서
+│   └── crates/           # 워크스페이스 크레이트
+│       ├── common        # 공통 모듈 (설정, 에러, 로거)
+│       ├── llm           # LLM 클라이언트 (Ollama, llama.cpp)
+│       ├── stt           # STT 엔진 (whisper.cpp)
+│       ├── vector        # 벡터 검색 엔진
+│       ├── server        # Axum 웹 서버 및 API 라우트
+│       └── recordroute   # 실행 바이너리
+│
+└── sttEngine/            # 레거시 Python 백엔드
+    ├── server.py         # 구버전 FastAPI/WebSocket 서버
+    └── requirements.txt  # 구버전 Python 의존성
 ```
 
 ## 설치 및 설정
 
 ### 1. 사전 요구사항
 
-- **Python 3.8 이상**
-- **FFmpeg**:
-  - **개발 환경**: 시스템 PATH에 등록되어 있어야 합니다.
-    - Windows: `choco install ffmpeg` 또는 [공식 사이트](https://ffmpeg.org/download.html#build-windows)
-    - macOS: `brew install ffmpeg`
-    - Linux: `sudo apt-get install ffmpeg` (Ubuntu/Debian)
-  - **프로덕션 빌드**: 플랫폼별 FFmpeg 바이너리를 `bin/ffmpeg/` 디렉토리에 배치해야 합니다. 자세한 내용은 `bin/ffmpeg/README.md` 참조
+- **Rust**: `rustup`을 통해 설치하는 것을 권장합니다.
+  - [https://www.rust-lang.org/tools/install](https://www.rust-lang.org/tools/install)
+- **FFmpeg**: 시스템 PATH에 등록되어 있어야 합니다.
+  - **macOS**: `brew install ffmpeg`
+  - **Windows**: `choco install ffmpeg`
+  - **Linux**: `sudo apt-get install ffmpeg`
 - **Ollama**: 로컬 LLM을 구동하기 위해 설치 및 실행되어 있어야 합니다.
+  - [https://ollama.com/](https://ollama.com/)
 
-### 2. 자동 설치 (권장)
+### 2. 백엔드 실행 (Rust)
 
-#### Windows
 ```bash
-# 1단계: 가상환경 생성 및 의존성 설치
-setup.bat
+# 1. 저장소 복제
+git clone https://github.com/your-repo/RecordRoute.git
+cd RecordRoute
 
-# 2단계: 웹 서버 실행
-run.bat
+# 2. Rust 백엔드 빌드 및 실행 (첫 실행 시 시간이 걸릴 수 있습니다)
+# .env 파일에 설정이 없는 경우, 기본값으로 실행됩니다.
+cd recordroute-rs
+cargo run --release
 ```
-
-#### macOS/Linux
-```bash
-# 1단계: 의존성 설치
-pip install -r sttEngine/requirements.txt
-
-# 2단계: 웹 서버 실행 (.env 파일에서 환경변수 자동 로드)
-./scripts/run.command
-```
+서버가 `http://localhost:8080`에서 실행됩니다.
 
 ### 3. Ollama 모델 다운로드
 
 워크플로우에 필요한 모델을 미리 다운로드합니다.
 ```bash
 # 요약 모델 (플랫폼 공통)
-ollama pull gemma2:9b
+ollama pull gemma3:8b
 
 # 임베딩 모델 (RAG 및 검색용)
 ollama pull mxbai-embed-large
 ```
-*사용자 환경에 따라 `config.py` 또는 `.env` 파일에서 다른 모델을 지정할 수 있습니다.*
+*사용할 모델은 `.env` 파일 또는 `recordroute-rs/CONFIGURATION.md`를 참고하여 설정할 수 있습니다.*
 
-### 4. Electron 데스크톱 앱 (Phase 3 완료)
+### 4. Electron 데스크톱 앱
 
 RecordRoute는 Electron 기반 데스크톱 애플리케이션으로도 사용할 수 있습니다.
 
 #### 개발 모드 실행
 ```bash
-# Node.js 의존성 설치
+# 1. Rust 백엔드를 실행 상태로 둡니다.
+#    (cd recordroute-rs && cargo run --release)
+
+# 2. Node.js 의존성 설치
 npm install
 
-# Electron 앱 시작 (Python 백엔드 자동 실행)
+# 3. Electron 앱 시작
 npm start
 ```
+*`npm start`는 `electron/main.js`에서 Rust 백엔드 프로세스를 자동으로 실행하려고 시도할 수 있습니다. 자세한 내용은 `package.json`의 스크립트를 확인하세요.*
 
-#### 프로덕션 빌드
-```bash
-# 1단계: Python 백엔드 빌드 (PyInstaller)
-./scripts/build-backend.sh    # Unix/macOS
-scripts\build-backend.bat     # Windows
-
-# 2단계: Electron 앱 빌드
-npm run build         # 현재 플랫폼용 빌드
-npm run build:win     # Windows 설치 파일 생성
-npm run build:mac     # macOS DMG 생성
-npm run build:linux   # Linux AppImage 생성
-
-# 또는 전체 빌드 한 번에
-./scripts/build-all.sh --target win    # Windows
-./scripts/build-all.sh --target mac    # macOS
-./scripts/build-all.sh --target linux  # Linux
-```
-
-**빌드 출력:**
-- Python 백엔드: `bin/RecordRouteAPI/`
-- Electron 앱: `dist/`
-
-**주의사항:**
-- Python 백엔드 빌드 전에 가상환경을 활성화해야 합니다
-- PyInstaller 필요: `pip install pyinstaller`
-- **FFmpeg 바이너리 필요**: 프로덕션 빌드를 위해서는 플랫폼별 FFmpeg 바이너리를 `bin/ffmpeg/` 디렉토리에 배치해야 합니다. 자세한 내용은 `bin/ffmpeg/README.md` 참조
-- 빌드 프로세스는 플랫폼에 따라 시간이 걸릴 수 있습니다
+---
 
 ## 사용법
 
 ### 1. 웹 인터페이스
 
-- **실행**: `./scripts/run.command`(macOS/Linux)를 실행합니다.
+- **실행**: `recordroute-rs` 디렉토리에서 `cargo run --release`를 실행합니다.
 - **접속**: 웹 브라우저에서 `http://localhost:8080`으로 접속합니다.
 - **기능**:
     - 파일을 드래그 앤 드롭하거나 선택하여 업로드합니다.
     - 원하는 작업(STT, 요약, 임베딩)을 선택하고 처리 시작 버튼을 누릅니다.
     - 작업 현황은 실시간으로 업데이트되며, 완료된 기록은 목록에서 관리할 수 있습니다.
-    - 결과물 보기, 수정, 다운로드, 삭제, 초기화 등 다양한 작업을 수행할 수 있습니다.
-    - 검색창을 통해 저장된 모든 문서에 대해 키워드 및 시맨틱 검색을 수행할 수 있습니다.
+    - 결과물 보기, 다운로드, 삭제 등 다양한 작업을 수행할 수 있습니다.
+    - 검색창을 통해 저장된 모든 문서에 대해 시맨틱 검색을 수행할 수 있습니다.
 
 ### 2. CLI 워크플로우 실행 (레거시)
 
+기존 Python 기반 CLI는 `sttEngine` 디렉토리에 남아있지만, 더 이상 유지보수되지 않습니다.
 ```bash
 python sttEngine/run_workflow.py
 ```
-대화형 프롬프트를 통해 파일을 지정하고 단계를 선택하여 실행할 수 있습니다.
+
+---
 
 ## 주요 API 엔드포인트
 
-`sttEngine/server.py`는 다음과 같은 API를 제공합니다.
+Rust 백엔드는 `recordroute-rs/API.md`에 문서화된 REST API를 제공합니다.
 
 - `POST /upload`: 파일 업로드.
-- `POST /process`: STT, 요약 등 선택된 워크플로우 실행.
-- `GET /history`: 처리 완료된 기록 목록 조회.
-- `GET /download/<file_uuid>`: UUID로 결과 파일 다운로드.
+- `POST /process`: STT, 요약, 임베딩 등 워크플로우 실행.
+- `GET /tasks`: 현재 진행 중인 작업 목록 조회.
 - `POST /cancel`: 진행 중인 작업 취소.
-- `POST /delete_records`: 기록 및 관련 파일 영구 삭제.
-- `GET /search?q=<query>`: 키워드 및 벡터 검색.
-- `POST /similar`: 특정 문서와 유사한 문서 검색.
-- `POST /update_stt_text`: 변환된 텍스트 결과 수정.
-- `GET /models`: 사용 가능한 Ollama 모델 목록 조회.
-- `ws://localhost:8765`: 실시간 작업 진행 상황을 전송하는 WebSocket 엔드포인트.
+- `GET /history`: 처리 완료된 기록 목록 조회.
+- `POST /delete`: 하나 이상의 기록을 삭제.
+- `GET /download/{filename}`: 결과물 파일 다운로드.
+- `GET /search`: 키워드 및 벡터 검색.
+- `GET /search/stats`: 벡터 인덱스 통계 조회.
+- `WebSocket`: `http://localhost:8080`의 WebSocket을 통해 실시간 작업 진행 상황을 전송합니다.
+
+*자세한 요청/응답 형식은 `recordroute-rs/API.md` 문서를 참고하세요.*
+
+---
 
 ## 트러블슈팅
 
 - **Ollama 연결 오류**: Ollama 서비스가 로컬에서 실행 중인지 확인하세요 (`ollama serve`).
 - **FFmpeg 오류**: FFmpeg가 시스템에 설치되고 PATH에 등록되었는지 확인하세요.
-- **로그 확인**: 문제가 발생하면 `db/log/` 디렉토리에 생성된 로그 파일을 확인하여 원인을 파악할 수 있습니다.
+- **Cargo 빌드 오류**:
+  - Rust toolchain이 최신 버전인지 확인하세요 (`rustup update`).
+  - C++ 빌드 도구가 필요할 수 있습니다 (특히 `whisper.cpp` 또는 `llama.cpp`의 의존성 빌드 시).
+- **로그 확인**: 문제가 발생하면 `recordroute-rs/data/logs/` 디렉토리 (경로는 설정에 따라 다름)에 생성된 로그 파일을 확인하여 원인을 파악할 수 있습니다.
 
 ## 참고사항
 
-- 이 프로젝트는 개인적인 학습 및 포트폴리오 목적으로 진행되었습니다.
-- 대부분의 코드는 LLM(Claude, Gemini 등)의 도움을 받아 작성되었습니다.
+- 이 프로젝트는 Python에서 Rust로의 성공적인 마이그레이션 사례 연구를 포함합니다.
+- 레거시 Python 코드는 `sttEngine`에 보존되어 있습니다.
 - 구현 예정 기능은 [TODO](/TODO/TODO.md) 문서에 정리되어 있습니다.
