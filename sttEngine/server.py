@@ -19,68 +19,125 @@ from pathlib import Path
 from typing import Any
 import re
 from urllib.parse import unquote
-
-try:
-    from .logger import setup_logging
-except ImportError:  # pragma: no cover - fallback for script execution
-    from logger import setup_logging
-
-setup_logging()
 from datetime import datetime
 import threading
 import time
-import shutil
-import hashlib
-import asyncio
-import websockets
 
+# Setup logging
 try:
-    from .workflow.transcribe import transcribe_audio_files
+    from .logger import setup_logging
 except ImportError:
-    from workflow.transcribe import transcribe_audio_files
+    from logger import setup_logging
 
-try:
-    from .workflow.summarize import (
-        summarize_text_mapreduce,
-        read_text_with_fallback,
-        save_output,
-        DEFAULT_MODEL,
-        DEFAULT_CHUNK_SIZE,
-        DEFAULT_TEMPERATURE,
-    )
-except ImportError:
-    from workflow.summarize import (
-        summarize_text_mapreduce,
-        read_text_with_fallback,
-        save_output,
-        DEFAULT_MODEL,
-        DEFAULT_CHUNK_SIZE,
-        DEFAULT_TEMPERATURE,
-    )
+setup_logging()
 
+# Import newly created modules
 try:
+    from .path_utils import normalize_record_path, to_record_path, resolve_record_path
+    from .file_utils import get_file_type, get_audio_duration, compute_file_hash, file_hash, is_valid_uuid
+    from .registry_manager import (
+        load_file_registry,
+        save_file_registry,
+        register_file,
+        get_file_by_uuid,
+        resolve_file_identifier,
+        migrate_existing_files,
+    )
+    from .history_manager import (
+        load_upload_history,
+        get_active_history,
+        save_upload_history,
+        add_upload_record,
+        update_task_completion,
+        update_title_summary,
+        update_filename,
+        TASK_TYPES,
+    )
+    from .task_manager import (
+        register_process,
+        unregister_process,
+        cancel_task,
+        is_task_cancelled,
+        update_task_progress,
+        get_task_progress,
+        clear_task_progress,
+        get_running_tasks,
+    )
+    from .websocket_server import broadcast_progress, start_websocket_server
+    from .search_utils import _timestamp_to_sort_key, _collect_searchable_documents, _collect_keyword_matches, SEARCHABLE_SUFFIXES
+    from .embedding_manager import (
+        find_existing_stt_file,
+        run_incremental_embedding,
+        generate_embedding,
+        generate_and_store_title_summary,
+    )
+    from .file_operations import (
+        reset_upload_record,
+        delete_file,
+        delete_records,
+        update_stt_text,
+        reset_summary_and_embedding,
+        reset_tasks_for_all_records,
+    )
+    from .workflow_runner import run_workflow
     from .config import (
         DB_ALIAS,
         get_db_base_path,
         get_default_model,
-        normalize_db_record_path,
-        resolve_db_path,
-        to_db_record_path,
     )
 except ImportError:
+    from path_utils import normalize_record_path, to_record_path, resolve_record_path
+    from file_utils import get_file_type, get_audio_duration, compute_file_hash, file_hash, is_valid_uuid
+    from registry_manager import (
+        load_file_registry,
+        save_file_registry,
+        register_file,
+        get_file_by_uuid,
+        resolve_file_identifier,
+        migrate_existing_files,
+    )
+    from history_manager import (
+        load_upload_history,
+        get_active_history,
+        save_upload_history,
+        add_upload_record,
+        update_task_completion,
+        update_title_summary,
+        update_filename,
+        TASK_TYPES,
+    )
+    from task_manager import (
+        register_process,
+        unregister_process,
+        cancel_task,
+        is_task_cancelled,
+        update_task_progress,
+        get_task_progress,
+        clear_task_progress,
+        get_running_tasks,
+    )
+    from websocket_server import broadcast_progress, start_websocket_server
+    from search_utils import _timestamp_to_sort_key, _collect_searchable_documents, _collect_keyword_matches, SEARCHABLE_SUFFIXES
+    from embedding_manager import (
+        find_existing_stt_file,
+        run_incremental_embedding,
+        generate_embedding,
+        generate_and_store_title_summary,
+    )
+    from file_operations import (
+        reset_upload_record,
+        delete_file,
+        delete_records,
+        update_stt_text,
+        reset_summary_and_embedding,
+        reset_tasks_for_all_records,
+    )
+    from workflow_runner import run_workflow
     from config import (
         DB_ALIAS,
         get_db_base_path,
         get_default_model,
-        normalize_db_record_path,
-        resolve_db_path,
-        to_db_record_path,
     )
-
-try:
-    from .one_line_summary import generate_one_line_summary
-except ImportError:
-    from one_line_summary import generate_one_line_summary
 
 try:
     from .vector_search import search as search_vectors
@@ -93,17 +150,9 @@ except ImportError:
     from search_cache import cleanup_expired_cache, get_cache_stats, delete_cache_record
 
 try:
-    from .embedding_pipeline import embed_text_ollama, load_index, save_index
-except ImportError:
-    from embedding_pipeline import embed_text_ollama, load_index, save_index
-
-try:
     from .llamacpp_utils import MODELS_DIR as GGUF_MODELS_DIR, check_model_available
 except ImportError:
     from llamacpp_utils import MODELS_DIR as GGUF_MODELS_DIR, check_model_available
-import numpy as np
-import os
-
 
 # PyInstaller 환경 감지 및 적절한 BASE_DIR 설정
 if getattr(sys, 'frozen', False):
@@ -123,1742 +172,130 @@ DELETED_DIR = DB_BASE_PATH / "deleted"
 DELETED_UPLOAD_DIR = DELETED_DIR / "uploads"
 DELETED_OUTPUT_DIR = DELETED_DIR / "whisper_output"
 DELETED_VECTOR_DIR = DELETED_DIR / "vector_store"
-SEARCHABLE_SUFFIXES = {".md", ".txt", ".text", ".markdown"}
-TASK_TYPES = ("stt", "embedding", "summary")
 
-# Global dictionary to track running processes
-running_processes = {}
-process_lock = threading.Lock()
+# Wrapper functions for module functions - these adapt new module functions to work with global paths
+def load_upload_history_wrapper():
+    return load_upload_history(HISTORY_FILE)
 
-# Global dictionary to track task progress
-task_progress = {}
-progress_lock = threading.Lock()
+def save_upload_history_wrapper(history):
+    return save_upload_history(history, HISTORY_FILE)
 
-# WebSocket server setup for real-time progress updates
-connected_clients = set()
-websocket_loop = asyncio.new_event_loop()
+def get_active_history_wrapper(history=None):
+    return get_active_history(history, HISTORY_FILE)
 
+def add_upload_record_wrapper(file_path, file_type, duration=None, file_hash=None):
+    return add_upload_record(file_path, file_type, BASE_DIR, HISTORY_FILE, duration, file_hash)
 
-def normalize_record_path(path_str: str) -> str:
-    """Normalize stored record paths using the configured DB base path."""
-    return normalize_db_record_path(path_str, BASE_DIR)
+def update_task_completion_wrapper(record_id, task, file_path):
+    return update_task_completion(record_id, task, file_path, BASE_DIR, HISTORY_FILE, FILE_REGISTRY_FILE)
 
+def update_title_summary_wrapper(record_id, summary):
+    return update_title_summary(record_id, summary, HISTORY_FILE)
 
-def to_record_path(path: Path) -> str:
-    """Convert an absolute path to a stored record path."""
-    return to_db_record_path(path, BASE_DIR)
+def update_filename_wrapper(record_id, new_filename):
+    return update_filename(record_id, new_filename, HISTORY_FILE)
 
+def load_file_registry_wrapper():
+    return load_file_registry(FILE_REGISTRY_FILE)
 
-def resolve_record_path(path_str: str) -> Path:
-    """Resolve a stored record path to an absolute filesystem path."""
-    return resolve_db_path(path_str, BASE_DIR)
+def save_file_registry_wrapper(registry):
+    return save_file_registry(registry, FILE_REGISTRY_FILE)
 
+def register_file_wrapper(file_path, record_id, task_type, original_filename=None):
+    return register_file(file_path, record_id, task_type, BASE_DIR, FILE_REGISTRY_FILE, original_filename)
 
-async def _send_progress(task_id, message):
-    data = json.dumps({"task_id": task_id, "message": message})
-    if connected_clients:
-        await asyncio.gather(
-            *[client.send(data) for client in list(connected_clients) if not client.closed]
-        )
+def get_file_by_uuid_wrapper(file_uuid):
+    return get_file_by_uuid(file_uuid, FILE_REGISTRY_FILE)
 
+def migrate_existing_files_wrapper():
+    return migrate_existing_files(BASE_DIR, FILE_REGISTRY_FILE, HISTORY_FILE, load_upload_history_wrapper, save_upload_history_wrapper)
 
-def broadcast_progress(task_id, message):
-    if websocket_loop.is_running():
-        asyncio.run_coroutine_threadsafe(_send_progress(task_id, message), websocket_loop)
+def resolve_file_identifier_wrapper(file_identifier):
+    return resolve_file_identifier(file_identifier, BASE_DIR, FILE_REGISTRY_FILE)
 
+def normalize_record_path_wrapper(path_str):
+    return normalize_record_path(path_str, BASE_DIR)
 
-async def websocket_handler(websocket):
-    connected_clients.add(websocket)
-    try:
-        async for _ in websocket:
-            pass
-    finally:
-        connected_clients.discard(websocket)
+def to_record_path_wrapper(path):
+    return to_record_path(path, BASE_DIR)
 
+def resolve_record_path_wrapper(path_str):
+    return resolve_record_path(path_str, BASE_DIR)
 
-def start_websocket_server():
-    """Start the WebSocket server in its own asyncio event loop."""
-    asyncio.set_event_loop(websocket_loop)
+def find_existing_stt_file_wrapper(original_file_path):
+    return find_existing_stt_file(original_file_path, OUTPUT_DIR)
 
-    async def run_server():
-        async with websockets.serve(websocket_handler, "0.0.0.0", 8765):
-            print("WebSocket server running on ws://localhost:8765")
-            await asyncio.Future()  # run forever
+def run_incremental_embedding_wrapper():
+    return run_incremental_embedding(OUTPUT_DIR, VECTOR_DIR)
 
-    websocket_loop.run_until_complete(run_server())
+def generate_embedding_wrapper(file_path, record_id=None):
+    return generate_embedding(file_path, VECTOR_DIR, BASE_DIR, HISTORY_FILE, FILE_REGISTRY_FILE, record_id)
 
+def generate_and_store_title_summary_wrapper(record_id, file_path, model=None):
+    return generate_and_store_title_summary(record_id, file_path, HISTORY_FILE, model)
 
-def register_process(task_id: str, process):
-    """Register a running process for a task."""
-    with process_lock:
-        running_processes[task_id] = {
-            'process': process,
-            'cancelled': False,
-            'start_time': time.time()
-        }
-        print(f"Registered process for task {task_id}, PID: {process.pid}")
+def reset_upload_record_wrapper(record_id):
+    return reset_upload_record(record_id, BASE_DIR, HISTORY_FILE, OUTPUT_DIR, VECTOR_DIR)
 
+def delete_file_wrapper(file_identifier, file_type):
+    return delete_file(file_identifier, file_type, BASE_DIR, HISTORY_FILE, FILE_REGISTRY_FILE)
 
-def unregister_process(task_id: str):
-    """Unregister a process when it completes."""
-    with process_lock:
-        if task_id in running_processes:
-            del running_processes[task_id]
-            print(f"Unregistered process for task {task_id}")
-
-def cancel_task(task_id: str):
-    """Cancel a running task by terminating its process."""
-    with process_lock:
-        if task_id in running_processes:
-            task_info = running_processes[task_id]
-            task_info['cancelled'] = True
-            process = task_info['process']
-            
-            try:
-                print(f"Terminating process for task {task_id}, PID: {process.pid}")
-                process.terminate()
-                
-                # Give it a moment to terminate gracefully
-                try:
-                    process.wait(timeout=5)
-                    print(f"Process {process.pid} terminated gracefully")
-                except subprocess.TimeoutExpired:
-                    print(f"Process {process.pid} didn't terminate gracefully, killing...")
-                    process.kill()
-                    process.wait()
-                    print(f"Process {process.pid} killed")
-                    
-            except Exception as e:
-                print(f"Error terminating process for task {task_id}: {e}")
-            
-            return True
-        else:
-            print(f"Task {task_id} not found in running processes")
-            return False
-
-
-def is_task_cancelled(task_id: str):
-    """Check if a task has been cancelled."""
-    with process_lock:
-        if task_id in running_processes:
-            return running_processes[task_id]['cancelled']
-        return False
-
-
-def update_task_progress(task_id: str, message: str):
-    """Update progress message for a task."""
-    with progress_lock:
-        task_progress[task_id] = {
-            'message': message,
-            'timestamp': time.time()
-        }
-        print(f"Task {task_id}: {message}")
-    broadcast_progress(task_id, message)
-
-
-def get_task_progress(task_id: str):
-    """Get current progress for a task."""
-    with progress_lock:
-        return task_progress.get(task_id, {})
-
-
-def clear_task_progress(task_id: str):
-    """Clear progress for a completed/cancelled task."""
-    with progress_lock:
-        if task_id in task_progress:
-            del task_progress[task_id]
-
-def get_running_tasks():
-    """Get information about currently running tasks."""
-    with process_lock:
-        return {
-            task_id: {
-                'pid': info['process'].pid,
-                'start_time': info['start_time'],
-                'cancelled': info['cancelled'],
-                'duration': time.time() - info['start_time']
-            }
-            for task_id, info in running_processes.items()
-        }
-
-
-def get_file_type(file_path: Path):
-    """Determine if the file is audio or text. 
-    
-    Returns:
-        'audio' for audio files, 'text' for text files, 'pdf' for PDF files, 'unknown' for others.
-    """
-    audio_extensions = {'.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.qta', '.wav', '.webm'}
-    text_extensions = {'.md', '.txt', '.text', '.markdown'}
-    pdf_extensions = {'.pdf'}
-
-    suffix = file_path.suffix.lower()
-    if suffix in audio_extensions:
-        return 'audio'
-    elif suffix in text_extensions:
-        return 'text'
-    elif suffix in pdf_extensions:
-        return 'pdf'
-    else:
-        return 'unknown'
-
-
-def get_audio_duration(file_path: Path):
-    """Get audio file duration using ffprobe."""
-    try:
-        result = subprocess.run([
-            'ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
-            '-of', 'csv=p=0', str(file_path)
-        ], capture_output=True, text=True, check=True)
-        duration = float(result.stdout.strip())
-        minutes = int(duration // 60)
-        seconds = int(duration % 60)
-        return f"{minutes:02d}:{seconds:02d}"
-    except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
-        return None
-
-
-def compute_file_hash(data: bytes) -> str:
-    """Compute SHA256 hash for given file data."""
-    return hashlib.sha256(data).hexdigest()
-
-
-def _ensure_record_schema(record: dict) -> bool:
-    """Ensure an upload history record has the expected structure."""
-    updated = False
-
-    completed = record.get("completed_tasks")
-    if not isinstance(completed, dict):
-        completed = {}
-        record["completed_tasks"] = completed
-        updated = True
-
-    for task in TASK_TYPES:
-        if task not in completed:
-            completed[task] = False
-            updated = True
-
-    download_links = record.get("download_links")
-    if not isinstance(download_links, dict):
-        record["download_links"] = {}
-        updated = True
-
-    if not isinstance(record.get("deleted"), bool):
-        record["deleted"] = False
-        updated = True
-
-    if "deleted_at" not in record:
-        record["deleted_at"] = None
-        updated = True
-
-    if not isinstance(record.get("deleted_assets"), dict):
-        record["deleted_assets"] = {}
-        updated = True
-
-    return updated
-
-
-def load_upload_history():
-    """Load upload history from JSON file and normalize record schema."""
-    if HISTORY_FILE.exists():
-        try:
-            with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
-                history = json.load(f)
-
-            if not isinstance(history, list):
-                return []
-
-            updated = False
-            for record in history:
-                if _ensure_record_schema(record):
-                    updated = True
-
-            if updated:
-                save_upload_history(history)
-
-            return history
-        except (json.JSONDecodeError, IOError):
-            return []
-    return []
-
-
-def get_active_history(history: list[dict] | None = None) -> list[dict]:
-    """Return history entries that are not marked as deleted."""
-    if history is None:
-        history = load_upload_history()
-    return [record for record in history if not record.get("deleted")]
-
-
-def save_upload_history(history):
-    """Save upload history to JSON file."""
-    try:
-        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
-    except IOError:
-        pass
-
-def add_upload_record(file_path: Path, file_type: str, duration: str = None, file_hash: str = None):
-    """Add a new upload record to history."""
-    history = load_upload_history()
-
-    record = {
-        "id": str(uuid.uuid4()),
-        "timestamp": datetime.now().isoformat(),
-        "filename": file_path.name,
-        "file_type": file_type,
-        "duration": duration,
-        "file_path": to_record_path(file_path),
-        "folder_name": file_path.parent.name,  # UUID folder name
-        "completed_tasks": {task: False for task in TASK_TYPES},
-        "download_links": {},
-        "title_summary": "",
-        "tags": [],
-        "file_hash": file_hash,
-        "deleted": False,
-        "deleted_at": None,
-        "deleted_assets": {}
-    }
-
-    _ensure_record_schema(record)
-
-    history.insert(0, record)  # Add to beginning (most recent first)
-
-    # Keep only last 100 records
-    if len(history) > 100:
-        history = history[:100]
-
-    save_upload_history(history)
-    return record
-
-def load_file_registry():
-    """Load file registry from JSON file."""
-    if FILE_REGISTRY_FILE.exists():
-        try:
-            with open(FILE_REGISTRY_FILE, 'r', encoding='utf-8') as f:
-                registry = json.load(f)
-
-            if isinstance(registry, dict):
-                updated = False
-                for info in registry.values():
-                    if not isinstance(info, dict):
-                        continue
-                    if not isinstance(info.get("deleted"), bool):
-                        info["deleted"] = False
-                        updated = True
-                    if "deleted_at" not in info:
-                        info["deleted_at"] = None
-                        updated = True
-                if updated:
-                    save_file_registry(registry)
-                return registry
-        except (json.JSONDecodeError, IOError):
-            return {}
-    return {}
-
-def save_file_registry(registry):
-    """Save file registry to JSON file."""
-    try:
-        with open(FILE_REGISTRY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(registry, f, ensure_ascii=False, indent=2)
-    except IOError:
-        pass
-
-
-def is_valid_uuid(value: str) -> bool:
-    """Check whether a string is a valid UUID value."""
-    if not value:
-        return False
-    try:
-        uuid.UUID(str(value))
-        return True
-    except (ValueError, TypeError):
-        return False
-
-
-def resolve_file_identifier(file_identifier: str):
-    """Resolve a file identifier (UUID or path) to an absolute path and metadata."""
-    if not file_identifier:
-        return None, None, None, None
-
-    identifier = file_identifier.strip()
-    if identifier.startswith("/download/"):
-        identifier = identifier[len("/download/"):]
-
-    identifier = identifier.lstrip("/").replace('\\', '/')
-
-    registry = load_file_registry()
-
-    if is_valid_uuid(identifier):
-        file_info = registry.get(identifier)
-        if not file_info:
-            return None, None, None, identifier
-
-        file_path = normalize_record_path(file_info.get("file_path", ""))
-        if not file_path:
-            return None, file_info.get("record_id"), file_info.get("task_type"), identifier
-
-        full_path = resolve_record_path(file_path)
-        record_id = file_info.get("record_id")
-        task_type = file_info.get("task_type")
-        return full_path, record_id, task_type, identifier
-
-    # Legacy path-based identifier
-    file_path = normalize_record_path(identifier)
-    if not file_path:
-        return None, None, None, identifier
-
-    full_path = resolve_record_path(file_path)
-    record_id = None
-    task_type = None
-    resolved_identifier = identifier
-
-    for uuid_key, info in registry.items():
-        stored_path = normalize_record_path(info.get("file_path", ""))
-        if resolve_record_path(stored_path) == full_path:
-            record_id = info.get("record_id")
-            task_type = info.get("task_type")
-            resolved_identifier = uuid_key
-            break
-
-    return full_path, record_id, task_type, resolved_identifier
-
-
-def _timestamp_to_sort_key(timestamp_str: str) -> float:
-    """Convert ISO timestamp string to numeric sort key."""
-    if not timestamp_str:
-        return float('-inf')
-    try:
-        return datetime.fromisoformat(timestamp_str).timestamp()
-    except ValueError:
-        return float('-inf')
-
-
-def _collect_searchable_documents():
-    """Return documents eligible for keyword search and similarity mapping."""
-    documents = []
-    path_index = {}
-    registry = load_file_registry()
-
-    for file_uuid, info in registry.items():
-        if isinstance(info, dict) and info.get("deleted"):
-            continue
-        rel_path = normalize_record_path(info.get("file_path"))
-        if not rel_path:
-            continue
-
-        full_path = resolve_record_path(rel_path)
-        if not full_path.exists():
-            continue
-
-        if full_path.suffix.lower() not in SEARCHABLE_SUFFIXES:
-            continue
-
-        doc = {
-            "uuid": file_uuid,
-            "info": info,
-            "full_path": full_path,
-            "relative_path": rel_path,
-        }
-
-        documents.append(doc)
-        path_index.setdefault(rel_path, doc)
-
-    return documents, path_index
-
-
-def _collect_keyword_matches(query: str, documents, history_map, limit: int = 5):
-    """Return top keyword matches sorted by frequency and recency."""
-    if not query:
-        return []
-
-    pattern = re.compile(re.escape(query), re.IGNORECASE)
-    matches = []
-
-    for doc in documents:
-        try:
-            text = read_text_with_fallback(doc["full_path"])
-        except Exception as exc:  # pragma: no cover - defensive logging
-            print(f"키워드 검색을 위한 파일 읽기 실패 {doc['full_path']}: {exc}")
-            continue
-
-        count = len(pattern.findall(text))
-        if count <= 0:
-            continue
-
-        record = history_map.get(doc["info"].get("record_id"), {})
-        timestamp = record.get("timestamp")
-
-        matches.append({
-            "file_uuid": doc["uuid"],
-            "file": doc["relative_path"],
-            "display_name": doc["info"].get("original_filename") or Path(doc["relative_path"]).name,
-            "count": count,
-            "uploaded_at": timestamp,
-            "source_filename": record.get("filename"),
-            "link": f"/download/{doc['uuid']}",
-        })
-
-    matches.sort(key=lambda item: (-item["count"], -_timestamp_to_sort_key(item.get("uploaded_at"))))
-    return matches[:limit]
-
-def register_file(file_path: str, record_id: str, task_type: str, original_filename: str = None):
-    """Register a file with UUID and return the file UUID."""
-    registry = load_file_registry()
-    file_uuid = str(uuid.uuid4())
-
-    normalized_path = normalize_record_path(file_path)
-
-    file_info = {
-        "file_uuid": file_uuid,
-        "file_path": normalized_path,
-        "record_id": record_id,
-        "task_type": task_type,
-        "original_filename": original_filename or os.path.basename(normalized_path),
-        "created_at": datetime.now().isoformat(),
-        "deleted": False,
-        "deleted_at": None
-    }
-    
-    registry[file_uuid] = file_info
-    save_file_registry(registry)
-    return file_uuid
-
-def get_file_by_uuid(file_uuid: str):
-    """Get file info by UUID."""
-    registry = load_file_registry()
-    return registry.get(file_uuid)
-
-def migrate_existing_files():
-    """Migrate existing files from upload history to file registry."""
-    history = load_upload_history()
-    registry = load_file_registry()
-    updated = False
-    
-    for record in history:
-        if record.get("deleted"):
-            continue
-        record_id = record["id"]
-        download_links = record.get("download_links", {})
-        
-        # Process each download link
-        for task_type, download_url in download_links.items():
-            if download_url.startswith("/download/"):
-                file_path = normalize_record_path(download_url[10:])  # Remove "/download/" prefix
-
-                # Check if this file is already registered
-                already_registered = False
-                for file_info in registry.values():
-                    if normalize_record_path(file_info["file_path"]) == file_path and file_info["record_id"] == record_id:
-                        already_registered = True
-                        break
-
-                if not already_registered:
-                    # Register the file and update download link
-                    full_path = resolve_record_path(file_path)
-                    if full_path.exists():
-                        file_uuid = register_file(file_path, record_id, task_type, os.path.basename(full_path))
-                        # Update the download link to use UUID
-                        record["download_links"][task_type] = f"/download/{file_uuid}"
-                        updated = True
-    
-    if updated:
-        save_upload_history(history)
-        print("기존 파일들이 레지스트리에 등록되었습니다.")
-
-def update_task_completion(record_id: str, task: str, file_path: str):
-    """Update task completion status and register file with UUID."""
-    history = load_upload_history()
-    
-    # Register the file and get UUID
-    file_uuid = register_file(file_path, record_id, task)
-    download_url = f"/download/{file_uuid}"
-    
-    for record in history:
-        if record["id"] == record_id:
-            if record.get("deleted"):
-                return file_uuid
-            record["completed_tasks"][task] = True
-            record["download_links"][task] = download_url
-            break
-    
-    save_upload_history(history)
-    return file_uuid
-
-def update_title_summary(record_id: str, summary: str):
-    """Store one-line summary for a record."""
-    history = load_upload_history()
-    for record in history:
-        if record["id"] == record_id:
-            if record.get("deleted"):
-                return
-            record["title_summary"] = summary
-            break
-    save_upload_history(history)
-
-def update_filename(record_id: str, new_filename: str):
-    """Update filename for a record."""
-    history = load_upload_history()
-    for record in history:
-        if record["id"] == record_id:
-            if record.get("deleted"):
-                return
-            record["filename"] = new_filename
-            break
-    save_upload_history(history)
-
-def generate_and_store_title_summary(record_id: str, file_path: Path, model: str = None):
-    """Generate one-line summary and store it."""
-    try:
-        summary = generate_one_line_summary(file_path, model=model)
-        update_title_summary(record_id, summary)
-    except Exception as e:
-        print(f"One-line summary generation failed: {e}")
-
-def find_existing_stt_file(original_file_path: Path):
-    """Find existing STT result file for the given original file."""
-    stem = original_file_path.stem
-    
-    # Extract UUID from the original file path (DB/uploads/UUID/filename)
-    upload_uuid = original_file_path.parent.name
-    print(f"[DEBUG] 업로드 UUID: {upload_uuid}")
-    
-    # Look for STT file in whisper_output/UUID/filename.md
-    stt_output_dir = OUTPUT_DIR / upload_uuid
-    potential_files = [
-        stt_output_dir / f"{stem}.md",
-        stt_output_dir / f"{stem}.corrected.md"
-    ]
-    
-    for stt_file in potential_files:
-        if stt_file.exists() and not stt_file.name.endswith('.summary.md'):
-            print(f"[DEBUG] STT 파일 발견: {stt_file}")
-            return stt_file
-    
-    print(f"[DEBUG] '{stem}.md' STT 파일을 찾지 못함 (경로: {stt_output_dir})")
-    return None
-
-def run_incremental_embedding(base_dir: Path = None):
-    """Run incremental embedding on all existing STT result files."""
-    if base_dir is None:
-        base_dir = OUTPUT_DIR
-    
-    try:
-        # Get embedding model name
-        try:
-            from sttEngine.config import get_model_for_task, get_default_model
-            model_name = get_model_for_task("EMBEDDING", get_default_model("EMBEDDING"))
-        except:
-            model_name = os.environ.get("EMBEDDING_MODEL", "bge-m3:latest")
-        
-        # Load existing index
-        index = load_index()
-        processed_count = 0
-        
-        # Find all STT result files
-        for md_file in base_dir.glob("**/*.md"):
-            # Skip summary files
-            if md_file.name.endswith('.summary.md'):
-                continue
-                
-            # Check if already processed and up-to-date
-            checksum = file_hash(md_file)
-            key = str(md_file.resolve())
-            if index.get(key, {}).get("sha256") == checksum:
-                continue  # Already up-to-date
-            
-            try:
-                # Read text content
-                text = md_file.read_text(encoding="utf-8")
-                
-                # Generate embedding
-                vector = embed_text_ollama(text, model_name)
-                
-                # Create vector directory if not exists
-                VECTOR_DIR.mkdir(parents=True, exist_ok=True)
-                
-                # Save embedding vector with unique name
-                vector_file = VECTOR_DIR / f"{md_file.parent.name}_{md_file.stem}.npy"
-                np.save(vector_file, vector)
-                
-                # Update index
-                index[key] = {
-                    "sha256": checksum,
-                    "vector": vector_file.name,
-                    "deleted": False,
-                    "deleted_path": None,
-                    "vector_deleted_path": None,
-                }
-                
-                processed_count += 1
-                print(f"임베딩 생성 완료: {md_file.name}")
-                
-            except Exception as e:
-                print(f"임베딩 생성 실패 {md_file.name}: {e}")
-                continue
-        
-        # Save updated index
-        save_index(index)
-        print(f"증분 임베딩 완료: {processed_count}개 파일 처리됨")
-        return processed_count
-        
-    except Exception as e:
-        print(f"증분 임베딩 실행 실패: {e}")
-        return 0
-
-def file_hash(path: Path) -> str:
-    """Return a stable SHA256 checksum for the given file."""
-    import hashlib
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-def generate_embedding(file_path: Path, record_id: str = None):
-    """Generate embedding for a text file and store it."""
-    try:
-        # Get embedding model name
-        try:
-            from sttEngine.config import get_model_for_task, get_default_model
-            model_name = get_model_for_task("EMBEDDING", get_default_model("EMBEDDING"))
-        except:
-            model_name = os.environ.get("EMBEDDING_MODEL", "bge-m3:latest")
-        
-        # Read text content
-        text = file_path.read_text(encoding="utf-8")
-        
-        # Generate embedding
-        vector = embed_text_ollama(text, model_name)
-        
-        # Create vector directory if not exists
-        VECTOR_DIR.mkdir(parents=True, exist_ok=True)
-        
-        # Save embedding vector
-        vector_file = VECTOR_DIR / f"{file_path.stem}.npy"
-        np.save(vector_file, vector)
-        
-        # Update index
-        index = load_index()
-        checksum = file_hash(file_path)
-        
-        index[str(file_path.resolve())] = {
-            "sha256": checksum,
-            "vector": vector_file.name,
-            "deleted": False,
-            "deleted_path": None,
-            "vector_deleted_path": None,
-        }
-        save_index(index)
-        
-        # Update task completion
-        if record_id:
-            file_path_str = to_record_path(file_path)
-            update_task_completion(record_id, "embedding", file_path_str)
-        
-        print(f"Embedding generated for {file_path.name}")
-        return True
-        
-    except Exception as e:
-        print(f"Embedding generation failed for {file_path.name}: {e}")
-        return False
-
-def reset_upload_record(record_id: str) -> bool:
-    """Remove processed files and reset completion status for a record."""
-    history = load_upload_history()
-
-    for record in history:
-        if record["id"] == record_id:
-            if record.get("deleted"):
-                return False
-            folder = record.get("folder_name")
-            output_dir = OUTPUT_DIR / folder if folder else None
-            try:
-                if output_dir and output_dir.exists():
-                    shutil.rmtree(output_dir)
-            except Exception:
-                pass
-
-            # Remove embedding vectors and index entries related to this record
-            if output_dir:
-                index = load_index()
-                keys_to_remove = []
-                for key, meta in index.items():
-                    try:
-                        Path(key).resolve().relative_to(output_dir.resolve())
-                        keys_to_remove.append((key, meta))
-                    except ValueError:
-                        continue
-
-                for key, meta in keys_to_remove:
-                    vector_name = meta.get("vector")
-                    if vector_name:
-                        vector_path = VECTOR_DIR / vector_name
-                        if vector_path.exists():
-                            # Check if this vector is referenced elsewhere
-                            if not any(
-                                v.get("vector") == vector_name and k != key
-                                for k, v in index.items()
-                            ):
-                                try:
-                                    vector_path.unlink()
-                                except Exception:
-                                    pass
-                    del index[key]
-
-                if keys_to_remove:
-                    save_index(index)
-
-            record["completed_tasks"] = {
-                task: False for task in TASK_TYPES
-            }
-            record["download_links"] = {}
-            record["title_summary"] = ""
-
-            save_upload_history(history)
-            return True
-
-    return False
-
-def delete_file(file_identifier: str, file_type: str) -> tuple[bool, str]:
-    """Delete a specific file (STT or summary) and update history.
-
-    Args:
-        file_identifier: File UUID from download URL
-        file_type: Type of file ('stt' or 'summary')
-    
-    Returns:
-        Tuple of (success, error_message)
-    """
-    try:
-        # Get file info by UUID
-        file_info = get_file_by_uuid(file_identifier)
-        if not file_info:
-            return False, "파일을 찾을 수 없습니다."
-        
-        # Get the actual file path
-        file_path = Path(BASE_DIR) / file_info["file_path"]
-        
-        if not file_path.exists():
-            return False, "파일이 존재하지 않습니다."
-        
-        # Verify file type matches
-        if file_type == 'stt' and not file_path.name.endswith('.md'):
-            return False, "STT 파일이 아닙니다."
-        elif file_type == 'summary' and not file_path.name.endswith('.summary.md'):
-            return False, "요약 파일이 아닙니다."
-        
-        # Delete the file
-        try:
-            file_path.unlink()
-        except Exception as e:
-            print(f"Failed to delete {file_path}: {e}")
-            return False, "파일 삭제에 실패했습니다."
-        
-        # Update history record
-        history = load_upload_history()
-        record_id = file_info["record_id"]
-        
-        for record in history:
-            if record["id"] == record_id:
-                if record.get("deleted"):
-                    return False, "삭제된 항목입니다."
-                # Update completion status
-                record["completed_tasks"][file_type] = False
-                
-                # Remove download link
-                if file_type in record["download_links"]:
-                    del record["download_links"][file_type]
-                
-                # If deleting summary, also clear title_summary
-                if file_type == 'summary':
-                    record["title_summary"] = ""
-                
-                break
-        
-        # Remove from file registry
-        registry = load_file_registry()
-        if file_identifier in registry:
-            del registry[file_identifier]
-            save_file_registry(registry)
-        
-        # Save updated history
-        save_upload_history(history)
-        
-        return True, ""
-        
-    except Exception as e:
-        print(f"Error deleting file: {e}")
-        return False, f"삭제 중 오류가 발생했습니다: {str(e)}"
-
-
-def _delete_single_record_assets(
-    record: dict,
-    registry: dict,
-    index: dict,
-    moved_vector_names: set[str],
-) -> dict:
-    """Move record assets to the deleted area and update metadata."""
-
-    record_id = record.get("id")
-    folder_name = record.get("folder_name")
-    deleted_at = datetime.now().isoformat()
-
-    upload_dir = (UPLOAD_DIR / folder_name).resolve() if folder_name else None
-    deleted_upload_dir = (DELETED_UPLOAD_DIR / folder_name).resolve() if folder_name else None
-    output_dir = (OUTPUT_DIR / folder_name).resolve() if folder_name else None
-    deleted_output_dir = (DELETED_OUTPUT_DIR / folder_name).resolve() if folder_name else None
-    vector_dir = VECTOR_DIR.resolve()
-    deleted_vector_dir = DELETED_VECTOR_DIR.resolve()
-
-    registry_changed = False
-    index_changed = False
-
-    files_assets: dict[str, list[str]] = {}
-    record_assets: dict[str, Any] = {}
-
-    registry_updates: list[tuple[str, dict, Path]] = []
-    for file_uuid, info in (registry or {}).items():
-        if not isinstance(info, dict):
-            continue
-        if info.get("record_id") != record_id:
-            continue
-
-        file_path_str = info.get("file_path")
-        if not file_path_str:
-            continue
-
-        try:
-            absolute_path = resolve_record_path(file_path_str)
-        except Exception:
-            absolute_path = None
-
-        new_path: Path | None = None
-        if absolute_path is not None:
-            if upload_dir:
-                try:
-                    rel = absolute_path.relative_to(upload_dir)
-                    new_path = deleted_upload_dir / rel
-                except ValueError:
-                    pass
-            if new_path is None and output_dir:
-                try:
-                    rel = absolute_path.relative_to(output_dir)
-                    new_path = deleted_output_dir / rel
-                except ValueError:
-                    pass
-            if new_path is None:
-                try:
-                    rel = absolute_path.relative_to(vector_dir)
-                    new_path = deleted_vector_dir / rel
-                except ValueError:
-                    pass
-
-        if new_path is None:
-            continue
-
-        registry_updates.append((file_uuid, info, new_path))
-
-    index_entries: list[tuple[str, dict, Path]] = []
-    vector_names: set[str] = set()
-    if output_dir:
-        for key, meta in (index or {}).items():
-            if not isinstance(meta, dict):
-                continue
-            try:
-                rel = Path(key).resolve().relative_to(output_dir)
-            except (ValueError, FileNotFoundError):
-                continue
-
-            deleted_path = (deleted_output_dir / rel) if deleted_output_dir else None
-            if deleted_path is None:
-                continue
-
-            index_entries.append((key, meta, deleted_path))
-
-            vector_name = meta.get("vector")
-            if vector_name:
-                vector_names.add(vector_name)
-
-    if upload_dir and upload_dir.exists():
-        deleted_upload_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(upload_dir), str(deleted_upload_dir))
-        record_assets["uploads"] = to_record_path(deleted_upload_dir)
-
-    if output_dir and output_dir.exists():
-        deleted_output_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(output_dir), str(deleted_output_dir))
-        record_assets["outputs"] = to_record_path(deleted_output_dir)
-
-    for file_uuid, info, new_path in registry_updates:
-        info["file_path"] = to_record_path(new_path)
-        info["deleted"] = True
-        info["deleted_at"] = deleted_at
-        task_type = info.get("task_type")
-        if task_type:
-            files_assets.setdefault(task_type, []).append(info["file_path"])
-        registry_changed = True
-
-    if files_assets:
-        record_assets["files"] = files_assets
-
-    moved_vector_paths: list[str] = []
-    for key, meta, deleted_path in index_entries:
-        meta["deleted"] = True
-        meta["deleted_at"] = deleted_at
-        meta["deleted_path"] = str(deleted_path)
-        vector_name = meta.get("vector")
-        if vector_name:
-            deleted_vector_path = DELETED_VECTOR_DIR / vector_name
-            meta["vector_deleted_path"] = str(deleted_vector_path)
-        index_changed = True
-
-    for vector_name in vector_names:
-        target_path = DELETED_VECTOR_DIR / vector_name
-        if vector_name not in moved_vector_names:
-            source_path = VECTOR_DIR / vector_name
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            if source_path.exists():
-                shutil.move(str(source_path), str(target_path))
-            moved_vector_names.add(vector_name)
-        moved_vector_paths.append(to_record_path(target_path))
-
-    if moved_vector_paths:
-        record_assets["vectors"] = moved_vector_paths
-
-    record["deleted"] = True
-    record["deleted_at"] = deleted_at
-    record["deleted_assets"] = record_assets
-
-    return {
-        "registry_changed": registry_changed,
-        "index_changed": index_changed,
-    }
-
-
-def delete_records(record_ids: list[str]) -> tuple[bool, dict[str, dict]]:
-    """Delete multiple upload records by moving their assets to a deleted folder."""
-
-    if not record_ids:
-        return False, {}
-
-    history = load_upload_history()
-    registry = load_file_registry()
-    index = load_index()
-
-    history_by_id = {record.get("id"): record for record in history}
-    results: dict[str, dict] = {}
-
-    history_changed = False
-    registry_changed = False
-    index_changed = False
-    moved_vector_names: set[str] = set()
-
-    for record_id in record_ids:
-        record = history_by_id.get(record_id)
-        if not record:
-            results[record_id] = {
-                "success": False,
-                "error": "기록을 찾을 수 없습니다.",
-            }
-            continue
-
-        if record.get("deleted"):
-            results[record_id] = {
-                "success": False,
-                "error": "이미 삭제된 항목입니다.",
-            }
-            continue
-
-        try:
-            summary = _delete_single_record_assets(record, registry, index, moved_vector_names)
-            history_changed = True
-            registry_changed = registry_changed or summary.get("registry_changed", False)
-            index_changed = index_changed or summary.get("index_changed", False)
-            results[record_id] = {"success": True}
-        except Exception as exc:
-            results[record_id] = {
-                "success": False,
-                "error": str(exc),
-            }
-
-    if history_changed:
-        save_upload_history(history)
-    if registry_changed:
-        save_file_registry(registry)
-    if index_changed:
-        save_index(index)
-
-    overall_success = (
-        bool(results)
-        and all(result.get("success") for result in results.values())
-    )
-    return overall_success, results
-
-
-def update_stt_text(file_identifier: str, new_text: str) -> tuple[bool, str, str | None]:
-    """Update the contents of an STT result file."""
-
-    if not file_identifier:
-        return False, "파일 식별자가 필요합니다.", None
-
-    file_path, record_id, task_type, _ = resolve_file_identifier(file_identifier)
-
-    if not file_path or not file_path.exists():
-        return False, "파일을 찾을 수 없습니다.", record_id
-
-    if file_path.name.endswith('.summary.md'):
-        return False, "요약 파일은 수정할 수 없습니다.", record_id
-
-    if task_type and task_type not in ("stt", "embedding"):
-        return False, "STT 파일만 수정할 수 있습니다.", record_id
-
-    if file_path.suffix.lower() not in {'.md', '.txt', '.text', '.markdown'}:
-        return False, "지원하지 않는 파일 형식입니다.", record_id
-
-    try:
-        file_path.write_text(new_text, encoding='utf-8')
-    except Exception as exc:
-        print(f"Failed to write updated STT text: {exc}")
-        return False, "텍스트를 저장하지 못했습니다.", record_id
-
-    if not record_id:
-        history = load_upload_history()
-        resolved_path = file_path.resolve()
-        for record in history:
-            folder = record.get("folder_name")
-            if not folder:
-                continue
-            output_dir = (OUTPUT_DIR / folder).resolve()
-            try:
-                resolved_path.relative_to(output_dir)
-                record_id = record["id"]
-                break
-            except ValueError:
-                continue
-
-    return True, "", record_id
-
-
-def reset_tasks_for_record(
-    record: dict,
-    tasks: set[str],
-    registry: dict,
-    index: dict,
-) -> tuple[dict[str, bool], bool, bool]:
-    """Reset selected task artifacts for a single record."""
-
-    results = {task: False for task in TASK_TYPES}
-    if not record or not tasks or record.get("deleted"):
-        return results, False, False
-
-    download_links = record.get("download_links", {})
-    completed_tasks = record.setdefault("completed_tasks", {task: False for task in TASK_TYPES})
-
-    registry_changed = False
-    index_changed = False
-
-    def cleanup_task(task_name: str, delete_file: bool) -> bool:
-        nonlocal registry_changed
-
-        link = download_links.get(task_name)
-        if not link:
-            return False
-
-        file_path, _, _, resolved_identifier = resolve_file_identifier(link)
-
-        if delete_file and file_path and file_path.exists():
-            try:
-                file_path.unlink()
-            except Exception:
-                pass
-
-        if resolved_identifier and is_valid_uuid(resolved_identifier):
-            entry = registry.get(resolved_identifier)
-            if entry and entry.get("task_type") == task_name:
-                del registry[resolved_identifier]
-                registry_changed = True
-        else:
-            if file_path:
-                try:
-                    relative_path = to_record_path(file_path)
-                except Exception:
-                    relative_path = file_path.as_posix()
-
-                normalized = normalize_record_path(relative_path)
-                candidates = {relative_path, normalized}
-                if normalized.startswith(f"{DB_ALIAS}/"):
-                    candidates.add(normalized[len(DB_ALIAS) + 1 :])
-
-                for key, info in list(registry.items()):
-                    stored_path = normalize_record_path(info.get("file_path", ""))
-                    if info.get("task_type") == task_name and stored_path in candidates:
-                        del registry[key]
-                        registry_changed = True
-
-        download_links.pop(task_name, None)
-        completed_tasks[task_name] = False
-
-        if task_name == "summary":
-            record["title_summary"] = ""
-
-        return True
-
-    if "summary" in tasks and cleanup_task("summary", delete_file=True):
-        results["summary"] = True
-
-    embedding_removed = False
-    if "embedding" in tasks and cleanup_task("embedding", delete_file=False):
-        results["embedding"] = True
-        embedding_removed = True
-
-    stt_removed = False
-    if "stt" in tasks and cleanup_task("stt", delete_file=True):
-        results["stt"] = True
-        stt_removed = True
-
-    if embedding_removed:
-        try:
-            folder_name = record.get("folder_name", "")
-            output_dir = OUTPUT_DIR / folder_name
-            output_resolved = output_dir.resolve()
-            keys_to_remove = []
-
-            for key, meta in list(index.items()):
-                try:
-                    Path(key).resolve().relative_to(output_resolved)
-                    keys_to_remove.append((key, meta))
-                except (ValueError, FileNotFoundError):
-                    continue
-
-            if keys_to_remove:
-                for key, meta in keys_to_remove:
-                    vector_name = meta.get("vector")
-                    if vector_name:
-                        vector_path = VECTOR_DIR / vector_name
-                        if vector_path.exists():
-                            if not any(
-                                v.get("vector") == vector_name and k != key
-                                for k, v in index.items()
-                            ):
-                                try:
-                                    vector_path.unlink()
-                                except Exception:
-                                    pass
-                    del index[key]
-
-                index_changed = True
-        except Exception as exc:
-            print(f"Failed to clean embedding vectors: {exc}")
-
-    if stt_removed:
-        try:
-            original_path = record.get("file_path")
-            folder_name = record.get("folder_name")
-            if original_path and folder_name:
-                source_path = resolve_record_path(original_path)
-                output_dir = OUTPUT_DIR / folder_name
-                if source_path and output_dir.exists():
-                    stem = Path(source_path).stem
-                    corrected_file = output_dir / f"{stem}.corrected.md"
-                    if corrected_file.exists():
-                        try:
-                            corrected_file.unlink()
-                        except Exception:
-                            pass
-        except Exception as exc:
-            print(f"Failed to clean STT artifacts: {exc}")
-
-    return results, registry_changed, index_changed
-
-
-def reset_summary_and_embedding(record_id: str) -> tuple[bool, str]:
-    """Reset summary and embedding artifacts for a record."""
-
-    if not record_id:
-        return False, "record_id가 필요합니다."
-
-    history = load_upload_history()
-    record = next((item for item in history if item.get("id") == record_id), None)
-
-    if not record:
-        return False, "기록을 찾을 수 없습니다."
-
-    registry = load_file_registry()
-    index = load_index()
-
-    results, registry_changed, index_changed = reset_tasks_for_record(
-        record,
-        {"summary", "embedding"},
-        registry,
-        index,
+def delete_records_wrapper(record_ids):
+    return delete_records(
+        record_ids, BASE_DIR, HISTORY_FILE, FILE_REGISTRY_FILE,
+        UPLOAD_DIR, OUTPUT_DIR, VECTOR_DIR,
+        DELETED_UPLOAD_DIR, DELETED_OUTPUT_DIR, DELETED_VECTOR_DIR,
+        DB_ALIAS
     )
 
-    if registry_changed:
-        save_file_registry(registry)
+def update_stt_text_wrapper(file_identifier, new_text):
+    return update_stt_text(file_identifier, new_text, BASE_DIR, HISTORY_FILE, FILE_REGISTRY_FILE, OUTPUT_DIR)
 
-    if index_changed:
-        save_index(index)
+def reset_summary_and_embedding_wrapper(record_id):
+    return reset_summary_and_embedding(record_id, BASE_DIR, HISTORY_FILE, FILE_REGISTRY_FILE, OUTPUT_DIR, VECTOR_DIR, DB_ALIAS)
 
-    save_upload_history(history)
+def reset_tasks_for_all_records_wrapper(tasks):
+    return reset_tasks_for_all_records(tasks, BASE_DIR, HISTORY_FILE, FILE_REGISTRY_FILE, OUTPUT_DIR, VECTOR_DIR, DB_ALIAS)
 
-    summary_reset = results.get("summary", False)
-    embedding_reset = results.get("embedding", False)
+def _collect_searchable_documents_wrapper():
+    return _collect_searchable_documents(BASE_DIR, FILE_REGISTRY_FILE)
 
-    if summary_reset and embedding_reset:
-        message = "색인과 요약이 초기화되었습니다."
-    elif summary_reset:
-        message = "요약이 초기화되었습니다."
-    elif embedding_reset:
-        message = "색인이 초기화되었습니다."
-    else:
-        message = "초기화할 항목이 없습니다."
+def run_workflow_wrapper(file_path, steps, record_id=None, task_id=None, model_settings=None):
+    return run_workflow(file_path, steps, BASE_DIR, OUTPUT_DIR, VECTOR_DIR, HISTORY_FILE, FILE_REGISTRY_FILE, record_id, task_id, model_settings)
 
-    return True, message
+def update_task_progress_wrapper(task_id, message):
+    return update_task_progress(task_id, message, broadcast_progress)
 
-
-def reset_tasks_for_all_records(tasks: set[str]) -> tuple[bool, dict[str, int], str]:
-    """Reset selected task artifacts for every record in history."""
-
-    valid_tasks = set(TASK_TYPES)
-    requested_tasks = {task for task in tasks if task in valid_tasks}
-
-    if not requested_tasks:
-        return False, {task: 0 for task in valid_tasks}, "유효한 초기화 항목을 선택해주세요."
-
-    history = load_upload_history()
-    if not history:
-        return True, {task: 0 for task in valid_tasks}, "초기화할 기록이 없습니다."
-
-    registry = load_file_registry()
-    index = load_index()
-
-    registry_changed = False
-    index_changed = False
-    reset_counts = {task: 0 for task in valid_tasks}
-
-    for record in history:
-        if record.get("deleted"):
-            continue
-        results, reg_changed, idx_changed = reset_tasks_for_record(
-            record,
-            requested_tasks,
-            registry,
-            index,
-        )
-
-        if reg_changed:
-            registry_changed = True
-        if idx_changed:
-            index_changed = True
-
-        for task in requested_tasks:
-            if results.get(task):
-                reset_counts[task] += 1
-
-    if registry_changed:
-        save_file_registry(registry)
-
-    if index_changed:
-        save_index(index)
-
-    save_upload_history(history)
-
-    labels = {"stt": "STT", "embedding": "색인", "summary": "요약"}
-    summary_parts = [
-        f"{labels[task]} {reset_counts[task]}건"
-        for task in requested_tasks
-        if reset_counts.get(task)
-    ]
-
-    if not summary_parts:
-        message = "초기화할 항목이 없습니다."
-    else:
-        message = ", ".join(summary_parts) + " 초기화되었습니다."
-
-    return True, reset_counts, message
-
-
-def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = None, model_settings: dict = None):
-    """Run the requested workflow steps sequentially.
-
-    Args:
-        file_path: Path to the uploaded audio or text file.
-        steps: list of step names, e.g. ["stt", "correct", "summary"].
-        record_id: Upload record ID for updating history.
-        task_id: Unique task ID for tracking and cancellation.
-
-    Returns:
-        Dict mapping step name to download URL.
-    """
-
-    results = {}
-    current_file = file_path
-    file_type = get_file_type(file_path)
-    
-    # Create individual output directory based on upload folder structure
-    upload_folder_name = current_file.parent.name  # Get UUID folder name
-    individual_output_dir = OUTPUT_DIR / upload_folder_name
-    individual_output_dir.mkdir(exist_ok=True)
-
-    try:
-        # For text files, skip STT step and copy to output directory
-        if file_type == 'text':
-            if "stt" in steps:
-                # Check if task was cancelled
-                if task_id and is_task_cancelled(task_id):
-                    return {"error": "Task was cancelled"}
-                    
-                # For text files, we already have the text content, so just copy it to output
-                text_file = individual_output_dir / f"{file_path.stem}.md"
-                # Copy the text file to output directory with .md extension
-                import shutil
-                shutil.copy2(file_path, text_file)
-                download_url = f"/download/{upload_folder_name}/{text_file.name}"
-                results["stt"] = download_url
-                current_file = text_file
-                
-                # Update history
-                if record_id:
-                    file_path_str = to_record_path(text_file)
-                    update_task_completion(record_id, "stt", file_path_str)
-            else:
-                # If no STT step for text file, use the original file as starting point
-                # Copy to output directory for consistency
-                text_file = individual_output_dir / f"{file_path.stem}.md"
-                import shutil
-                shutil.copy2(file_path, text_file)
-                current_file = text_file
-            
-
-        # For PDF files, extract text and treat as markdown
-        elif file_type == 'pdf':
-            if task_id and is_task_cancelled(task_id):
-                return {"error": "Task was cancelled"}
-
-            try:
-                from pypdf import PdfReader
-                reader = PdfReader(str(current_file))
-                pdf_text = "\n".join(page.extract_text() or "" for page in reader.pages)
-            except Exception as e:
-                print(f"PDF text extraction failed: {e}")
-                return {"error": f"PDF text extraction failed: {e}"}
-
-            text_file = individual_output_dir / f"{file_path.stem}.md"
-            text_file.write_text(pdf_text, encoding='utf-8')
-
-            if "stt" in steps:
-                download_url = f"/download/{upload_folder_name}/{text_file.name}"
-                results["stt"] = download_url
-                if record_id:
-                    file_path_str = to_record_path(text_file)
-                    update_task_completion(record_id, "stt", file_path_str)
-
-            current_file = text_file
-            
-
-        # For audio files, run STT step
-        elif file_type == 'audio' and "stt" in steps:
-            # Check if task was cancelled before starting STT
-            if task_id and is_task_cancelled(task_id):
-                return {"error": "Task was cancelled"}
-                
-            print(f"Starting STT for task {task_id}")
-            
-            # Create progress callback function
-            def progress_callback(message):
-                if task_id:
-                    update_task_progress(task_id, message)
-                    
-            # Get Whisper model from settings, default to large-v3-turbo
-            whisper_model = "large-v3-turbo"
-            if model_settings and model_settings.get("whisper"):
-                whisper_model = model_settings["whisper"]
-
-            # Get Whisper language from settings, default to Korean
-            language = "ko"
-            if model_settings and model_settings.get("language") is not None:
-                lang = model_settings.get("language")
-                if lang in ("", "auto"):
-                    language = None
-                else:
-                    language = lang
-
-            device_choice = "auto"
-            if model_settings and model_settings.get("device"):
-                device_choice = model_settings.get("device")
-
-            try:
-                transcribe_audio_files(
-                    input_dir=str(current_file.parent),
-                    output_dir=str(individual_output_dir),
-                    model_identifier=whisper_model,
-                    language=language,
-                    initial_prompt="",
-                    workers=1,
-                    recursive=False,
-                    filter_fillers=False,
-                    min_seg_length=2,
-                    normalize_punct=False,
-                    requested_device=device_choice,
-                    progress_callback=progress_callback
-                )
-            except Exception as e:
-                print(f"STT process failed: {e}")
-                if task_id:
-                    update_task_progress(task_id, f"STT 실패: {e}")
-                return {"error": f"STT process failed: {e}"}
-
-            stt_file = individual_output_dir / f"{file_path.stem}.md"
-            download_url = f"/download/{upload_folder_name}/{stt_file.name}"
-            results["stt"] = download_url
-            current_file = stt_file
-
-            # Update history
-            if record_id:
-                file_path_str = to_record_path(stt_file)
-                update_task_completion(record_id, "stt", file_path_str)
-
-        if "embedding" in steps and current_file:
-            # Check if task was cancelled
-            if task_id and is_task_cancelled(task_id):
-                return {"error": "Task was cancelled"}
-            
-            # For audio files, check if we have the text file (STT completed)
-            if file_type == 'audio' and current_file == file_path:
-                # current_file is still the original audio file, check for existing STT result first
-                existing_stt = find_existing_stt_file(file_path)
-                
-                if existing_stt:
-                    # Use existing STT result
-                    if task_id:
-                        update_task_progress(task_id, f"기존 STT 결과 발견: {existing_stt.name}")
-                    current_file = existing_stt
-                    
-                    # Update results to include existing STT
-                    download_url = f"/download/{upload_folder_name}/{existing_stt.name}"
-                    results["stt"] = download_url
-                    
-                    # Update history if needed
-                    if record_id:
-                        file_path_str = to_record_path(current_file)
-                        update_task_completion(record_id, "stt", file_path_str)
-                else:
-                    # No existing STT result, run STT first
-                    if task_id:
-                        update_task_progress(task_id, "STT 자동 실행 시작")
-                    try:
-                        def progress_callback(message):
-                            if task_id:
-                                update_task_progress(task_id, message)
-
-                        # Get Whisper model from settings, default to large-v3-turbo
-                        whisper_model = "large-v3-turbo"
-                        if model_settings and model_settings.get("whisper"):
-                            whisper_model = model_settings["whisper"]
-
-                        # Get Whisper language from settings, default to Korean
-                        language = "ko"
-                        if model_settings and model_settings.get("language") is not None:
-                            lang = model_settings.get("language")
-                            if lang in ("", "auto"):
-                                language = None
-                            else:
-                                language = lang
-
-                        device_choice = "auto"
-                        if model_settings and model_settings.get("device"):
-                            device_choice = model_settings.get("device")
-
-                        transcribe_audio_files(
-                            input_dir=str(current_file.parent),
-                            output_dir=str(individual_output_dir),
-                            model_identifier=whisper_model,
-                            language=language,
-                            initial_prompt="",
-                            workers=1,
-                            recursive=False,
-                            filter_fillers=False,
-                            min_seg_length=2,
-                            normalize_punct=False,
-                            requested_device=device_choice,
-                            progress_callback=progress_callback
-                        )
-                    except Exception as e:
-                        print(f"STT process failed: {e}")
-                        if task_id:
-                            update_task_progress(task_id, f"STT 실패: {e}")
-                        return {"error": f"STT process failed: {e}"}
-
-                    stt_file = individual_output_dir / f"{file_path.stem}.md"
-                    download_url = f"/download/{upload_folder_name}/{stt_file.name}"
-                    results["stt"] = download_url
-                    current_file = stt_file
-
-                    # Update history
-                    if record_id:
-                        file_path_str = to_record_path(current_file)
-                        update_task_completion(record_id, "stt", file_path_str)
-
-            if task_id:
-                update_task_progress(task_id, "임베딩 생성 시작")
-
-            if generate_embedding(current_file, record_id):
-                if task_id:
-                    update_task_progress(task_id, "임베딩 생성 완료")
-            else:
-                if task_id:
-                    update_task_progress(task_id, "임베딩 생성 실패")
-
-        if "summary" in steps:
-            # Check if task was cancelled before starting summary
-            if task_id and is_task_cancelled(task_id):
-                return {"error": "Task was cancelled"}
-
-            # For audio files, check if we have the text file (STT completed)
-            if file_type == 'audio' and current_file == file_path:
-                # current_file is still the original audio file, check for existing STT result first
-                existing_stt = find_existing_stt_file(file_path)
-                
-                if existing_stt:
-                    # Use existing STT result
-                    if task_id:
-                        update_task_progress(task_id, f"기존 STT 결과 발견: {existing_stt.name}")
-                    current_file = existing_stt
-                    
-                    # Update results to include existing STT
-                    download_url = f"/download/{upload_folder_name}/{existing_stt.name}"
-                    results["stt"] = download_url
-                    
-                    # Update history if needed
-                    if record_id:
-                        file_path_str = to_record_path(current_file)
-                        update_task_completion(record_id, "stt", file_path_str)
-                else:
-                    # No existing STT result, run STT first
-                    if task_id:
-                        update_task_progress(task_id, "STT 자동 실행 시작")
-                    try:
-                        def progress_callback(message):
-                            if task_id:
-                                update_task_progress(task_id, message)
-
-                        # Get Whisper model from settings, default to large-v3-turbo
-                        whisper_model = "large-v3-turbo"
-                        if model_settings and model_settings.get("whisper"):
-                            whisper_model = model_settings["whisper"]
-
-                        # Get Whisper language from settings, default to Korean
-                        language = "ko"
-                        if model_settings and model_settings.get("language") is not None:
-                            lang = model_settings.get("language")
-                            if lang in ("", "auto"):
-                                language = None
-                            else:
-                                language = lang
-
-                        device_choice = "auto"
-                        if model_settings and model_settings.get("device"):
-                            device_choice = model_settings.get("device")
-
-                        transcribe_audio_files(
-                            input_dir=str(current_file.parent),
-                            output_dir=str(individual_output_dir),
-                            model_identifier=whisper_model,
-                            language=language,
-                            initial_prompt="",
-                            workers=1,
-                            recursive=False,
-                            filter_fillers=False,
-                            min_seg_length=2,
-                            normalize_punct=False,
-                            requested_device=device_choice,
-                            progress_callback=progress_callback
-                        )
-                    except Exception as e:
-                        print(f"STT process failed: {e}")
-                        if task_id:
-                            update_task_progress(task_id, f"STT 실패: {e}")
-                        return {"error": f"STT process failed: {e}"}
-
-                    stt_file = individual_output_dir / f"{file_path.stem}.md"
-                    download_url = f"/download/{upload_folder_name}/{stt_file.name}"
-                    results["stt"] = download_url
-                    current_file = stt_file
-
-                    # Update history
-                    if record_id:
-                        file_path_str = to_record_path(current_file)
-                        update_task_completion(record_id, "stt", file_path_str)
-                
-            source_text_path = Path(current_file) if current_file else None
-
-            print(f"Starting summary for task {task_id}")
-            if task_id:
-                update_task_progress(task_id, "요약 생성 시작")
-                
-            # Get summarize model from settings, default to DEFAULT_MODEL
-            summarize_model = DEFAULT_MODEL
-            if model_settings and model_settings.get("summarize"):
-                summarize_model = model_settings["summarize"]
-                
-            try:
-                text = read_text_with_fallback(Path(current_file))
-                if task_id:
-                    update_task_progress(task_id, "텍스트 분석 중...")
-                    
-                # Create progress callback function for summary
-                def summary_progress_callback(message):
-                    if task_id:
-                        update_task_progress(task_id, message)
-                
-                summary = summarize_text_mapreduce(
-                    text=text,
-                    model=summarize_model,
-                    chunk_size=DEFAULT_CHUNK_SIZE,
-                    max_tokens=None,
-                    temperature=DEFAULT_TEMPERATURE,
-                    progress_callback=summary_progress_callback
-                )
-                
-                if task_id:
-                    update_task_progress(task_id, "요약 파일 저장 중...")
-                    
-                output_file = Path(current_file).with_name(f"{Path(current_file).stem}.summary.md")
-                save_output(summary, output_file, as_json=False)
-                
-                if task_id:
-                    update_task_progress(task_id, "요약 생성 완료")
-            except Exception as e:
-                print(f"Summary process failed: {e}")
-                if task_id:
-                    update_task_progress(task_id, f"요약 생성 실패: {e}")
-                return {"error": f"Summary process failed: {e}"}
-
-            summary_file = current_file.with_name(f"{current_file.stem}.summary.md")
-            download_url = f"/download/{upload_folder_name}/{summary_file.name}"
-            results["summary"] = download_url
-            current_file = summary_file
-
-            # Update history
-            if record_id:
-                file_path_str = to_record_path(summary_file)
-                update_task_completion(record_id, "summary", file_path_str)
-                if source_text_path:
-                    generate_and_store_title_summary(record_id, source_text_path, summarize_model)
-
-    except Exception as exc:  # pragma: no cover - best effort error handling
-        # Clean up process registration if something goes wrong
-        if task_id:
-            unregister_process(task_id)
-            update_task_progress(task_id, f"작업 실패: {exc}")
-        return {"error": str(exc)}
-    
-    finally:
-        # Clear progress when task completes
-        if task_id:
-            clear_task_progress(task_id)
-
-    return results
+# Assign wrapper functions to maintain compatibility
+load_upload_history = load_upload_history_wrapper
+save_upload_history = save_upload_history_wrapper
+get_active_history = get_active_history_wrapper
+add_upload_record = add_upload_record_wrapper
+update_task_completion = update_task_completion_wrapper
+update_title_summary = update_title_summary_wrapper
+update_filename = update_filename_wrapper
+load_file_registry = load_file_registry_wrapper
+save_file_registry = save_file_registry_wrapper
+register_file = register_file_wrapper
+get_file_by_uuid = get_file_by_uuid_wrapper
+migrate_existing_files = migrate_existing_files_wrapper
+resolve_file_identifier = resolve_file_identifier_wrapper
+normalize_record_path = normalize_record_path_wrapper
+to_record_path = to_record_path_wrapper
+resolve_record_path = resolve_record_path_wrapper
+find_existing_stt_file = find_existing_stt_file_wrapper
+run_incremental_embedding = run_incremental_embedding_wrapper
+generate_embedding = generate_embedding_wrapper
+generate_and_store_title_summary = generate_and_store_title_summary_wrapper
+reset_upload_record = reset_upload_record_wrapper
+delete_file = delete_file_wrapper
+delete_records = delete_records_wrapper
+update_stt_text = update_stt_text_wrapper
+reset_summary_and_embedding = reset_summary_and_embedding_wrapper
+reset_tasks_for_all_records = reset_tasks_for_all_records_wrapper
+_collect_searchable_documents = _collect_searchable_documents_wrapper
+run_workflow = run_workflow_wrapper
+update_task_progress = update_task_progress_wrapper
 
 
 class UploadHandler(BaseHTTPRequestHandler):
