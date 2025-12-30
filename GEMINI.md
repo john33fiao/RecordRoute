@@ -33,8 +33,16 @@ RecordRoute/
 ├── LICENSE                # 라이선스 정보
 ├── CLAUDE.md             # Claude AI 전용 프로젝트 가이드
 ├── GEMINI.md             # Gemini AI 에이전트 및 개발자 가이드
-├── run.bat                # Windows 웹 서버 실행 스크립트
-├── run.command            # macOS/Linux 웹 서버 실행 스크립트
+├── RecordRouteAPI.spec   # PyInstaller 빌드 스펙
+├── electron/             # Electron 애플리케이션
+│   ├── main.js           # Electron 메인 프로세스
+│   └── preload.js        # Electron preload 스크립트 (보안)
+├── scripts/              # 빌드 및 실행 스크립트
+│   ├── build-backend.sh  # Python 백엔드 빌드 스크립트 (Unix)
+│   ├── build-backend.bat # Python 백엔드 빌드 스크립트 (Windows)
+│   ├── build-all.sh      # 전체 빌드 스크립트
+│   ├── run.command       # macOS/Linux 웹 서버 실행 스크립트
+│   └── start.vbs         # Windows 숨김 실행 스크립트
 ├── frontend/
 │   ├── upload.html        # 웹 업로드 및 작업 관리 UI
 │   ├── upload.js          # 프론트엔드 로직
@@ -93,7 +101,7 @@ run_shell_command(command="run.bat")
 
 **macOS/Linux:**
 ```
-run_shell_command(command="./run.command")
+run_shell_command(command="./scripts/run.command")
 ```
 
 *참고: 기존 `sttEngine/run_workflow.py`는 CLI용으로 남아 있으며 대화형 입력을 요구합니다.*

@@ -49,10 +49,10 @@ if [ "$SKIP_BACKEND" = false ]; then
     echo "=========================================="
     echo ""
 
-    if [ -f "build-backend.sh" ]; then
-        bash build-backend.sh
+    if [ -f "scripts/build-backend.sh" ]; then
+        bash scripts/build-backend.sh
     else
-        echo -e "${YELLOW}Warning: build-backend.sh not found, skipping backend build${NC}"
+        echo -e "${YELLOW}Warning: scripts/build-backend.sh not found, skipping backend build${NC}"
     fi
 else
     echo ""
