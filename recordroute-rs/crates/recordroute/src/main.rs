@@ -12,9 +12,8 @@ async fn main() -> Result<()> {
     tracing::info!("RecordRoute starting...");
     tracing::info!("Server will bind to: {}", config.server_bind_address());
 
-    // TODO: Phase 5에서 서버 시작 코드 추가
-
-    tracing::info!("RecordRoute initialized successfully (Phase 1 complete)");
+    // 서버 시작
+    recordroute_server::start_server(config).await?;
 
     Ok(())
 }
