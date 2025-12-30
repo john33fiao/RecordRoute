@@ -23,40 +23,37 @@
 ```
 RecordRoute/
 ├── README.md              # 프로젝트 소개 및 설치 가이드
-├── CLAUDE.md             # Claude AI 전용 프로젝트 가이드
-├── GEMINI.md             # Gemini AI 에이전트 및 개발자 가이드
+├── AGENTS.md             # AI 에이전트 개발 가이드
 ├── package.json          # Node.js 프로젝트 설정 (Electron)
-├── RecordRouteAPI.spec   # PyInstaller 빌드 스펙
-├── electron/             # Electron 애플리케이션
-│   ├── main.js           # Electron 메인 프로세스
-│   └── preload.js        # Electron preload 스크립트 (보안)
-├── scripts/              # 빌드 및 실행 스크립트
-│   ├── build-backend.sh  # Python 백엔드 빌드 스크립트 (Unix)
-│   ├── build-backend.bat # Python 백엔드 빌드 스크립트 (Windows)
-│   ├── build-all.sh      # 전체 빌드 스크립트
-│   ├── run.command       # macOS/Linux 웹 서버 실행 스크립트
-│   └── start.vbs         # Windows 숨김 실행 스크립트
-├── frontend/             # 웹 인터페이스
+├── requirements.txt      # Python 백엔드 의존성
+├── RecordRouteAPI.spec   # PyInstaller 빌드 스펙 (Python)
+├── electron/             # Electron 데스크톱 애플리케이션
+│   ├── main.js           # 메인 프로세스
+│   └── preload.js        # Preload 스크립트
+├── frontend/             # 웹 인터페이스 (HTML/CSS/JS)
 │   ├── upload.html       # 업로드 및 작업 관리 UI
 │   ├── upload.js         # 프론트엔드 로직
 │   └── upload.css        # 프론트엔드 스타일
-└── sttEngine/            # 엔진 및 서버 모듈
-    ├── bootstrap.py         # 모델 부트스트래핑 스크립트
-    ├── config.py            # 환경변수 기반 설정 관리
-    ├── logger.py            # 파일 기반 로깅 유틸리티
-    ├── ollama_utils.py      # Ollama 서버 상태 확인 및 모델 관리
-    ├── embedding_pipeline.py  # 문서 임베딩 및 벡터 생성
-    ├── one_line_summary.py    # 한 줄 요약 유틸리티
-    ├── keyword_frequency.py   # 키워드 빈도 분석 유틸리티
-    ├── search_cache.py        # 검색 결과 캐싱
-    ├── requirements.txt       # Python 의존성
-    ├── run_workflow.py        # CLI 기반 워크플로우 실행기
-    ├── server.py              # HTTP/WebSocket 서버 및 API 엔드포인트
-    ├── vector_search.py       # 벡터 검색 기능
-    └── workflow/              # 핵심 처리 모듈
-        ├── transcribe.py      # 음성→텍스트 변환
-        ├── correct.py         # (현재 비활성화) 텍스트 교정
-        └── summarize.py       # 텍스트 요약
+├── scripts/              # 빌드 및 실행 스크립트
+│   ├── build-all.sh      # 전체 빌드 스크립트
+│   ├── build-backend.sh  # Python 백엔드 빌드 (Unix)
+│   ├── build-backend.bat # Python 백엔드 빌드 (Windows)
+│   ├── run.command       # macOS/Linux 웹 서버 실행
+│   └── start.vbs         # Windows 숨김 실행
+├── sttEngine/            # Python 백엔드 (레거시 또는 개발용)
+│   ├── server.py         # FastAPI/WebSocket 서버
+│   ├── run_workflow.py   # CLI 워크플로우 실행기
+│   ├── requirements.txt  # Python 의존성
+│   └── workflow/         # 핵심 처리 모듈 (STT, 요약 등)
+└── recordroute-rs/       # Rust 백엔드 (차세대)
+    ├── Cargo.toml        # Rust 프로젝트 설정
+    └── crates/           # Rust 워크스페이스 크레이트
+        ├── common        # 공통 모듈 (설정, 에러 등)
+        ├── llm           # LLM 클라이언트 (Ollama)
+        ├── recordroute   # 메인 바이너리
+        ├── server        # Axum 웹 서버 및 API
+        ├── stt           # STT 엔진 (Whisper)
+        └── vector        # 벡터 검색 엔진
 ```
 
 ## 설치 및 설정
