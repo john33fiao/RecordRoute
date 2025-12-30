@@ -112,67 +112,80 @@ websockets            # WebSocket 서버
 
 ### ⚠️ 난이도가 높은 영역
 
-#### 1. STT - Whisper 모델 (난이도: ★★★★☆)
+#### 1. STT - Whisper 모델 (난이도: ★★☆☆☆)
 - **현재**: `openai-whisper` (Python 전용 라이브러리 + PyTorch)
-- **Rust 대안**:
-  - ❌ **직접 포팅 불가능**: Whisper는 PyTorch 기반이며 공식 Rust 구현 없음
-  - ✅ **대안 1: whisper.cpp**
+- **채택 방안**: **whisper.cpp 사용** (확정)
+  - ✅ **whisper.cpp**
     - C++ 구현 (llama.cpp와 동일한 저자 ggerganov)
-    - Rust에서 FFI 또는 subprocess로 호출 가능
-    - [whisper-rs](https://github.com/tazz4843/whisper-rs): Rust 바인딩 존재
-  - ✅ **대안 2: ONNX Runtime**
-    - Whisper 모델을 ONNX로 변환
-    - `ort` crate로 추론 (Rust)
-  - ⚠️ **대안 3: Python 프로세스 유지**
-    - STT만 Python 프로세스로 분리 (마이크로서비스화)
-    - Rust 서버가 Python STT 서버를 호출
+    - 검증된 성능과 안정성
+    - GGML 모델 포맷 지원 (양자화 가능)
+  - ✅ **Rust 통합 옵션**:
+    - **Option 1**: whisper.cpp를 subprocess로 실행 (가장 간단)
+    - **Option 2**: [whisper-rs](https://github.com/tazz4843/whisper-rs) 바인딩 사용 (Rust 네이티브 통합)
+    - **Option 3**: FFI로 직접 호출 (고급 사용자용)
 
-**권장**: `whisper.cpp` + `whisper-rs` 바인딩 사용
-- 장점: C++ 네이티브 속도, Rust 통합 가능
-- 단점: openai-whisper보다 정확도가 약간 떨어질 수 있음 (모델 양자화 시)
+**장점**:
+- llama.cpp와 동일한 생태계 (일관된 모델 관리)
+- C++ 네이티브 속도, 메모리 효율적
+- 크로스 플랫폼 지원 우수
+- 양자화 모델로 배포 크기 감소
 
-#### 2. 텍스트 임베딩 - sentence-transformers (난이도: ★★★★☆)
+**단점**:
+- 모델 변환 필요 (PyTorch → GGML)
+- 양자화 시 정확도 미세 감소 가능 (실사용에서는 무시 가능)
+
+#### 2. 텍스트 임베딩 - sentence-transformers (난이도: ★★☆☆☆)
 - **현재**: `sentence-transformers` (HuggingFace transformers + PyTorch)
-- **Rust 대안**:
-  - ❌ **직접 포팅 불가능**: PyTorch 전용
-  - ✅ **대안 1: ONNX Runtime**
-    - 모델을 ONNX로 변환
-    - `ort` crate로 추론
-    - 예: `paraphrase-multilingual-mpnet-base-v2` → ONNX
-  - ✅ **대안 2: Candle**
-    - HuggingFace의 Rust ML 프레임워크
-    - BERT 모델 지원
-    - [candle](https://github.com/huggingface/candle)
-  - ⚠️ **대안 3: Python 프로세스 유지**
+- **채택 방안**: **llama.cpp 사용** (확정)
+  - ✅ **llama.cpp 임베딩 지원**
+    - llama.cpp는 LLM 추론뿐만 아니라 **임베딩 모델도 지원**
+    - GGUF 포맷의 임베딩 모델 사용 가능
+    - 예: `nomic-embed-text`, `all-MiniLM-L6-v2` 등을 GGUF로 변환하여 사용
+  - ✅ **Rust 통합**:
+    - `llama-cpp-rs` 바인딩으로 임베딩 생성 API 호출
+    - LLM과 임베딩을 동일한 라이브러리로 통합 관리
 
-**권장**: `candle` 또는 ONNX Runtime
-- Candle 장점: 순수 Rust, HuggingFace 모델 호환성 좋음
-- ONNX 장점: 검증된 성능, 크로스 플랫폼
+**장점**:
+- **일관된 기술 스택**: LLM과 임베딩 모두 llama.cpp로 통합
+- 단일 라이브러리 의존성 (빌드 복잡도 감소)
+- GGUF 모델 생태계 활용 (허깅페이스 모델 변환 도구 풍부)
+- 메모리 효율적 (양자화 지원)
 
-#### 3. LLM 추론 - llama.cpp (난이도: ★★☆☆☆)
+**참고**:
+- llama.cpp 임베딩 예제: https://github.com/ggerganov/llama.cpp/tree/master/examples/embedding
+- GGUF 변환 도구: `convert.py` (llama.cpp 제공)
+
+#### 3. LLM 추론 - llama.cpp (난이도: ★☆☆☆☆)
 - **현재**: `llama-cpp-python` (Python 바인딩)
-- **Rust 대안**:
-  - ✅ **대안 1: llama-cpp-rs**
+- **채택 방안**: **llama-cpp-rs 사용** (확정)
+  - ✅ **llama-cpp-rs**
     - [llama-cpp-rs](https://github.com/utilityai/llama-cpp-rs): Rust 바인딩
     - llama.cpp C++ 라이브러리를 FFI로 호출
-  - ✅ **대안 2: llm crate**
-    - [rustformers/llm](https://github.com/rustformers/llm): 순수 Rust LLM 추론
-    - GGML/GGUF 지원
-  - ✅ **대안 3: candle**
-    - HuggingFace Candle로 GGUF 로드 가능
+    - 가장 안정적이고 llama.cpp와 1:1 호환
 
-**권장**: `llama-cpp-rs` (가장 안정적, llama.cpp와 1:1 호환)
-- 장점: 현재 사용 중인 GGUF 모델 그대로 사용 가능
-- 단점: FFI 오버헤드 (미미)
+**장점**:
+- 현재 사용 중인 GGUF 모델 **그대로 사용 가능** (마이그레이션 위험 최소)
+- llama.cpp 최신 기능 즉시 사용 가능
+- GPU 가속 지원 (CUDA, Metal, ROCm)
+- 검증된 성능과 안정성
 
-#### 4. PDF 처리 - pypdf (난이도: ★★☆☆☆)
+**단점**:
+- FFI 오버헤드 (실제로는 무시할 수 있는 수준)
+
+#### 4. PDF 처리 - pypdf (난이도: N/A)
 - **현재**: `pypdf` (PDF 텍스트 추출)
-- **Rust 대안**:
-  - ✅ **lopdf**: Rust PDF 파싱 라이브러리
-  - ✅ **pdf-extract**: 텍스트 추출 전용 crate
-  - ⚠️ pypdf보다 기능이 제한적일 수 있음
+- **채택 방안**: **기능 삭제** (확정)
+  - ❌ **PDF 처리 기능 제거**
+    - 현재 사용 빈도가 낮거나 핵심 기능이 아님
+    - 마이그레이션 복잡도 감소를 위해 제거
+  - 🔮 **추후 필요시 재추가 옵션**:
+    - C++ 기반 PDF 라이브러리 (예: poppler, mupdf) FFI 바인딩
+    - 또는 Rust PDF 라이브러리 (`lopdf`, `pdf-extract`) 사용
 
-**권장**: `pdf-extract` 먼저 시도, 부족하면 Python 프로세스 유지
+**장점**:
+- 마이그레이션 범위 축소
+- 의존성 감소
+- 핵심 기능(STT, LLM, 임베딩)에 집중
 
 ---
 
@@ -197,15 +210,16 @@ websockets            # WebSocket 서버
   1. `config.py` → Rust config 모듈
   2. 파일 레지스트리 관리
   3. 히스토리 관리
-  4. PDF 처리 (`pdf-extract`)
+  4. PDF 처리 기능 제거 (코드 정리)
 
 #### Phase 3: ML 모델 추론 전환
-- **목표**: LLM, STT, 임베딩을 Rust/C++ 라이브러리로 교체
-- **기간**: 4-8주
+- **목표**: LLM, STT, 임베딩을 llama.cpp/whisper.cpp로 교체
+- **기간**: 3-6주
 - **작업**:
-  1. **LLM**: `llama-cpp-rs`로 교체 (가장 쉬움)
-  2. **STT**: `whisper-rs` 또는 whisper.cpp FFI
-  3. **임베딩**: `candle` 또는 ONNX Runtime
+  1. **LLM 추론**: `llama-cpp-rs`로 교체 (가장 쉬움, 1-2주)
+  2. **임베딩**: `llama-cpp-rs` 임베딩 API 사용 (1주)
+  3. **STT**: `whisper.cpp` 통합 (subprocess 또는 `whisper-rs`, 1-3주)
+  4. 모델 변환: PyTorch 모델 → GGUF/GGML 포맷
 
 #### Phase 4: Python 완전 제거
 - **목표**: 모든 Python 의존성 제거
@@ -223,8 +237,9 @@ Python을 **완전히 제거하지 않고** 다음 구조로 유지:
 ```
 Rust Main Server (HTTP/WebSocket)
     ↓
-    ├─ Rust: 파일 관리, 설정, JSON, LLM (llama-cpp-rs)
-    └─ Python Worker: STT, 임베딩 (subprocess)
+    ├─ Rust: 파일 관리, 설정, JSON
+    ├─ llama.cpp (llama-cpp-rs): LLM 추론 + 임베딩
+    └─ Python Worker: STT만 유지 (subprocess)
 ```
 
 **장점**:
@@ -239,19 +254,19 @@ Rust Main Server (HTTP/WebSocket)
 
 ## 기술 스택 매핑
 
-| 현재 (Python) | Rust 대안 | 난이도 | 비고 |
+| 현재 (Python) | 채택 방안 | 난이도 | 비고 |
 |--------------|-----------|--------|------|
-| `http.server` | `axum` / `actix-web` | ★☆☆☆☆ | 권장: axum |
-| `websockets` | `tokio-tungstenite` | ★☆☆☆☆ | axum과 통합 가능 |
+| `http.server` | `axum` | ★☆☆☆☆ | 비동기 HTTP 서버 |
+| `websockets` | `axum::extract::ws` | ★☆☆☆☆ | axum 내장 WebSocket |
 | `pathlib`, `shutil` | `std::fs`, `tokio::fs` | ★☆☆☆☆ | 표준 라이브러리 |
-| `json` | `serde_json` | ★☆☆☆☆ | 타입 안전 |
+| `json` | `serde_json` | ★☆☆☆☆ | 타입 안전 직렬화 |
 | `dotenv` | `dotenv` (Rust) | ★☆☆☆☆ | 동일 기능 |
-| `subprocess` | `std::process::Command` | ★☆☆☆☆ | 더 안전 |
-| `llama-cpp-python` | `llama-cpp-rs` | ★★☆☆☆ | FFI 바인딩 |
-| `openai-whisper` | `whisper-rs` | ★★★★☆ | whisper.cpp 기반 |
-| `sentence-transformers` | `candle` / ONNX | ★★★★☆ | 모델 변환 필요 |
-| `pypdf` | `pdf-extract` | ★★☆☆☆ | 기능 제한적 |
-| `torch` | ❌ | - | Rust 대안 없음 (ONNX/Candle로 우회) |
+| `subprocess` | `std::process::Command` | ★☆☆☆☆ | 더 안전한 프로세스 관리 |
+| `llama-cpp-python` | `llama-cpp-rs` | ★☆☆☆☆ | **확정**: FFI 바인딩 |
+| `openai-whisper` | `whisper.cpp` + `whisper-rs` | ★★☆☆☆ | **확정**: C++ + Rust 바인딩 |
+| `sentence-transformers` | `llama-cpp-rs` (임베딩) | ★★☆☆☆ | **확정**: llama.cpp 임베딩 기능 |
+| `pypdf` | **삭제** | - | **확정**: 기능 제거 |
+| `torch` | ❌ | - | 필요 없음 (llama.cpp/whisper.cpp로 대체) |
 
 ---
 
@@ -296,14 +311,14 @@ Rust Main Server (HTTP/WebSocket)
    - **예상 효과**: 서버 응답 속도 30-50% 향상, 메모리 사용량 감소
 
 2. **중기 목표 (Phase 3)**:
-   - LLM 추론만 Rust로 전환 (`llama-cpp-rs`)
-   - STT, 임베딩은 Python subprocess 유지
-   - **예상 효과**: LLM 추론 속도 10-20% 향상
+   - LLM 추론 + 임베딩을 `llama-cpp-rs`로 전환
+   - STT는 `whisper.cpp`로 전환
+   - **예상 효과**: ML 추론 속도 20-40% 향상, 메모리 사용량 30% 감소
 
-3. **장기 목표 (Phase 4 - 선택적)**:
-   - STT, 임베딩도 Rust로 전환 (`whisper-rs`, `candle`)
+3. **장기 목표 (Phase 4)**:
+   - 모든 ML 모델을 C++ 라이브러리로 완전 전환
    - Python 완전 제거
-   - **예상 효과**: 단일 바이너리 배포, Python 런타임 불필요
+   - **예상 효과**: 단일 Rust 바이너리 배포, Python 런타임 불필요, 배포 크기 50% 감소
 
 ### 구체적 다음 단계
 
@@ -322,35 +337,40 @@ Rust Main Server (HTTP/WebSocket)
 
 ### 최소 목표 vs 최대 목표
 
-- **최소 목표** (현실적): Rust 서버 + Python ML Worker
-  - Python 의존성 40-50% 감소
+- **최소 목표** (Phase 1-2): Rust 서버 + Python ML Worker
+  - Python 의존성 40% 감소
   - 배포는 여전히 Python 런타임 필요
-  - 개발 기간: 2-3개월
+  - 개발 기간: 1-2개월
 
-- **최대 목표** (야심적): 100% Rust
+- **중간 목표** (Phase 1-3): Rust + llama.cpp/whisper.cpp
+  - Python 의존성 90% 제거 (PyTorch 완전 제거)
+  - 단일 바이너리 + 모델 파일로 배포
+  - 개발 기간: 3-4개월
+
+- **최대 목표** (Phase 1-4): 100% Rust + C++ 라이브러리
   - Python 완전 제거
   - 단일 바이너리 배포
-  - 개발 기간: 6-12개월
+  - 개발 기간: 4-6개월
 
-**권장**: 최소 목표부터 시작, 성과 보며 단계적 확대
+**권장**: 중간 목표(Phase 1-3)를 목표로 시작, llama.cpp/whisper.cpp 생태계 활용
 
 ---
 
 ## 참고 자료
 
-### Rust Crates
-- HTTP: [axum](https://github.com/tokio-rs/axum)
-- WebSocket: [tokio-tungstenite](https://github.com/snapview/tokio-tungstenite)
-- LLM: [llama-cpp-rs](https://github.com/utilityai/llama-cpp-rs)
-- STT: [whisper-rs](https://github.com/tazz4843/whisper-rs)
-- ML: [candle](https://github.com/huggingface/candle)
-- ONNX: [ort](https://github.com/pykeio/ort)
-- PDF: [pdf-extract](https://github.com/jrmuizel/pdf-extract)
+### 핵심 의존성 (확정)
+- **HTTP 서버**: [axum](https://github.com/tokio-rs/axum)
+- **LLM + 임베딩**: [llama-cpp-rs](https://github.com/utilityai/llama-cpp-rs)
+- **STT**: [whisper-rs](https://github.com/tazz4843/whisper-rs) (옵션)
 
-### 관련 프로젝트
-- [whisper.cpp](https://github.com/ggerganov/whisper.cpp): C++ Whisper 구현
-- [llama.cpp](https://github.com/ggerganov/llama.cpp): C++ LLM 추론
-- [rustformers](https://github.com/rustformers): Rust ML 생태계
+### C++ 라이브러리
+- [llama.cpp](https://github.com/ggerganov/llama.cpp): LLM 추론 + 임베딩
+- [whisper.cpp](https://github.com/ggerganov/whisper.cpp): STT (음성→텍스트)
+
+### 보조 Crates
+- JSON: `serde_json`
+- 설정: `dotenv`, `config`
+- 파일 처리: `tokio::fs`, `multipart`
 
 ### 학습 자료
 - [Rust Book](https://doc.rust-lang.org/book/)
