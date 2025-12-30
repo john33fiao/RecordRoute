@@ -349,6 +349,7 @@ impl WorkflowExecutor {
                 None
             },
             one_line_summary,
+            timestamp: Some(chrono::Utc::now()),
             tags: Vec::new(),
         };
 

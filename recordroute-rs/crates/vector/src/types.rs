@@ -41,6 +41,10 @@ pub struct VectorMetadata {
     /// One-line summary
     pub one_line_summary: Option<String>,
 
+    /// Document timestamp (for filtering)
+    #[serde(default)]
+    pub timestamp: Option<DateTime<Utc>>,
+
     /// Tags
     #[serde(default)]
     pub tags: Vec<String>,
