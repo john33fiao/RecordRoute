@@ -112,6 +112,8 @@ a = Analysis(
         'PyQt6',
         'PySide2',
         'PySide6',
+        # Exclude workflow package to avoid hook conflicts
+        'workflow',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

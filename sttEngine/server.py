@@ -34,28 +34,73 @@ import hashlib
 import asyncio
 import websockets
 
-from .workflow.transcribe import transcribe_audio_files
-from .workflow.summarize import (
-    summarize_text_mapreduce,
-    read_text_with_fallback,
-    save_output,
-    DEFAULT_MODEL,
-    DEFAULT_CHUNK_SIZE,
-    DEFAULT_TEMPERATURE,
-)
-from .config import (
-    DB_ALIAS,
-    get_db_base_path,
-    get_default_model,
-    normalize_db_record_path,
-    resolve_db_path,
-    to_db_record_path,
-)
-from .one_line_summary import generate_one_line_summary
-from .vector_search import search as search_vectors
-from .search_cache import cleanup_expired_cache, get_cache_stats, delete_cache_record
-from .embedding_pipeline import embed_text_ollama, load_index, save_index
-from llamacpp_utils import MODELS_DIR as GGUF_MODELS_DIR, check_model_available
+try:
+    from .workflow.transcribe import transcribe_audio_files
+except ImportError:
+    from workflow.transcribe import transcribe_audio_files
+
+try:
+    from .workflow.summarize import (
+        summarize_text_mapreduce,
+        read_text_with_fallback,
+        save_output,
+        DEFAULT_MODEL,
+        DEFAULT_CHUNK_SIZE,
+        DEFAULT_TEMPERATURE,
+    )
+except ImportError:
+    from workflow.summarize import (
+        summarize_text_mapreduce,
+        read_text_with_fallback,
+        save_output,
+        DEFAULT_MODEL,
+        DEFAULT_CHUNK_SIZE,
+        DEFAULT_TEMPERATURE,
+    )
+
+try:
+    from .config import (
+        DB_ALIAS,
+        get_db_base_path,
+        get_default_model,
+        normalize_db_record_path,
+        resolve_db_path,
+        to_db_record_path,
+    )
+except ImportError:
+    from config import (
+        DB_ALIAS,
+        get_db_base_path,
+        get_default_model,
+        normalize_db_record_path,
+        resolve_db_path,
+        to_db_record_path,
+    )
+
+try:
+    from .one_line_summary import generate_one_line_summary
+except ImportError:
+    from one_line_summary import generate_one_line_summary
+
+try:
+    from .vector_search import search as search_vectors
+except ImportError:
+    from vector_search import search as search_vectors
+
+try:
+    from .search_cache import cleanup_expired_cache, get_cache_stats, delete_cache_record
+except ImportError:
+    from search_cache import cleanup_expired_cache, get_cache_stats, delete_cache_record
+
+try:
+    from .embedding_pipeline import embed_text_ollama, load_index, save_index
+except ImportError:
+    from embedding_pipeline import embed_text_ollama, load_index, save_index
+
+try:
+    from .llamacpp_utils import MODELS_DIR as GGUF_MODELS_DIR, check_model_available
+except ImportError:
+    from llamacpp_utils import MODELS_DIR as GGUF_MODELS_DIR, check_model_available
 import numpy as np
 import os
 
