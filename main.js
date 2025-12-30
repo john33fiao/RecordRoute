@@ -26,8 +26,13 @@ function setupLogging() {
     fs.mkdirSync(logDir, { recursive: true });
   }
 
-  // Create log file with timestamp
-  const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '');
+  // Create log file with timestamp (YYYYMMDD-HHmm format)
+  const now = new Date();
+  const timestamp = now.getFullYear().toString() +
+    (now.getMonth() + 1).toString().padStart(2, '0') +
+    now.getDate().toString().padStart(2, '0') + '-' +
+    now.getHours().toString().padStart(2, '0') +
+    now.getMinutes().toString().padStart(2, '0');
   const logFile = path.join(logDir, `electron-${timestamp}.log`);
 
   logStream = fs.createWriteStream(logFile, { flags: 'a' });
@@ -515,13 +520,6 @@ app.on('window-all-closed', function () {
     pythonProcess = null;
   }
 
-  // Close log stream
-  if (logStream) {
-    console.log('Closing log stream...');
-    logStream.end();
-    logStream = null;
-  }
-
   // Quit app when all windows are closed, except on macOS
   if (process.platform !== 'darwin') {
     app.quit();
@@ -534,11 +532,5 @@ app.on('quit', () => {
     console.log('Cleaning up Python process on quit...');
     pythonProcess.kill();
     pythonProcess = null;
-  }
-
-  if (logStream) {
-    console.log('Cleaning up log stream on quit...');
-    logStream.end();
-    logStream = null;
   }
 });
