@@ -891,11 +891,11 @@ async function loadAvailableModels() {
         const response = await fetch('/models');
         if (response.ok) {
             const data = await response.json();
-            
+
             // Update summarize model dropdown
             const summarizeSelect = document.getElementById('summarizeModel');
             summarizeSelect.innerHTML = '';
-            
+
             if (data.models && data.models.length > 0) {
                 data.models.forEach(model => {
                     const option = document.createElement('option');
@@ -914,17 +914,17 @@ async function loadAvailableModels() {
                 option.selected = true;
                 summarizeSelect.appendChild(option);
             }
-            
+
             // Update embedding model dropdown (usually only one model available)
             const embeddingSelect = document.getElementById('embeddingModel');
             embeddingSelect.innerHTML = '';
-            
+
             const embeddingOption = document.createElement('option');
             embeddingOption.value = data.default.embedding;
             embeddingOption.textContent = data.default.embedding + ' (기본값)';
             embeddingOption.selected = true;
             embeddingSelect.appendChild(embeddingOption);
-            
+
             // Set current values from localStorage if available
             const savedSettings = JSON.parse(localStorage.getItem('modelSettings') || '{}');
             if (savedSettings.whisper) {
@@ -939,20 +939,41 @@ async function loadAvailableModels() {
             if (savedSettings.embedding) {
                 document.getElementById('embeddingModel').value = savedSettings.embedding;
             }
-            
+
         } else {
-            console.error('Failed to load models');
+            // Parse server error response
+            let errorMessage = '모델 로딩 실패';
+            try {
+                const errorData = await response.json();
+                if (errorData.error) {
+                    errorMessage = errorData.error;
+                    if (errorData.details) {
+                        console.error('Error details:', errorData.details);
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to parse error response:', e);
+            }
+
+            console.error('Failed to load models:', errorMessage);
             const summarizeSelect = document.getElementById('summarizeModel');
             const embeddingSelect = document.getElementById('embeddingModel');
-            summarizeSelect.innerHTML = '<option value="">모델 로딩 실패</option>';
-            embeddingSelect.innerHTML = '<option value="">모델 로딩 실패</option>';
+            summarizeSelect.innerHTML = `<option value="" title="${errorMessage}">${errorMessage}</option>`;
+            embeddingSelect.innerHTML = `<option value="" title="${errorMessage}">${errorMessage}</option>`;
         }
     } catch (error) {
         console.error('Error loading models:', error);
         const summarizeSelect = document.getElementById('summarizeModel');
         const embeddingSelect = document.getElementById('embeddingModel');
-        summarizeSelect.innerHTML = '<option value="">네트워크 오류</option>';
-        embeddingSelect.innerHTML = '<option value="">네트워크 오류</option>';
+
+        // Provide more specific error message
+        let errorMsg = '네트워크 오류';
+        if (error.message) {
+            errorMsg = `네트워크 오류: ${error.message}`;
+        }
+
+        summarizeSelect.innerHTML = `<option value="" title="${errorMsg}">${errorMsg}</option>`;
+        embeddingSelect.innerHTML = `<option value="" title="${errorMsg}">${errorMsg}</option>`;
     }
 }
 
