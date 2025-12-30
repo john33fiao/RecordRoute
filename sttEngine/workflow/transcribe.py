@@ -271,8 +271,11 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
             logging.info(f"'{file_path.name}'은(는) m4a 파일이므로, 처리를 위해 wav로 변환합니다.")
             temp_wav_path = file_path.with_suffix('.wav')
             
+            # Get FFmpeg path from environment variable, fallback to 'ffmpeg' in PATH
+            ffmpeg_cmd = os.environ.get('FFMPEG_PATH', 'ffmpeg')
+
             command = [
-                "ffmpeg", "-i", str(file_path), "-ar", "16000", "-ac", "1", 
+                ffmpeg_cmd, "-i", str(file_path), "-ar", "16000", "-ac", "1",
                 "-c:a", "pcm_s16le", "-y", str(temp_wav_path)
             ]
             

@@ -62,7 +62,12 @@ RecordRoute/
 ### 1. 사전 요구사항
 
 - **Python 3.8 이상**
-- **FFmpeg**: 시스템 PATH에 등록되어 있어야 합니다.
+- **FFmpeg**:
+  - **개발 환경**: 시스템 PATH에 등록되어 있어야 합니다.
+    - Windows: `choco install ffmpeg` 또는 [공식 사이트](https://ffmpeg.org/download.html#build-windows)
+    - macOS: `brew install ffmpeg`
+    - Linux: `sudo apt-get install ffmpeg` (Ubuntu/Debian)
+  - **프로덕션 빌드**: 플랫폼별 FFmpeg 바이너리를 `bin/ffmpeg/` 디렉토리에 배치해야 합니다. 자세한 내용은 `bin/ffmpeg/README.md` 참조
 - **Ollama**: 로컬 LLM을 구동하기 위해 설치 및 실행되어 있어야 합니다.
 
 ### 2. 자동 설치 (권장)
@@ -135,6 +140,7 @@ npm run build:linux   # Linux AppImage 생성
 **주의사항:**
 - Python 백엔드 빌드 전에 가상환경을 활성화해야 합니다
 - PyInstaller 필요: `pip install pyinstaller`
+- **FFmpeg 바이너리 필요**: 프로덕션 빌드를 위해서는 플랫폼별 FFmpeg 바이너리를 `bin/ffmpeg/` 디렉토리에 배치해야 합니다. 자세한 내용은 `bin/ffmpeg/README.md` 참조
 - 빌드 프로세스는 플랫폼에 따라 시간이 걸릴 수 있습니다
 
 ## 사용법

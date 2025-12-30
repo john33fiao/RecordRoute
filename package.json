@@ -52,6 +52,11 @@
         "from": "bin",
         "to": "bin",
         "filter": ["**/*"]
+      },
+      {
+        "from": "bin/ffmpeg/${os}",
+        "to": "bin",
+        "filter": ["**/*"]
       }
     ],
     "win": {

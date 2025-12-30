@@ -80,7 +80,11 @@ numpy
 ```
 
 ### 시스템 의존성
-- **FFmpeg**: 오디오/비디오 파일 처리, PATH 환경변수 필수
+- **FFmpeg**: 오디오/비디오 파일 처리 (Phase 6)
+  - **개발 환경**: 시스템 PATH에 FFmpeg 설치 필요
+  - **프로덕션 빌드**: `bin/ffmpeg/` 디렉토리에 플랫폼별 바이너리 배치
+  - **환경변수**: `FFMPEG_PATH`로 경로 지정 가능 (fallback: 'ffmpeg')
+  - **자동 번들링**: Electron 빌드 시 플랫폼에 맞는 FFmpeg 자동 포함
 - **Ollama**: 로컬 LLM 서비스, 백그라운드 실행 필수
 
 ### 환경변수 (.env)
