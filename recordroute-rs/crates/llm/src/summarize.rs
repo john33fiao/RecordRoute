@@ -3,7 +3,11 @@ use tracing::{debug, info};
 
 use crate::chunking::chunk_text;
 use crate::client::OllamaClient;
+use crate::prompts::{chunk_prompt, one_line_prompt, reduce_prompt};
 use crate::types::{GenerateOptions, GenerateRequest, Summary};
+
+/// Batch size for hierarchical reduce (Python uses 10)
+const BATCH_REDUCE_SIZE: usize = 10;
 
 /// Summarizer for long text using map-reduce strategy
 pub struct Summarizer {
@@ -37,62 +41,88 @@ impl Summarizer {
         // Step 3: Summarize each chunk
         let mut chunk_summaries = Vec::new();
         for (i, chunk) in chunks.iter().enumerate() {
-            debug!("Summarizing chunk {}/{}", i + 1, chunks.len());
+            info!("Summarizing chunk {}/{}", i + 1, chunks.len());
             let summary = self.summarize_chunk(&chunk.text).await?;
             chunk_summaries.push(summary);
         }
 
-        // Step 4: Combine chunk summaries (reduce phase)
-        let combined = chunk_summaries.join("\n\n");
-        info!("Combined chunk summaries - Length: {} chars", combined.len());
+        info!("All chunks summarized - {} chunk summaries", chunk_summaries.len());
 
-        // Step 5: Final summarization
-        let final_summary = self.summarize_direct(&combined).await?;
+        // Step 4: Reduce phase with batch processing
+        let final_text = if chunk_summaries.len() > BATCH_REDUCE_SIZE {
+            info!(
+                "Using batch reduce - {} summaries, batch size: {}",
+                chunk_summaries.len(),
+                BATCH_REDUCE_SIZE
+            );
+            self.batch_reduce(chunk_summaries).await?
+        } else {
+            // Direct reduce for smaller number of chunks
+            let combined = chunk_summaries.join("\n\n---청크 요약 구분선---\n\n");
+            info!("Combined chunk summaries - Length: {} chars", combined.len());
+            let prompt = reduce_prompt(&combined);
+            self.generate_with_options(&prompt, 1000).await?
+        };
 
+        // Step 5: Generate one-line summary
+        let one_line_summary = self.generate_one_line(&final_text).await?;
+
+        Ok(Summary::new(
+            final_text,
+            one_line_summary,
+            self.model.clone(),
+        ))
+    }
+
+    /// Batch reduce: hierarchical summarization for many chunks
+    async fn batch_reduce(&self, chunk_summaries: Vec<String>) -> Result<String> {
+        let num_chunks = chunk_summaries.len();
+        let num_batches = (num_chunks + BATCH_REDUCE_SIZE - 1) / BATCH_REDUCE_SIZE;
+
+        info!(
+            "1st level reduce: {} chunks -> {} batches (size: {})",
+            num_chunks, num_batches, BATCH_REDUCE_SIZE
+        );
+
+        // 1st level reduce: group chunks into batches
+        let mut batch_summaries = Vec::new();
+        for (batch_idx, batch_chunk) in chunk_summaries.chunks(BATCH_REDUCE_SIZE).enumerate() {
+            info!(
+                "Processing 1st level batch {}/{} ({} chunks)",
+                batch_idx + 1,
+                num_batches,
+                batch_chunk.len()
+            );
+
+            let batch_combined = batch_chunk.join("\n\n---청크 요약 구분선---\n\n");
+            let prompt = reduce_prompt(&batch_combined);
+            let batch_summary = self.generate_with_options(&prompt, 1000).await?;
+            batch_summaries.push(batch_summary);
+        }
+
+        info!("1st level reduce complete - {} batch summaries", batch_summaries.len());
+
+        // 2nd level reduce: combine batch summaries
+        info!("2nd level reduce: combining {} batch summaries", batch_summaries.len());
+        let final_combined = batch_summaries.join("\n\n---배치 요약 구분선---\n\n");
+        let final_prompt = reduce_prompt(&final_combined);
+        let final_summary = self.generate_with_options(&final_prompt, 1000).await?;
+
+        info!("Batch reduce complete");
         Ok(final_summary)
     }
 
     /// Summarize a single chunk
     async fn summarize_chunk(&self, text: &str) -> Result<String> {
-        let prompt = format!(
-            "다음 텍스트를 핵심 내용을 포함하여 간결하게 요약해주세요. 중요한 정보는 빠뜨리지 마세요.\n\n텍스트:\n{}\n\n요약:",
-            text
-        );
-
-        let request = GenerateRequest {
-            model: self.model.clone(),
-            prompt,
-            stream: Some(false),
-            options: Some(GenerateOptions {
-                temperature: Some(0.3),
-                top_p: Some(0.9),
-                num_predict: Some(500),
-            }),
-        };
-
-        self.client.generate(request).await
+        let prompt = chunk_prompt(text);
+        self.generate_with_options(&prompt, 500).await
     }
 
     /// Direct summarization (for shorter texts)
     async fn summarize_direct(&self, text: &str) -> Result<Summary> {
-        // Generate full summary
-        let full_summary_prompt = format!(
-            "다음 텍스트를 상세하게 요약해주세요. 주요 내용과 중요한 세부사항을 모두 포함하세요.\n\n텍스트:\n{}\n\n상세 요약:",
-            text
-        );
-
-        let full_summary_request = GenerateRequest {
-            model: self.model.clone(),
-            prompt: full_summary_prompt,
-            stream: Some(false),
-            options: Some(GenerateOptions {
-                temperature: Some(0.3),
-                top_p: Some(0.9),
-                num_predict: Some(1000),
-            }),
-        };
-
-        let full_summary = self.client.generate(full_summary_request).await?;
+        // Generate full summary using structured prompt
+        let prompt = chunk_prompt(text);
+        let full_summary = self.generate_with_options(&prompt, 1000).await?;
 
         // Generate one-line summary
         let one_line_summary = self.generate_one_line(&full_summary).await?;
@@ -106,26 +136,27 @@ impl Summarizer {
 
     /// Generate one-line summary
     pub async fn generate_one_line(&self, text: &str) -> Result<String> {
-        let prompt = format!(
-            "다음 요약을 한 문장으로 압축해주세요. 가장 핵심적인 내용만 포함하세요.\n\n요약:\n{}\n\n한 줄 요약:",
-            text
-        );
-
-        let request = GenerateRequest {
-            model: self.model.clone(),
-            prompt,
-            stream: Some(false),
-            options: Some(GenerateOptions {
-                temperature: Some(0.2),
-                top_p: Some(0.9),
-                num_predict: Some(100),
-            }),
-        };
-
-        let response = self.client.generate(request).await?;
+        let prompt = one_line_prompt(text);
+        let response = self.generate_with_options(&prompt, 100).await?;
 
         // Clean up the response (remove extra whitespace, newlines)
         Ok(response.trim().replace('\n', " "))
+    }
+
+    /// Helper: Generate text with common options
+    async fn generate_with_options(&self, prompt: &str, max_tokens: i32) -> Result<String> {
+        let request = GenerateRequest {
+            model: self.model.clone(),
+            prompt: prompt.to_string(),
+            stream: Some(false),
+            options: Some(GenerateOptions {
+                temperature: Some(0.3),
+                top_p: Some(0.9),
+                num_predict: Some(max_tokens),
+            }),
+        };
+
+        self.client.generate(request).await
     }
 }
 
