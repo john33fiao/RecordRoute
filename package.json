@@ -17,7 +17,8 @@
     "build:rust": "cd recordroute-rs && cargo build --release",
     "build:llama": "bash tools/scripts/build-llama.sh",
     "build:all": "npm run build:llama && npm run build:rust",
-    "postinstall": "npm run postinstall --workspace=electron && git submodule update --init --recursive"
+    "install-deps": "npm run install-deps --workspace=electron",
+    "postinstall": "git submodule update --init --recursive"
   },
   "repository": {
     "type": "git",
