@@ -37,8 +37,12 @@ echo "Installing root dependencies..."
 npm install
 
 echo ""
-echo "Installing workspace dependencies..."
-npm install --workspaces
+echo "Installing electron workspace dependencies..."
+npm install -w electron
+
+echo ""
+echo "Installing frontend workspace dependencies..."
+npm install -w frontend
 
 echo ""
 echo "Installing electron-builder dependencies..."
