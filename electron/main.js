@@ -294,7 +294,7 @@ function createMenu() {
           accelerator: 'CmdOrCtrl+O',
           click: () => {
             if (mainWindow) {
-              mainWindow.webContents.executeJavaScript('document.getElementById("file-input")?.click()');
+              mainWindow.webContents.executeJavaScript('document.getElementById("fileInput")?.click()');
             }
           }
         },
