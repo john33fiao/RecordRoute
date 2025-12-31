@@ -2,7 +2,7 @@
 
 이 문서는 기존 RecordRoute 웹 애플리케이션을 Electron 기반의 데스크톱 애플리케이션으로 전환하기 위한 단계별 계획을 정의합니다.
 
-## Phase 1: 기본 프로젝트 설정 및 Electron 연동
+## ✅ Phase 1: 기본 프로젝트 설정 및 Electron 연동 (완료)
 
 첫 단계는 Electron 프로젝트를 설정하고 기존 프론트엔드를 렌더링하는 것입니다.
 
@@ -80,9 +80,11 @@ Electron 앱을 쉽게 실행할 수 있도록 `package.json`에 `start` 스크�
 npm start
 ```
 
-## Phase 2: Python 백엔드 연동
+## ✅ Phase 2: Rust 백엔드 연동 (완료)
 
-Electron 앱이 시작될 때 Python 서버를 자동으로 실행하고, 앱이 종료될 때 함께 종료되도록 설정합니다.
+**주의**: Python 백엔드는 Rust 백엔드로 완전히 대체되었습니다. 아래 내용은 참고용입니다.
+
+Electron 앱이 시작될 때 Rust 서버를 자동으로 실행하고, 앱이 종료될 때 함께 종료되도록 설정합니다.
 
 ### 2.1. `main.js`에서 Python 프로세스 실행
 `child_process` 모듈을 사용하여 `sttEngine/server.py`를 실행하는 코드를 `main.js`에 추가합니다.
@@ -188,9 +190,11 @@ app.on('window-all-closed', () => {
 ### 2.2. 전체 기능 테스트
 `npm start`로 앱을 실행하고, 파일 업로드 및 처리 기능이 기존 웹 버전과 동일하게 동작하는지 확인합니다.
 
-## Phase 3: 애플리케이션 패키징
+## ✅ Phase 3: 애플리케이션 패키징 (완료)
 
 `electron-builder`를 사용하여 Windows용 `.exe` 파일과 macOS용 `.app` 파일을 생성합니다.
+
+**업데이트**: Rust 바이너리 번들링으로 전환 완료
 
 ### 3.1. `electron-builder` 설치
 
@@ -506,16 +510,19 @@ Whisper 모델과 LLM 모델은 크기가 매우 크므로(합계 10GB+), 애플
 
 
 
-## Phase 4: 후속 개선 사항
-- **네이티브 메뉴 추가:** "파일", "편집" 등의 상단 메뉴를 추가하여 기능 접근성 향상.
-- **아이콘 설정:** 애플리케이션 아이콘을 지정.
-- **코드 서명:** 배포 시 신뢰할 수 있는 앱으로 인식되도록 macOS 및 Windows 코드 서명 설정.
-- **자동 업데이트:** `electron-updater`를 연동하여 새 버전 자동 업데이트 기능 구현.
-- **Python 의존성 관리:** `PyInstaller` 사용 시, `whisper` 모델 파일 등 데이터 파일이 누락되지 않도록 `.spec` 파일을 상세히 설정.
+## Phase 4: 후속 개선 사항 (진행 예정)
+- [ ] **네이티브 메뉴 추가:** "파일", "편집" 등의 상단 메뉴를 추가하여 기능 접근성 향상.
+- [ ] **아이콘 설정:** 애플리케이션 아이콘을 지정.
+- [ ] **코드 서명:** 배포 시 신뢰할 수 있는 앱으로 인식되도록 macOS 및 Windows 코드 서명 설정.
+- [ ] **자동 업데이트:** `electron-updater`를 연동하여 새 버전 자동 업데이트 기능 구현.
+- ✅ **Rust 의존성 관리:** Rust 단일 바이너리로 전환 완료 (Python 의존성 제거)
 
-## Phase 5: LLM 엔진 전환 (Ollama → llama.cpp)
+## ✅ Phase 5: LLM 엔진 (Ollama 기반 유지) - 완료
 
-현재 `Ollama` 서비스에 의존하는 구조에서 벗어나, `llama.cpp`를 직접 연동하여 LLM 추론 기능을 애플리케이션에 내장합니다. 이를 통해 사용자는 별도의 LLM 서비스를 설치하고 실행할 필요가 없어지며, 완전한 독립 실행형(self-contained) 애플리케이션을 만들 수 있습니다.
+**업데이트**: Rust 백엔드에서는 Ollama API를 사용하는 방식을 유지하기로 결정했습니다.
+- llama.cpp 직접 통합 대신 Ollama HTTP API를 통한 연동
+- 사용자가 Ollama 서비스를 별도로 실행해야 하지만, 더 안정적이고 유연한 구조
+- Rust reqwest 기반 HTTP 클라이언트 구현 완료
 
 ### 5.1. 의존성 변경
 - **`ollama` 라이브러리 제거:** `sttEngine/requirements.txt`에서 `ollama`를 삭제합니다.
@@ -679,9 +686,11 @@ pip freeze > requirements.txt
 
 이 단계를 완료하면 RecordRoute는 `ffmpeg`을 제외한 모든 핵심 기능(STT, LLM)을 갖춘 경량 독립 실행형 데스크톱 애플리케이션이 됩니다. 모델은 첫 실행 시 자동으로 다운로드되어 사용자 데이터 디렉토리에 저장됩니다.
 
-## Phase 6: FFmpeg 내장 및 경로 설정
+## ⏸️ Phase 6: FFmpeg 내장 및 경로 설정 (진행 예정)
 
 사용자가 별도로 `ffmpeg`을 설치할 필요가 없도록, `ffmpeg` 실행 파일을 애플리케이션 패키지에 포함시킵니다.
+
+**현재 상태**: FFmpeg는 시스템 PATH에 설치된 것을 사용 (향후 번들링 예정)
 
 ### 6.1. FFmpeg 바이너리 다운로드
 - Windows, macOS, Linux 등 타겟 플랫폼에 맞는 `ffmpeg` 정적 빌드(static build)를 다운로드합니다. (예: [gyan.dev for Windows](https://www.gyan.dev/ffmpeg/builds/))
