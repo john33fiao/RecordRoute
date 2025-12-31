@@ -1,8 +1,7 @@
 #!/bin/bash
 # RecordRoute Backend Build Script
-# Phase 3: Build Python backend with PyInstaller
-
-set -e  # Exit on error
+# Note: The Python backend is now LEGACY. The main backend is Rust (recordroute-rs/).
+# This script is kept for backwards compatibility but is no longer required.
 
 echo "======================================"
 echo "RecordRoute Backend Build Script"
@@ -14,6 +13,31 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
+
+echo -e "${YELLOW}Note: The Python backend is legacy code.${NC}"
+echo -e "${YELLOW}The main backend is now Rust (recordroute-rs/).${NC}"
+echo -e "${YELLOW}Skipping Python backend build.${NC}"
+echo ""
+
+# Check if sttEngine directory exists (legacy Python backend)
+if [ ! -d "sttEngine" ] && [ ! -d "legacy/python-backend" ]; then
+    echo -e "${GREEN}✓ No Python backend found - this is expected.${NC}"
+    echo -e "${GREEN}The Rust backend will be built instead.${NC}"
+    exit 0
+fi
+
+echo -e "${YELLOW}Warning: Legacy Python backend detected.${NC}"
+echo "If you need to build it, please:"
+echo "  1. Create a virtual environment: python -m venv venv"
+echo "  2. Activate it: source venv/bin/activate (Linux/macOS) or venv\\Scripts\\activate (Windows)"
+echo "  3. Install dependencies: pip install -r legacy/python-backend/requirements.txt"
+echo "  4. Ensure sttEngine/ is in the root directory"
+echo ""
+echo -e "${GREEN}Skipping Python backend build - use Rust backend instead.${NC}"
+exit 0
+
+# Legacy code below (not executed)
+set -e  # Exit on error
 
 # Check if virtual environment is activated
 if [ -z "$VIRTUAL_ENV" ]; then

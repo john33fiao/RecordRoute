@@ -65,42 +65,19 @@ if "%SKIP_FRONTEND%"=="false" (
     echo.
 
     if not exist "node_modules" (
-        echo Installing root dependencies...
+        echo Installing dependencies for all workspaces...
         call npm install
         if errorlevel 1 (
             echo Error: npm install failed
             exit /b 1
         )
         echo.
-        echo Installing electron workspace dependencies...
-        cd electron
-        call npm install
-        if errorlevel 1 (
-            cd ..
-            echo Error: npm install in electron workspace failed
-            exit /b 1
-        )
-        cd ..
-        echo.
-        echo Installing frontend workspace dependencies...
-        cd frontend
-        call npm install
-        if errorlevel 1 (
-            cd ..
-            echo Error: npm install in frontend workspace failed
-            exit /b 1
-        )
-        cd ..
-        echo.
         echo Installing electron-builder dependencies...
-        cd electron
         call npm run install-deps
         if errorlevel 1 (
-            cd ..
             echo Error: electron-builder install-app-deps failed
             exit /b 1
         )
-        cd ..
         echo [✓] Dependencies installed
     ) else (
         echo Node modules already installed

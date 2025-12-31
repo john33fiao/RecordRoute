@@ -33,20 +33,12 @@ echo "Step 1: Installing Node.js Dependencies"
 echo "=========================================="
 echo ""
 
-echo "Installing root dependencies..."
+echo "Installing dependencies for all workspaces..."
 npm install
 
 echo ""
-echo "Installing electron workspace dependencies..."
-cd electron && npm install && cd ..
-
-echo ""
-echo "Installing frontend workspace dependencies..."
-cd frontend && npm install && cd ..
-
-echo ""
 echo "Installing electron-builder dependencies..."
-cd electron && npm run install-deps && cd ..
+npm run install-deps
 
 echo -e "${GREEN}✓ Node.js dependencies installed${NC}"
 

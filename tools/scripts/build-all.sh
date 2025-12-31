@@ -45,18 +45,26 @@ done
 if [ "$SKIP_BACKEND" = false ]; then
     echo ""
     echo "=========================================="
-    echo "Step 1: Building Python Backend"
+    echo "Step 1: Building Rust Backend"
     echo "=========================================="
     echo ""
+    echo "Note: The main backend is Rust (recordroute-rs/)"
+    echo "To build the Rust backend:"
+    echo "  cd recordroute-rs && cargo build --release"
+    echo ""
+    echo "To build llama.cpp (required for LLM features):"
+    echo "  npm run build:llama"
+    echo ""
 
+    # Run legacy Python backend build script (will skip gracefully)
     if [ -f "tools/scripts/build-backend.sh" ]; then
         bash tools/scripts/build-backend.sh
-    else
-        echo -e "${YELLOW}Warning: tools/scripts/build-backend.sh not found, skipping backend build${NC}"
     fi
+
+    echo -e "${GREEN}Backend build step complete${NC}"
 else
     echo ""
-    echo "[Skipped] Python backend build"
+    echo "[Skipped] Backend build"
 fi
 
 # Install Node.js dependencies if needed
@@ -68,17 +76,11 @@ if [ "$SKIP_FRONTEND" = false ]; then
     echo ""
 
     if [ ! -d "node_modules" ]; then
-        echo "Installing root dependencies..."
+        echo "Installing dependencies for all workspaces..."
         npm install
         echo ""
-        echo "Installing electron workspace dependencies..."
-        cd electron && npm install && cd ..
-        echo ""
-        echo "Installing frontend workspace dependencies..."
-        cd frontend && npm install && cd ..
-        echo ""
         echo "Installing electron-builder dependencies..."
-        cd electron && npm run install-deps && cd ..
+        npm run install-deps
         echo -e "${GREEN}✓ Dependencies installed${NC}"
     else
         echo "Node modules already installed"
