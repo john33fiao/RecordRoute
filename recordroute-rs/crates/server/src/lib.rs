@@ -54,6 +54,7 @@ pub async fn start_server(config: AppConfig) -> Result<()> {
             .service(routes::tasks::cancel_task)
             .service(routes::search::search)
             .service(routes::search::search_stats)
+            .service(routes::models::get_models)
             // Static files and index
             .service(fs::Files::new("/", "frontend").index_file("upload.html"))
     })
