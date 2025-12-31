@@ -52,3 +52,7 @@ bin/ffmpeg.exe
 # Server backup files
 sttEngine/server.py.backup
 sttEngine/server.py.old
+
+# llama.cpp 빌드 디렉토리
+third-party/llama.cpp/build/
+third-party/llama.cpp/build-*/
