@@ -1,3 +1,6 @@
+// API base URL - use localhost for Electron, empty for web browser
+const API_BASE_URL = window.location.protocol === 'file:' ? 'http://127.0.0.1:8000' : '';
+
 let taskQueue = [];
 let currentTask = null;
 let taskIdCounter = 0;
@@ -465,7 +468,7 @@ async function handleResetAllConfirm() {
     resetAllConfirmBtn.textContent = '초기화 중...';
 
     try {
-        const response = await fetch('/reset_all_tasks', {
+        const response = await fetch(`${API_BASE_URL}/reset_all_tasks`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tasks: selectedTasks })
@@ -587,7 +590,7 @@ if (overlaySave) {
         overlaySave.textContent = '저장중...';
 
         try {
-            const response = await fetch('/update_stt_text', {
+            const response = await fetch(`${API_BASE_URL}/update_stt_text`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -701,7 +704,7 @@ function showSimilarDocuments(filePath, userFilename = null, refresh = false) {
         requestData.refresh = true;
     }
 
-    fetch('/similar', {
+    fetch(`${API_BASE_URL}/similar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestData)
@@ -788,7 +791,7 @@ async function deleteCurrentFile() {
         // Extract file identifier from URL
         const fileIdentifier = currentOverlayFile.url.replace('/download/', '');
         
-        const response = await fetch('/delete', {
+        const response = await fetch(`${API_BASE_URL}/delete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -838,7 +841,7 @@ async function deleteSelectedRecords() {
     recordIds.forEach(cancelTasksForRecord);
 
     try {
-        const response = await fetch('/delete_records', {
+        const response = await fetch(`${API_BASE_URL}/delete_records`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ record_ids: recordIds })
@@ -888,7 +891,7 @@ async function deleteSelectedRecords() {
 
 async function loadAvailableModels() {
     try {
-        const response = await fetch('/models');
+        const response = await fetch(`${API_BASE_URL}/models`);
         if (response.ok) {
             const data = await response.json();
 
@@ -1011,7 +1014,7 @@ async function requestServerShutdown() {
     const originalContent = status.innerHTML;
 
     try {
-        const response = await fetch('/shutdown', { method: 'POST' });
+        const response = await fetch(`${API_BASE_URL}/shutdown`, { method: 'POST' });
         const data = await response.json().catch(() => ({}));
 
         if (response.ok && data.success !== false) {
@@ -1101,7 +1104,7 @@ if (sttEditResetConfirmBtn) {
         sttEditResetConfirmBtn.textContent = '초기화 중...';
 
         try {
-            const response = await fetch('/reset_summary_embedding', {
+            const response = await fetch(`${API_BASE_URL}/reset_summary_embedding`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ record_id: lastEditedRecordId })
@@ -1158,7 +1161,7 @@ function editFilename(recordId, currentFilename) {
     const saveEdit = async (newFilename) => {
         if (newFilename && newFilename.trim() !== '' && newFilename !== currentFilename) {
             try {
-                const response = await fetch('/update_filename', {
+                const response = await fetch(`${API_BASE_URL}/update_filename`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -1390,7 +1393,7 @@ function removeTaskFromQueue(taskId) {
         
         // If task is currently processing, send cancellation request to server
         if (task.status === 'processing' && task.taskId) {
-            fetch('/cancel', {
+            fetch(`${API_BASE_URL}/cancel`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ task_id: task.taskId })
@@ -1464,7 +1467,7 @@ function clearQueuedTasksByCategory(taskNames) {
 
     if (currentTask && taskSet.has(currentTask.task)) {
         if (currentTask.taskId) {
-            fetch('/cancel', {
+            fetch(`${API_BASE_URL}/cancel`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ task_id: currentTask.taskId })
@@ -1491,7 +1494,7 @@ function cancelTasksForRecord(recordId) {
 
     if (currentTask && currentTask.recordId === recordId) {
         if (currentTask.taskId) {
-            fetch('/cancel', {
+            fetch(`${API_BASE_URL}/cancel`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ task_id: currentTask.taskId })
@@ -1900,7 +1903,7 @@ function createTaskElement(task, isCompleted, downloadUrl, record = null) {
                         
                         // Try to find existing STT result by attempting embedding with existing file check
                         // If no existing STT found, show alert
-                        fetch('/check_existing_stt', {
+                        fetch(`${API_BASE_URL}/check_existing_stt`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ file_path: record.file_path })
@@ -2019,7 +2022,7 @@ function displayHistory(history) {
                 const relatedTasks = taskQueue.filter(t => t.recordId === record.id);
                 relatedTasks.forEach(t => removeTaskFromQueue(t.id));
 
-                const resp = await fetch('/reset', {
+                const resp = await fetch(`${API_BASE_URL}/reset`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ record_id: record.id })
@@ -2121,7 +2124,7 @@ function displayHistory(history) {
 
 async function loadHistory() {
     try {
-        const response = await fetch('/history');
+        const response = await fetch(`${API_BASE_URL}/history`);
         if (response.ok) {
             const history = await response.json();
             displayHistory(history);
@@ -2135,7 +2138,7 @@ async function loadHistory() {
 
 async function loadHistorySync() {
     try {
-        const response = await fetch('/history');
+        const response = await fetch(`${API_BASE_URL}/history`);
         if (response.ok) {
             return await response.json();
         }
@@ -2204,7 +2207,7 @@ async function processNextTask() {
         // Get saved model settings
         const savedSettings = JSON.parse(localStorage.getItem('modelSettings') || '{}');
         
-        const response = await fetch('/process', {
+        const response = await fetch(`${API_BASE_URL}/process`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -2471,7 +2474,7 @@ document.getElementById('uploadBtn').addEventListener('click', async () => {
 // Check for running tasks on page load
 async function checkRunningTasks() {
     try {
-        const response = await fetch('/tasks');
+        const response = await fetch(`${API_BASE_URL}/tasks`);
         if (response.ok) {
             const runningTasks = await response.json();
             console.log('Running tasks found:', runningTasks);
@@ -2507,7 +2510,7 @@ let previousTaskCount = 0;
 function startTaskMonitoring() {
     setInterval(async () => {
         try {
-            const response = await fetch('/tasks');
+            const response = await fetch(`${API_BASE_URL}/tasks`);
             if (response.ok) {
                 const runningTasks = await response.json();
                 const taskCount = Object.keys(runningTasks).length;
@@ -2577,7 +2580,7 @@ document.getElementById('searchBtn').addEventListener('click', async () => {
         searchBtn.textContent = '검색 중...';
         searchBtn.disabled = true;
 
-        const resp = await fetch(`/search?q=${encodeURIComponent(q)}`);
+        const resp = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(q)}`);
         const data = await resp.json();
 
         if (!resp.ok) {
