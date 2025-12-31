@@ -51,6 +51,11 @@ RecordRoute는 **Rust로 완전히 재구현된** 고성능 음성 전사 및 �
 ```
 RecordRoute/
 ├── README.md                 # 프로젝트 소개 및 설치 가이드
+├── AGENTS.md                 # AI 에이전트 통합 가이드 (본 문서)
+├── LICENSE                   # 라이선스 정보
+├── package.json              # NPM Workspaces 루트 설정
+├── .gitignore                # Git 제외 파일 목록
+│
 ├── TODO/                     # 기능 구현 계획 및 로드맵
 │   ├── TODO.md               # 전체 TODO 목록
 │   ├── Rust.md               # Rust 마이그레이션 로드맵
@@ -58,35 +63,55 @@ RecordRoute/
 │   ├── GUI.md                # 프론트엔드 개선 계획
 │   ├── MVVM.md               # MVVM 아키텍처 전환 계획
 │   └── Graph.md              # 문서 그래프 시각화 계획
-├── LICENSE                   # 라이선스 정보
-├── AGENTS.md                 # AI 에이전트 통합 가이드 (본 문서)
-├── package.json              # Electron 프로젝트 설정
+│
+├── configs/                  # 환경 설정 템플릿
+├── data/                     # 실행 데이터 저장소 (.gitignore)
+├── models/                   # AI 모델 저장소 (.gitignore)
 │
 ├── electron/                 # Electron 데스크톱 애플리케이션
 │   ├── main.js               # Electron 메인 프로세스 (Rust 백엔드 실행)
-│   └── preload.js            # Preload 스크립트
+│   ├── preload.js            # Preload 스크립트
+│   └── package.json          # Electron 워크스페이스 설정
 │
 ├── frontend/                 # 웹 인터페이스 (HTML/CSS/JS)
 │   ├── upload.html           # 메인 UI
 │   ├── upload.js             # 프론트엔드 로직
-│   └── upload.css            # 스타일시트
+│   ├── upload.css            # 스타일시트
+│   └── package.json          # Frontend 워크스페이스 설정
 │
-├── recordroute-rs/           # 메인 Rust 백엔드
-│   ├── Cargo.toml            # Cargo 워크스페이스 설정
-│   ├── README.md             # Rust 백엔드 문서
-│   ├── API.md                # API 상세 문서
-│   ├── ARCHITECTURE.md       # 아키텍처 상세 문서
-│   ├── CONFIGURATION.md      # 설정 가이드
-│   └── crates/               # 워크스페이스 크레이트
-│       ├── common/           # 공통 모듈 (설정, 에러, 로거, 모델 관리)
-│       ├── stt/              # STT 엔진 (whisper.cpp)
-│       ├── llm/              # LLM 클라이언트 (Ollama API)
-│       ├── vector/           # 벡터 검색 엔진
-│       ├── server/           # Axum 웹 서버 및 API 라우트
-│       └── recordroute/      # 실행 바이너리
+├── legacy/                   # 레거시 Python 백엔드 (참고용, 유지보수 중단)
+│   └── python-backend/       # 구버전 Python 코드
+│       ├── server.py         # 구버전 FastAPI/WebSocket 서버
+│       ├── config.py         # Python 설정 관리
+│       ├── requirements.txt  # Python 의존성
+│       └── workflow/         # Python 워크플로우 모듈
+│           ├── transcribe.py # STT 워크플로우
+│           ├── summarize.py  # 요약 워크플로우
+│           └── correct.py    # 텍스트 교정 워크플로우
 │
-└── deprecated/               # 레거시 Python 백엔드 (참고용)
-    └── sttEngine/            # 구버전 Python 코드
+├── tools/                    # 개발 도구 및 스크립트
+│   ├── scripts/              # 빌드 및 실행 스크립트
+│   │   ├── build-all.sh      # 전체 빌드 스크립트
+│   │   ├── build-backend.sh  # Python 백엔드 빌드 (레거시)
+│   │   ├── build-backend.bat # Windows용 빌드 스크립트
+│   │   ├── start.bat         # Windows 실행 스크립트
+│   │   ├── start.vbs         # Windows 숨김 실행 스크립트
+│   │   └── run.command       # macOS/Linux 실행 스크립트
+│   └── dev-env/              # 개발 환경 설정
+│
+└── recordroute-rs/           # 메인 Rust 백엔드 (현재 운영 중)
+    ├── Cargo.toml            # Cargo 워크스페이스 설정
+    ├── README.md             # Rust 백엔드 문서
+    ├── API.md                # API 상세 문서
+    ├── ARCHITECTURE.md       # 아키텍처 상세 문서
+    ├── CONFIGURATION.md      # 설정 가이드
+    └── crates/               # 워크스페이스 크레이트
+        ├── common/           # 공통 모듈 (설정, 에러, 로거, 모델 관리)
+        ├── stt/              # STT 엔진 (whisper.cpp)
+        ├── llm/              # LLM 클라이언트 (Ollama API)
+        ├── vector/           # 벡터 검색 엔진
+        ├── server/           # Axum 웹 서버 및 API 라우트
+        └── recordroute/      # 실행 바이너리
 ```
 
 ## 4. 코어 시스템 구조
@@ -504,7 +529,7 @@ Ollama에 해당 모델이 다운로드되어 있어야 합니다.
 - ✅ 모델 자동 다운로드 시스템 구현
 
 ### 레거시 코드
-- Python 코드는 `deprecated/sttEngine`에 보관
+- Python 코드는 `legacy/python-backend`에 보관
 - 참고용으로 유지, 더 이상 유지보수하지 않음
 
 ## 16. 추가 참고 자료
