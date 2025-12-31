@@ -35,30 +35,36 @@ if errorlevel 1 (
 
 echo.
 echo Installing electron workspace dependencies...
-call npm install -w electron
-
+cd electron
+call npm install
 if errorlevel 1 (
-    echo Error: npm install -w electron failed
+    cd ..
+    echo Error: npm install in electron workspace failed
     exit /b 1
 )
+cd ..
 
 echo.
 echo Installing frontend workspace dependencies...
-call npm install -w frontend
-
+cd frontend
+call npm install
 if errorlevel 1 (
-    echo Error: npm install -w frontend failed
+    cd ..
+    echo Error: npm install in frontend workspace failed
     exit /b 1
 )
+cd ..
 
 echo.
 echo Installing electron-builder dependencies...
+cd electron
 call npm run install-deps
-
 if errorlevel 1 (
+    cd ..
     echo Error: electron-builder install-app-deps failed
     exit /b 1
 )
+cd ..
 
 echo [✓] Node.js dependencies installed
 

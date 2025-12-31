@@ -72,13 +72,13 @@ if [ "$SKIP_FRONTEND" = false ]; then
         npm install
         echo ""
         echo "Installing electron workspace dependencies..."
-        npm install -w electron
+        cd electron && npm install && cd ..
         echo ""
         echo "Installing frontend workspace dependencies..."
-        npm install -w frontend
+        cd frontend && npm install && cd ..
         echo ""
         echo "Installing electron-builder dependencies..."
-        npm run install-deps
+        cd electron && npm run install-deps && cd ..
         echo -e "${GREEN}✓ Dependencies installed${NC}"
     else
         echo "Node modules already installed"

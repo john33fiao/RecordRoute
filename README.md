@@ -121,12 +121,12 @@ tools\scripts\setup.bat
 # 루트 의존성 설치
 npm install
 
-# 워크스페이스 의존성 설치
-npm install -w electron
-npm install -w frontend
+# 워크스페이스 의존성 설치 (각 워크스페이스 디렉토리에서 직접 실행)
+cd electron && npm install && cd ..
+cd frontend && npm install && cd ..
 
 # electron-builder 의존성 설정
-npm run install-deps
+cd electron && npm run install-deps && cd ..
 ```
 
 **환경 설정 (선택 사항)**:
@@ -297,9 +297,15 @@ Rust 백엔드는 `recordroute-rs/API.md`에 문서화된 REST API를 제공합�
 
 - **npm install 오류**: `Cannot compute electron version` 에러가 발생하면:
   - 초기 설정 스크립트를 사용하세요: `bash tools/scripts/setup.sh` (또는 Windows에서 `tools\scripts\setup.bat`)
-  - 또는 수동으로 실행: `npm install && npm install -w electron && npm install -w frontend && npm run install-deps`
+  - 또는 수동으로 실행:
+    ```bash
+    npm install
+    cd electron && npm install && cd ..
+    cd frontend && npm install && cd ..
+    cd electron && npm run install-deps && cd ..
+    ```
   - 이 문제는 워크스페이스 의존성이 제대로 설치되지 않았거나 electron-builder가 electron이 설치되기 전에 실행되어 발생합니다.
-  - 참고: `npm install --workspaces`는 일부 시스템에서 제대로 작동하지 않을 수 있으므로 각 워크스페이스를 명시적으로 설치하는 것을 권장합니다.
+  - 참고: NPM workspaces의 호이스팅 메커니즘 때문에 각 워크스페이스 디렉토리에서 직접 `npm install`을 실행해야 합니다.
 
 - **Whisper 모델 오류**: `Error: STT error: Model file not found`가 발생하면:
   - Whisper 모델을 다운로드했는지 확인하세요 (위 "3. Whisper 모델 다운로드" 참조).
