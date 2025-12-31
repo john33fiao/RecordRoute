@@ -2396,69 +2396,56 @@ document.getElementById('uploadBtn').addEventListener('click', async () => {
 
     // Prepare upload progress tracking
     const totalUnique = uniqueFiles.length;
-    const totalSize = uniqueFiles.reduce((sum, file) => sum + (file.size || 0), 0);
-    const cumulativeSizes = [];
-    uniqueFiles.reduce((acc, file) => {
-        const next = acc + (file.size || 0);
-        cumulativeSizes.push(next);
-        return next;
-    }, 0);
 
     let progressLine = appendStatusLine(`업로드 진행중입니다. (0/${totalUnique})`);
-    let lastReportedCount = 0;
     const updateProgressLine = (count) => {
         const safeCount = Math.max(0, Math.min(totalUnique, count));
         progressLine.textContent = `업로드 진행중입니다. (${safeCount}/${totalUnique})`;
     };
 
-    const formData = new FormData();
-    uniqueFiles.forEach(file => formData.append('files', file));
+    // Upload files one by one
+    const uploads = [];
+    let uploadedCount = 0;
 
     try {
-        const responseData = await new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', `${API_BASE_URL}/upload`);
-            xhr.responseType = 'json';
+        for (const file of uniqueFiles) {
+            const formData = new FormData();
+            formData.append('file', file);  // Changed from 'files' to 'file'
 
-            xhr.upload.onprogress = (event) => {
-                if (!event.lengthComputable || totalSize === 0) {
-                    return;
-                }
+            try {
+                const response = await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', `${API_BASE_URL}/upload`);
+                    xhr.responseType = 'json';
 
-                const loaded = event.loaded;
-                let uploadedCount = lastReportedCount;
+                    xhr.onerror = () => {
+                        reject(new Error('네트워크 오류로 업로드에 실패했습니다.'));
+                    };
 
-                while (uploadedCount < cumulativeSizes.length && loaded >= cumulativeSizes[uploadedCount]) {
-                    uploadedCount += 1;
-                }
+                    xhr.onload = () => {
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            try {
+                                const parsed = xhr.response ?? JSON.parse(xhr.responseText || '{}');
+                                resolve(parsed);
+                            } catch (error) {
+                                reject(new Error('서버 응답을 해석하지 못했습니다.'));
+                            }
+                        } else {
+                            reject(new Error(`Upload failed with status ${xhr.status}`));
+                        }
+                    };
 
-                if (uploadedCount !== lastReportedCount) {
-                    lastReportedCount = uploadedCount;
-                    updateProgressLine(uploadedCount);
-                }
-            };
+                    xhr.send(formData);
+                });
 
-            xhr.onerror = () => {
-                reject(new Error('네트워크 오류로 업로드에 실패했습니다.'));
-            };
-
-            xhr.onload = () => {
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    try {
-                        const parsed = xhr.response ?? JSON.parse(xhr.responseText || '[]');
-                        resolve(parsed);
-                    } catch (error) {
-                        reject(new Error('서버 응답을 해석하지 못했습니다.'));
-                    }
-                } else {
-                    reject(new Error(`Upload failed with status ${xhr.status}`));
-                }
-            };
-
-            xhr.send(formData);
-        });
-
-        const uploads = Array.isArray(responseData) ? responseData : [];
+                uploads.push(response);
+                uploadedCount++;
+                updateProgressLine(uploadedCount);
+            } catch (err) {
+                console.error(`파일 업로드 실패: ${file.name}`, err);
+                // Continue with next file even if this one fails
+            }
+        }
         const serverDuplicateCount = uploads.filter(item => item && item.duplicate).length;
         const successCount = uploads.filter(item => item && !item.duplicate).length;
         const totalDuplicates = duplicateSelectionCount + serverDuplicateCount;
