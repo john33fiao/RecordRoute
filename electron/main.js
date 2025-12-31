@@ -250,7 +250,7 @@ function createWindow() {
   });
 
   // Load existing frontend file
-  mainWindow.loadFile('frontend/upload.html');
+  mainWindow.loadFile(path.join(projectRoot, 'frontend', 'upload.html'));
 
   // Open DevTools in development (uncomment for debugging)
   if (isDev) {
