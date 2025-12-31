@@ -1,4 +1,4 @@
-use actix_web::{get, web, HttpResponse};
+use actix_web::{get, HttpResponse};
 use recordroute_common::model_manager::ModelManager;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -75,26 +75,31 @@ async fn get_available_models() -> anyhow::Result<ModelsResponse> {
 }
 
 async fn scan_models_dir(dir: &PathBuf, models: &mut Vec<String>) -> anyhow::Result<()> {
-    let mut entries = tokio::fs::read_dir(dir).await?;
+    // Use a stack-based approach instead of recursion to avoid boxing
+    let mut dirs_to_scan = vec![dir.clone()];
 
-    while let Some(entry) = entries.next_entry().await? {
-        let path = entry.path();
+    while let Some(current_dir) = dirs_to_scan.pop() {
+        let mut entries = tokio::fs::read_dir(&current_dir).await?;
 
-        if path.is_file() {
-            if let Some(ext) = path.extension() {
-                if ext == "gguf" {
-                    if let Some(name) = path.file_name() {
-                        let name_str = name.to_string_lossy().to_string();
-                        // Skip mmproj files
-                        if !name_str.to_lowercase().contains("mmproj") {
-                            models.push(name_str);
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+
+            if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    if ext == "gguf" {
+                        if let Some(name) = path.file_name() {
+                            let name_str = name.to_string_lossy().to_string();
+                            // Skip mmproj files
+                            if !name_str.to_lowercase().contains("mmproj") {
+                                models.push(name_str);
+                            }
                         }
                     }
                 }
+            } else if path.is_dir() {
+                // Add subdirectory to scan queue
+                dirs_to_scan.push(path);
             }
-        } else if path.is_dir() {
-            // Recursively scan subdirectories
-            scan_models_dir(&path, models).await?;
         }
     }
 
