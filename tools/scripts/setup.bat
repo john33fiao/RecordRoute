@@ -25,11 +25,20 @@ echo Step 1: Installing Node.js Dependencies
 echo ==========================================
 echo.
 
-echo Installing npm packages...
+echo Installing root dependencies...
 call npm install
 
 if errorlevel 1 (
     echo Error: npm install failed
+    exit /b 1
+)
+
+echo.
+echo Installing workspace dependencies...
+call npm install --workspaces
+
+if errorlevel 1 (
+    echo Error: npm install --workspaces failed
     exit /b 1
 )
 

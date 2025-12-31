@@ -68,8 +68,11 @@ if [ "$SKIP_FRONTEND" = false ]; then
     echo ""
 
     if [ ! -d "node_modules" ]; then
-        echo "Installing npm packages..."
+        echo "Installing root dependencies..."
         npm install
+        echo ""
+        echo "Installing workspace dependencies..."
+        npm install --workspaces
         echo ""
         echo "Installing electron-builder dependencies..."
         npm run install-deps
