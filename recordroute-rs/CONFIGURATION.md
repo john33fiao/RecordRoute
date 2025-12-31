@@ -6,11 +6,20 @@ RecordRoute를 실행하기 위한 환경 변수 및 설정 파일 가이드입�
 
 RecordRoute는 다음 순서로 설정을 로드합니다:
 
-1. `.env` 파일
+1. `.env` 파일 (프로젝트 루트에서 자동 검색)
 2. 환경 변수
 3. 기본값
 
-`.env` 파일을 프로젝트 루트에 생성하는 것을 권장합니다.
+**중요**: `.env` 파일은 **프로젝트 최상위 폴더** (`.git` 디렉토리가 있는 곳)에 생성해야 합니다.
+RecordRoute는 자동으로 프로젝트 루트를 찾아 `.env` 파일을 로드합니다.
+
+```
+RecordRoute/           # 프로젝트 루트
+├── .env              # ← 여기에 .env 파일 생성
+├── .git/
+├── recordroute-rs/
+└── ...
+```
 
 ## 필수 설정
 
@@ -30,6 +39,10 @@ WHISPER_MODEL=./models/ggml-base.bin
 
 **다운로드**:
 ```bash
+# 프로젝트 루트로 이동
+cd RecordRoute
+
+# models 폴더 생성
 mkdir -p models
 cd models
 
@@ -39,6 +52,8 @@ wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
 # 또는 한국어 최적화 모델
 wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin
 ```
+
+**중요**: 모델 파일은 **프로젝트 루트의 `models/` 폴더**에 배치해야 합니다 (`RecordRoute/models/`).
 
 ### Ollama 설정
 
@@ -187,23 +202,24 @@ cargo run --release
 RecordRoute 실행 시 다음 디렉토리가 자동 생성됩니다:
 
 ```
-recordroute-rs/
-├── .env                    # 환경 설정 파일
-├── data/                   # 데이터 저장소
-│   ├── upload_history.json # 히스토리 DB
-│   ├── vector_index.json   # 벡터 인덱스
-│   ├── embeddings/         # 임베딩 파일
-│   └── whisper_output/     # STT 결과
-│       ├── {uuid}.txt      # 전사 텍스트
-│       ├── {uuid}_segments.json
-│       ├── {uuid}_summary.txt
-│       └── {uuid}_oneline.txt
-├── uploads/                # 업로드된 파일
-│   └── {uuid}.{ext}
-├── logs/                   # 로그 파일
-│   └── recordroute.log
-└── models/                 # AI 모델
-    └── ggml-base.bin
+RecordRoute/                # 프로젝트 루트
+├── .env                    # 환경 설정 파일 (여기에 생성)
+└── recordroute-rs/
+    ├── data/               # 데이터 저장소
+    │   ├── upload_history.json # 히스토리 DB
+    │   ├── vector_index.json   # 벡터 인덱스
+    │   ├── embeddings/         # 임베딩 파일
+    │   └── whisper_output/     # STT 결과
+    │       ├── {uuid}.txt      # 전사 텍스트
+    │       ├── {uuid}_segments.json
+    │       ├── {uuid}_summary.txt
+    │       └── {uuid}_oneline.txt
+    ├── uploads/            # 업로드된 파일
+    │   └── {uuid}.{ext}
+    ├── logs/               # 로그 파일
+    │   └── recordroute.log
+    └── models/             # AI 모델
+        └── ggml-base.bin
 ```
 
 ## 성능 튜닝

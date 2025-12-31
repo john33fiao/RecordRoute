@@ -87,21 +87,33 @@ RecordRoute/
 git clone https://github.com/your-repo/RecordRoute.git
 cd RecordRoute
 
-# 2. Rust 백엔드 빌드 및 실행 (첫 실행 시 시간이 걸릴 수 있습니다)
-# .env 파일에 설정이 없는 경우, 기본값으로 실행됩니다.
+# 2. (선택) 환경 설정 파일 생성
+# .env 파일은 프로젝트 루트에 생성해야 합니다.
+# .env 파일이 없는 경우, 기본값으로 실행됩니다.
+# 자세한 내용은 recordroute-rs/CONFIGURATION.md를 참고하세요.
+
+# 3. Rust 백엔드 빌드 및 실행 (첫 실행 시 시간이 걸릴 수 있습니다)
 cd recordroute-rs
 cargo run --release
 ```
 서버가 `http://localhost:8080`에서 실행됩니다.
 
+**환경 설정 위치**: `.env` 파일은 **프로젝트 루트** (`RecordRoute/.env`)에 생성해야 합니다.
+RecordRoute는 자동으로 프로젝트 루트를 찾아 `.env` 파일을 로드합니다.
+
 ### 3. Whisper 모델 다운로드 (필수)
 
 음성 인식을 위한 Whisper 모델을 미리 다운로드해야 합니다. **이 단계를 생략하면 `cargo run` 실행 시 "Model file not found" 오류가 발생합니다.**
 
+**중요**: 모델 파일은 **프로젝트 루트의 `models/` 폴더**에 배치해야 합니다.
+
 ```bash
+# 프로젝트 루트로 이동
+cd RecordRoute
+
 # models 디렉토리 생성
-mkdir -p recordroute-rs/models
-cd recordroute-rs/models
+mkdir -p models
+cd models
 
 # Base 모델 다운로드 (권장, 균형잡힌 성능)
 wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
@@ -117,10 +129,13 @@ curl -L -o ggml-base.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/ma
 - `ggml-medium.bin` - 매우 높은 정확도 (~1.5GB)
 - `ggml-large-v3.bin` - 최고 정확도, 한국어 최적화 (~2.9GB)
 
-모델을 다운로드한 후, `recordroute-rs/.env` 파일에서 경로를 설정할 수 있습니다:
+모델을 다운로드한 후, 프로젝트 루트의 `.env` 파일에서 경로를 설정할 수 있습니다:
 ```bash
+# RecordRoute/.env
 WHISPER_MODEL=./models/ggml-base.bin
 ```
+
+**참고**: 모든 상대 경로는 프로젝트 루트 기준입니다. RecordRoute는 자동으로 `.git` 디렉토리를 찾아 프로젝트 루트를 결정합니다.
 
 *자세한 모델 옵션과 성능 비교는 `recordroute-rs/CONFIGURATION.md`를 참고하세요.*
 
@@ -204,7 +219,7 @@ Rust 백엔드는 `recordroute-rs/API.md`에 문서화된 REST API를 제공합�
 - **Whisper 모델 오류**: `Error: STT error: Model file not found`가 발생하면:
   - Whisper 모델을 다운로드했는지 확인하세요 (위 "3. Whisper 모델 다운로드" 참조).
   - 모델 파일 경로가 올바른지 확인하세요 (`ls recordroute-rs/models/ggml-base.bin`).
-  - `.env` 파일의 `WHISPER_MODEL` 경로 설정을 확인하세요.
+  - 프로젝트 루트의 `.env` 파일 (`RecordRoute/.env`)에서 `WHISPER_MODEL` 경로 설정을 확인하세요.
   - 자세한 내용은 `recordroute-rs/CONFIGURATION.md`를 참고하세요.
 - **llama.cpp 연결 오류**: llama-server가 로컬에서 실행 중인지 확인하세요 (`llama-server -m /path/to/model.gguf`).
 - **FFmpeg 오류**: FFmpeg가 시스템에 설치되고 PATH에 등록되었는지 확인하세요.

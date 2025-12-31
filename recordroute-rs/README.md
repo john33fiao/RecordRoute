@@ -91,16 +91,24 @@ wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin -O 
 
 ### 환경 설정
 
-`.env` 파일 생성:
+**중요**: `.env` 파일은 **프로젝트 루트** (`RecordRoute/.env`)에 생성해야 합니다.
+RecordRoute는 자동으로 프로젝트 루트를 찾아 `.env` 파일을 로드합니다.
+
+**모든 상대 경로는 프로젝트 루트 기준입니다.**
+
+프로젝트 루트에 `.env` 파일 생성:
 
 ```bash
-# 데이터베이스 경로
-DB_BASE_PATH=./data
+# RecordRoute/.env
+
+# 데이터베이스 경로 (프로젝트 루트 기준 상대 경로)
+DB_BASE_PATH=./recordroute-rs/db
 
 # 업로드 디렉토리
-UPLOAD_DIR=./uploads
+UPLOAD_DIR=./recordroute-rs/db/uploads
 
-# Whisper 모델
+# Whisper 모델 (프로젝트 루트 기준 상대 경로)
+# 모델 파일은 프로젝트 루트의 models/ 폴더에 배치
 WHISPER_MODEL=./models/ggml-base.bin
 
 # Ollama 설정

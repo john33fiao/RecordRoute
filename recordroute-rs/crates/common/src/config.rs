@@ -58,17 +58,65 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    /// Find project root by looking for .git directory
+    fn find_project_root() -> Option<PathBuf> {
+        let mut current_dir = std::env::current_dir().ok()?;
+
+        loop {
+            if current_dir.join(".git").exists() {
+                return Some(current_dir);
+            }
+
+            if !current_dir.pop() {
+                break;
+            }
+        }
+
+        None
+    }
+
+    /// Resolve path relative to project root
+    fn resolve_path(path: &str, project_root: Option<&PathBuf>) -> PathBuf {
+        let path_buf = PathBuf::from(path);
+
+        // If absolute path, return as-is
+        if path_buf.is_absolute() {
+            return path_buf;
+        }
+
+        // If relative path and we have project root, resolve relative to root
+        if let Some(root) = project_root {
+            root.join(path)
+        } else {
+            // Fallback to current directory
+            path_buf
+        }
+    }
+
     /// Load configuration from environment variables and .env file
     pub fn from_env() -> Result<Self, RecordRouteError> {
-        // Load .env file (ignore if not exists)
-        let _ = dotenv::dotenv();
+        // Try to load .env from project root (where .git directory is)
+        let project_root = Self::find_project_root();
+
+        if let Some(root) = &project_root {
+            let env_path = root.join(".env");
+            if env_path.exists() {
+                dotenv::from_path(&env_path).ok();
+            }
+        } else {
+            // Fallback to default dotenv behavior (current dir and parents)
+            dotenv::dotenv().ok();
+        }
 
         let config = Self {
             db_base_path: Self::get_env_path("DB_BASE_PATH")
+                .map(|p| Self::resolve_path(&p.to_string_lossy(), project_root.as_ref()))
                 .unwrap_or_else(|| PathBuf::from("./db")),
             upload_dir: Self::get_env_path("UPLOAD_DIR")
+                .map(|p| Self::resolve_path(&p.to_string_lossy(), project_root.as_ref()))
                 .unwrap_or_else(|| PathBuf::from("./db/uploads")),
             whisper_model: std::env::var("WHISPER_MODEL")
+                .map(|p| Self::resolve_path(&p, project_root.as_ref()).to_string_lossy().to_string())
                 .unwrap_or_else(|_| "base".to_string()),
             ollama_base_url: std::env::var("OLLAMA_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string()),
@@ -83,10 +131,12 @@ impl AppConfig {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(8080),
             log_dir: Self::get_env_path("LOG_DIR")
+                .map(|p| Self::resolve_path(&p.to_string_lossy(), project_root.as_ref()))
                 .unwrap_or_else(|| PathBuf::from("./db/log")),
             log_level: std::env::var("LOG_LEVEL")
                 .unwrap_or_else(|_| "info".to_string()),
             vector_index_path: Self::get_env_path("VECTOR_INDEX_PATH")
+                .map(|p| Self::resolve_path(&p.to_string_lossy(), project_root.as_ref()))
                 .unwrap_or_else(|| PathBuf::from("./db/vector_index.json")),
         };
 
