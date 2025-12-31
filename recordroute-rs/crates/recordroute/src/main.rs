@@ -1,6 +1,37 @@
 use recordroute_common::{AppConfig, logger};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
+
+/// Find project root by looking for .git directory
+fn find_project_root() -> Option<PathBuf> {
+    let mut current_dir = std::env::current_dir().ok()?;
+
+    loop {
+        if current_dir.join(".git").exists() {
+            return Some(current_dir);
+        }
+
+        if !current_dir.pop() {
+            break;
+        }
+    }
+
+    None
+}
+
+/// Load .env file from project root
+fn load_dotenv_from_project_root() {
+    if let Some(root) = find_project_root() {
+        let env_path = root.join(".env");
+        if env_path.exists() {
+            dotenv::from_path(&env_path).ok();
+        }
+    } else {
+        // Fallback to default dotenv behavior
+        dotenv::dotenv().ok();
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "recordroute")]
@@ -32,8 +63,10 @@ enum Commands {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Load environment variables from .env
-    dotenv::dotenv().ok();
+    // Load environment variables from .env at project root
+    // Note: AppConfig::from_env() also loads .env, but we do it here early
+    // to ensure any CLI argument overrides work correctly
+    load_dotenv_from_project_root();
 
     // Handle commands
     match cli.command {

@@ -12,8 +12,6 @@ Cargo.lock
 *~
 
 # X½ À
-.env
-.env.local
 
 # \ø
 *.log
@@ -24,9 +22,6 @@ Cargo.lock
 !db/.gitkeep
 
 # ¨x |
-/models/*.bin
-/models/*.gguf
-!models/.gitkeep
 
 # OS
 .DS_Store
@@ -37,3 +32,5 @@ Thumbs.db
 *.dll
 *.so
 *.dylib
+# NOTE: models/ folder is managed at project root level (see /models/)
+# NOTE: .env files are managed at project root level (see /.gitignore)
