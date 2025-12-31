@@ -1,4 +1,4 @@
-use recordroute_common::{AppConfig, Result};
+use recordroute_common::{AppConfig, ModelManager, Result};
 use recordroute_llm::{OllamaClient, Summarizer};
 use recordroute_stt::WhisperEngine;
 use recordroute_vector::VectorSearchEngine;
@@ -38,15 +38,20 @@ pub struct AppState {
 
 impl AppState {
     /// Create new application state
-    pub fn new(config: AppConfig) -> Result<Self> {
+    pub async fn new(config: AppConfig) -> Result<Self> {
         let history_path = config.db_base_path.join("upload_history.json");
         let history = HistoryManager::load(&history_path)?;
         let history = Arc::new(RwLock::new(history));
 
         let job_manager = Arc::new(JobManager::new());
 
-        // Initialize Whisper engine
-        let whisper = Arc::new(WhisperEngine::new(&config.whisper_model)?);
+        // Initialize Model Manager and ensure Whisper model is available
+        let models_dir = ModelManager::default_models_dir();
+        let model_manager = ModelManager::new(models_dir)?;
+        let model_path = model_manager.ensure_whisper_model(&config.whisper_model).await?;
+
+        // Initialize Whisper engine with downloaded model
+        let whisper = Arc::new(WhisperEngine::new(&model_path)?);
 
         // Initialize Ollama client and summarizer
         let ollama = Arc::new(OllamaClient::new(config.ollama_base_url.clone())?);

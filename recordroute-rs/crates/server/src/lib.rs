@@ -23,8 +23,8 @@ use tracing::info;
 pub async fn start_server(config: AppConfig) -> Result<()> {
     info!("Starting RecordRoute server on {}", config.server_bind_address());
 
-    // Create application state
-    let app_state = Arc::new(AppState::new(config.clone())?);
+    // Create application state (downloads model if needed)
+    let app_state = Arc::new(AppState::new(config.clone()).await?);
 
     // Start WebSocket server in background
     let ws_state = app_state.clone();

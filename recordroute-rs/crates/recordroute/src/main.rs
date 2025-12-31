@@ -38,9 +38,6 @@ async fn main() -> Result<()> {
     // Handle commands
     match cli.command {
         Some(Commands::Serve { host, port, db_path }) => {
-            // Create config
-            let mut config = AppConfig::from_env()?;
-
             // Override with CLI arguments
             std::env::set_var("SERVER_HOST", &host);
             std::env::set_var("SERVER_PORT", &port.to_string());
@@ -48,8 +45,8 @@ async fn main() -> Result<()> {
                 std::env::set_var("DB_BASE_PATH", db);
             }
 
-            // Reload config with updated env vars
-            config = AppConfig::from_env()?;
+            // Create config with updated env vars
+            let config = AppConfig::from_env()?;
 
             // Setup logging
             logger::setup_logging(&config.log_dir, &config.log_level)?;
