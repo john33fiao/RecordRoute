@@ -65,10 +65,17 @@ if "%SKIP_FRONTEND%"=="false" (
     echo.
 
     if not exist "node_modules" (
-        echo Installing npm packages...
+        echo Installing root dependencies...
         call npm install
         if errorlevel 1 (
             echo Error: npm install failed
+            exit /b 1
+        )
+        echo.
+        echo Installing workspace dependencies...
+        call npm install --workspaces
+        if errorlevel 1 (
+            echo Error: npm install --workspaces failed
             exit /b 1
         )
         echo.
