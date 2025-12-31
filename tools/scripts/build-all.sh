@@ -70,6 +70,9 @@ if [ "$SKIP_FRONTEND" = false ]; then
     if [ ! -d "node_modules" ]; then
         echo "Installing npm packages..."
         npm install
+        echo ""
+        echo "Installing electron-builder dependencies..."
+        npm run install-deps
         echo -e "${GREEN}✓ Dependencies installed${NC}"
     else
         echo "Node modules already installed"

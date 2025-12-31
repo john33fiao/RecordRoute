@@ -53,10 +53,15 @@ RecordRoute/
 │
 ├── tools/                    # 개발 도구 및 스크립트
 │   ├── scripts/              # 빌드 및 실행 스크립트
-│   │   ├── build-all.sh      # 전체 빌드 스크립트
+│   │   ├── setup.sh          # 초기 설정 스크립트 (Linux/macOS)
+│   │   ├── setup.bat         # 초기 설정 스크립트 (Windows)
+│   │   ├── build-all.sh      # 전체 빌드 스크립트 (Linux/macOS)
+│   │   ├── build-all.bat     # 전체 빌드 스크립트 (Windows)
 │   │   ├── build-llama.sh    # llama.cpp 빌드 스크립트
 │   │   ├── build-llama.bat   # llama.cpp 빌드 (Windows)
 │   │   ├── build-backend.sh  # Python 백엔드 빌드
+│   │   ├── download-whisper-model.sh  # Whisper 모델 다운로드 (Linux/macOS)
+│   │   ├── download-whisper-model.bat # Whisper 모델 다운로드 (Windows)
 │   │   ├── start.bat         # Windows 실행 스크립트
 │   │   └── run.command       # macOS/Linux 실행 스크립트
 │   └── dev-env/              # 개발 환경 설정
@@ -91,19 +96,47 @@ RecordRoute/
 
 **참고**: llama.cpp는 서브모듈로 포함되어 있어 별도 설치가 필요하지 않습니다. 프로젝트 클론 시 자동으로 포함되며, 아래 빌드 단계에서 함께 빌드됩니다.
 
-### 2. 저장소 클론 및 서브모듈 초기화
+### 2. 저장소 클론 및 초기 설정
 
 ```bash
-# 1. 저장소 복제
+# 1. 저장소 복제 (서브모듈 포함)
 git clone --recursive https://github.com/your-repo/RecordRoute.git
 cd RecordRoute
 
-# 2. (선택) 환경 설정 파일 생성
-# .env 파일은 프로젝트 루트에 생성해야 합니다.
-# .env 파일이 없는 경우, 기본값으로 실행됩니다.
-# 자세한 내용은 recordroute-rs/CONFIGURATION.md를 참고하세요.
+# 2. 초기 설정 스크립트 실행 (Node.js 의존성 설치)
+# Linux/macOS
+bash tools/scripts/setup.sh
 
-# 3. Rust 백엔드 빌드 및 실행 (첫 실행 시 시간이 걸릴 수 있습니다)
+# Windows
+tools\scripts\setup.bat
+```
+
+**초기 설정 스크립트가 하는 일**:
+- Node.js 패키지 설치 (`npm install`)
+- electron-builder 의존성 설정
+- Whisper 모델 다운로드 (선택 사항)
+
+**수동 설치 방법**:
+```bash
+# Node.js 의존성 설치
+npm install
+
+# electron-builder 의존성 설정
+npm run install-deps
+```
+
+**환경 설정 (선택 사항)**:
+`.env` 파일은 프로젝트 루트에 생성할 수 있습니다. `.env` 파일이 없는 경우, 기본값으로 실행됩니다. 자세한 내용은 `recordroute-rs/CONFIGURATION.md`를 참고하세요.
+
+### 빠른 시작
+
+초기 설정이 완료되면 바로 실행할 수 있습니다:
+
+```bash
+# 개발 모드로 실행 (Electron 앱)
+npm start
+
+# 또는 Rust 백엔드만 실행
 cd recordroute-rs
 cargo run --release
 ```
@@ -200,16 +233,25 @@ RecordRoute는 Electron 기반 데스크톱 애플리케이션으로도 사용�
 
 #### 개발 모드 실행
 ```bash
-# 1. Rust 백엔드를 실행 상태로 둡니다.
-#    (cd recordroute-rs && cargo run --release)
-
-# 2. Node.js 의존성 설치
-npm install
-
-# 3. Electron 앱 시작
+# 1. 초기 설정이 완료되었다면 바로 실행 가능
 npm start
+
+# 2. 또는 프로덕션 빌드
+bash tools/scripts/build-all.sh
 ```
+
 *`npm start`는 `electron/main.js`에서 Rust 백엔드 프로세스를 자동으로 실행하려고 시도할 수 있습니다. 자세한 내용은 `package.json`의 스크립트를 확인하세요.*
+
+#### 플랫폼별 빌드
+```bash
+# Linux/macOS
+bash tools/scripts/build-all.sh --target mac    # macOS용 빌드
+bash tools/scripts/build-all.sh --target linux  # Linux용 빌드
+bash tools/scripts/build-all.sh --target win    # Windows용 빌드
+
+# Windows
+tools\scripts\build-all.bat
+```
 
 ---
 
@@ -248,6 +290,11 @@ Rust 백엔드는 `recordroute-rs/API.md`에 문서화된 REST API를 제공합�
 ---
 
 ## 트러블슈팅
+
+- **npm install 오류**: `Cannot compute electron version` 에러가 발생하면:
+  - 초기 설정 스크립트를 사용하세요: `bash tools/scripts/setup.sh` (또는 Windows에서 `tools\scripts\setup.bat`)
+  - 또는 수동으로 실행: `npm install && npm run install-deps`
+  - 이 문제는 electron-builder가 electron이 설치되기 전에 실행되어 발생합니다.
 
 - **Whisper 모델 오류**: `Error: STT error: Model file not found`가 발생하면:
   - Whisper 모델을 다운로드했는지 확인하세요 (위 "3. Whisper 모델 다운로드" 참조).
