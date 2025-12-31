@@ -11,7 +11,7 @@
     "build:linux": "npm run build:rust && electron-builder --linux",
     "build:rust": "cd recordroute-rs && cargo build --release",
     "pack": "electron-builder --dir",
-    "postinstall": "electron-builder install-app-deps"
+    "install-deps": "electron-builder install-app-deps"
   },
   "repository": {
     "type": "git",
