@@ -23,27 +23,48 @@
 
 ```
 RecordRoute/
-├── README.md              # 프로젝트 소개 및 설치 가이드
-├── package.json          # Node.js 프로젝트 설정 (Electron)
-├── electron/             # Electron 데스크톱 애플리케이션
-├── frontend/             # 웹 인터페이스 (HTML/CSS/JS)
-├── scripts/              # 빌드 및 실행 스크립트
+├── README.md                 # 프로젝트 소개 및 설치 가이드
+├── package.json              # NPM Workspaces 루트 설정
+├── .gitignore                # Git 제외 파일 목록
 │
-├── recordroute-rs/       # 메인 Rust 백엔드
-│   ├── Cargo.toml        # Rust 워크스페이스 설정
-│   ├── API.md            # API 상세 문서
-│   ├── ARCHITECTURE.md   # 아키텍처 상세 문서
-│   └── crates/           # 워크스페이스 크레이트
-│       ├── common        # 공통 모듈 (설정, 에러, 로거)
-│       ├── llm           # llama.cpp API 클라이언트 (요약, 임베딩)
-│       ├── stt           # STT 엔진 (whisper.cpp)
-│       ├── vector        # 벡터 검색 엔진
-│       ├── server        # Axum 웹 서버 및 API 라우트
-│       └── recordroute   # 실행 바이너리
+├── configs/                  # 환경 설정 템플릿
+├── data/                     # 실행 데이터 저장소 (.gitignore)
+├── models/                   # AI 모델 저장소 (.gitignore)
 │
-└── sttEngine/            # 레거시 Python 백엔드
-    ├── server.py         # 구버전 FastAPI/WebSocket 서버
-    └── requirements.txt  # 구버전 Python 의존성
+├── electron/                 # Electron 데스크톱 애플리케이션
+│   ├── main.js               # Electron 메인 프로세스
+│   ├── preload.js            # Preload 스크립트
+│   └── package.json          # Electron 워크스페이스 설정
+│
+├── frontend/                 # 웹 인터페이스 (HTML/CSS/JS)
+│   ├── upload.html/css/js    # 메인 UI
+│   └── package.json          # Frontend 워크스페이스 설정
+│
+├── legacy/                   # 레거시 Python 백엔드 (참고용)
+│   └── python-backend/       # 구버전 Python 코드
+│       ├── server.py         # 구버전 FastAPI/WebSocket 서버
+│       ├── requirements.txt  # 구버전 Python 의존성
+│       └── workflow/         # Python 워크플로우 모듈
+│
+├── tools/                    # 개발 도구 및 스크립트
+│   ├── scripts/              # 빌드 및 실행 스크립트
+│   │   ├── build-all.sh      # 전체 빌드 스크립트
+│   │   ├── build-backend.sh  # Python 백엔드 빌드
+│   │   ├── start.bat         # Windows 실행 스크립트
+│   │   └── run.command       # macOS/Linux 실행 스크립트
+│   └── dev-env/              # 개발 환경 설정
+│
+└── recordroute-rs/           # 메인 Rust 백엔드
+    ├── Cargo.toml            # Rust 워크스페이스 설정
+    ├── API.md                # API 상세 문서
+    ├── ARCHITECTURE.md       # 아키텍처 상세 문서
+    └── crates/               # 워크스페이스 크레이트
+        ├── common            # 공통 모듈 (설정, 에러, 로거)
+        ├── llm               # llama.cpp API 클라이언트 (요약, 임베딩)
+        ├── stt               # STT 엔진 (whisper.cpp)
+        ├── vector            # 벡터 검색 엔진
+        ├── server            # Axum 웹 서버 및 API 라우트
+        └── recordroute       # 실행 바이너리
 ```
 
 ## 설치 및 설정
@@ -195,5 +216,6 @@ Rust 백엔드는 `recordroute-rs/API.md`에 문서화된 REST API를 제공합�
 ## 참고사항
 
 - 이 프로젝트는 Python에서 Rust로의 성공적인 마이그레이션 사례 연구를 포함합니다.
-- 레거시 Python 코드는 `sttEngine`에 보존되어 있습니다.
+- 레거시 Python 코드는 `legacy/python-backend`에 보존되어 있습니다 (더 이상 유지보수하지 않음).
+- NPM Workspaces 구조로 전환되어 `electron`과 `frontend`가 독립적인 워크스페이스로 관리됩니다.
 - 구현 예정 기능은 [TODO](/TODO/TODO.md) 문서에 정리되어 있습니다.

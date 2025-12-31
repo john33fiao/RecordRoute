@@ -1,0 +1,10 @@
+{
+  "name": "recordroute-frontend",
+  "version": "1.0.0",
+  "description": "RecordRoute 프론트엔드 - HTML/CSS/JS 기반 UI",
+  "private": true,
+  "scripts": {
+    "dev": "echo 'Frontend is served by Electron'",
+    "build": "echo 'Frontend build complete'"
+  }
+}

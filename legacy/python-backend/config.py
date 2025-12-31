@@ -11,16 +11,17 @@ from typing import Any, Dict, Optional
 def load_env_file(env_path: Path = None) -> Dict[str, str]:
     """
     .env 파일을 로드하여 환경변수로 설정
-    
+
     Args:
         env_path: .env 파일 경로 (기본값: 프로젝트 루트의 .env)
-    
+
     Returns:
         로드된 환경변수 딕셔너리
     """
     if env_path is None:
-        # 현재 파일의 2단계 상위 디렉토리 (프로젝트 루트)
-        project_root = Path(__file__).parent.parent
+        # 현재 파일의 3단계 상위 디렉토리 (프로젝트 루트)
+        # legacy/python-backend/config.py -> RecordRoute/
+        project_root = Path(__file__).parent.parent.parent
         env_path = project_root / ".env"
     
     env_vars = {}
@@ -127,8 +128,8 @@ def get_project_root() -> Path:
         # PyInstaller로 패키징된 경우: 실행 파일의 디렉토리 사용
         return Path(sys.executable).parent.resolve()
     else:
-        # 개발 환경: 프로젝트 루트 사용
-        return Path(__file__).parent.parent.resolve()
+        # 개발 환경: 프로젝트 루트 사용 (legacy/python-backend/config.py -> RecordRoute/)
+        return Path(__file__).parent.parent.parent.resolve()
 
 
 def _resolve_db_path(path_value: str, base_dir: Path) -> Optional[Path]:

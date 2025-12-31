@@ -16,6 +16,10 @@ __pycache__/
 # 내장 DB 제외
 DB
 
+# 데이터 및 모델 저장소 제외
+/data
+/models
+
 # Node.js 의존성
 node_modules/
 

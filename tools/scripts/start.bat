@@ -11,7 +11,7 @@ if not exist "venv\Scripts\activate.bat" (
     echo 먼저 다음 명령으로 가상환경을 생성하세요:
     echo   python -m venv venv
     echo   venv\Scripts\activate
-    echo   pip install -r sttEngine\requirements.txt
+    echo   pip install -r legacy\python-backend\requirements.txt
     pause
     exit /b 1
 )
