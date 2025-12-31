@@ -119,6 +119,20 @@ RecordRoute는 자동으로 프로젝트 루트를 찾아 `.env` 파일을 로�
 
 **중요**: 모델 파일은 **프로젝트 루트의 `models/` 폴더**에 배치해야 합니다.
 
+#### 방법 1: 자동 다운로드 스크립트 사용 (권장)
+
+```bash
+# Linux/macOS
+./tools/scripts/download-whisper-model.sh
+
+# Windows
+tools\scripts\download-whisper-model.bat
+```
+
+스크립트를 실행하면 대화형으로 원하는 모델을 선택할 수 있습니다.
+
+#### 방법 2: 수동 다운로드
+
 ```bash
 # 프로젝트 루트로 이동
 cd RecordRoute
