@@ -56,7 +56,7 @@ RecordRoute/
   - **macOS**: `brew install ffmpeg`
   - **Windows**: `choco install ffmpeg`
   - **Linux**: `sudo apt-get install ffmpeg`
-- **Ollama**: 로컬 LLM을 구동하기 위해 설치 및 실행되어 있어야 합니다.
+- **Ollama**: 요약 및 임베딩 생성을 위한 API 서버입니다. 설치 및 실행되어 있어야 합니다.
   - [https://ollama.com/](https://ollama.com/)
 
 ### 2. 백엔드 실행 (Rust)
@@ -155,7 +155,7 @@ Rust 백엔드는 `recordroute-rs/API.md`에 문서화된 REST API를 제공합�
 - **FFmpeg 오류**: FFmpeg가 시스템에 설치되고 PATH에 등록되었는지 확인하세요.
 - **Cargo 빌드 오류**:
   - Rust toolchain이 최신 버전인지 확인하세요 (`rustup update`).
-  - C++ 빌드 도구가 필요할 수 있습니다 (특히 `whisper.cpp` 또는 `llama.cpp`의 의존성 빌드 시).
+  - C++ 빌드 도구가 필요할 수 있습니다 (특히 `whisper.cpp` 의존성 빌드 시).
 - **로그 확인**: 문제가 발생하면 `recordroute-rs/data/logs/` 디렉토리 (경로는 설정에 따라 다름)에 생성된 로그 파일을 확인하여 원인을 파악할 수 있습니다.
 
 ## 참고사항
