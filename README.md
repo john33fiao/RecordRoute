@@ -6,14 +6,14 @@
 - **고성능 Rust 백엔드**: 전체 백엔드가 Rust로 재작성되어 더 빠르고 안정적인 처리를 보장합니다.
 - **다양한 오디오 포맷 지원**: MP3, WAV, M4A, MP4 등 FFmpeg가 지원하는 대부분의 오디오/비디오 파일을 처리합니다.
 - **음성→텍스트 변환**: `whisper.cpp`를 사용한 고품질 음성 인식.
-- **구조화된 요약**: Ollama(`llama.cpp`)를 이용해 체계적인 회의록 형태의 요약을 생성합니다.
+- **구조화된 요약**: Ollama를 이용해 체계적인 회의록 형태의 요약을 생성합니다.
 - **자동화된 워크플로우**: 전사, 요약, 임베딩까지 이어지는 자동화된 처리 파이프라인.
 - **실시간 웹 인터페이스**:
     - 파일 업로드 및 단계별 작업 선택.
     - WebSocket을 통한 실시간 작업 진행 상황 모니터링.
     - 작업 취소, 기록 삭제 등 강력한 관리 기능.
 - **임베딩 및 RAG**:
-    - `llama.cpp` 기반 임베딩 모델을 통해 문서 벡터화 및 시맨틱 검색.
+    - Ollama를 통한 임베딩 모델로 문서 벡터화 및 시맨틱 검색.
     - 유사 문서 추천 및 키워드 검색.
 - **유틸리티**:
     - 한 줄 요약 생성.
@@ -35,7 +35,7 @@ RecordRoute/
 │   ├── ARCHITECTURE.md   # 아키텍처 상세 문서
 │   └── crates/           # 워크스페이스 크레이트
 │       ├── common        # 공통 모듈 (설정, 에러, 로거)
-│       ├── llm           # LLM 클라이언트 (Ollama, llama.cpp)
+│       ├── llm           # Ollama API 클라이언트 (요약, 임베딩)
 │       ├── stt           # STT 엔진 (whisper.cpp)
 │       ├── vector        # 벡터 검색 엔진
 │       ├── server        # Axum 웹 서버 및 API 라우트
@@ -77,12 +77,23 @@ cargo run --release
 
 워크플로우에 필요한 모델을 미리 다운로드합니다.
 ```bash
-# 요약 모델 (플랫폼 공통)
-ollama pull gemma3:8b
+# 요약 모델 (권장)
+ollama pull llama3.2
 
-# 임베딩 모델 (RAG 및 검색용)
-ollama pull mxbai-embed-large
+# 임베딩 모델 (검색용, 권장)
+ollama pull nomic-embed-text
 ```
+
+**다른 권장 모델 옵션**:
+```bash
+# 요약 모델 대안
+ollama pull gemma2      # Google Gemma 2
+ollama pull qwen2.5     # Alibaba Qwen 2.5
+
+# 임베딩 모델 대안
+ollama pull mxbai-embed-large  # 높은 정확도
+```
+
 *사용할 모델은 `.env` 파일 또는 `recordroute-rs/CONFIGURATION.md`를 참고하여 설정할 수 있습니다.*
 
 ### 4. Electron 데스크톱 앱
@@ -116,13 +127,6 @@ npm start
     - 작업 현황은 실시간으로 업데이트되며, 완료된 기록은 목록에서 관리할 수 있습니다.
     - 결과물 보기, 다운로드, 삭제 등 다양한 작업을 수행할 수 있습니다.
     - 검색창을 통해 저장된 모든 문서에 대해 시맨틱 검색을 수행할 수 있습니다.
-
-### 2. CLI 워크플로우 실행 (레거시)
-
-기존 Python 기반 CLI는 `sttEngine` 디렉토리에 남아있지만, 더 이상 유지보수되지 않습니다.
-```bash
-python sttEngine/run_workflow.py
-```
 
 ---
 
