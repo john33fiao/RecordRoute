@@ -6,14 +6,14 @@
 - **고성능 Rust 백엔드**: 전체 백엔드가 Rust로 재작성되어 더 빠르고 안정적인 처리를 보장합니다.
 - **다양한 오디오 포맷 지원**: MP3, WAV, M4A, MP4 등 FFmpeg가 지원하는 대부분의 오디오/비디오 파일을 처리합니다.
 - **음성→텍스트 변환**: `whisper.cpp`를 사용한 고품질 음성 인식.
-- **구조화된 요약**: Ollama를 이용해 체계적인 회의록 형태의 요약을 생성합니다.
+- **구조화된 요약**: llama.cpp를 이용해 체계적인 회의록 형태의 요약을 생성합니다.
 - **자동화된 워크플로우**: 전사, 요약, 임베딩까지 이어지는 자동화된 처리 파이프라인.
 - **실시간 웹 인터페이스**:
     - 파일 업로드 및 단계별 작업 선택.
     - WebSocket을 통한 실시간 작업 진행 상황 모니터링.
     - 작업 취소, 기록 삭제 등 강력한 관리 기능.
 - **임베딩 및 RAG**:
-    - Ollama를 통한 임베딩 모델로 문서 벡터화 및 시맨틱 검색.
+    - llama.cpp를 통한 임베딩 모델로 문서 벡터화 및 시맨틱 검색.
     - 유사 문서 추천 및 키워드 검색.
 - **유틸리티**:
     - 한 줄 요약 생성.
@@ -35,7 +35,7 @@ RecordRoute/
 │   ├── ARCHITECTURE.md   # 아키텍처 상세 문서
 │   └── crates/           # 워크스페이스 크레이트
 │       ├── common        # 공통 모듈 (설정, 에러, 로거)
-│       ├── llm           # Ollama API 클라이언트 (요약, 임베딩)
+│       ├── llm           # llama.cpp API 클라이언트 (요약, 임베딩)
 │       ├── stt           # STT 엔진 (whisper.cpp)
 │       ├── vector        # 벡터 검색 엔진
 │       ├── server        # Axum 웹 서버 및 API 라우트
@@ -56,8 +56,8 @@ RecordRoute/
   - **macOS**: `brew install ffmpeg`
   - **Windows**: `choco install ffmpeg`
   - **Linux**: `sudo apt-get install ffmpeg`
-- **Ollama**: 요약 및 임베딩 생성을 위한 API 서버입니다. 설치 및 실행되어 있어야 합니다.
-  - [https://ollama.com/](https://ollama.com/)
+- **llama.cpp**: 요약 및 임베딩 생성을 위한 로컬 LLM 추론 엔진입니다. 설치 및 실행되어 있어야 합니다.
+  - [https://github.com/ggerganov/llama.cpp](https://github.com/ggerganov/llama.cpp)
 
 ### 2. 백엔드 실행 (Rust)
 
@@ -105,26 +105,25 @@ WHISPER_MODEL=./models/ggml-base.bin
 
 ### 4. Ollama 모델 다운로드
 
-워크플로우에 필요한 모델을 미리 다운로드합니다.
-```bash
-# 요약 모델 (권장)
-ollama pull llama3.2
+워크플로우에 필요한 GGUF 형식의 모델을 HuggingFace에서 다운로드합니다.
 
-# 임베딩 모델 (검색용, 권장)
-ollama pull nomic-embed-text
+**요약 모델 (권장)**:
+- [Llama 3.2 3B GGUF](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF)
+- [Qwen2.5 7B GGUF](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF)
+- [Gemma 2 2B GGUF](https://huggingface.co/bartowski/gemma-2-2b-it-GGUF)
+
+**임베딩 모델 (검색용, 권장)**:
+- [nomic-embed-text GGUF](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF)
+- [mxbai-embed-large GGUF](https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1)
+
+다운로드한 모델 파일(`.gguf`)을 적절한 디렉토리에 저장하고, llama-server를 실행할 때 모델 경로를 지정합니다.
+
+```bash
+# llama-server 실행 예시
+llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 8081
 ```
 
-**다른 권장 모델 옵션**:
-```bash
-# 요약 모델 대안
-ollama pull gemma2      # Google Gemma 2
-ollama pull qwen2.5     # Alibaba Qwen 2.5
-
-# 임베딩 모델 대안
-ollama pull mxbai-embed-large  # 높은 정확도
-```
-
-*사용할 모델은 `.env` 파일 또는 `recordroute-rs/CONFIGURATION.md`를 참고하여 설정할 수 있습니다.*
+*사용할 모델 경로는 `.env` 파일 또는 `recordroute-rs/CONFIGURATION.md`를 참고하여 설정할 수 있습니다.*
 
 ### 5. Electron 데스크톱 앱
 
@@ -186,7 +185,7 @@ Rust 백엔드는 `recordroute-rs/API.md`에 문서화된 REST API를 제공합�
   - 모델 파일 경로가 올바른지 확인하세요 (`ls recordroute-rs/models/ggml-base.bin`).
   - `.env` 파일의 `WHISPER_MODEL` 경로 설정을 확인하세요.
   - 자세한 내용은 `recordroute-rs/CONFIGURATION.md`를 참고하세요.
-- **Ollama 연결 오류**: Ollama 서비스가 로컬에서 실행 중인지 확인하세요 (`ollama serve`).
+- **llama.cpp 연결 오류**: llama-server가 로컬에서 실행 중인지 확인하세요 (`llama-server -m /path/to/model.gguf`).
 - **FFmpeg 오류**: FFmpeg가 시스템에 설치되고 PATH에 등록되었는지 확인하세요.
 - **Cargo 빌드 오류**:
   - Rust toolchain이 최신 버전인지 확인하세요 (`rustup update`).
