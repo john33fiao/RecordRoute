@@ -2130,12 +2130,40 @@ function displayHistory(history) {
     updateDeleteButtonState();
 }
 
+// Transform backend history record to frontend format
+function transformHistoryRecord(record) {
+    // Determine file type from filename extension
+    const ext = record.filename.split('.').pop().toLowerCase();
+    let file_type = 'text';
+    if (['mp3', 'wav', 'flac', 'm4a', 'ogg', 'oga', 'webm', 'mp4', 'mpeg', 'mpga', 'qta'].includes(ext)) {
+        file_type = 'audio';
+    } else if (ext === 'pdf') {
+        file_type = 'pdf';
+    }
+
+    return {
+        ...record,
+        file_type,
+        completed_tasks: {
+            stt: record.stt_done || false,
+            embedding: record.embed_done || false,
+            summary: record.summarize_done || false
+        },
+        download_links: {
+            stt: record.stt_path || null,
+            embedding: null,  // Backend doesn't track embedding path separately
+            summary: record.summary_path || null
+        }
+    };
+}
+
 async function loadHistory() {
     try {
         const response = await fetch(`${API_BASE_URL}/history`);
         if (response.ok) {
             const history = await response.json();
-            displayHistory(history);
+            const transformed = history.map(transformHistoryRecord);
+            displayHistory(transformed);
         } else {
             console.error('Failed to load history');
         }
@@ -2148,7 +2176,8 @@ async function loadHistorySync() {
     try {
         const response = await fetch(`${API_BASE_URL}/history`);
         if (response.ok) {
-            return await response.json();
+            const history = await response.json();
+            return history.map(transformHistoryRecord);
         }
         return [];
     } catch (error) {
