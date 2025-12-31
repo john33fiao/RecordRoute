@@ -182,10 +182,56 @@ WHISPER_MODEL=./models/ggml-base.bin
 - [Llama 3.2 3B GGUF](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF)
 - [Qwen2.5 7B GGUF](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF)
 - [Gemma 2 2B GGUF](https://huggingface.co/bartowski/gemma-2-2b-it-GGUF)
+- [Gemma 3 4B](https://huggingface.co/google/gemma-3-4b-it) - 최신 Gemma 모델
 
 **임베딩 모델 (검색용, 권장)**:
 - [nomic-embed-text GGUF](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF)
 - [mxbai-embed-large GGUF](https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1)
+
+#### Gemma 3 4B 모델 다운로드 방법
+
+**방법 1: Hugging Face CLI 사용 (권장)**
+
+```bash
+# Hugging Face CLI 설치
+pip install -U "huggingface_hub[cli]"
+
+# 모델 전체 다운로드
+huggingface-cli download google/gemma-3-4b-it --local-dir ./models/gemma-3-4b-it
+
+# 특정 파일만 다운로드 (예: GGUF 파일)
+huggingface-cli download google/gemma-3-4b-it --include "*.gguf" --local-dir ./models/gemma-3-4b-it
+```
+
+**방법 2: Git LFS 사용**
+
+```bash
+# Git LFS 설치 (아직 설치하지 않은 경우)
+# macOS: brew install git-lfs
+# Linux: sudo apt-get install git-lfs
+# Windows: https://git-lfs.github.com/
+
+# Git LFS 초기화
+git lfs install
+
+# 모델 저장소 클론
+cd models
+git clone https://huggingface.co/google/gemma-3-4b-it
+```
+
+**방법 3: 특정 파일만 wget/curl로 다운로드**
+
+```bash
+# models 디렉토리 생성
+mkdir -p models/gemma-3-4b-it
+cd models/gemma-3-4b-it
+
+# 필요한 파일을 개별적으로 다운로드
+# (파일 목록은 https://huggingface.co/google/gemma-3-4b-it/tree/main 참조)
+wget https://huggingface.co/google/gemma-3-4b-it/resolve/main/config.json
+wget https://huggingface.co/google/gemma-3-4b-it/resolve/main/tokenizer.json
+# 필요한 다른 파일들도 동일한 방식으로 다운로드
+```
 
 다운로드한 모델 파일(`.gguf`)을 적절한 디렉토리에 저장하고, 빌드된 llama-server를 실행할 때 모델 경로를 지정합니다.
 
