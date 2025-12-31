@@ -200,7 +200,7 @@ pip install -U "huggingface_hub[cli]"
 huggingface-cli download google/gemma-3-4b-it --local-dir ./models/gemma-3-4b-it
 
 # 특정 파일만 다운로드 (예: GGUF 파일)
-huggingface-cli download google/gemma-3-4b-it --include "*.gguf" --local-dir ./models/gemma-3-4b-it
+hf download bartowski/google_gemma-3-4b-it-GGUF --include "*bf16.gguf" --local-dir ./models/gemma-3-4b-it
 ```
 
 **방법 2: Git LFS 사용**
