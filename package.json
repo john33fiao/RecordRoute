@@ -15,7 +15,9 @@
     "build:mac": "npm run build:mac --workspace=electron",
     "build:linux": "npm run build:linux --workspace=electron",
     "build:rust": "cd recordroute-rs && cargo build --release",
-    "postinstall": "npm run postinstall --workspace=electron"
+    "build:llama": "bash tools/scripts/build-llama.sh",
+    "build:all": "npm run build:llama && npm run build:rust",
+    "postinstall": "npm run postinstall --workspace=electron && git submodule update --init --recursive"
   },
   "repository": {
     "type": "git",
