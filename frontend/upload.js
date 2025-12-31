@@ -2243,17 +2243,27 @@ async function processNextTask() {
 
         // Get saved model settings
         const savedSettings = JSON.parse(localStorage.getItem('modelSettings') || '{}');
-        
+
+        // Build request payload based on task type
+        const requestPayload = {
+            file_uuid: currentTask.recordId,
+            run_stt: currentTask.task === 'stt',
+            run_summarize: currentTask.task === 'summary',
+            run_embed: currentTask.task === 'embed'
+        };
+
+        // Add model settings if available
+        if (savedSettings.stt_model) {
+            requestPayload.stt_model = savedSettings.stt_model;
+        }
+        if (savedSettings.summary_model) {
+            requestPayload.summary_model = savedSettings.summary_model;
+        }
+
         const response = await fetch(`${API_BASE_URL}/process`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                file_path: currentTask.filePath, 
-                steps: [currentTask.task],
-                record_id: currentTask.recordId,
-                task_id: currentTask.taskId,  // Send task_id to server
-                model_settings: savedSettings  // Send model settings to server
-            }),
+            body: JSON.stringify(requestPayload),
             signal: currentTask.abortController.signal
         });
 
