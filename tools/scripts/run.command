@@ -2,19 +2,21 @@
 
 # 이 스크립트가 있는 디렉토리 기준으로 경로 설정
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
+# 프로젝트 루트 디렉토리 (tools/scripts의 2단계 상위)
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # .env 파일이 있으면 환경변수 로드
-if [ -f "$SCRIPT_DIR/.env" ]; then
+if [ -f "$PROJECT_ROOT/.env" ]; then
   echo ".env 파일에서 환경변수를 로드합니다."
-  export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
+  export $(grep -v '^#' "$PROJECT_ROOT/.env" | xargs)
   echo "[DEBUG] PYANNOTE_TOKEN이 로드되었습니다."
 fi
 
 # 가상환경의 Python 실행 파일 경로
-VENV_PYTHON="$SCRIPT_DIR/venv/bin/python"
+VENV_PYTHON="$PROJECT_ROOT/venv/bin/python"
 
 # 웹서버 스크립트 경로
-WEB_SERVER="$SCRIPT_DIR/sttEngine/server.py"
+WEB_SERVER="$PROJECT_ROOT/legacy/python-backend/server.py"
 
 # 가상환경 존재 확인
 if [ ! -f "$VENV_PYTHON" ]; then
@@ -58,8 +60,8 @@ else
 fi
 
 # 의존성 확인 및 설치 (requirements.txt가 변경되었거나 새 패키지가 필요한 경우)
-REQUIREMENTS_FILE="$SCRIPT_DIR/sttEngine/requirements.txt"
-REQUIREMENTS_STATE_FILE="$SCRIPT_DIR/venv/.requirements_hash"
+REQUIREMENTS_FILE="$PROJECT_ROOT/legacy/python-backend/requirements.txt"
+REQUIREMENTS_STATE_FILE="$PROJECT_ROOT/venv/.requirements_hash"
 
 if [ -f "$REQUIREMENTS_FILE" ]; then
     echo "필요한 파이썬 패키지를 확인합니다..."
@@ -92,8 +94,8 @@ echo "서버 URL: http://localhost:8080"
 echo "(웹브라우저에서 http://localhost:8080 에 접속하세요)"
 echo
 
-cd "$SCRIPT_DIR"
-"$VENV_PYTHON" -m sttEngine.server
+cd "$PROJECT_ROOT/legacy/python-backend"
+"$VENV_PYTHON" server.py
 
 echo
 echo "서버가 종료되었습니다."

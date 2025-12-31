@@ -1,17 +1,21 @@
 {
-  "name": "recordroute",
+  "name": "record-route-root",
   "version": "1.0.0",
-  "description": "음성, 영상, PDF 파일을 텍스트로 변환하고 회의록으로 요약하는 통합 워크플로우 시스템입니다. STT(Speech-to-Text), 텍스트 추출, 요약, 벡터 검색 기능을 제공합니다.",
-  "main": "electron/main.js",
+  "private": true,
+  "description": "RecordRoute 모노레포 - 음성/영상/PDF를 텍스트로 변환하고 회의록으로 요약하는 통합 워크플로우 시스템",
+  "workspaces": [
+    "electron",
+    "frontend"
+  ],
   "scripts": {
-    "start": "electron .",
-    "build": "npm run build:rust && electron-builder",
-    "build:win": "npm run build:rust && electron-builder --win",
-    "build:mac": "npm run build:rust && electron-builder --mac",
-    "build:linux": "npm run build:rust && electron-builder --linux",
+    "dev": "npm run dev --workspace=electron",
+    "start": "npm start --workspace=electron",
+    "build": "npm run build --workspace=electron",
+    "build:win": "npm run build:win --workspace=electron",
+    "build:mac": "npm run build:mac --workspace=electron",
+    "build:linux": "npm run build:linux --workspace=electron",
     "build:rust": "cd recordroute-rs && cargo build --release",
-    "pack": "electron-builder --dir",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "npm run postinstall --workspace=electron"
   },
   "repository": {
     "type": "git",
@@ -21,91 +25,12 @@
     "stt",
     "speech-to-text",
     "whisper",
-    "ollama",
+    "llama-cpp",
     "summarization",
     "meeting-notes",
-    "vector-search"
+    "vector-search",
+    "monorepo"
   ],
   "author": "",
-  "license": "ISC",
-  "devDependencies": {
-    "electron": "^28.0.0",
-    "electron-builder": "^24.9.1"
-  },
-  "dependencies": {
-    "electron-updater": "^6.1.7"
-  },
-  "build": {
-    "appId": "com.recordroute.app",
-    "productName": "RecordRoute",
-    "directories": {
-      "buildResources": "build",
-      "output": "dist"
-    },
-    "files": [
-      "electron/main.js",
-      "electron/preload.js",
-      "frontend/**/*",
-      "!frontend/**/*.map"
-    ],
-    "extraResources": [
-      {
-        "from": "recordroute-rs/target/release/recordroute${ext}",
-        "to": "bin/recordroute${ext}"
-      },
-      {
-        "from": "bin",
-        "to": "bin",
-        "filter": ["**/*"]
-      },
-      {
-        "from": "bin/ffmpeg/${os}",
-        "to": "bin",
-        "filter": ["**/*"]
-      }
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": ["x64"]
-        }
-      ],
-      "icon": "build/icon.ico"
-    },
-    "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": ["x64", "arm64"]
-        }
-      ],
-      "icon": "build/icon.icns",
-      "category": "public.app-category.productivity"
-    },
-    "linux": {
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": ["x64"]
-        }
-      ],
-      "icon": "build/icon.png",
-      "category": "Utility"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "RecordRoute"
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "john33fiao",
-        "repo": "RecordRoute"
-      }
-    ]
-  }
+  "license": "ISC"
 }
