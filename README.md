@@ -103,31 +103,15 @@ RecordRoute/
 git clone --recursive https://github.com/your-repo/RecordRoute.git
 cd RecordRoute
 
-# 2. 초기 설정 스크립트 실행 (Node.js 의존성 설치)
-# Linux/macOS
-bash tools/scripts/setup.sh
-
-# Windows
-tools\scripts\setup.bat
-```
-
-**초기 설정 스크립트가 하는 일**:
-- Node.js 패키지 설치 (`npm install`)
-- electron-builder 의존성 설정
-- Whisper 모델 다운로드 (선택 사항)
-
-**수동 설치 방법**:
-```bash
-# 루트 의존성 설치
+# 2. Node.js 의존성 설치
+# 프로젝트는 npm workspaces를 사용하므로 루트에서 한 번만 실행
 npm install
 
-# 워크스페이스 의존성 설치 (각 워크스페이스 디렉토리에서 직접 실행)
-cd electron && npm install && cd ..
-cd frontend && npm install && cd ..
-
-# electron-builder 의존성 설정
-cd electron && npm run install-deps && cd ..
+# 3. electron-builder 의존성 설치
+npm run install-deps
 ```
+
+**중요**: npm workspaces를 사용하므로 모든 의존성 설치는 **프로젝트 루트에서만** 실행해야 합니다. 개별 워크스페이스(`electron/`, `frontend/`) 폴더에서 `npm install`을 실행하지 마세요.
 
 **환경 설정 (선택 사항)**:
 `.env` 파일은 프로젝트 루트에 생성할 수 있습니다. `.env` 파일이 없는 경우, 기본값으로 실행됩니다. 자세한 내용은 `recordroute-rs/CONFIGURATION.md`를 참고하세요.
@@ -156,19 +140,7 @@ RecordRoute는 자동으로 프로젝트 루트를 찾아 `.env` 파일을 로�
 
 **중요**: 모델 파일은 **프로젝트 루트의 `models/` 폴더**에 배치해야 합니다.
 
-#### 방법 1: 자동 다운로드 스크립트 사용 (권장)
-
-```bash
-# Linux/macOS
-./tools/scripts/download-whisper-model.sh
-
-# Windows
-tools\scripts\download-whisper-model.bat
-```
-
-스크립트를 실행하면 대화형으로 원하는 모델을 선택할 수 있습니다.
-
-#### 방법 2: 수동 다운로드
+#### 모델 다운로드 방법
 
 ```bash
 # 프로젝트 루트로 이동
@@ -237,25 +209,24 @@ RecordRoute는 Electron 기반 데스크톱 애플리케이션으로도 사용�
 
 #### 개발 모드 실행
 ```bash
-# 1. 초기 설정이 완료되었다면 바로 실행 가능
+# Electron 앱 실행 (개발 모드)
 npm start
-
-# 2. 또는 프로덕션 빌드
-bash tools/scripts/build-all.sh
 ```
 
-*`npm start`는 `electron/main.js`에서 Rust 백엔드 프로세스를 자동으로 실행하려고 시도할 수 있습니다. 자세한 내용은 `package.json`의 스크립트를 확인하세요.*
+*`npm start`는 Electron 앱을 시작합니다. Rust 백엔드는 별도로 실행해야 할 수 있습니다.*
 
-#### 플랫폼별 빌드
+#### 프로덕션 빌드
 ```bash
-# Linux/macOS
-bash tools/scripts/build-all.sh --target mac    # macOS용 빌드
-bash tools/scripts/build-all.sh --target linux  # Linux용 빌드
-bash tools/scripts/build-all.sh --target win    # Windows용 빌드
+# 현재 플랫폼용 빌드
+npm run build
 
-# Windows
-tools\scripts\build-all.bat
+# 특정 플랫폼용 빌드
+npm run build:mac     # macOS용 빌드
+npm run build:win     # Windows용 빌드
+npm run build:linux   # Linux용 빌드
 ```
+
+빌드된 파일은 `dist/` 폴더에 생성됩니다.
 
 ---
 
@@ -296,14 +267,13 @@ Rust 백엔드는 `recordroute-rs/API.md`에 문서화된 REST API를 제공합�
 ## 트러블슈팅
 
 - **npm install 오류**: `Cannot compute electron version` 에러가 발생하면:
-  - 초기 설정 스크립트를 사용하세요: `bash tools/scripts/setup.sh` (또는 Windows에서 `tools\scripts\setup.bat`)
-  - 또는 수동으로 실행:
+  - **중요**: npm workspaces를 사용하므로 **프로젝트 루트에서만** 설치를 실행하세요:
     ```bash
+    # 프로젝트 루트에서 실행
     npm install
-    cd electron && npm install && cd ..
-    cd frontend && npm install && cd ..
-    cd electron && npm run install-deps && cd ..
+    npm run install-deps
     ```
+  - 개별 워크스페이스 폴더(`electron/`, `frontend/`)에서 `npm install`을 실행하지 마세요.
   - 이 문제는 워크스페이스 의존성이 제대로 설치되지 않았거나 electron-builder가 electron이 설치되기 전에 실행되어 발생합니다.
   - 참고: NPM workspaces의 호이스팅 메커니즘 때문에 각 워크스페이스 디렉토리에서 직접 `npm install`을 실행해야 합니다.
 
