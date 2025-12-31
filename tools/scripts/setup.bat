@@ -34,11 +34,20 @@ if errorlevel 1 (
 )
 
 echo.
-echo Installing workspace dependencies...
-call npm install --workspaces
+echo Installing electron workspace dependencies...
+call npm install -w electron
 
 if errorlevel 1 (
-    echo Error: npm install --workspaces failed
+    echo Error: npm install -w electron failed
+    exit /b 1
+)
+
+echo.
+echo Installing frontend workspace dependencies...
+call npm install -w frontend
+
+if errorlevel 1 (
+    echo Error: npm install -w frontend failed
     exit /b 1
 )
 
