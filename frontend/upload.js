@@ -77,12 +77,20 @@ function initializeDropZone() {
         const droppedFiles = Array.from(event.dataTransfer?.files || []);
         if (droppedFiles.length === 0) return;
 
-        if (typeof DataTransfer === 'undefined') {
+        // Check DataTransfer support before using it
+        if (typeof DataTransfer === 'undefined' || typeof window.DataTransfer === 'undefined') {
             showTemporaryStatus('이 브라우저에서는 드래그 앤 드롭 추가가 지원되지 않습니다. 파일 선택 버튼을 이용해주세요.', 'warning', 5000);
             return;
         }
 
-        const dataTransfer = new DataTransfer();
+        let dataTransfer;
+        try {
+            dataTransfer = new DataTransfer();
+        } catch (e) {
+            console.error('DataTransfer creation failed:', e);
+            showTemporaryStatus('드래그 앤 드롭 기능을 사용할 수 없습니다. 파일 선택 버튼을 이용해주세요.', 'warning', 5000);
+            return;
+        }
         const existingFiles = Array.from(fileInput.files || []);
         const existingKeys = new Set(existingFiles.map(file => `${file.name}-${file.size}-${file.lastModified}`));
         existingFiles.forEach(file => dataTransfer.items.add(file));
