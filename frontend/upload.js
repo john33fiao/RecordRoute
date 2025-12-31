@@ -2417,7 +2417,7 @@ document.getElementById('uploadBtn').addEventListener('click', async () => {
     try {
         const responseData = await new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
-            xhr.open('POST', '/upload');
+            xhr.open('POST', `${API_BASE_URL}/upload`);
             xhr.responseType = 'json';
 
             xhr.upload.onprogress = (event) => {
