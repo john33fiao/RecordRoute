@@ -26,6 +26,7 @@ RecordRoute/
 ├── README.md                 # 프로젝트 소개 및 설치 가이드
 ├── package.json              # NPM Workspaces 루트 설정
 ├── .gitignore                # Git 제외 파일 목록
+├── .gitmodules               # Git 서브모듈 설정
 │
 ├── configs/                  # 환경 설정 템플릿
 ├── data/                     # 실행 데이터 저장소 (.gitignore)
@@ -46,9 +47,15 @@ RecordRoute/
 │       ├── requirements.txt  # 구버전 Python 의존성
 │       └── workflow/         # Python 워크플로우 모듈
 │
+├── third-party/              # 외부 의존성 (서브모듈)
+│   └── llama.cpp/            # llama.cpp 서브모듈
+│       └── build/            # 빌드 출력 (.gitignore)
+│
 ├── tools/                    # 개발 도구 및 스크립트
 │   ├── scripts/              # 빌드 및 실행 스크립트
 │   │   ├── build-all.sh      # 전체 빌드 스크립트
+│   │   ├── build-llama.sh    # llama.cpp 빌드 스크립트
+│   │   ├── build-llama.bat   # llama.cpp 빌드 (Windows)
 │   │   ├── build-backend.sh  # Python 백엔드 빌드
 │   │   ├── start.bat         # Windows 실행 스크립트
 │   │   └── run.command       # macOS/Linux 실행 스크립트
@@ -73,28 +80,59 @@ RecordRoute/
 
 - **Rust**: `rustup`을 통해 설치하는 것을 권장합니다.
   - [https://www.rust-lang.org/tools/install](https://www.rust-lang.org/tools/install)
+- **CMake**: llama.cpp 빌드에 필요합니다.
+  - **macOS**: `brew install cmake`
+  - **Windows**: [CMake 공식 사이트](https://cmake.org/download/)에서 다운로드
+  - **Linux**: `sudo apt-get install cmake build-essential`
 - **FFmpeg**: 시스템 PATH에 등록되어 있어야 합니다.
   - **macOS**: `brew install ffmpeg`
   - **Windows**: `choco install ffmpeg`
   - **Linux**: `sudo apt-get install ffmpeg`
-- **llama.cpp**: 요약 및 임베딩 생성을 위한 로컬 LLM 추론 엔진입니다. 설치 및 실행되어 있어야 합니다.
-  - [https://github.com/ggerganov/llama.cpp](https://github.com/ggerganov/llama.cpp)
 
-### 2. 백엔드 실행 (Rust)
+**참고**: llama.cpp는 서브모듈로 포함되어 있어 별도 설치가 필요하지 않습니다. 프로젝트 클론 시 자동으로 포함되며, 아래 빌드 단계에서 함께 빌드됩니다.
+
+### 2. 저장소 클론 및 서브모듈 초기화
 
 ```bash
 # 1. 저장소 복제
-git clone https://github.com/your-repo/RecordRoute.git
+git clone --recursive https://github.com/your-repo/RecordRoute.git
 cd RecordRoute
 
-# 2. Rust 백엔드 빌드 및 실행 (첫 실행 시 시간이 걸릴 수 있습니다)
-# .env 파일에 설정이 없는 경우, 기본값으로 실행됩니다.
+# 또는 이미 클론한 경우 서브모듈 초기화
+git submodule update --init --recursive
+```
+
+### 3. llama.cpp 빌드
+
+```bash
+# llama.cpp 빌드 (첫 실행 시 시간이 걸릴 수 있습니다)
+npm run build:llama
+
+# 또는 직접 스크립트 실행
+# Linux/macOS:
+bash tools/scripts/build-llama.sh
+# Windows:
+tools\scripts\build-llama.bat
+```
+
+빌드가 완료되면 `third-party/llama.cpp/build/bin/llama-server`에 실행 파일이 생성됩니다.
+
+### 4. Rust 백엔드 빌드 및 실행
+
+```bash
+# Rust 백엔드 빌드 및 실행
 cd recordroute-rs
 cargo run --release
 ```
+
 서버가 `http://localhost:8080`에서 실행됩니다.
 
-### 3. Whisper 모델 다운로드 (필수)
+**통합 빌드**: 모든 구성 요소를 한 번에 빌드하려면:
+```bash
+npm run build:all
+```
+
+### 5. Whisper 모델 다운로드 (필수)
 
 음성 인식을 위한 Whisper 모델을 미리 다운로드해야 합니다. **이 단계를 생략하면 `cargo run` 실행 시 "Model file not found" 오류가 발생합니다.**
 
@@ -124,7 +162,7 @@ WHISPER_MODEL=./models/ggml-base.bin
 
 *자세한 모델 옵션과 성능 비교는 `recordroute-rs/CONFIGURATION.md`를 참고하세요.*
 
-### 4. Ollama 모델 다운로드
+### 6. LLM 모델 다운로드 및 llama-server 실행
 
 워크플로우에 필요한 GGUF 형식의 모델을 HuggingFace에서 다운로드합니다.
 
@@ -137,16 +175,23 @@ WHISPER_MODEL=./models/ggml-base.bin
 - [nomic-embed-text GGUF](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF)
 - [mxbai-embed-large GGUF](https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1)
 
-다운로드한 모델 파일(`.gguf`)을 적절한 디렉토리에 저장하고, llama-server를 실행할 때 모델 경로를 지정합니다.
+다운로드한 모델 파일(`.gguf`)을 적절한 디렉토리에 저장하고, 빌드된 llama-server를 실행할 때 모델 경로를 지정합니다.
 
 ```bash
-# llama-server 실행 예시
-llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 8081
+# llama-server 실행 예시 (Linux/macOS)
+./third-party/llama.cpp/build/bin/llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 8081
+
+# Windows
+third-party\llama.cpp\build\bin\Release\llama-server.exe -m C:\path\to\model.gguf --host 127.0.0.1 --port 8081
 ```
 
-*사용할 모델 경로는 `.env` 파일 또는 `recordroute-rs/CONFIGURATION.md`를 참고하여 설정할 수 있습니다.*
+**팁**: 요약용 서버와 임베딩용 서버를 각각 다른 포트에서 실행할 수 있습니다.
+- 요약용: `--port 8081`
+- 임베딩용: `--port 8082`
 
-### 5. Electron 데스크톱 앱
+*사용할 모델 경로와 서버 설정은 `.env` 파일 또는 `recordroute-rs/CONFIGURATION.md`를 참고하여 설정할 수 있습니다.*
+
+### 7. Electron 데스크톱 앱
 
 RecordRoute는 Electron 기반 데스크톱 애플리케이션으로도 사용할 수 있습니다.
 
@@ -206,7 +251,18 @@ Rust 백엔드는 `recordroute-rs/API.md`에 문서화된 REST API를 제공합�
   - 모델 파일 경로가 올바른지 확인하세요 (`ls recordroute-rs/models/ggml-base.bin`).
   - `.env` 파일의 `WHISPER_MODEL` 경로 설정을 확인하세요.
   - 자세한 내용은 `recordroute-rs/CONFIGURATION.md`를 참고하세요.
-- **llama.cpp 연결 오류**: llama-server가 로컬에서 실행 중인지 확인하세요 (`llama-server -m /path/to/model.gguf`).
+- **llama.cpp 빌드 오류**:
+  - CMake가 설치되어 있는지 확인하세요 (`cmake --version`).
+  - C++ 컴파일러가 설치되어 있는지 확인하세요 (gcc, clang, MSVC 등).
+  - 서브모듈이 올바르게 초기화되었는지 확인하세요 (`git submodule update --init --recursive`).
+- **llama.cpp 연결 오류**: 빌드된 llama-server가 실행 중인지 확인하세요:
+  ```bash
+  # Linux/macOS
+  ./third-party/llama.cpp/build/bin/llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 8081
+
+  # Windows
+  third-party\llama.cpp\build\bin\Release\llama-server.exe -m C:\path\to\model.gguf --host 127.0.0.1 --port 8081
+  ```
 - **FFmpeg 오류**: FFmpeg가 시스템에 설치되고 PATH에 등록되었는지 확인하세요.
 - **Cargo 빌드 오류**:
   - Rust toolchain이 최신 버전인지 확인하세요 (`rustup update`).
