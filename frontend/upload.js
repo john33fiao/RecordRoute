@@ -849,10 +849,10 @@ async function deleteSelectedRecords() {
     recordIds.forEach(cancelTasksForRecord);
 
     try {
-        const response = await fetch(`${API_BASE_URL}/delete_records`, {
+        const response = await fetch(`${API_BASE_URL}/delete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ record_ids: recordIds })
+            body: JSON.stringify({ ids: recordIds })
         });
 
         const data = await response.json();
@@ -862,31 +862,10 @@ async function deleteSelectedRecords() {
             return;
         }
 
-        const results = data && data.results ? data.results : {};
-        const successfulIds = [];
-        const failedEntries = [];
-
-        Object.entries(results).forEach(([id, info]) => {
-            if (info && info.success) {
-                successfulIds.push(id);
-            } else {
-                failedEntries.push({
-                    id,
-                    error: info && info.error ? info.error : '알 수 없는 오류'
-                });
-            }
-        });
-
-        if (successfulIds.length > 0) {
-            successfulIds.forEach(id => selectedRecords.delete(id));
-            showTemporaryStatus(`${successfulIds.length}개 항목이 삭제되었습니다.`, 'success');
-        }
-
-        if (failedEntries.length > 0) {
-            const errorMessages = failedEntries.map(entry => `${entry.id}: ${entry.error}`).join(', ');
-            const variant = failedEntries.length === recordIds.length ? 'error' : 'warning';
-            showTemporaryStatus(`일부 항목 삭제에 실패했습니다: ${errorMessages}`, variant, 5000);
-        }
+        // Backend returns { "message": "Records deleted successfully" }
+        // All IDs are deleted on success
+        recordIds.forEach(id => selectedRecords.delete(id));
+        showTemporaryStatus(`${recordIds.length}개 항목이 삭제되었습니다.`, 'success');
 
         updateDeleteButtonState();
         loadHistory();

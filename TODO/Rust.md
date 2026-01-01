@@ -292,6 +292,64 @@ Python `openai-whisper`를 `whisper.cpp` + `whisper-rs` 바인딩으로 대체
   - ✅ 설정 가이드 작성 (README.md)
   - ✅ 마이그레이션 가이드 작성 (rust-migration.md)
 
+### 🚧 누락된 API 엔드포인트 구현 (2026-01-01 검토)
+
+프론트엔드와 백엔드 API 정렬 검토 결과, 다음 엔드포인트들이 백엔드에 누락되어 있음을 확인:
+
+- [ ] **POST /update_stt_text** - STT 텍스트 수동 업데이트
+  - 요청: `{ file_identifier: string, content: string }`
+  - 응답: `{ success: boolean, record_id?: string }`
+  - 기능: 사용자가 STT 결과를 수정한 후 저장
+  - 우선순위: 높음
+
+- [ ] **POST /similar** - 유사 문서 검색
+  - 요청: `{ file_path: string, refresh?: boolean }`
+  - 응답: `[{ display_name, file, link, score, title_summary }]`
+  - 기능: 특정 문서와 유사한 다른 문서 찾기
+  - 우선순위: 중간
+
+- [ ] **POST /check_existing_stt** - STT 결과 존재 여부 확인
+  - 요청: `{ file_path: string }`
+  - 응답: `{ has_stt: boolean }`
+  - 기능: 임베딩 실행 전 STT 완료 여부 확인
+  - 우선순위: 중간
+
+- [ ] **POST /reset** - 레코드 전체 초기화
+  - 요청: `{ record_id: string }`
+  - 응답: `{ success: boolean }`
+  - 기능: STT, 요약, 임베딩 모두 제거하고 재시작
+  - 우선순위: 중간
+
+- [ ] **POST /reset_summary_embedding** - 요약/임베딩만 초기화
+  - 요청: `{ record_id: string }`
+  - 응답: `{ success: boolean }`
+  - 기능: STT는 유지하고 요약과 임베딩만 제거
+  - 우선순위: 낮음
+
+- [ ] **POST /update_filename** - 파일명 변경
+  - 요청: `{ record_id: string, filename: string }`
+  - 응답: `{ success: boolean }`
+  - 기능: 업로드된 파일의 표시 이름 변경
+  - 우선순위: 낮음
+
+- [ ] **POST /reset_all_tasks** - 전체 작업 일괄 초기화
+  - 요청: `{ tasks: ["stt" | "embedding" | "summary"] }`
+  - 응답: `{ success: boolean, message: string }`
+  - 기능: 선택한 작업 유형들을 모든 레코드에서 초기화
+  - 우선순위: 낮음
+
+- [ ] **POST /shutdown** - 서버 종료
+  - 요청: 없음
+  - 응답: `{ success: boolean, message: string }`
+  - 기능: 백엔드 서버 graceful shutdown
+  - 우선순위: 낮음 (Electron 환경에서만 필요)
+
+**구현 참고사항**:
+- 위 엔드포인트들은 프론트엔드(upload.js)에서 실제로 사용 중
+- 현재는 백엔드가 구현되지 않아 에러 발생 가능
+- Phase 6 통합 테스트 전에 우선순위 높은 항목부터 구현 필요
+- crates/server/src/routes/에 새 모듈 추가 또는 기존 모듈 확장
+
 ---
 
 ## ✅ Phase 7: 모델 관리 및 배포
