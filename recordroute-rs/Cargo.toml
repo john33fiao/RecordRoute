@@ -20,6 +20,7 @@ actix-cors = "0.7"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 futures = "0.3"
+async-trait = "0.1"
 
 # 직렬화
 serde = { version = "1", features = ["derive"] }
@@ -35,15 +36,14 @@ candle-transformers = "0.3"
 ndarray = "0.15"
 ndarray-linalg = "0.16"
 
+# LLM (llama.cpp 바인딩)
+llama-cpp-2 = "0.1"
+
 # STT (whisper.cpp 바인딩)
 whisper-rs = "0.10"
 
 # 오디오 처리
 symphonia = "0.5"
-
-# PDF 처리
-lopdf = "0.31"
-pdf-extract = "0.7"
 
 # FFmpeg 바인딩
 ffmpeg-next = "6"
