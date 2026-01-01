@@ -1,6 +1,5 @@
 use recordroute_common::Result;
 use std::path::Path;
-use std::sync::Arc;
 use tracing::{info, warn};
 use async_trait::async_trait;
 
@@ -13,8 +12,11 @@ use crate::llm_trait::LlmClient;
 /// Currently this is a placeholder. Use OllamaClient for production.
 pub struct LlamaCppClient {
     model_path: String,
+    #[allow(dead_code)]
     embedding_model_path: Option<String>,
+    #[allow(dead_code)]
     n_ctx: u32,
+    #[allow(dead_code)]
     n_threads: u32,
 }
 

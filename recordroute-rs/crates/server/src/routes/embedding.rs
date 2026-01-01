@@ -58,15 +58,6 @@ pub async fn incremental_embedding(
             }
         };
 
-        // Check if already has embedding in vector index
-        // (This is a simplified check - in production you might want to check timestamps)
-        let has_embedding = state
-            .vector_search
-            .stats()
-            .await
-            .0
-            > 0; // Simplified check
-
         // Generate embedding
         info!("Generating embedding for record: {}", record_id);
 
