@@ -1,6 +1,5 @@
 use actix_web::{post, web, HttpResponse};
 use std::fs;
-use std::path::PathBuf;
 use tracing::{error, info};
 
 use crate::state::AppState;
