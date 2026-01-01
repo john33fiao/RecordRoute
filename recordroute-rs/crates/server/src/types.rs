@@ -6,35 +6,39 @@ use serde::{Deserialize, Serialize};
 pub struct HistoryRecord {
     /// Unique identifier
     pub id: String,
-    
+
     /// Original filename
     pub filename: String,
-    
+
+    /// File path (for download)
+    #[serde(default)]
+    pub file_path: String,
+
     /// Upload timestamp
     pub timestamp: DateTime<Utc>,
-    
+
     /// STT completed
     pub stt_done: bool,
-    
+
     /// Summary completed
     pub summarize_done: bool,
-    
+
     /// Embedding completed
     pub embed_done: bool,
-    
+
     /// Path to STT result
     pub stt_path: Option<String>,
-    
+
     /// Path to summary result
     pub summary_path: Option<String>,
-    
+
     /// One-line summary
     pub one_line_summary: Option<String>,
-    
+
     /// Tags
     #[serde(default)]
     pub tags: Vec<String>,
-    
+
     /// Deleted flag
     #[serde(default)]
     pub deleted: bool,
@@ -43,9 +47,11 @@ pub struct HistoryRecord {
 impl HistoryRecord {
     /// Create new history record
     pub fn new(id: String, filename: String) -> Self {
+        let file_path = format!("/download/{}", id);
         Self {
             id,
             filename,
+            file_path,
             timestamp: Utc::now(),
             stt_done: false,
             summarize_done: false,
@@ -171,7 +177,153 @@ pub struct UploadResponse {
 pub struct ProcessResponse {
     /// Task ID
     pub task_id: String,
-    
+
+    /// Message
+    pub message: String,
+}
+
+/// Update STT text request
+#[derive(Debug, Deserialize)]
+pub struct UpdateSttTextRequest {
+    /// File identifier (UUID)
+    pub file_identifier: String,
+
+    /// New STT content
+    pub content: String,
+}
+
+/// Update STT text response
+#[derive(Debug, Serialize)]
+pub struct UpdateSttTextResponse {
+    /// Success flag
+    pub success: bool,
+
+    /// Record ID (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_id: Option<String>,
+}
+
+/// Similar documents request
+#[derive(Debug, Deserialize)]
+pub struct SimilarDocsRequest {
+    /// File path or identifier
+    pub file_path: String,
+
+    /// Refresh flag
+    #[serde(default)]
+    pub refresh: bool,
+}
+
+/// Similar document item
+#[derive(Debug, Serialize)]
+pub struct SimilarDocItem {
+    /// Display name
+    pub display_name: String,
+
+    /// File path
+    pub file: String,
+
+    /// Download link
+    pub link: String,
+
+    /// Similarity score
+    pub score: f32,
+
+    /// Title summary
+    pub title_summary: Option<String>,
+}
+
+/// Check existing STT request
+#[derive(Debug, Deserialize)]
+pub struct CheckExistingSttRequest {
+    /// File path or identifier
+    pub file_path: String,
+}
+
+/// Check existing STT response
+#[derive(Debug, Serialize)]
+pub struct CheckExistingSttResponse {
+    /// Has STT flag
+    pub has_stt: bool,
+}
+
+/// Reset record request
+#[derive(Debug, Deserialize)]
+pub struct ResetRecordRequest {
+    /// Record ID
+    pub record_id: String,
+}
+
+/// Reset summary/embedding request
+#[derive(Debug, Deserialize)]
+pub struct ResetSummaryEmbeddingRequest {
+    /// Record ID
+    pub record_id: String,
+}
+
+/// Update filename request
+#[derive(Debug, Deserialize)]
+pub struct UpdateFilenameRequest {
+    /// Record ID
+    pub record_id: String,
+
+    /// New filename
+    pub filename: String,
+}
+
+/// Reset all tasks request
+#[derive(Debug, Deserialize)]
+pub struct ResetAllTasksRequest {
+    /// Task types to reset
+    pub tasks: Vec<String>,
+}
+
+/// Generic success response
+#[derive(Debug, Serialize)]
+pub struct SuccessResponse {
+    /// Success flag
+    pub success: bool,
+
+    /// Optional message
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Incremental embedding response
+#[derive(Debug, Serialize)]
+pub struct IncrementalEmbeddingResponse {
+    /// Success flag
+    pub success: bool,
+
+    /// Number of files processed
+    pub processed_count: usize,
+
+    /// Message
+    pub message: String,
+}
+
+/// Cache stats response
+#[derive(Debug, Serialize)]
+pub struct CacheStatsResponse {
+    /// Total cache entries
+    pub total_entries: usize,
+
+    /// Cache size in bytes
+    pub cache_size_bytes: u64,
+
+    /// Expired entries count
+    pub expired_entries: usize,
+}
+
+/// Cache cleanup response
+#[derive(Debug, Serialize)]
+pub struct CacheCleanupResponse {
+    /// Success flag
+    pub success: bool,
+
+    /// Number of cleaned entries
+    pub cleaned_entries: usize,
+
     /// Message
     pub message: String,
 }
