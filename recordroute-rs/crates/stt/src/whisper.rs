@@ -169,24 +169,76 @@ impl WhisperEngine {
     /// Converts audio to 16kHz mono PCM format required by Whisper
     fn load_audio(&self, path: &Path) -> Result<Vec<f32>> {
         info!("Loading audio file: {}", path.display());
-        
-        // For now, use a simple WAV loader
-        // TODO: Phase 2.2 - Implement full audio preprocessing with symphonia
-        
+
         // Check file extension
         let ext = path.extension()
             .and_then(|e| e.to_str())
             .map(|e| e.to_lowercase())
             .unwrap_or_default();
-        
+
         match ext.as_str() {
-            "wav" => self.load_wav(path),
-            _ => Err(RecordRouteError::stt(format!(
-                "Unsupported audio format: {}. Currently only WAV is supported. \
-                 Use FFmpeg to convert to 16kHz mono WAV first.",
-                ext
-            ))),
+            "wav" => {
+                // For WAV files, load directly if already in correct format
+                self.load_wav(path)
+            }
+            "m4a" | "mp3" | "mp4" | "aac" | "flac" | "ogg" => {
+                // For other formats, convert to WAV using FFmpeg
+                info!("Converting {} to WAV using FFmpeg", ext);
+                self.convert_and_load_audio(path)
+            }
+            _ => {
+                // Try conversion anyway
+                warn!("Unknown audio format: {}, attempting conversion", ext);
+                self.convert_and_load_audio(path)
+            }
         }
+    }
+
+    /// Convert audio file to 16kHz mono WAV using FFmpeg and load it
+    fn convert_and_load_audio(&self, path: &Path) -> Result<Vec<f32>> {
+        use std::process::Command;
+        use std::fs;
+
+        // Create temporary WAV file path
+        let temp_wav = path.with_extension("temp.wav");
+
+        info!("Converting audio to WAV: {} -> {}", path.display(), temp_wav.display());
+
+        // Run FFmpeg to convert to 16kHz mono WAV
+        let output = Command::new("ffmpeg")
+            .arg("-i")
+            .arg(path)
+            .arg("-ar")
+            .arg("16000")  // 16kHz sample rate
+            .arg("-ac")
+            .arg("1")      // Mono
+            .arg("-y")     // Overwrite output file
+            .arg(&temp_wav)
+            .output()
+            .map_err(|e| RecordRouteError::stt(format!(
+                "Failed to run FFmpeg: {}. Make sure FFmpeg is installed.", e
+            )))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // Clean up temp file if it exists
+            let _ = fs::remove_file(&temp_wav);
+            return Err(RecordRouteError::stt(format!(
+                "FFmpeg conversion failed: {}", stderr
+            )));
+        }
+
+        info!("Audio conversion successful, loading WAV file");
+
+        // Load the converted WAV file
+        let result = self.load_wav(&temp_wav);
+
+        // Clean up temporary file
+        if let Err(e) = fs::remove_file(&temp_wav) {
+            warn!("Failed to remove temporary WAV file: {}", e);
+        }
+
+        result
     }
     
     /// Load WAV file

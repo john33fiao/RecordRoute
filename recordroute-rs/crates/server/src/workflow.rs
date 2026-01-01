@@ -1,4 +1,4 @@
-use recordroute_common::{AppConfig, Result};
+use recordroute_common::{AppConfig, RecordRouteError, Result};
 use recordroute_llm::Summarizer;
 use recordroute_stt::{TranscriptionOptions, WhisperEngine};
 use recordroute_vector::{VectorMetadata, VectorSearchEngine};
@@ -224,9 +224,17 @@ impl WorkflowExecutor {
             .update_progress(task_id, 20, "Loading audio file...".to_string())
             .await;
 
-        // Run transcription
+        // Run transcription in a blocking task (Whisper is CPU-intensive)
         info!("Transcribing file: {:?}", file_path);
-        let transcript = self.whisper.transcribe(file_path, &stt_options)?;
+        let whisper = Arc::clone(&self.whisper);
+        let file_path_clone = file_path.to_path_buf();
+        let stt_options_clone = stt_options.clone();
+
+        let transcript = tokio::task::spawn_blocking(move || {
+            whisper.transcribe(&file_path_clone, &stt_options_clone)
+        })
+        .await
+        .map_err(|e| RecordRouteError::stt(format!("Transcription task panicked: {}", e)))??;
 
         self.job_manager
             .update_progress(task_id, 40, "Writing transcription results...".to_string())
