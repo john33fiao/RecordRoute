@@ -1,5 +1,5 @@
 use recordroute_common::{AppConfig, Result};
-use recordroute_llm::OllamaClient;
+use recordroute_llm::LlmClient;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -13,7 +13,7 @@ pub struct VectorSearchEngine {
     index: Arc<RwLock<VectorIndex>>,
     index_path: PathBuf,
     embedding_dir: PathBuf,
-    ollama: Arc<OllamaClient>,
+    llm_client: Arc<dyn LlmClient>,
     embedding_model: String,
 }
 
@@ -21,7 +21,7 @@ impl VectorSearchEngine {
     /// Create new vector search engine
     pub fn new(
         config: &AppConfig,
-        ollama: Arc<OllamaClient>,
+        llm_client: Arc<dyn LlmClient>,
     ) -> Result<Self> {
         let index_path = config.vector_index_path.clone();
         let embedding_dir = config.db_base_path.join("embeddings");
@@ -40,7 +40,7 @@ impl VectorSearchEngine {
             index: Arc::new(RwLock::new(index)),
             index_path,
             embedding_dir,
-            ollama,
+            llm_client,
             embedding_model: config.embedding_model.clone(),
         })
     }
@@ -56,7 +56,7 @@ impl VectorSearchEngine {
         info!("Adding document to vector index: {}", doc_id);
 
         // Generate embedding
-        let embedding = self.ollama.embed(&self.embedding_model, text).await?;
+        let embedding = self.llm_client.embed(&self.embedding_model, text).await?;
 
         // Save embedding to file
         tokio::fs::create_dir_all(&self.embedding_dir).await?;
@@ -104,7 +104,7 @@ impl VectorSearchEngine {
         );
 
         // Generate query embedding
-        let query_embedding = self.ollama.embed(&self.embedding_model, query).await?;
+        let query_embedding = self.llm_client.embed(&self.embedding_model, query).await?;
 
         // Get all active entries
         let index = self.index.read().await;

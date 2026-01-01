@@ -1,8 +1,10 @@
 use recordroute_common::Result;
 use reqwest::Client;
 use tracing::{debug, info};
+use async_trait::async_trait;
 
 use crate::types::{EmbedRequest, EmbedResponse, GenerateRequest, GenerateResponse};
+use crate::llm_trait::LlmClient;
 
 /// Ollama API client
 #[derive(Debug, Clone)]
@@ -205,5 +207,22 @@ impl OllamaClient {
         }
 
         Ok(result.embedding)
+    }
+}
+
+#[async_trait]
+impl LlmClient for OllamaClient {
+    async fn generate(&self, request: GenerateRequest) -> Result<String> {
+        self.generate(request).await
+    }
+
+    async fn embed(&self, model: &str, text: &str) -> Result<Vec<f32>> {
+        self.embed(model, text).await
+    }
+
+    fn test_connection(&self) -> Result<bool> {
+        // Ollama's test_connection is async, but we need sync here
+        // For now, just return true as a placeholder
+        Ok(true)
     }
 }

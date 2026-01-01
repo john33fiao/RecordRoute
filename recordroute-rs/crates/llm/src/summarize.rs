@@ -1,8 +1,9 @@
 use recordroute_common::Result;
 use tracing::{debug, info};
+use std::sync::Arc;
 
 use crate::chunking::chunk_text;
-use crate::client::OllamaClient;
+use crate::llm_trait::LlmClient;
 use crate::prompts::{chunk_prompt, one_line_prompt, reduce_prompt};
 use crate::types::{GenerateOptions, GenerateRequest, Summary};
 
@@ -11,13 +12,13 @@ const BATCH_REDUCE_SIZE: usize = 10;
 
 /// Summarizer for long text using map-reduce strategy
 pub struct Summarizer {
-    client: OllamaClient,
+    client: Arc<dyn LlmClient>,
     model: String,
 }
 
 impl Summarizer {
-    /// Create new summarizer
-    pub fn new(client: OllamaClient, model: impl Into<String>) -> Self {
+    /// Create new summarizer with any LLM client
+    pub fn new(client: Arc<dyn LlmClient>, model: impl Into<String>) -> Self {
         Self {
             client,
             model: model.into(),
@@ -163,11 +164,12 @@ impl Summarizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::OllamaClient;
 
     #[test]
     fn test_summarizer_creation() {
         let client = OllamaClient::new("http://localhost:11434").unwrap();
-        let summarizer = Summarizer::new(client, "llama3.2");
+        let summarizer = Summarizer::new(Arc::new(client), "llama3.2");
         assert_eq!(summarizer.model, "llama3.2");
     }
 }

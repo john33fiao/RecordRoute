@@ -1,5 +1,5 @@
 use recordroute_common::{AppConfig, Result};
-use recordroute_llm::{OllamaClient, Summarizer};
+use recordroute_llm::{LlmClient, OllamaClient, Summarizer};
 use recordroute_stt::WhisperEngine;
 use recordroute_vector::VectorSearchEngine;
 use std::sync::Arc;
@@ -50,13 +50,14 @@ impl AppState {
 
         // Initialize Ollama client and summarizer
         let ollama = Arc::new(OllamaClient::new(config.ollama_base_url.clone())?);
+        let ollama_client: Arc<dyn LlmClient> = ollama.clone();
         let summarizer = Arc::new(Summarizer::new(
-            (*ollama).clone(),
+            ollama_client.clone(),
             config.llm_model.clone(),
         ));
 
         // Initialize vector search engine
-        let vector_search = Arc::new(VectorSearchEngine::new(&config, ollama.clone())?);
+        let vector_search = Arc::new(VectorSearchEngine::new(&config, ollama_client.clone())?);
 
         // Initialize workflow executor
         let workflow = Arc::new(WorkflowExecutor::new(

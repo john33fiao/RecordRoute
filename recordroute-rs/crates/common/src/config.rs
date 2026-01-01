@@ -17,11 +17,26 @@ pub struct AppConfig {
     /// Ollama API base URL
     pub ollama_base_url: String,
 
-    /// Embedding model name
+    /// Embedding model name (for Ollama)
     pub embedding_model: String,
 
-    /// LLM summarization model name
+    /// LLM summarization model name (for Ollama)
     pub llm_model: String,
+
+    /// Use llama.cpp directly instead of Ollama
+    pub use_llamacpp: bool,
+
+    /// Path to GGUF LLM model file (for llama.cpp)
+    pub llama_model_path: Option<PathBuf>,
+
+    /// Path to GGUF embedding model file (for llama.cpp)
+    pub embedding_model_path: Option<PathBuf>,
+
+    /// Context size for llama.cpp
+    pub llama_n_ctx: u32,
+
+    /// Number of threads for llama.cpp
+    pub llama_n_threads: u32,
 
     /// Server bind address
     pub server_host: String,
@@ -48,6 +63,11 @@ impl Default for AppConfig {
             ollama_base_url: "http://localhost:11434".to_string(),
             embedding_model: "nomic-embed-text".to_string(),
             llm_model: "llama3.2:latest".to_string(),
+            use_llamacpp: false,  // Default to Ollama for backward compatibility
+            llama_model_path: None,
+            embedding_model_path: None,
+            llama_n_ctx: 2048,
+            llama_n_threads: 4,
             server_host: "0.0.0.0".to_string(),
             server_port: 8080,
             log_dir: PathBuf::from("./db/log"),
@@ -124,6 +144,22 @@ impl AppConfig {
                 .unwrap_or_else(|_| "nomic-embed-text".to_string()),
             llm_model: std::env::var("LLM_MODEL")
                 .unwrap_or_else(|_| "llama3.2:latest".to_string()),
+            use_llamacpp: std::env::var("USE_LLAMACPP")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(false),
+            llama_model_path: Self::get_env_path("LLAMA_MODEL_PATH")
+                .map(|p| Self::resolve_path(&p.to_string_lossy(), project_root.as_ref())),
+            embedding_model_path: Self::get_env_path("EMBEDDING_MODEL_PATH")
+                .map(|p| Self::resolve_path(&p.to_string_lossy(), project_root.as_ref())),
+            llama_n_ctx: std::env::var("LLAMA_N_CTX")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(2048),
+            llama_n_threads: std::env::var("LLAMA_N_THREADS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(4),
             server_host: std::env::var("SERVER_HOST")
                 .unwrap_or_else(|_| "0.0.0.0".to_string()),
             server_port: std::env::var("SERVER_PORT")
@@ -201,12 +237,37 @@ impl AppConfig {
             return Err(RecordRouteError::config("Whisper model name cannot be empty"));
         }
 
-        // Validate Ollama URL
-        if !self.ollama_base_url.starts_with("http://")
-            && !self.ollama_base_url.starts_with("https://") {
-            return Err(RecordRouteError::config(
-                "Ollama base URL must start with http:// or https://"
-            ));
+        // Validate LLM configuration
+        if self.use_llamacpp {
+            // When using llama.cpp, model files must exist
+            if let Some(model_path) = &self.llama_model_path {
+                if !model_path.exists() {
+                    return Err(RecordRouteError::config(
+                        format!("LLM model file not found: {}", model_path.display())
+                    ));
+                }
+            } else {
+                return Err(RecordRouteError::config(
+                    "LLAMA_MODEL_PATH must be set when USE_LLAMACPP=true"
+                ));
+            }
+
+            // Embedding model is optional but should exist if specified
+            if let Some(embed_path) = &self.embedding_model_path {
+                if !embed_path.exists() {
+                    return Err(RecordRouteError::config(
+                        format!("Embedding model file not found: {}", embed_path.display())
+                    ));
+                }
+            }
+        } else {
+            // When using Ollama, validate URL
+            if !self.ollama_base_url.starts_with("http://")
+                && !self.ollama_base_url.starts_with("https://") {
+                return Err(RecordRouteError::config(
+                    "Ollama base URL must start with http:// or https://"
+                ));
+            }
         }
 
         // Validate port range
