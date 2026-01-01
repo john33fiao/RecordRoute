@@ -171,7 +171,114 @@ pub struct UploadResponse {
 pub struct ProcessResponse {
     /// Task ID
     pub task_id: String,
-    
+
     /// Message
     pub message: String,
+}
+
+/// Update STT text request
+#[derive(Debug, Deserialize)]
+pub struct UpdateSttTextRequest {
+    /// File identifier (UUID)
+    pub file_identifier: String,
+
+    /// New STT content
+    pub content: String,
+}
+
+/// Update STT text response
+#[derive(Debug, Serialize)]
+pub struct UpdateSttTextResponse {
+    /// Success flag
+    pub success: bool,
+
+    /// Record ID (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_id: Option<String>,
+}
+
+/// Similar documents request
+#[derive(Debug, Deserialize)]
+pub struct SimilarDocsRequest {
+    /// File path or identifier
+    pub file_path: String,
+
+    /// Refresh flag
+    #[serde(default)]
+    pub refresh: bool,
+}
+
+/// Similar document item
+#[derive(Debug, Serialize)]
+pub struct SimilarDocItem {
+    /// Display name
+    pub display_name: String,
+
+    /// File path
+    pub file: String,
+
+    /// Download link
+    pub link: String,
+
+    /// Similarity score
+    pub score: f32,
+
+    /// Title summary
+    pub title_summary: Option<String>,
+}
+
+/// Check existing STT request
+#[derive(Debug, Deserialize)]
+pub struct CheckExistingSttRequest {
+    /// File path or identifier
+    pub file_path: String,
+}
+
+/// Check existing STT response
+#[derive(Debug, Serialize)]
+pub struct CheckExistingSttResponse {
+    /// Has STT flag
+    pub has_stt: bool,
+}
+
+/// Reset record request
+#[derive(Debug, Deserialize)]
+pub struct ResetRecordRequest {
+    /// Record ID
+    pub record_id: String,
+}
+
+/// Reset summary/embedding request
+#[derive(Debug, Deserialize)]
+pub struct ResetSummaryEmbeddingRequest {
+    /// Record ID
+    pub record_id: String,
+}
+
+/// Update filename request
+#[derive(Debug, Deserialize)]
+pub struct UpdateFilenameRequest {
+    /// Record ID
+    pub record_id: String,
+
+    /// New filename
+    pub filename: String,
+}
+
+/// Reset all tasks request
+#[derive(Debug, Deserialize)]
+pub struct ResetAllTasksRequest {
+    /// Task types to reset
+    pub tasks: Vec<String>,
+}
+
+/// Generic success response
+#[derive(Debug, Serialize)]
+pub struct SuccessResponse {
+    /// Success flag
+    pub success: bool,
+
+    /// Optional message
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }

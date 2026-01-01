@@ -54,7 +54,17 @@ pub async fn start_server(config: AppConfig) -> Result<()> {
             .service(routes::tasks::cancel_task)
             .service(routes::search::search)
             .service(routes::search::search_stats)
+            .service(routes::search::similar_documents)
             .service(routes::models::get_models)
+            // Record management routes
+            .service(routes::record::update_stt_text)
+            .service(routes::record::check_existing_stt)
+            .service(routes::record::reset_record)
+            .service(routes::record::reset_summary_embedding)
+            .service(routes::record::update_filename)
+            .service(routes::record::reset_all_tasks)
+            // System routes
+            .service(routes::system::shutdown)
             // Static files and index
             .service(fs::Files::new("/", "frontend").index_file("upload.html"))
     })

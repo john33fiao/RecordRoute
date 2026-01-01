@@ -2,6 +2,8 @@ pub mod download;
 pub mod history;
 pub mod models;
 pub mod process;
+pub mod record;
 pub mod search;
+pub mod system;
 pub mod tasks;
 pub mod upload;
