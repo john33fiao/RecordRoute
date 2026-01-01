@@ -11,12 +11,19 @@ pub struct HistoryManager {
 
 impl HistoryManager {
     pub fn load(path: &Path) -> Result<Self> {
-        let records = if path.exists() {
+        let mut records: Vec<HistoryRecord> = if path.exists() {
             let data = fs::read_to_string(path)?;
             serde_json::from_str(&data).unwrap_or_else(|_| Vec::new())
         } else {
             Vec::new()
         };
+
+        // Migrate old records without file_path
+        for record in &mut records {
+            if record.file_path.is_empty() {
+                record.file_path = format!("/download/{}", record.id);
+            }
+        }
 
         Ok(Self {
             records,

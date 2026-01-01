@@ -6,35 +6,39 @@ use serde::{Deserialize, Serialize};
 pub struct HistoryRecord {
     /// Unique identifier
     pub id: String,
-    
+
     /// Original filename
     pub filename: String,
-    
+
+    /// File path (for download)
+    #[serde(default)]
+    pub file_path: String,
+
     /// Upload timestamp
     pub timestamp: DateTime<Utc>,
-    
+
     /// STT completed
     pub stt_done: bool,
-    
+
     /// Summary completed
     pub summarize_done: bool,
-    
+
     /// Embedding completed
     pub embed_done: bool,
-    
+
     /// Path to STT result
     pub stt_path: Option<String>,
-    
+
     /// Path to summary result
     pub summary_path: Option<String>,
-    
+
     /// One-line summary
     pub one_line_summary: Option<String>,
-    
+
     /// Tags
     #[serde(default)]
     pub tags: Vec<String>,
-    
+
     /// Deleted flag
     #[serde(default)]
     pub deleted: bool,
@@ -43,9 +47,11 @@ pub struct HistoryRecord {
 impl HistoryRecord {
     /// Create new history record
     pub fn new(id: String, filename: String) -> Self {
+        let file_path = format!("/download/{}", id);
         Self {
             id,
             filename,
+            file_path,
             timestamp: Utc::now(),
             stt_done: false,
             summarize_done: false,
