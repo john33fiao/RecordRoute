@@ -282,3 +282,42 @@ pub struct SuccessResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
+
+/// Incremental embedding response
+#[derive(Debug, Serialize)]
+pub struct IncrementalEmbeddingResponse {
+    /// Success flag
+    pub success: bool,
+
+    /// Number of files processed
+    pub processed_count: usize,
+
+    /// Message
+    pub message: String,
+}
+
+/// Cache stats response
+#[derive(Debug, Serialize)]
+pub struct CacheStatsResponse {
+    /// Total cache entries
+    pub total_entries: usize,
+
+    /// Cache size in bytes
+    pub cache_size_bytes: u64,
+
+    /// Expired entries count
+    pub expired_entries: usize,
+}
+
+/// Cache cleanup response
+#[derive(Debug, Serialize)]
+pub struct CacheCleanupResponse {
+    /// Success flag
+    pub success: bool,
+
+    /// Number of cleaned entries
+    pub cleaned_entries: usize,
+
+    /// Message
+    pub message: String,
+}

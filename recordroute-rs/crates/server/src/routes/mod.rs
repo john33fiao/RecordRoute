@@ -1,4 +1,6 @@
+pub mod cache;
 pub mod download;
+pub mod embedding;
 pub mod history;
 pub mod models;
 pub mod process;

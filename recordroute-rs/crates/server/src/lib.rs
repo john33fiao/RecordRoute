@@ -52,6 +52,7 @@ pub async fn start_server(config: AppConfig) -> Result<()> {
             .service(routes::download::download)
             .service(routes::tasks::get_tasks)
             .service(routes::tasks::cancel_task)
+            .service(routes::tasks::get_task_progress)
             .service(routes::search::search)
             .service(routes::search::search_stats)
             .service(routes::search::similar_documents)
@@ -63,6 +64,11 @@ pub async fn start_server(config: AppConfig) -> Result<()> {
             .service(routes::record::reset_summary_embedding)
             .service(routes::record::update_filename)
             .service(routes::record::reset_all_tasks)
+            // Embedding routes
+            .service(routes::embedding::incremental_embedding)
+            // Cache routes
+            .service(routes::cache::cache_stats)
+            .service(routes::cache::cache_cleanup)
             // System routes
             .service(routes::system::shutdown)
             // Static files and index
