@@ -14,7 +14,7 @@
     "build:win": "npm run build:win --workspace=electron",
     "build:mac": "npm run build:mac --workspace=electron",
     "build:linux": "npm run build:linux --workspace=electron",
-    "build:rust": "cd recordroute-rs && cargo build --release",
+    "build:rust": "bash tools/scripts/build-rust.sh",
     "build:llama": "bash tools/scripts/build-llama.sh",
     "build:all": "npm run build:llama && npm run build:rust",
     "install-deps": "npm run install-deps --workspace=electron",
