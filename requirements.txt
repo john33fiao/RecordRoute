@@ -1,9 +1,13 @@
 # PyTorch CUDA wheels (Windows에서 GPU 가속을 위해 추가 인덱스)
 --extra-index-url https://download.pytorch.org/whl/cu124
 
-# Whisper가 PyTorch를 통해 GPU를 자동 사용(device=auto)하도록 CUDA 빌드를 설치
+# GPU 가속을 위해 torch 패키지 3종을 CUDA 버전으로 명시적 지정
+# (이들이 없으면 의존성 자동 설치 시 CPU 버전이 깔려 충돌할 수 있습니다)
 torch
+torchaudio
+torchvision
 
+# 나머지 의존성
 openai-whisper>=20231117
 ollama>=0.1.0
 multipart

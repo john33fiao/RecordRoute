@@ -70,15 +70,16 @@ if errorlevel 1 (
 echo.
 echo "2단계: 가상환경 활성화 및 의존성 설치..."
 call venv\Scripts\activate
+set "VENV_PYTHON=%SCRIPT_DIR%venv\Scripts\python.exe"
 
 if exist "sttEngine\requirements.txt" (
-    pip install -r sttEngine\requirements.txt
+    "%VENV_PYTHON%" -m pip install -r sttEngine\requirements.txt
 ) else (
     echo "경고: sttEngine\requirements.txt 파일을 찾을 수 없습니다."
 )
 
 if exist "requirements.txt" (
-    pip install -r requirements.txt
+    "%VENV_PYTHON%" -m pip install -r requirements.txt
 )
 
 echo.
@@ -86,19 +87,19 @@ echo "PyTorch CUDA 빌드 확인 및 설치..."
 set "TORCH_VER_FILE=%SCRIPT_DIR%\venv\Lib\site-packages\torch\version.py"
 if not exist "%TORCH_VER_FILE%" (
     echo "PyTorch가 설치되지 않았습니다. CUDA 빌드를 설치합니다 (cu124)..."
-    %PY_CMD% -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch
+    "%VENV_PYTHON%" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio
 ) else (
     findstr /C:"+cpu'" "%TORCH_VER_FILE%" >nul 2>&1
     if not errorlevel 1 (
         echo "CPU 빌드 PyTorch 감지 → CUDA 빌드로 교체합니다 (cu124)..."
-        %PY_CMD% -m pip uninstall -y torch >nul 2>&1
-        %PY_CMD% -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch
+        "%VENV_PYTHON%" -m pip uninstall -y torch torchvision torchaudio >nul 2>&1
+        "%VENV_PYTHON%" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio
     ) else (
         echo "PyTorch CUDA 빌드 또는 호환 빌드가 감지되었습니다."
     )
 )
 
-python -c "import torch; print('Torch:', torch.__version__); print('CUDA runtime:', getattr(getattr(torch,'version',None),'cuda',None)); print('cuda.is_available:', bool(getattr(torch,'cuda',None) and torch.cuda.is_available()))"
+"%VENV_PYTHON%" -c "import torch; print('Torch:', torch.__version__); print('CUDA runtime:', getattr(getattr(torch,'version',None),'cuda',None)); print('cuda.is_available:', bool(getattr(torch,'cuda',None) and torch.cuda.is_available()))"
 
 echo.
 echo "3단계: Ollama 설치 확인..."

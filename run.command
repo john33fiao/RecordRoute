@@ -86,6 +86,18 @@ else
     echo "경고: requirements.txt 파일을 찾을 수 없습니다."
 fi
 
+# 루트 requirements.txt 확인 및 설치
+ROOT_REQ_FILE="$SCRIPT_DIR/requirements.txt"
+if [ -f "$ROOT_REQ_FILE" ]; then
+    echo "루트 requirements.txt를 확인합니다..."
+    "$VENV_PYTHON" -m pip install -r "$ROOT_REQ_FILE" > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+         echo "루트 의존성 확인 완료."
+    else
+         echo "경고: 루트 의존성 설치 중 오류가 발생했습니다."
+    fi
+fi
+
 # 웹서버 실행
 echo "가상환경의 파이썬으로 웹서버를 실행합니다..."
 echo "서버 URL: http://localhost:8080"

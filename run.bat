@@ -85,13 +85,13 @@ REM Ensure CUDA-enabled PyTorch is installed (avoid CPU-only wheels)
 set "TORCH_VER_FILE=%SCRIPT_DIR%\venv\Lib\site-packages\torch\version.py"
 if not exist "%TORCH_VER_FILE%" (
     echo "PyTorch가 설치되지 않았습니다. CUDA 빌드를 설치합니다 (cu124)..."
-    "%VENV_PYTHON%" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch
+    "%VENV_PYTHON%" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio
 ) else (
     findstr /C:"+cpu'" "%TORCH_VER_FILE%" >nul 2>&1
     if not errorlevel 1 (
         echo "CPU 빌드 PyTorch 감지 → CUDA 빌드로 교체합니다 (cu124)..."
-        "%VENV_PYTHON%" -m pip uninstall -y torch >nul 2>&1
-        "%VENV_PYTHON%" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch
+        "%VENV_PYTHON%" -m pip uninstall -y torch torchvision torchaudio >nul 2>&1
+        "%VENV_PYTHON%" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio
     ) else (
         echo "PyTorch CUDA 빌드 또는 호환 빌드가 감지되었습니다."
     )
