@@ -1,10 +1,31 @@
+use async_trait::async_trait;
 use recordroute_common::Result;
 use std::path::Path;
 use tracing::{info, warn};
-use async_trait::async_trait;
 
-use crate::types::GenerateRequest;
 use crate::llm_trait::LlmClient;
+use crate::types::GenerateRequest;
+
+/// GPU backend used for llama.cpp
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LlamaBackend {
+    /// NVIDIA GPU via CUDA
+    Cuda,
+    /// Apple GPU via Metal
+    Metal,
+    /// CPU execution
+    Cpu,
+}
+
+fn detect_backend() -> LlamaBackend {
+    if cfg!(feature = "cuda") {
+        LlamaBackend::Cuda
+    } else if cfg!(feature = "metal") {
+        LlamaBackend::Metal
+    } else {
+        LlamaBackend::Cpu
+    }
+}
 
 /// llama.cpp based LLM client
 ///
@@ -18,6 +39,7 @@ pub struct LlamaCppClient {
     n_ctx: u32,
     #[allow(dead_code)] // Reserved for future llama.cpp implementation
     n_threads: u32,
+    backend: LlamaBackend,
 }
 
 impl LlamaCppClient {
@@ -29,10 +51,11 @@ impl LlamaCppClient {
         n_threads: u32,
     ) -> Result<Self> {
         let model_path = model_path.into();
+        let backend = detect_backend();
 
         info!(
-            "Initializing llama.cpp client (STUB) - Model: {}, Context: {}, Threads: {}",
-            model_path, n_ctx, n_threads
+            "Initializing llama.cpp client (STUB) - Model: {}, Context: {}, Threads: {}, Backend: {:?}",
+            model_path, n_ctx, n_threads, backend
         );
 
         warn!("LlamaCppClient is currently a stub. Use OllamaClient for production.");
@@ -42,6 +65,7 @@ impl LlamaCppClient {
             embedding_model_path,
             n_ctx,
             n_threads,
+            backend,
         })
     }
 
@@ -49,14 +73,16 @@ impl LlamaCppClient {
     pub async fn generate(&self, _request: GenerateRequest) -> Result<String> {
         Err(anyhow::anyhow!(
             "LlamaCppClient is not fully implemented yet. Use OllamaClient instead."
-        ).into())
+        )
+        .into())
     }
 
     /// Generate embedding using llama.cpp (STUB)
     pub async fn embed(&self, _model: &str, _text: &str) -> Result<Vec<f32>> {
         Err(anyhow::anyhow!(
             "LlamaCppClient is not fully implemented yet. Use OllamaClient instead."
-        ).into())
+        )
+        .into())
     }
 
     /// Test if model file exists

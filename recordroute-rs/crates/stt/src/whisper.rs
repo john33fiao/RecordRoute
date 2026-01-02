@@ -28,29 +28,22 @@ pub struct WhisperEngine {
 impl WhisperEngine {
     /// 사용 가능한 GPU 디바이스 감지 (우선순위: CUDA > Metal > CPU)
     ///
-    /// CUDA가 사용 가능하면 CUDA를, Metal이 사용 가능하면 Metal을,
-    /// 모두 실패하면 CPU를 반환합니다.
+    /// CUDA/Metal 지원 여부는 **조건부 컴파일(feature flags)** 로 제어합니다.
+    ///
+    /// - `--features cuda` 로 빌드하면 CUDA 백엔드를 사용합니다.
+    /// - 그렇지 않고 `--features metal` 이면 Metal 백엔드를 사용합니다.
+    /// - 두 GPU feature가 모두 비활성화되어 있으면 CPU만 사용합니다.
     fn detect_gpu_device() -> GpuDevice {
-        // CUDA 확인 (NVIDIA GPU)
-        #[cfg(feature = "cuda")]
-        {
-            info!("Checking CUDA availability...");
-            // CUDA가 feature로 활성화되어 있으면 사용 시도
-            // whisper-rs는 CUDA가 활성화되어 있으면 자동으로 GPU를 사용합니다
-            return GpuDevice::Cuda;
+        if cfg!(feature = "cuda") {
+            info!("CUDA feature enabled; building Whisper with CUDA backend");
+            GpuDevice::Cuda
+        } else if cfg!(feature = "metal") {
+            info!("Metal feature enabled; building Whisper with Metal backend");
+            GpuDevice::Metal
+        } else {
+            info!("No GPU features enabled; building Whisper for CPU only");
+            GpuDevice::Cpu
         }
-
-        // Metal 확인 (Apple GPU)
-        #[cfg(feature = "metal")]
-        {
-            info!("Checking Metal availability...");
-            // Metal이 feature로 활성화되어 있으면 사용 시도
-            return GpuDevice::Metal;
-        }
-
-        // 모든 GPU가 비활성화되어 있으면 CPU 사용
-        info!("No GPU acceleration available, using CPU");
-        GpuDevice::Cpu
     }
 
     /// Create a new Whisper engine from model path with automatic GPU detection

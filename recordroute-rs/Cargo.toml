@@ -37,10 +37,10 @@ ndarray = "0.15"
 ndarray-linalg = "0.16"
 
 # LLM (llama.cpp 바인딩)
-llama-cpp-2 = "0.1"
+llama-cpp-2 = { version = "0.1", default-features = false }
 
 # STT (whisper.cpp 바인딩)
-whisper-rs = { version = "0.10", features = [] }
+whisper-rs = { version = "0.10", default-features = false }
 
 # 오디오 처리
 symphonia = "0.5"
