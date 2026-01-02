@@ -59,14 +59,30 @@ cd RecordRoute/recordroute-rs
 ```
 
 2. **의존성 빌드**:
+
+**자동 빌드** (권장):
 ```bash
-# CPU만 사용 (기본)
+# GPU 자동 감지 + 실패 시 CPU 폴백
+npm run build:rust
+```
+
+이 명령은:
+- 플랫폼과 GPU를 자동으로 감지합니다
+- GPU 개발 환경이 있으면 GPU로 빌드를 시도합니다
+- 실패하면 자동으로 CPU로 폴백합니다
+- 설정 가이드를 표시합니다
+
+**수동 빌드**:
+```bash
+cd recordroute-rs
+
+# CPU만 사용 (항상 작동)
 cargo build --release
 
-# NVIDIA GPU 가속 (CUDA)
+# NVIDIA GPU 가속 (CUDA Toolkit 필요)
 cargo build --release --features cuda
 
-# Apple Silicon GPU 가속 (Metal)
+# Apple Silicon GPU 가속 (macOS)
 cargo build --release --features metal
 ```
 

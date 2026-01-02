@@ -246,35 +246,56 @@ WHISPER_MODEL=./models/ggml-large-v3.bin
 
 ### Whisper GPU 가속
 
-RecordRoute는 STT(음성 인식)에 GPU 가속을 지원합니다. 빌드 시 feature flag를 사용하여 활성화할 수 있습니다.
+RecordRoute는 STT(음성 인식)에 GPU 가속을 지원합니다.
 
-**NVIDIA GPU (CUDA)**:
+**자동 빌드** (권장):
+```bash
+npm run build:rust
+```
+
+이 명령은 플랫폼과 GPU를 자동으로 감지하고, GPU 빌드를 시도합니다. 실패하면 자동으로 CPU로 폴백합니다.
+
+**수동 빌드**:
+
+NVIDIA GPU (CUDA):
 ```bash
 cd recordroute-rs
 cargo build --release --features cuda
 ```
 
-**Apple Silicon (Metal)**:
+Apple Silicon (Metal):
 ```bash
 cd recordroute-rs
 cargo build --release --features metal
 ```
 
-**CPU만 사용** (기본값):
+CPU만 사용:
 ```bash
 cd recordroute-rs
 cargo build --release
 ```
 
-**작동 방식**:
-- CUDA feature가 활성화되면 NVIDIA GPU 사용 시도
-- Metal feature가 활성화되면 Apple GPU 사용 시도
-- GPU 초기화 실패 시 자동으로 CPU로 fallback
-- GPU 사용 시 전사 속도가 3-10배 향상될 수 있습니다
+**GPU 빌드 요구사항**:
 
-**요구사항**:
-- CUDA: NVIDIA GPU + CUDA 툴킷 설치 필요
-- Metal: macOS + Apple Silicon (M1/M2/M3) 또는 AMD GPU
+CUDA (NVIDIA GPU):
+- NVIDIA GPU
+- CUDA Toolkit 11.0 이상
+- Windows: Visual Studio + CUDA Integration
+- Linux: gcc, g++, nvcc
+
+Metal (Apple Silicon):
+- macOS
+- Apple Silicon (M1/M2/M3/M4)
+- Xcode Command Line Tools
+
+**성능**:
+- GPU 사용 시 전사 속도가 3-10배 향상될 수 있습니다
+- CPU만으로도 충분히 빠르게 작동합니다
+
+**참고**:
+- GPU 빌드는 빌드 타임에 개발 환경이 필요합니다
+- GPU 개발 환경이 없어도 CPU로 정상 작동합니다
+- 런타임에 GPU 초기화 실패 시 자동으로 CPU로 폴백됩니다
 
 ### Ollama 성능
 
