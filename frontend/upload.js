@@ -1,5 +1,16 @@
+// Server configuration
+// These values can be configured via environment variables in .env file:
+// - SERVER_PORT (default: 8080)
+// - WEBSOCKET_PORT (default: 8765)
+// Note: Frontend runs in browser and cannot directly read env vars.
+// In Electron mode, these should match the values in .env file.
+const DEFAULT_SERVER_PORT = 8080;
+const DEFAULT_WEBSOCKET_PORT = 8765;
+
 // API base URL - use localhost for Electron, empty for web browser
-const API_BASE_URL = window.location.protocol === 'file:' ? 'http://127.0.0.1:8000' : '';
+const API_BASE_URL = window.location.protocol === 'file:'
+    ? `http://127.0.0.1:${DEFAULT_SERVER_PORT}`
+    : '';
 
 let taskQueue = [];
 let globalHistory = [];
@@ -20,7 +31,12 @@ let progressSocket = null;
 const selectedRecords = new Set();
 
 function initWebSocket() {
-    progressSocket = new WebSocket('ws://localhost:8765');
+    // Construct WebSocket URL based on environment
+    const wsUrl = window.location.protocol === 'file:'
+        ? `ws://localhost:${DEFAULT_WEBSOCKET_PORT}`
+        : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:${DEFAULT_WEBSOCKET_PORT}`;
+
+    progressSocket = new WebSocket(wsUrl);
     progressSocket.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);

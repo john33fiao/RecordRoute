@@ -6,6 +6,9 @@ const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
 
+// Load environment variables from .env file
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
 let rustProcess = null;
 let mainWindow = null;
 let autoUpdater = null;
@@ -156,11 +159,15 @@ function runRustServer() {
   // Database directory path
   const dbPath = path.join(projectRoot, 'db');
 
+  // Get server configuration from environment variables or use defaults
+  const serverHost = process.env.SERVER_HOST || '127.0.0.1';
+  const serverPort = process.env.SERVER_PORT || '8080';
+
   // Build command arguments
   const args = [
     'serve',
-    '--host', '127.0.0.1',
-    '--port', '8000',
+    '--host', serverHost,
+    '--port', serverPort,
     '--db-path', dbPath,
   ];
 

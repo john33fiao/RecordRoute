@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import websockets
 
 
@@ -39,9 +40,13 @@ def start_websocket_server() -> None:
     """Start the WebSocket server in its own asyncio event loop."""
     asyncio.set_event_loop(websocket_loop)
 
+    # Get WebSocket port from environment variable or use default
+    websocket_port = int(os.getenv('WEBSOCKET_PORT', '8765'))
+    websocket_host = os.getenv('WEBSOCKET_HOST', '0.0.0.0')
+
     async def run_server():
-        async with websockets.serve(websocket_handler, "0.0.0.0", 8765):
-            print("WebSocket server running on ws://localhost:8765")
+        async with websockets.serve(websocket_handler, websocket_host, websocket_port):
+            print(f"WebSocket server running on ws://localhost:{websocket_port}")
             await asyncio.Future()  # run forever
 
     websocket_loop.run_until_complete(run_server())

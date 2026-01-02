@@ -50,7 +50,7 @@ enum Commands {
         host: String,
 
         /// Port to bind to
-        #[arg(long, default_value = "8000")]
+        #[arg(long, default_value = "8080")]
         port: u16,
 
         /// Database path
