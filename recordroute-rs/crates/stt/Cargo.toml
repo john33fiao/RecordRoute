@@ -20,3 +20,6 @@ regex = "1"
 [features]
 default = []
 ffmpeg = ["ffmpeg-next"]
+# GPU acceleration features
+cuda = ["whisper-rs/cuda"]
+metal = ["whisper-rs/metal"]

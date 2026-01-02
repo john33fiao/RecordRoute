@@ -60,7 +60,14 @@ cd RecordRoute/recordroute-rs
 
 2. **의존성 빌드**:
 ```bash
+# CPU만 사용 (기본)
 cargo build --release
+
+# NVIDIA GPU 가속 (CUDA)
+cargo build --release --features cuda
+
+# Apple Silicon GPU 가속 (Metal)
+cargo build --release --features metal
 ```
 
 3. **Ollama 설치 및 실행**:

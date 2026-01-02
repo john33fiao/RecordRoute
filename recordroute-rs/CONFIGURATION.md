@@ -244,6 +244,38 @@ WHISPER_MODEL=./models/ggml-large-v3.bin
 # 속도: ★★☆☆☆ | 정확도: ★★★★★
 ```
 
+### Whisper GPU 가속
+
+RecordRoute는 STT(음성 인식)에 GPU 가속을 지원합니다. 빌드 시 feature flag를 사용하여 활성화할 수 있습니다.
+
+**NVIDIA GPU (CUDA)**:
+```bash
+cd recordroute-rs
+cargo build --release --features cuda
+```
+
+**Apple Silicon (Metal)**:
+```bash
+cd recordroute-rs
+cargo build --release --features metal
+```
+
+**CPU만 사용** (기본값):
+```bash
+cd recordroute-rs
+cargo build --release
+```
+
+**작동 방식**:
+- CUDA feature가 활성화되면 NVIDIA GPU 사용 시도
+- Metal feature가 활성화되면 Apple GPU 사용 시도
+- GPU 초기화 실패 시 자동으로 CPU로 fallback
+- GPU 사용 시 전사 속도가 3-10배 향상될 수 있습니다
+
+**요구사항**:
+- CUDA: NVIDIA GPU + CUDA 툴킷 설치 필요
+- Metal: macOS + Apple Silicon (M1/M2/M3) 또는 AMD GPU
+
 ### Ollama 성능
 
 **GPU 사용** (권장):

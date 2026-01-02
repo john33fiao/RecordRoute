@@ -40,7 +40,7 @@ ndarray-linalg = "0.16"
 llama-cpp-2 = "0.1"
 
 # STT (whisper.cpp 바인딩)
-whisper-rs = "0.10"
+whisper-rs = { version = "0.10", features = [] }
 
 # 오디오 처리
 symphonia = "0.5"
