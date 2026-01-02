@@ -118,15 +118,35 @@ impl AppConfig {
         // Try to load .env from project root (where .git directory is)
         let project_root = Self::find_project_root();
 
+        eprintln!("[DEBUG] Current directory: {:?}", std::env::current_dir().ok());
+        eprintln!("[DEBUG] Detected project root: {:?}", project_root);
+
         if let Some(root) = &project_root {
             let env_path = root.join(".env");
+            eprintln!("[DEBUG] Looking for .env file at: {:?}", env_path);
+
             if env_path.exists() {
-                dotenv::from_path(&env_path).ok();
+                eprintln!("[DEBUG] .env file exists, attempting to load...");
+                match dotenv::from_path(&env_path) {
+                    Ok(_) => eprintln!("[DEBUG] Successfully loaded .env from: {:?}", env_path),
+                    Err(e) => eprintln!("[DEBUG] Failed to load .env: {:?}", e),
+                }
+            } else {
+                eprintln!("[DEBUG] .env file does not exist at project root");
             }
         } else {
             // Fallback to default dotenv behavior (current dir and parents)
-            dotenv::dotenv().ok();
+            eprintln!("[DEBUG] No project root found, using default dotenv behavior");
+            match dotenv::dotenv() {
+                Ok(path) => eprintln!("[DEBUG] Loaded .env from: {:?}", path),
+                Err(e) => eprintln!("[DEBUG] No .env file found or failed to load: {:?}", e),
+            }
         }
+
+        // Debug log WHISPER_MODEL environment variable
+        eprintln!("[DEBUG] Reading WHISPER_MODEL from environment...");
+        let whisper_model_raw = std::env::var("WHISPER_MODEL");
+        eprintln!("[DEBUG] WHISPER_MODEL raw value: {:?}", whisper_model_raw);
 
         let config = Self {
             db_base_path: Self::get_env_path("DB_BASE_PATH")
@@ -135,7 +155,7 @@ impl AppConfig {
             upload_dir: Self::get_env_path("UPLOAD_DIR")
                 .map(|p| Self::resolve_path(&p.to_string_lossy(), project_root.as_ref()))
                 .unwrap_or_else(|| PathBuf::from("./db/uploads")),
-            whisper_model: std::env::var("WHISPER_MODEL")
+            whisper_model: whisper_model_raw
                 .map(|p| Self::resolve_path(&p, project_root.as_ref()).to_string_lossy().to_string())
                 .unwrap_or_else(|_| "base".to_string()),
             ollama_base_url: std::env::var("OLLAMA_BASE_URL")
@@ -175,6 +195,9 @@ impl AppConfig {
                 .map(|p| Self::resolve_path(&p.to_string_lossy(), project_root.as_ref()))
                 .unwrap_or_else(|| PathBuf::from("./db/vector_index.json")),
         };
+
+        // Debug log final resolved value
+        eprintln!("[DEBUG] Final whisper_model value: {}", config.whisper_model);
 
         // Ensure required directories exist
         config.ensure_directories()?;
