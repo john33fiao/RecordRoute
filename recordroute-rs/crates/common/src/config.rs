@@ -44,6 +44,9 @@ pub struct AppConfig {
     /// Server port
     pub server_port: u16,
 
+    /// WebSocket server port
+    pub websocket_port: u16,
+
     /// Log directory
     pub log_dir: PathBuf,
 
@@ -70,6 +73,7 @@ impl Default for AppConfig {
             llama_n_threads: 4,
             server_host: "0.0.0.0".to_string(),
             server_port: 8080,
+            websocket_port: 8765,
             log_dir: PathBuf::from("./db/log"),
             log_level: "info".to_string(),
             vector_index_path: PathBuf::from("./db/vector_index.json"),
@@ -186,6 +190,10 @@ impl AppConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(8080),
+            websocket_port: std::env::var("WEBSOCKET_PORT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(8765),
             log_dir: Self::get_env_path("LOG_DIR")
                 .map(|p| Self::resolve_path(&p.to_string_lossy(), project_root.as_ref()))
                 .unwrap_or_else(|| PathBuf::from("./db/log")),
@@ -296,6 +304,10 @@ impl AppConfig {
         // Validate port range
         if self.server_port == 0 {
             return Err(RecordRouteError::config("Server port cannot be 0"));
+        }
+
+        if self.websocket_port == 0 {
+            return Err(RecordRouteError::config("WebSocket port cannot be 0"));
         }
 
         Ok(())

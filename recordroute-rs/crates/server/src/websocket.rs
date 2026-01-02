@@ -6,8 +6,8 @@ use tokio_tungstenite::accept_async;
 use tracing::{info, warn};
 
 pub async fn start_websocket_server(state: Arc<AppState>) -> Result<()> {
-    let addr = "0.0.0.0:8765";
-    let listener = TcpListener::bind(addr).await?;
+    let addr = format!("0.0.0.0:{}", state.config.websocket_port);
+    let listener = TcpListener::bind(&addr).await?;
     info!("WebSocket server listening on ws://{}", addr);
 
     while let Ok((stream, peer)) = listener.accept().await {
