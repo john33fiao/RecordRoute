@@ -17,3 +17,9 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+
+[features]
+default = []
+# GPU acceleration for llama.cpp backend
+cuda = ["llama-cpp-2/cuda"]
+metal = ["llama-cpp-2/metal"]
