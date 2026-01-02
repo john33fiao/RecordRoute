@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 recordroute-common = { path = "../common" }
 
-llama-cpp-2 = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
@@ -23,3 +22,12 @@ default = []
 # GPU acceleration for llama.cpp backend
 cuda = ["llama-cpp-2/cuda"]
 metal = ["llama-cpp-2/metal"]
+
+# Platform-specific llama-cpp-2 configuration
+# macOS: Metal by default
+[target.'cfg(target_os = "macos")'.dependencies]
+llama-cpp-2 = { workspace = true, features = ["metal"] }
+
+# Linux/Windows: CPU by default, users can enable CUDA with --features cuda
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+llama-cpp-2 = { workspace = true }

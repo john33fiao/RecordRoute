@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 recordroute-common = { path = "../common" }
 
-whisper-rs = { workspace = true }
 symphonia = { workspace = true }
 ffmpeg-next = { workspace = true, optional = true }
 tokio = { workspace = true }
@@ -23,3 +22,12 @@ ffmpeg = ["ffmpeg-next"]
 # GPU acceleration features
 cuda = ["whisper-rs/cuda"]
 metal = ["whisper-rs/metal"]
+
+# Platform-specific whisper-rs configuration
+# macOS: Metal by default
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { workspace = true, features = ["metal"] }
+
+# Linux/Windows: CPU by default, users can enable CUDA with --features cuda
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+whisper-rs = { workspace = true }
