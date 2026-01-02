@@ -7,14 +7,53 @@ use whisper_rs::{WhisperContext, WhisperContextParameters, FullParams, SamplingS
 use crate::types::{Segment, Transcription, TranscriptionOptions};
 use crate::postprocess;
 
+/// GPU 디바이스 타입
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuDevice {
+    /// CUDA (NVIDIA GPU)
+    Cuda,
+    /// Metal (Apple GPU)
+    Metal,
+    /// CPU만 사용
+    Cpu,
+}
+
 /// Whisper STT Engine
 pub struct WhisperEngine {
     ctx: Arc<WhisperContext>,
     model_path: String,
+    gpu_device: GpuDevice,
 }
 
 impl WhisperEngine {
-    /// Create a new Whisper engine from model path
+    /// 사용 가능한 GPU 디바이스 감지 (우선순위: CUDA > Metal > CPU)
+    ///
+    /// CUDA가 사용 가능하면 CUDA를, Metal이 사용 가능하면 Metal을,
+    /// 모두 실패하면 CPU를 반환합니다.
+    fn detect_gpu_device() -> GpuDevice {
+        // CUDA 확인 (NVIDIA GPU)
+        #[cfg(feature = "cuda")]
+        {
+            info!("Checking CUDA availability...");
+            // CUDA가 feature로 활성화되어 있으면 사용 시도
+            // whisper-rs는 CUDA가 활성화되어 있으면 자동으로 GPU를 사용합니다
+            return GpuDevice::Cuda;
+        }
+
+        // Metal 확인 (Apple GPU)
+        #[cfg(feature = "metal")]
+        {
+            info!("Checking Metal availability...");
+            // Metal이 feature로 활성화되어 있으면 사용 시도
+            return GpuDevice::Metal;
+        }
+
+        // 모든 GPU가 비활성화되어 있으면 CPU 사용
+        info!("No GPU acceleration available, using CPU");
+        GpuDevice::Cpu
+    }
+
+    /// Create a new Whisper engine from model path with automatic GPU detection
     ///
     /// # Arguments
     /// * `model_path` - Path to the Whisper model file (.bin or .gguf)
@@ -27,25 +66,54 @@ impl WhisperEngine {
     /// ```
     pub fn new(model_path: impl AsRef<Path>) -> Result<Self> {
         let path = model_path.as_ref();
-        
+
         if !path.exists() {
             return Err(RecordRouteError::stt(format!(
                 "Model file not found: {}",
                 path.display()
             )));
         }
-        
+
         info!("Loading Whisper model from: {}", path.display());
-        
+
+        // GPU 디바이스 감지
+        let gpu_device = Self::detect_gpu_device();
+        info!("Using device: {:?}", gpu_device);
+
+        // WhisperContextParameters 생성
+        // whisper-rs는 feature로 CUDA/Metal이 활성화되어 있으면
+        // 자동으로 GPU를 사용하려고 시도합니다.
         let params = WhisperContextParameters::default();
-        let ctx = WhisperContext::new_with_params(path.to_str().unwrap(), params)
-            .map_err(|e| RecordRouteError::stt(format!("Failed to load Whisper model: {}", e)))?;
-        
+
+        // 모델 로드 시도
+        let ctx = match WhisperContext::new_with_params(path.to_str().unwrap(), params) {
+            Ok(ctx) => {
+                info!("Whisper model loaded successfully with {:?}", gpu_device);
+                ctx
+            }
+            Err(e) => {
+                // GPU 초기화 실패 시 CPU로 fallback
+                if gpu_device != GpuDevice::Cpu {
+                    warn!("Failed to load model with GPU ({:?}): {}", gpu_device, e);
+                    warn!("Falling back to CPU");
+
+                    // GPU feature가 활성화되어 있어도 두 번째 시도는 실패할 가능성이 높지만 시도해봅니다
+                    let cpu_params = WhisperContextParameters::default();
+
+                    WhisperContext::new_with_params(path.to_str().unwrap(), cpu_params)
+                        .map_err(|e| RecordRouteError::stt(format!("Failed to load Whisper model even with CPU: {}", e)))?
+                } else {
+                    return Err(RecordRouteError::stt(format!("Failed to load Whisper model: {}", e)));
+                }
+            }
+        };
+
         info!("Whisper model loaded successfully");
-        
+
         Ok(Self {
             ctx: Arc::new(ctx),
             model_path: path.to_string_lossy().to_string(),
+            gpu_device,
         })
     }
     
@@ -312,6 +380,11 @@ impl WhisperEngine {
     /// Get model path
     pub fn model_path(&self) -> &str {
         &self.model_path
+    }
+
+    /// Get GPU device being used
+    pub fn gpu_device(&self) -> GpuDevice {
+        self.gpu_device
     }
 }
 

@@ -9,4 +9,4 @@ pub mod whisper;
 
 // Re-export main types
 pub use types::{Segment, Transcription, TranscriptionOptions};
-pub use whisper::WhisperEngine;
+pub use whisper::{WhisperEngine, GpuDevice};
