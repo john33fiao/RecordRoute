@@ -187,6 +187,7 @@ WHISPER_MODEL=./models/ggml-base.bin
 **임베딩 모델 (검색용, 권장)**:
 - [nomic-embed-text GGUF](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF)
 - [mxbai-embed-large GGUF](https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1)
+- 명령어: `hf download Neuwhufbox/BGE-m3-ko-gguf --include "*.gguf" --local-dir ./models`
 
 #### Gemma 3 4B 모델 다운로드 방법
 
