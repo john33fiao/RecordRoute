@@ -11,9 +11,10 @@ from typing import List, Optional
 
 # 설정 모듈 임포트
 sys.path.append(str(Path(__file__).parent.parent))
-from config import get_model_for_task, get_default_model, get_config_value
+from config import get_model_for_task, get_default_model, get_config_value, get_db_base_path
 from ollama_utils import safe_ollama_call
 from logger import setup_logging
+from vocabulary_manager import VocabularyManager
 
 setup_logging()
 
@@ -214,20 +215,34 @@ def chat_once(model: str, system: str, user: str, temperature: float = 0.0,
     
     raise RuntimeError(f"모델 통신 {retries}회 시도 모두 실패: {last_error}")
 
-def correct_text_file(input_file: Path, output_file: Optional[Path] = None, 
-                     model: str = DEFAULT_MODEL, temperature: float = 0.0, 
-                     num_ctx: int = 8192, encoding: str = "utf-8", 
-                     strip_heading: bool = False, inplace: bool = False, 
+def correct_text_file(input_file: Path, output_file: Optional[Path] = None,
+                     model: str = DEFAULT_MODEL, temperature: float = 0.0,
+                     num_ctx: int = 8192, encoding: str = "utf-8",
+                     strip_heading: bool = False, inplace: bool = False,
                      max_chunk_chars: int = 8000) -> bool:
     """단일 파일 교정"""
     try:
         logging.info("파일 읽는 중: %s", input_file)
-        
+
+        # Load vocabulary keywords for improved correction accuracy
+        reference_keywords = ""
+        try:
+            db_base_path = get_db_base_path()
+            vocab_manager = VocabularyManager(vocab_path=str(db_base_path / "vocab.json"))
+            reference_keywords = vocab_manager.get_top_keywords(limit=30, max_length=300)
+
+            if reference_keywords:
+                logging.info("vocab 참조 키워드 로드: %s", reference_keywords)
+            else:
+                logging.info("vocab.json이 비어있습니다.")
+        except Exception as e:
+            logging.warning("vocab 키워드 로드 실패: %s", e)
+
         # 파일 존재 확인
         if not input_file.exists():
             logging.error("파일을 찾을 수 없습니다: %s", input_file)
             return False
-        
+
         # 텍스트 읽기
         original_text = read_text(input_file, encoding=encoding)
         
@@ -246,13 +261,25 @@ def correct_text_file(input_file: Path, output_file: Optional[Path] = None,
         corrected_chunks = []
         for idx, chunk in enumerate(chunks, 1):
             logging.info("청크 %d/%d 교정 중... (%d자)", idx, len(chunks), len(chunk))
-            
-            user_prompt = USER_PROMPT_TEMPLATE.format(content=chunk)
+
+            # Build user prompt with vocabulary reference if available
+            if reference_keywords:
+                user_prompt = f"""아래는 교정 대상 텍스트입니다. 삼중 백틱 내부만 교정하여 돌려주십시오.
+
+**특히 아래 용어들은 정확히 표기해야 합니다:**
+{reference_keywords}
+
+```markdown
+{chunk}
+```"""
+            else:
+                user_prompt = USER_PROMPT_TEMPLATE.format(content=chunk)
+
             corrected_chunk = chat_once(
-                model=model, 
-                system=SYSTEM_PROMPT, 
-                user=user_prompt, 
-                temperature=temperature, 
+                model=model,
+                system=SYSTEM_PROMPT,
+                user=user_prompt,
+                temperature=temperature,
                 num_ctx=num_ctx
             )
             

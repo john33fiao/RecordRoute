@@ -35,11 +35,15 @@ from config import (
     to_db_record_path,
 )
 from ollama_utils import ensure_ollama_server
+from vocabulary_manager import VocabularyManager
 
 DB_BASE_PATH = get_db_base_path()
 WHISPER_OUTPUT_DIR = DB_BASE_PATH / "whisper_output"
 VECTOR_DIR = DB_BASE_PATH / "vector_store"
 INDEX_FILE = VECTOR_DIR / "index.json"
+
+# Initialize vocabulary manager for STT accuracy improvement
+VOCAB_MANAGER = VocabularyManager(vocab_path=str(DB_BASE_PATH / "vocab.json"))
 
 
 def _format_relative_path(relative: Path) -> str:
@@ -315,6 +319,13 @@ def process_file(model_name: str, path: Path, index: Dict[str, Dict[str, str]]) 
     vector = embed_text_ollama(text, model_name)
     out_file = VECTOR_DIR / f"{path.stem}.npy"
     np.save(out_file, vector)
+
+    # Update vocabulary database with keywords from this document
+    try:
+        VOCAB_MANAGER.update_vocab(text)
+    except Exception as e:
+        # Don't fail the entire embedding process if vocab update fails
+        print(f"vocab 업데이트 실패 (계속 진행): {e}")
 
     entry = {
         "sha256": checksum,

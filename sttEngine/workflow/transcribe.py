@@ -26,6 +26,7 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 from config import get_db_base_path, get_default_model, get_model_for_task
 from logger import setup_logging
+from vocabulary_manager import VocabularyManager
 
 setup_logging()
 
@@ -551,7 +552,30 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
         normalize_punct (bool): 연속 마침표 정규화 여부
         requested_device (str): "auto", "cuda", "cpu", "mps" 중 하나로 지정된 장치
     """
-    
+
+    # Load vocabulary keywords for improved STT accuracy
+    try:
+        vocab_manager = VocabularyManager(vocab_path=str(DB_BASE_PATH / "vocab.json"))
+        vocab_keywords = vocab_manager.get_top_keywords(limit=20, max_length=200)
+
+        # Merge user-provided initial_prompt with vocabulary keywords
+        if vocab_keywords:
+            if initial_prompt:
+                # Combine user prompt and vocab keywords
+                combined_prompt = f"{initial_prompt}, {vocab_keywords}"
+            else:
+                combined_prompt = vocab_keywords
+
+            logging.info("Initial Prompt (vocab 포함): %s", combined_prompt)
+            if progress_callback:
+                progress_callback(f"vocab 키워드 로드: {len(vocab_keywords)}자")
+
+            initial_prompt = combined_prompt
+        else:
+            logging.info("vocab.json이 비어있습니다. 사용자 제공 prompt만 사용합니다.")
+    except Exception as e:
+        logging.warning("vocab 키워드 로드 실패: %s. 사용자 제공 prompt만 사용합니다.", e)
+
     input_path_obj = Path(input_dir)
     output_path_obj = Path(output_dir)
     
