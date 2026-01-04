@@ -1,0 +1,26 @@
+# Cloudflare Tunnel Configuration for RecordRoute
+# This file defines the services exposed through the Cloudflare Tunnel
+
+# Tunnel will be authenticated using the token from .env file
+# No need to specify tunnel ID or credentials path when using token authentication
+
+ingress:
+  # HTTP Web Server (Main application)
+  - service: http://localhost:8080
+    # Optional: Configure specific hostname for HTTP service
+    # hostname: recordroute-http.example.com
+
+  # WebSocket Server (Real-time communication)
+  - service: http://localhost:8765
+    # Optional: Configure specific hostname for WebSocket service
+    # hostname: recordroute-ws.example.com
+
+  # Catch-all rule (required as the last rule)
+  - service: http_status:404
+
+# Optional: Enable metrics for monitoring
+# metrics: localhost:9090
+
+# Optional: Configure logging
+# loglevel: info
+# logfile: /var/log/cloudflared.log

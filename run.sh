@@ -123,6 +123,53 @@ else
     echo "Ollama 서버가 이미 실행 중입니다."
 fi
 
+# Cloudflare Tunnel 상태 확인 및 시작
+if [ "${TUNNEL_ENABLED}" = "true" ]; then
+    echo "Cloudflare Tunnel이 활성화되어 있습니다. 상태를 확인합니다..."
+
+    # cloudflared 설치 확인
+    if ! command -v cloudflared > /dev/null 2>&1; then
+        echo "경고: cloudflared 명령어를 찾을 수 없습니다."
+        echo "Cloudflare Tunnel을 사용하려면 cloudflared를 설치해야 합니다."
+        echo "설치 방법: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/"
+        echo ""
+    else
+        # 터널 토큰 확인
+        if [ -z "${CLOUDFLARE_TUNNEL_TOKEN}" ]; then
+            echo "경고: CLOUDFLARE_TUNNEL_TOKEN이 설정되지 않았습니다."
+            echo ".env 파일에 CLOUDFLARE_TUNNEL_TOKEN을 설정해주세요."
+            echo ""
+        else
+            # 이미 실행 중인 cloudflared 프로세스 확인
+            if pgrep -x "cloudflared" > /dev/null; then
+                echo "Cloudflare Tunnel이 이미 실행 중입니다."
+            else
+                echo "Cloudflare Tunnel을 시작합니다..."
+
+                # 백그라운드에서 cloudflared 실행
+                nohup cloudflared tunnel --config "$SCRIPT_DIR/.cloudflared/config.yml" run --token "$CLOUDFLARE_TUNNEL_TOKEN" > "$SCRIPT_DIR/.cloudflared/tunnel.log" 2>&1 &
+                TUNNEL_PID=$!
+                echo "Cloudflare Tunnel을 시작했습니다. (PID: $TUNNEL_PID)"
+
+                # 터널 시작을 위해 잠시 대기
+                sleep 2
+
+                # 터널 시작 확인
+                if pgrep -x "cloudflared" > /dev/null; then
+                    echo "✓ Cloudflare Tunnel이 성공적으로 시작되었습니다."
+                    echo "  로그 위치: $SCRIPT_DIR/.cloudflared/tunnel.log"
+                else
+                    echo "경고: Cloudflare Tunnel 시작을 확인할 수 없습니다."
+                    echo "로그를 확인하세요: $SCRIPT_DIR/.cloudflared/tunnel.log"
+                fi
+            fi
+        fi
+    fi
+else
+    echo "Cloudflare Tunnel이 비활성화되어 있습니다. (TUNNEL_ENABLED=false)"
+fi
+echo
+
 # 웹서버 실행
 echo "가상환경의 파이썬으로 웹서버를 실행합니다..."
 echo "서버 URL: http://localhost:8080"
