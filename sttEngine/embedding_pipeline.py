@@ -312,20 +312,25 @@ def process_file(model_name: str, path: Path, index: Dict[str, Dict[str, str]]) 
     """Embed a single file if it is new or has changed since last run."""
     checksum = file_hash(path)
     key = _index_key_for_path(path)
-    if index.get(key, {}).get("sha256") == checksum:
-        return  # already up-to-date
 
+    # Check if file is already indexed
+    already_indexed = index.get(key, {}).get("sha256") == checksum
+
+    # Always update vocabulary, even for already-indexed files
     text = path.read_text(encoding="utf-8")
-    vector = embed_text_ollama(text, model_name)
-    out_file = VECTOR_DIR / f"{path.stem}.npy"
-    np.save(out_file, vector)
-
-    # Update vocabulary database with keywords from this document
     try:
         VOCAB_MANAGER.update_vocab(text)
     except Exception as e:
         # Don't fail the entire embedding process if vocab update fails
         print(f"vocab 업데이트 실패 (계속 진행): {e}")
+
+    # Skip embedding if file is already up-to-date
+    if already_indexed:
+        return  # already up-to-date, vocab updated above
+
+    vector = embed_text_ollama(text, model_name)
+    out_file = VECTOR_DIR / f"{path.stem}.npy"
+    np.save(out_file, vector)
 
     entry = {
         "sha256": checksum,
