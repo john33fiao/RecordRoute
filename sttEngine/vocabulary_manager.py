@@ -149,9 +149,11 @@ class VocabularyManager:
 
         if not keywords:
             logging.warning("update_vocab: 추출된 키워드가 없습니다.")
+            print("[VOCAB] 추출된 키워드가 없습니다.")
             return
 
         logging.info("추출된 키워드 수: %d개", len(keywords))
+        print(f"[VOCAB] 추출된 키워드 수: {len(keywords)}개")
 
         # Update vocab with file locking
         if FILELOCK_AVAILABLE:
@@ -161,10 +163,12 @@ class VocabularyManager:
                     self._update_vocab_locked(keywords)
             except Exception as e:
                 logging.warning("vocab.json 파일 잠금 타임아웃: %s. 경고만 출력하고 계속 진행합니다.", e)
+                print(f"[VOCAB] 파일 잠금 타임아웃 (fallback 사용): {e}")
                 # Proceed without lock as fallback
                 self._update_vocab_locked(keywords)
         else:
             # No filelock available, proceed without locking
+            print("[VOCAB] filelock 없음, 잠금 없이 진행")
             self._update_vocab_locked(keywords)
 
     def _update_vocab_locked(self, keywords: list[tuple[str, int]]) -> None:
@@ -176,20 +180,27 @@ class VocabularyManager:
         vocab = self._load_vocab()
         current_time = datetime.now(timezone.utc).isoformat()
 
+        new_keywords = 0
+        updated_keywords = 0
+
         for keyword, count in keywords:
             if keyword in vocab:
                 # Increment existing weight
                 vocab[keyword]["weight"] = vocab[keyword].get("weight", 0) + 1
                 vocab[keyword]["last_updated"] = current_time
+                updated_keywords += 1
             else:
                 # Initialize new keyword
                 vocab[keyword] = {
                     "weight": 1,
                     "last_updated": current_time
                 }
+                new_keywords += 1
 
         self._save_vocab(vocab)
         logging.info("vocab.json 업데이트 완료: 총 %d개 키워드", len(vocab))
+        print(f"[VOCAB] vocab.json 업데이트 완료 - 총 {len(vocab)}개 키워드 (신규: {new_keywords}, 갱신: {updated_keywords})")
+        print(f"[VOCAB] vocab.json 저장 위치: {self.vocab_path.resolve()}")
 
     def get_top_keywords(self, limit: int = 20, max_length: int = 200) -> str:
         """Get top keywords as a comma-separated string.

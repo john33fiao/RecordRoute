@@ -318,14 +318,19 @@ def process_file(model_name: str, path: Path, index: Dict[str, Dict[str, str]]) 
 
     # Always update vocabulary, even for already-indexed files
     text = path.read_text(encoding="utf-8")
+    print(f"[VOCAB] 파일 '{path.name}'에서 vocab 업데이트 시작 (텍스트 길이: {len(text)}자)")
     try:
         VOCAB_MANAGER.update_vocab(text)
+        print(f"[VOCAB] '{path.name}' vocab 업데이트 성공")
     except Exception as e:
         # Don't fail the entire embedding process if vocab update fails
-        print(f"vocab 업데이트 실패 (계속 진행): {e}")
+        print(f"[VOCAB ERROR] '{path.name}' vocab 업데이트 실패 (계속 진행): {e}")
+        import traceback
+        traceback.print_exc()
 
     # Skip embedding if file is already up-to-date
     if already_indexed:
+        print(f"[VOCAB] '{path.name}'은(는) 이미 색인됨, 임베딩 건너뜀 (vocab은 업데이트됨)")
         return  # already up-to-date, vocab updated above
 
     vector = embed_text_ollama(text, model_name)
