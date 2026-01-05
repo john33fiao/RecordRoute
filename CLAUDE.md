@@ -17,17 +17,31 @@
 ### 디렉토리 맵핑
 ```
 RecordRoute/
-├── sttEngine/server.py           # HTTP서버, API엔드포인트, 작업큐
-├── sttEngine/config.py           # 환경설정, 플랫폼감지
+├── sttEngine/server.py                # HTTP/WebSocket서버, API엔드포인트, 작업큐
+├── sttEngine/config.py                # 환경설정, 플랫폼감지, DB경로관리
+├── sttEngine/logger.py                # 로깅 시스템 (자동 롤오버)
+├── sttEngine/vocabulary_manager.py    # STT 정확도 향상용 어휘 관리
+├── sttEngine/keyword_frequency.py     # 키워드 빈도 분석 유틸리티
+├── sttEngine/search_cache.py          # 검색 결과 캐싱 (24시간)
+├── sttEngine/one_line_summary.py      # 한 줄 요약 유틸리티
+├── sttEngine/run_workflow.py          # 워크플로우 통합 실행기
 ├── sttEngine/workflow/
-│   ├── transcribe.py             # Whisper STT 엔진
-│   ├── correct.py                # Ollama 텍스트교정
-│   └── summarize.py              # Ollama 구조화요약
-├── sttEngine/embedding_pipeline.py  # 벡터임베딩
-├── sttEngine/vector_search.py       # 벡터검색
-├── sttEngine/ollama_utils.py        # Ollama 연동유틸
-├── frontend/upload.html             # 웹UI
-└── sttEngine/requirements.txt       # 의존성정의
+│   ├── transcribe.py                  # Whisper STT 엔진
+│   ├── correct.py                     # Ollama 텍스트교정
+│   └── summarize.py                   # Ollama 구조화요약
+├── sttEngine/embedding_pipeline.py    # 벡터임베딩 (bge-m3)
+├── sttEngine/vector_search.py         # 벡터검색
+├── sttEngine/ollama_utils.py          # Ollama 연동유틸
+├── frontend/
+│   ├── upload.html                    # 웹UI
+│   ├── upload.js                      # 프론트엔드 로직
+│   └── upload.css                     # 프론트엔드 스타일
+├── run.sh                             # Unix 웹서버 실행 스크립트
+├── run.bat                            # Windows 웹서버 실행 스크립트
+├── setup.sh                           # Unix 설정 스크립트
+├── setup.bat                          # Windows 설정 스크립트
+├── .env.example                       # 환경변수 템플릿
+└── requirements.txt                   # 의존성정의
 ```
 
 ## MCP 작업 타겟 파일들
@@ -71,17 +85,84 @@ RecordRoute/
 - `PYTHON_PATH`: 플랫폼별 Python실행경로
 - `DEFAULT_MODELS`: 플랫폼별 최적모델
 - `CACHE_PATHS`: Whisper 캐시경로
+**핵심함수**:
+- `load_env_file()`: .env 파일 로드 및 환경변수 설정
+- `get_model_for_task()`: 작업별 플랫폼 모델 반환
+- `get_db_base_path()`: DB 경로 관리 및 해결
+- `normalize_db_record_path()`: DB 경로 정규화
+- `resolve_db_path()`: 저장된 경로를 실제 경로로 변환
+
+### 6. sttEngine/vocabulary_manager.py
+**기능**: STT 정확도 향상을 위한 어휘 관리 시스템
+**핵심패턴**:
+- vocab.json 파일로 키워드 데이터베이스 관리
+- 임베딩된 문서에서 키워드 자동 추출
+- Whisper initial_prompt 및 LLM 교정 프롬프트에 제공
+- 파일 잠금으로 동시성 제어 (filelock)
+**주요메서드**:
+- `update_vocab(text)`: 텍스트에서 키워드 추출 및 가중치 업데이트
+- `get_top_keywords(limit, max_length)`: 상위 N개 키워드 반환
+- `get_vocab_stats()`: 어휘 데이터베이스 통계 정보
+
+### 7. sttEngine/logger.py
+**기능**: 로깅 시스템 (자동 롤오버)
+**핵심패턴**:
+- 1MB 제한으로 자동 로그 파일 분할
+- DB 경로 기반 로그 디렉토리 (db/log/)
+- stdout/stderr을 로그 파일과 콘솔에 동시 출력 (Tee)
+**주요메서드**:
+- `setup_logging()`: 로깅 초기화 및 Tee 설정
+- `_LogFile.write()`: 로그 작성 및 롤오버 처리
+
+### 8. sttEngine/search_cache.py
+**기능**: 검색 결과 캐싱 시스템
+**핵심패턴**:
+- 24시간 캐시 만료 정책
+- MD5 해시로 쿼리 식별
+- 만료된 캐시 자동 정리
+**주요함수**:
+- `get_cached_search_result()`: 캐시된 검색 결과 조회
+- `cache_search_result()`: 검색 결과 캐싱
+- `cleanup_expired_cache()`: 만료된 캐시 파일 정리
+- `get_cache_stats()`: 캐시 통계 정보
+
+### 9. sttEngine/keyword_frequency.py
+**기능**: 텍스트 파일의 키워드 빈도 분석
+**주요함수**:
+- `keyword_frequency(file_path, top_n)`: 상위 N개 키워드 빈도 계산
+
+### 10. sttEngine/one_line_summary.py
+**기능**: 텍스트 파일을 한 줄로 요약
+**핵심패턴**:
+- Ollama LLM 사용
+- 간결한 한 줄 요약 생성
+
+### 11. sttEngine/run_workflow.py
+**기능**: CLI 워크플로우 통합 실행기
+**핵심패턴**:
+- 대화형 CLI 인터페이스
+- STT → 교정 → 요약 파이프라인 자동화
 
 ## 의존성 관리
 
 ### requirements.txt 패키지
 ```
+# PyTorch CUDA wheels (GPU 가속)
+--extra-index-url https://download.pytorch.org/whl/cu124
+
+# PyTorch 패키지 (GPU 지원)
+torch
+torchaudio
+torchvision
+
+# 핵심 의존성
 openai-whisper>=20231117
 ollama>=0.1.0
 multipart
 python-dotenv
 sentence-transformers
 pypdf>=3.0.0
+websockets>=10.0
 ```
 
 ### 시스템 의존성
@@ -89,12 +170,27 @@ pypdf>=3.0.0
 - **Ollama**: 로컬LLM서비스, 백그라운드실행 필수
 
 ### 환경변수 (.env)
-```
-HUGGINGFACE_TOKEN=token_here
-SUMMARY_MODEL_WINDOWS=gemma3:4b
-SUMMARY_MODEL_UNIX=gpt-oss:20b
-CORRECT_MODEL_WINDOWS=gemma3:4b
-CORRECT_MODEL_UNIX=gemma3:12b-it-qat
+```bash
+# --- Database Paths ---
+# DB_FOLDER_PATH=d:/path/to/your/custom/db
+
+# --- Model Configuration (Windows) ---
+# TRANSCRIBE_MODEL_WINDOWS=large-v3-turbo
+# SUMMARY_MODEL_WINDOWS=gemma3:4b
+# EMBEDDING_MODEL_WINDOWS=bge-m3:latest
+
+# --- Model Configuration (macOS/Linux) ---
+# TRANSCRIBE_MODEL_UNIX=large-v3-turbo
+# SUMMARY_MODEL_UNIX=gpt-oss:20b
+# EMBEDDING_MODEL_UNIX=bge-m3:latest
+
+# --- Embedding Settings ---
+# EMBEDDING_MAX_PROMPT_CHARS=7500
+# EMBEDDING_MODEL=bge-m3:latest
+
+# --- Cloudflare Tunnel Configuration ---
+# TUNNEL_ENABLED=false
+# CLOUDFLARE_TUNNEL_TOKEN=your_tunnel_token_here
 ```
 
 ## API 엔드포인트 스펙
@@ -114,29 +210,49 @@ CORRECT_MODEL_UNIX=gemma3:12b-it-qat
 - **출력**: 실행중인 작업리스트
 
 ### POST /search
-- **기능**: 벡터검색
-- **입력**: `{"query": "검색어", "limit": 5, "threshold": 0.7}`
+- **기능**: 벡터검색 (캐싱 지원)
+- **입력**: `{"query": "검색어", "limit": 5, "threshold": 0.7, "start_date": "2025-01-01", "end_date": "2025-01-31"}`
 - **출력**: 유사문서 리스트
+- **캐싱**: 24시간 동안 동일 쿼리 캐싱
+
+### WebSocket /ws
+- **기능**: 실시간 작업 진행 상태 업데이트
+- **프로토콜**: WebSocket
+- **메시지**: JSON 형식 진행 상태
+
+### GET /cache/stats
+- **기능**: 캐시 통계 정보 조회
+- **출력**: `{"total_entries": N, "expired_entries": M, "valid_entries": K}`
+
+### POST /cache/cleanup
+- **기능**: 만료된 캐시 정리
+- **출력**: 정리된 캐시 수
 
 ## 플랫폼별 최적화 패턴
 
 ### Windows 환경
 ```python
 # config.py에서 자동감지
-if platform.system() == "Windows":
-    DEFAULT_SUMMARY_MODEL = "gemma3:4b"
-    DEFAULT_CORRECT_MODEL = "gemma3:4b"
-    PYTHON_PATH = "python.exe"
-    WHISPER_CACHE = os.path.expanduser("~/.cache/whisper/")
+PLATFORM_DEFAULTS = {
+    "TRANSCRIBE": {"WINDOWS": "large-v3-turbo"},
+    "SUMMARY": {"WINDOWS": "gemma3:4b"},
+    "EMBEDDING": {"WINDOWS": "bge-m3:latest"}
+}
+
+# PyTorch CUDA 지원 (GPU 가속)
+# requirements.txt에서 CUDA 124 wheels 사용
 ```
 
-### macOS/Linux 환경  
+### macOS/Linux 환경
 ```python
-else:  # Unix계열
-    DEFAULT_SUMMARY_MODEL = "gpt-oss:20b"
-    DEFAULT_CORRECT_MODEL = "gemma3:12b-it-qat"
-    PYTHON_PATH = "venv/bin/python"
-    # Apple Silicon MPS 우선사용
+PLATFORM_DEFAULTS = {
+    "TRANSCRIBE": {"UNIX": "large-v3-turbo"},
+    "SUMMARY": {"UNIX": "gpt-oss:20b"},
+    "EMBEDDING": {"UNIX": "bge-m3:latest"}
+}
+
+# Apple Silicon MPS 우선사용
+# GPU/MPS 실패 시 CPU로 자동 전환
 ```
 
 ## 에러처리 패턴
@@ -228,6 +344,22 @@ python sttEngine/workflow/summarize.py [입력.md]
 1. `embedding_pipeline.py` 모델설정 수정
 2. `vector_search.py` 검색알고리즘 개선
 3. 메타데이터 기반 필터링 추가
+
+### Vocabulary Manager 활용
+1. `vocabulary_manager.py`로 어휘 데이터베이스 관리
+2. `update_vocab(text)` 호출로 키워드 추가
+3. `get_top_keywords()`로 Whisper initial_prompt 생성
+4. vocab.json 파일로 키워드 가중치 영구 저장
+
+### 로깅 및 캐싱 최적화
+1. `logger.py`로 로그 파일 자동 롤오버 관리
+2. `search_cache.py`로 검색 결과 캐싱
+3. DB 경로를 환경변수로 커스터마이징
+
+### WebSocket 실시간 통신
+1. `server.py`의 WebSocket 핸들러 확장
+2. 프론트엔드에서 `ws://localhost:8080/ws` 연결
+3. 작업 진행 상태를 실시간으로 클라이언트에 푸시
 
 ## Cloudflare Tunnel 통합
 

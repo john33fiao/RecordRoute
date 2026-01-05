@@ -16,9 +16,13 @@
 -   **언어:** Python 3
 -   **음성 인식:** `openai-whisper`
 -   **LLM (텍스트 교정/요약):** `Ollama` (gemma3:4b, gemma3:12b-it-qat, gpt-oss:20b 등)
+-   **임베딩 모델:** `bge-m3:latest` (Ollama)
 -   **핵심 의존성:**
     -   `openai-whisper`: Python 라이브러리
     -   `ollama`: Python 라이브러리
+    -   `torch`, `torchaudio`, `torchvision`: PyTorch (GPU/CUDA 지원)
+    -   `websockets`: WebSocket 실시간 통신
+    -   `sentence-transformers`: 벡터 임베딩
     -   `ffmpeg`: 시스템 프로그램 (오디오 처리 및 m4a→wav 변환)
     -   `Ollama`: 시스템 서비스 (로컬 LLM 구동을 위해 필요)
 
@@ -26,32 +30,37 @@
 
 ```
 RecordRoute/
-├── README.md              # 프로젝트 소개 및 설치 가이드
-├── TODO.md               # 기능 구현 계획
-├── LICENSE                # 라이선스 정보
-├── CLAUDE.md             # Claude AI 전용 프로젝트 가이드
-├── GEMINI.md             # Gemini AI 에이전트 및 개발자 가이드
-├── run.bat                # Windows 웹 서버 실행 스크립트
-├── run.command            # macOS/Linux 웹 서버 실행 스크립트
+├── README.md                  # 프로젝트 소개 및 설치 가이드
+├── TODO/                      # 기능 구현 계획 디렉토리
+├── LICENSE                    # 라이선스 정보
+├── CLAUDE.md                  # Claude AI 전용 프로젝트 가이드
+├── GEMINI.md                  # Gemini AI 에이전트 및 개발자 가이드
+├── .env.example               # 환경변수 템플릿
+├── run.sh                     # Unix 웹 서버 실행 스크립트
+├── run.bat                    # Windows 웹 서버 실행 스크립트
+├── setup.sh                   # Unix 설정 스크립트
+├── setup.bat                  # Windows 설정 스크립트
+├── requirements.txt           # Python 의존성 목록
 ├── frontend/
-│   ├── upload.html        # 웹 업로드 및 작업 관리 UI
-│   ├── upload.js          # 프론트엔드 로직
-│   └── upload.css         # 프론트엔드 스타일
+│   ├── upload.html            # 웹 업로드 및 작업 관리 UI
+│   ├── upload.js              # 프론트엔드 로직
+│   └── upload.css             # 프론트엔드 스타일
 └── sttEngine/
-    ├── config.py            # 환경변수 기반 설정 관리
-    ├── embedding_pipeline.py  # 문서 임베딩 및 벡터 생성
-    ├── ollama_utils.py      # Ollama 서버 및 모델 관리 유틸리티
+    ├── config.py              # 환경변수 기반 설정 관리, DB 경로 관리
+    ├── logger.py              # 로깅 시스템 (자동 롤오버)
+    ├── vocabulary_manager.py  # STT 정확도 향상용 어휘 관리
+    ├── keyword_frequency.py   # 키워드 빈도 분석 유틸리티
+    ├── search_cache.py        # 검색 결과 캐싱 (24시간)
+    ├── embedding_pipeline.py  # 문서 임베딩 및 벡터 생성 (bge-m3)
+    ├── ollama_utils.py        # Ollama 서버 및 모델 관리 유틸리티
     ├── one_line_summary.py    # 한 줄 요약 유틸리티
-    ├── requirements.txt       # Python 의존성 목록
-    ├── run_workflow.py        # 메인 워크플로우 오케스트레이션 스크립트
-    ├── run.bat                # Windows용 워크플로우 실행 스크립트
-    ├── server.py              # 업로드 처리 및 워크플로우 실행 서버
-    ├── setup.bat              # Windows용 의존성 설치 스크립트
+    ├── run_workflow.py        # CLI 워크플로우 통합 실행기
+    ├── server.py              # HTTP/WebSocket 서버, 업로드 처리
     ├── vector_search.py       # 벡터 검색 기능
     └── workflow/
-        ├── transcribe.py     # 1단계: 음성 변환 로직
-        ├── correct.py        # 2단계: 텍스트 교정 로직
-        └── summarize.py      # 3단계: 텍스트 요약 로직
+        ├── transcribe.py      # 1단계: 음성 변환 로직
+        ├── correct.py         # 2단계: 텍스트 교정 로직
+        └── summarize.py       # 3단계: 텍스트 요약 로직
 ```
 
 ## 4. 설치 및 설정 (Setup)
