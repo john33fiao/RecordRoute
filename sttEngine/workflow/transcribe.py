@@ -27,6 +27,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from config import get_db_base_path, get_default_model, get_model_for_task
 from logger import setup_logging
 from vocabulary_manager import VocabularyManager
+from obsidian_mcp import send_stt_to_obsidian_sync
 
 setup_logging()
 
@@ -512,12 +513,47 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
         # 원자적 저장
         if progress_callback:
             progress_callback(f"'{file_path.name}' 파일 저장 중...")
-        
+
         write_atomic(output_file_path, markdown_content)
-        
+
+        # Obsidian MCP 자동 전송
+        try:
+            from datetime import datetime
+
+            # UUID 추출 (파일명에서 확장자 제거)
+            file_uuid = output_file_path.stem
+
+            # 파일 생성 시각 (현재 시각)
+            created_at = datetime.now()
+
+            # STT 텍스트 추출 (타임스탬프 제거한 순수 텍스트)
+            stt_text_only = "\n".join([text for _, _, text in processed_segments]) if processed_segments else result.get("text", "").strip()
+
+            if progress_callback:
+                progress_callback(f"'{file_path.name}' Obsidian 전송 중...")
+
+            # Obsidian에 전송 (동기 버전)
+            mcp_result = send_stt_to_obsidian_sync(
+                uuid=file_uuid,
+                stt_text=stt_text_only,
+                original_filename=file_path.name,
+                created_at=created_at
+            )
+
+            if mcp_result["success"]:
+                logging.info(f"Obsidian MCP 전송 성공: {mcp_result['message']}")
+                if progress_callback:
+                    progress_callback(f"'{file_path.name}' Obsidian 전송 완료")
+            else:
+                logging.warning(f"Obsidian MCP 전송 실패 (처리는 계속): {mcp_result['message']}")
+
+        except Exception as e:
+            # Obsidian 전송 실패해도 전체 프로세스는 계속 진행
+            logging.warning(f"Obsidian MCP 전송 중 오류 (처리는 계속): {e}")
+
         if progress_callback:
             progress_callback(f"'{file_path.name}' 변환 완료!")
-        
+
         return output_file_path
 
     finally:

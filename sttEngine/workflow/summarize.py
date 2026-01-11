@@ -20,6 +20,7 @@ except ImportError:
 sys.path.append(str(Path(__file__).parent.parent))
 from config import get_model_for_task, get_default_model, get_config_value
 from logger import setup_logging
+from obsidian_mcp import send_summary_to_obsidian_sync
 
 setup_logging()
 from ollama_utils import ensure_ollama_server, check_ollama_model_available, safe_ollama_call
@@ -676,7 +677,41 @@ def main() -> None:
         
         # 결과 저장
         save_output(summary, output_path, args.json)
-        
+
+        # Obsidian MCP 자동 전송
+        try:
+            from datetime import datetime
+
+            # UUID 추출 (파일명에서 확장자 제거)
+            # output_path는 예: /path/to/db/whisper_output/filename.summary.md
+            # UUID는 filename 부분
+            file_uuid = output_path.stem.replace('.summary', '')
+
+            # 원본 파일명 추출
+            original_filename = input_path.name if not args.stdin else "stdin"
+
+            # 파일 생성 시각 (현재 시각)
+            created_at = datetime.now()
+
+            logging.info(f"Obsidian MCP 전송 시작: UUID={file_uuid}")
+
+            # Obsidian에 전송 (동기 버전)
+            mcp_result = send_summary_to_obsidian_sync(
+                uuid=file_uuid,
+                summary_text=summary,
+                original_filename=original_filename,
+                created_at=created_at
+            )
+
+            if mcp_result["success"]:
+                logging.info(f"Obsidian MCP 전송 성공: {mcp_result['message']}")
+            else:
+                logging.warning(f"Obsidian MCP 전송 실패 (처리는 계속): {mcp_result['message']}")
+
+        except Exception as e:
+            # Obsidian 전송 실패해도 전체 프로세스는 계속 진행
+            logging.warning(f"Obsidian MCP 전송 중 오류 (처리는 계속): {e}")
+
         # 완료 메시지
         logging.info("요약 작업이 성공적으로 완료되었습니다")
         if args.verbose:
