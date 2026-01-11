@@ -9,3 +9,4 @@ sentence-transformers
 pypdf>=3.0.0
 websockets>=10.0
 filelock>=3.0.0
+mcp

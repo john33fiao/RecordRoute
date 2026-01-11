@@ -1774,6 +1774,38 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                 output_file = Path(current_file).with_name(f"{Path(current_file).stem}.summary.md")
                 save_output(summary, output_file, as_json=False)
                 
+                # Obsidian MCP 전송 (비동기로 실행)
+                try:
+                    # upload_folder_name is available in scope (used below)
+                    file_uuid = upload_folder_name
+                    
+                    # UUID 형식 검증
+                    import uuid
+                    try:
+                        uuid.UUID(file_uuid)
+                        is_uuid = True
+                    except ValueError:
+                        is_uuid = False
+                        
+                    if is_uuid:
+                        from .mcp_client import ObsidianMCPClient
+                        import asyncio
+                        
+                        async def send_summary_to_obsidian():
+                            client = ObsidianMCPClient()
+                            await client.save_summary_result(file_uuid, summary)
+                        
+                        if task_id:
+                            update_task_progress(task_id, "Obsidian으로 요약 전송 중...")
+                            
+                        # run_workflow runs in a thread, so we can use asyncio.run
+                        asyncio.run(send_summary_to_obsidian())
+                        print(f"Obsidian summary sent: {file_uuid}")
+                        
+                except Exception as e:
+                    print(f"Obsidian summary send failed: {e}")
+                    # 실패해도 전체 작업은 계속 진행
+                
                 if task_id:
                     update_task_progress(task_id, "요약 생성 완료")
             except Exception as e:

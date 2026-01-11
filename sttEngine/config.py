@@ -228,3 +228,12 @@ def to_db_record_path(path: Path, base_dir: Optional[Path] = None) -> str:
         return f"{DB_ALIAS}/{relative.as_posix()}"
     except ValueError:
         return path.resolve().as_posix()
+
+
+def get_obsidian_mcp_config() -> Dict[str, Optional[str]]:
+    """Obsidian MCP 관련 설정 반환"""
+    return {
+        "server_executable": os.getenv("OBSIDIAN_MCP_SERVER_EXECUTABLE"),
+        "vault_dir": os.getenv("OBSIDIAN_VAULT_DIR"),
+        "api_key": os.getenv("OBSIDIAN_API_KEY")
+    }

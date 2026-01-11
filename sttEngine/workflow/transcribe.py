@@ -518,6 +518,49 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
         if progress_callback:
             progress_callback(f"'{file_path.name}' 변환 완료!")
         
+        # Obsidian MCP 전송 (비동기로 실행)
+        try:
+            # 상위 폴더명이 UUID라고 가정 (server.py의 구조에 따름)
+            # 예: DB/uploads/{UUID}/{filename} -> parent.name is UUID
+            # 하지만 output은 DB/whisper_output/{UUID}/{filename}.md 구조일 수 있음
+            # transcribe_single_file 호출 시 output_dir가 어디인지 확인 필요.
+            # transcribe_audio_files에서 output_dir를 생성함.
+            
+            # server.py에서 호출 시: output_dir = OUTPUT_DIR / upload_uuid
+            # 따라서 output_file_path.parent.name 은 UUID일 가능성이 높음.
+            
+            file_uuid = output_file_path.parent.name
+            
+            # UUID 형식 검증 (간단히)
+            import uuid
+            try:
+                uuid.UUID(file_uuid)
+                is_uuid = True
+            except ValueError:
+                is_uuid = False
+                
+            if is_uuid:
+                import sys
+                sys.path.append(str(Path(__file__).parent.parent))
+                from mcp_client import ObsidianMCPClient
+                import asyncio
+                
+                async def send_to_obsidian():
+                    client = ObsidianMCPClient()
+                    # 마크다운 내용 중 본문만 추출 (또는 전체)
+                    # 여기서는 전체 내용을 보냅니다.
+                    await client.save_stt_result(file_uuid, markdown_content)
+                
+                if progress_callback:
+                    progress_callback(f"Obsidian으로 결과 전송 중...")
+                
+                asyncio.run(send_to_obsidian())
+                logging.info(f"Obsidian으로 전송 완료: {file_uuid}")
+                
+        except Exception as e:
+            logging.error(f"Obsidian 전송 실패: {e}")
+            # 전송 실패는 전체 프로세스 실패로 간주하지 않음
+        
         return output_file_path
 
     finally:
