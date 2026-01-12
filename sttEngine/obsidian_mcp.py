@@ -44,12 +44,13 @@ class ObsidianMCPIntegration:
                 print("[Obsidian MCP] WARNING: OBSIDIAN_API_KEY가 설정되지 않았습니다.")
                 self.enabled = False
 
-    def _generate_frontmatter(self, filename: str, created_at: datetime) -> str:
+    def _generate_frontmatter(self, filename: str, uuid: str, created_at: datetime) -> str:
         """
         YAML frontmatter 생성
 
         Args:
             filename: 원본 파일명 (표시용)
+            uuid: 파일 UUID (검색용)
             created_at: 파일 생성 시각
 
         Returns:
@@ -62,6 +63,7 @@ from:
 created: {created_at.strftime("%Y-%m-%d %H%M%S")}
 aliases:
   - {filename}
+  - {uuid}
 ---
 
 """
@@ -157,7 +159,7 @@ aliases:
                         message = f"STT 텍스트가 기존 파일에 추가되었습니다: {filename}"
                     else:
                         # 새 파일 생성 (frontmatter + STT)
-                        frontmatter = self._generate_frontmatter(original_filename, created_at)
+                        frontmatter = self._generate_frontmatter(original_filename, uuid, created_at)
                         content = f"{frontmatter}## STT 원문\n\n{stt_text}\n"
 
                         await session.call_tool("create_vault_file", {
@@ -254,7 +256,7 @@ aliases:
                     else:
                         # 파일이 없으면 새로 생성 (frontmatter + 요약)
                         # STT 없이 바로 요약된 케이스
-                        frontmatter = self._generate_frontmatter(original_filename, created_at)
+                        frontmatter = self._generate_frontmatter(original_filename, uuid, created_at)
                         content = f"{frontmatter}## 요약\n\n{summary_text}\n"
 
                         await session.call_tool("create_vault_file", {
