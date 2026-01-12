@@ -68,8 +68,15 @@ aliases:
 
     async def _get_server_params(self) -> StdioServerParameters:
         """MCP 서버 파라미터 생성"""
+        # Windows 경로 정규화
+        import platform
+        server_path = self.server_path
+        if platform.system() == "Windows":
+            # Windows 경로를 정규화 (백슬래시 유지)
+            server_path = os.path.normpath(server_path)
+
         return StdioServerParameters(
-            command=self.server_path,
+            command=server_path,
             args=[],
             env={
                 "OBSIDIAN_API_KEY": self.api_key,
@@ -168,9 +175,23 @@ aliases:
                         "filename": filename
                     }
 
+        except FileNotFoundError as e:
+            error_msg = f"MCP 서버를 찾을 수 없습니다: {self.server_path}"
+            print(f"[Obsidian MCP] ✗ {error_msg}")
+            print(f"[Obsidian MCP] 힌트: OBSIDIAN_MCP_SERVER_PATH 환경변수를 확인하세요.")
+            return {
+                "success": False,
+                "message": error_msg,
+                "action": "failed"
+            }
         except Exception as e:
             error_msg = f"Obsidian MCP 전송 실패: {str(e)}"
             print(f"[Obsidian MCP] ✗ {error_msg}")
+            import traceback
+            print(f"[Obsidian MCP] 디버그 정보:")
+            print(f"  - 서버 경로: {self.server_path}")
+            print(f"  - Vault 폴더: {self.vault_folder}")
+            print(f"  - 오류 상세: {traceback.format_exc()}")
             return {
                 "success": False,
                 "message": error_msg,
@@ -251,9 +272,23 @@ aliases:
                         "filename": filename
                     }
 
+        except FileNotFoundError as e:
+            error_msg = f"MCP 서버를 찾을 수 없습니다: {self.server_path}"
+            print(f"[Obsidian MCP] ✗ {error_msg}")
+            print(f"[Obsidian MCP] 힌트: OBSIDIAN_MCP_SERVER_PATH 환경변수를 확인하세요.")
+            return {
+                "success": False,
+                "message": error_msg,
+                "action": "failed"
+            }
         except Exception as e:
             error_msg = f"Obsidian MCP 전송 실패: {str(e)}"
             print(f"[Obsidian MCP] ✗ {error_msg}")
+            import traceback
+            print(f"[Obsidian MCP] 디버그 정보:")
+            print(f"  - 서버 경로: {self.server_path}")
+            print(f"  - Vault 폴더: {self.vault_folder}")
+            print(f"  - 오류 상세: {traceback.format_exc()}")
             return {
                 "success": False,
                 "message": error_msg,
