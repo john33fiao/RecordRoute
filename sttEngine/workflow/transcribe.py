@@ -520,8 +520,8 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
         try:
             from datetime import datetime
 
-            # UUID 추출 (파일명에서 확장자 제거)
-            file_uuid = output_file_path.stem
+            # UUID 추출 (output_file_path의 부모 디렉토리명 = UUID 폴더)
+            file_uuid = output_file_path.parent.name
 
             # 파일 생성 시각 (현재 시각)
             created_at = datetime.now()
