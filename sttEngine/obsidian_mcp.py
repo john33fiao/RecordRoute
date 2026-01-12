@@ -56,12 +56,15 @@ class ObsidianMCPIntegration:
         Returns:
             YAML frontmatter 문자열
         """
+        # 파일명에서 확장자 제거
+        filename_without_ext = Path(filename).stem
+
         return f"""---
 author: 서요한
 from: "[[RecordRoute]]"
 created: {created_at.strftime("%Y-%m-%d %H%M%S")}
 aliases:
-    - {filename}
+    - {filename_without_ext}
     - {uuid}
 ---
 
@@ -85,18 +88,20 @@ aliases:
             }
         )
 
-    async def _file_exists(self, session: ClientSession, uuid: str) -> bool:
+    async def _file_exists(self, session: ClientSession, original_filename: str) -> bool:
         """
         Obsidian Vault에 파일이 존재하는지 확인
 
         Args:
             session: MCP 클라이언트 세션
-            uuid: 파일 UUID
+            original_filename: 원본 파일명
 
         Returns:
             파일 존재 여부
         """
-        filename = f"{self.vault_folder}/{uuid}.md"
+        # 원본 파일명에서 확장자 제거하고 .md 추가
+        filename_without_ext = Path(original_filename).stem
+        filename = f"{self.vault_folder}/{filename_without_ext}.md"
         try:
             await session.call_tool("get_vault_file", {"filename": filename})
             return True
@@ -135,7 +140,9 @@ aliases:
         if created_at is None:
             created_at = datetime.now()
 
-        filename = f"{self.vault_folder}/{uuid}.md"
+        # 원본 파일명에서 확장자 제거하고 .md 추가
+        filename_without_ext = Path(original_filename).stem
+        filename = f"{self.vault_folder}/{filename_without_ext}.md"
 
         try:
             server_params = await self._get_server_params()
@@ -145,7 +152,7 @@ aliases:
                     await session.initialize()
 
                     # 파일 존재 확인
-                    file_exists = await self._file_exists(session, uuid)
+                    file_exists = await self._file_exists(session, original_filename)
 
                     if file_exists:
                         # 파일이 이미 있으면 STT 텍스트만 append
@@ -231,7 +238,9 @@ aliases:
         if created_at is None:
             created_at = datetime.now()
 
-        filename = f"{self.vault_folder}/{uuid}.md"
+        # 원본 파일명에서 확장자 제거하고 .md 추가
+        filename_without_ext = Path(original_filename).stem
+        filename = f"{self.vault_folder}/{filename_without_ext}.md"
 
         try:
             server_params = await self._get_server_params()
@@ -241,7 +250,7 @@ aliases:
                     await session.initialize()
 
                     # 파일 존재 확인
-                    file_exists = await self._file_exists(session, uuid)
+                    file_exists = await self._file_exists(session, original_filename)
 
                     if file_exists:
                         # 파일이 있으면 요약만 append

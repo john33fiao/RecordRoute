@@ -1777,11 +1777,21 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
 
                 # Obsidian MCP 자동 전송
                 try:
-                    # UUID 추출 (파일명에서 .summary 제거)
-                    file_uuid = output_file.stem.replace('.summary', '')
+                    # UUID 추출 (record_id 또는 폴더명)
+                    file_uuid = record_id if record_id else output_file.parent.name
 
-                    # 원본 파일명 추출
-                    original_filename = Path(current_file).name
+                    # 원본 파일명 추출 (DB에서 조회)
+                    original_filename = None
+                    if record_id:
+                        history = load_upload_history()
+                        for rec in history:
+                            if rec.get("id") == record_id:
+                                original_filename = rec.get("info", {}).get("original_filename")
+                                break
+
+                    # DB에서 찾지 못한 경우 현재 파일명 사용
+                    if not original_filename:
+                        original_filename = Path(current_file).name
 
                     # 파일 생성 시각
                     created_at = datetime.now()
