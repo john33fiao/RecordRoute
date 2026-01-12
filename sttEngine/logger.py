@@ -86,6 +86,11 @@ def setup_logging():
             for s in self.streams:
                 s.flush()
 
+        def fileno(self):
+            """Return the file descriptor of the first stream (original stdout/stderr)"""
+            # 원본 stdout/stderr의 fileno를 반환 (subprocess에서 필요)
+            return self.streams[0].fileno()
+
     sys.stdout = Tee(sys.__stdout__, logfile)
     sys.stderr = Tee(sys.__stderr__, logfile)
     return logfile
