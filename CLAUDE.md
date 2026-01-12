@@ -12,6 +12,8 @@
 ### 핵심 처리 플로우
 ```
 오디오파일 → transcribe.py → correct.py → summarize.py → 벡터임베딩
+                ↓                              ↓
+         Obsidian (STT)              Obsidian (요약 append)
 ```
 
 ### 디렉토리 맵핑
@@ -32,6 +34,7 @@ RecordRoute/
 ├── sttEngine/embedding_pipeline.py    # 벡터임베딩 (bge-m3)
 ├── sttEngine/vector_search.py         # 벡터검색
 ├── sttEngine/ollama_utils.py          # Ollama 연동유틸
+├── sttEngine/obsidian_mcp.py          # Obsidian MCP 통합
 ├── frontend/
 │   ├── upload.html                    # 웹UI
 │   ├── upload.js                      # 프론트엔드 로직
@@ -143,6 +146,25 @@ RecordRoute/
 - 대화형 CLI 인터페이스
 - STT → 교정 → 요약 파이프라인 자동화
 
+### 12. sttEngine/obsidian_mcp.py
+**기능**: Obsidian MCP (Model Context Protocol) 통합
+**핵심패턴**:
+- STT/요약 완료 시 자동으로 Obsidian Vault에 마크다운 파일 생성/업데이트
+- UUID 기반 파일명으로 중복 방지
+- YAML frontmatter 자동 생성 (author, from, created, aliases)
+- 비동기 MCP 서버 통신 (stdio)
+**주요메서드**:
+- `send_stt_to_obsidian()`: STT 텍스트를 Obsidian에 전송 (파일 생성 또는 append)
+- `send_summary_to_obsidian()`: 요약 텍스트를 Obsidian에 전송 (append)
+- `send_stt_to_obsidian_sync()`: 동기 버전 래퍼 (기존 동기 코드에서 사용)
+- `send_summary_to_obsidian_sync()`: 동기 버전 래퍼
+**통합 시점**:
+- `transcribe.py`: STT 완료 후 자동 전송
+- `summarize.py`: 요약 완료 후 자동 append
+**에러 핸들링**:
+- MCP 전송 실패 시 로그만 남기고 전체 프로세스 계속 진행
+- OBSIDIAN_MCP_ENABLED=false 시 전송 스킵
+
 ## 의존성 관리
 
 ### requirements.txt 패키지
@@ -163,11 +185,17 @@ python-dotenv
 sentence-transformers
 pypdf>=3.0.0
 websockets>=10.0
+
+# Obsidian MCP 통합
+mcp>=0.1.0
 ```
 
 ### 시스템 의존성
 - **FFmpeg**: M4A→WAV 변환, PATH환경변수 필수
 - **Ollama**: 로컬LLM서비스, 백그라운드실행 필수
+- **Obsidian MCP 서버** (선택사항): Obsidian Vault 통합 시 필요
+  - 설치: `npm install -g @john33/obsidian-mcp-server` (예시)
+  - 서버 경로를 OBSIDIAN_MCP_SERVER_PATH에 설정
 
 ### 환경변수 (.env)
 ```bash
@@ -191,6 +219,12 @@ websockets>=10.0
 # --- Cloudflare Tunnel Configuration ---
 # TUNNEL_ENABLED=false
 # CLOUDFLARE_TUNNEL_TOKEN=your_tunnel_token_here
+
+# --- Obsidian MCP Integration ---
+# OBSIDIAN_MCP_ENABLED=true
+# OBSIDIAN_MCP_SERVER_PATH=/usr/local/bin/obsidian-mcp-server
+# OBSIDIAN_API_KEY=your_obsidian_api_key_here
+# OBSIDIAN_VAULT_FOLDER=RecordRoute
 ```
 
 ## API 엔드포인트 스펙
