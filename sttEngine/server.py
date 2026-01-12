@@ -55,6 +55,7 @@ from .one_line_summary import generate_one_line_summary
 from .vector_search import search as search_vectors
 from .search_cache import cleanup_expired_cache, get_cache_stats, delete_cache_record
 from .embedding_pipeline import embed_text_ollama, load_index, save_index
+from .obsidian_mcp import send_summary_to_obsidian_sync
 from ollama_utils import ensure_ollama_server, check_ollama_model_available
 import numpy as np
 import os
@@ -1773,7 +1774,44 @@ def run_workflow(file_path: Path, steps, record_id: str = None, task_id: str = N
                     
                 output_file = Path(current_file).with_name(f"{Path(current_file).stem}.summary.md")
                 save_output(summary, output_file, as_json=False)
-                
+
+                # Obsidian MCP 자동 전송
+                try:
+                    from datetime import datetime
+
+                    # UUID 추출 (파일명에서 확장자 제거)
+                    file_uuid = output_file.stem.replace('.summary', '')
+
+                    # 원본 파일명 추출
+                    original_filename = Path(current_file).name
+
+                    # 파일 생성 시각 (현재 시각)
+                    created_at = datetime.now()
+
+                    if task_id:
+                        update_task_progress(task_id, "Obsidian 전송 중...")
+
+                    print(f"Obsidian MCP 전송 시작: UUID={file_uuid}")
+
+                    # Obsidian에 전송 (동기 버전)
+                    mcp_result = send_summary_to_obsidian_sync(
+                        uuid=file_uuid,
+                        summary_text=summary,
+                        original_filename=original_filename,
+                        created_at=created_at
+                    )
+
+                    if mcp_result["success"]:
+                        print(f"Obsidian MCP 전송 성공: {mcp_result['message']}")
+                        if task_id:
+                            update_task_progress(task_id, "Obsidian 전송 완료")
+                    else:
+                        print(f"Obsidian MCP 전송 실패 (처리는 계속): {mcp_result['message']}")
+
+                except Exception as e:
+                    # Obsidian 전송 실패해도 전체 프로세스는 계속 진행
+                    print(f"Obsidian MCP 전송 중 오류 (처리는 계속): {e}")
+
                 if task_id:
                     update_task_progress(task_id, "요약 생성 완료")
             except Exception as e:
