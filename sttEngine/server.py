@@ -1915,7 +1915,7 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", content_type)
             # Cache Vite hashed assets aggressively
-            if "/assets/" in rel_path:
+            if rel_path.startswith("assets/"):
                 self.send_header("Cache-Control", "public, max-age=31536000, immutable")
             self.end_headers()
             self.wfile.write(content)
