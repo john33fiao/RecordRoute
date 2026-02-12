@@ -1,0 +1,139 @@
+import { useState, useEffect } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Button } from './ui/button';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Switch } from './ui/switch';
+import { Power } from 'lucide-react';
+import { useTheme } from '../contexts/ThemeContext';
+import { useApp } from '../contexts/AppContext';
+import * as api from '../api/client';
+
+interface SettingsDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+  const { theme, setTheme } = useTheme();
+  const { modelSettings, setModelSettings } = useApp();
+  const [localSettings, setLocalSettings] = useState(modelSettings);
+  const [darkMode, setDarkMode] = useState(theme === 'dark');
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [defaults, setDefaults] = useState<{ whisper: string; summarize: string; embedding: string } | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setLocalSettings(modelSettings);
+      setDarkMode(theme === 'dark');
+      api.getModels().then(data => {
+        setAvailableModels(data.models || []);
+        setDefaults(data.default);
+      }).catch(() => {});
+    }
+  }, [open, modelSettings, theme]);
+
+  const handleSave = () => {
+    setTheme(darkMode ? 'dark' : 'light');
+    setModelSettings(localSettings);
+    onOpenChange(false);
+  };
+
+  const handleShutdown = () => {
+    if (confirm('서버를 종료하시겠습니까?')) {
+      api.shutdown();
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={`max-w-md ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
+        <DialogHeader>
+          <DialogTitle className={`text-xl ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>설정</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-6 py-4">
+          <div className="space-y-2">
+            <Label className={theme === 'dark' ? 'text-slate-200' : 'text-slate-700'}>Whisper 모델 (STT):</Label>
+            <Select value={localSettings.transcribe} onValueChange={(v: string) => setLocalSettings(s => ({ ...s, transcribe: v }))}>
+              <SelectTrigger className={theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-300'}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className={theme === 'dark' ? 'bg-slate-800 border-slate-700' : ''}>
+                {['large-v3-turbo', 'large-v3', 'large-v2', 'medium', 'small', 'base', 'tiny'].map(m => (
+                  <SelectItem key={m} value={m}>{m}{m === (defaults?.whisper || 'large-v3-turbo') ? ' (기본값)' : ''}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label className={theme === 'dark' ? 'text-slate-200' : 'text-slate-700'}>Whisper 언어:</Label>
+            <Select value={localSettings.language} onValueChange={(v: string) => setLocalSettings(s => ({ ...s, language: v }))}>
+              <SelectTrigger className={theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-300'}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className={theme === 'dark' ? 'bg-slate-800 border-slate-700' : ''}>
+                <SelectItem value="">자동 감지</SelectItem>
+                <SelectItem value="ko">한국어</SelectItem>
+                <SelectItem value="en">English</SelectItem>
+                <SelectItem value="ja">日本語</SelectItem>
+                <SelectItem value="zh">中文</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label className={theme === 'dark' ? 'text-slate-200' : 'text-slate-700'}>요약 모델:</Label>
+            <Select value={localSettings.summarize} onValueChange={(v: string) => setLocalSettings(s => ({ ...s, summarize: v }))}>
+              <SelectTrigger className={theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-300'}>
+                <SelectValue placeholder="모델 선택..." />
+              </SelectTrigger>
+              <SelectContent className={theme === 'dark' ? 'bg-slate-800 border-slate-700' : ''}>
+                {availableModels.map(m => (
+                  <SelectItem key={m} value={m}>{m}{m === defaults?.summarize ? ' (기본값)' : ''}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label className={theme === 'dark' ? 'text-slate-200' : 'text-slate-700'}>임베딩 모델:</Label>
+            <Select value={localSettings.embedding} onValueChange={(v: string) => setLocalSettings(s => ({ ...s, embedding: v }))}>
+              <SelectTrigger className={theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-300'}>
+                <SelectValue placeholder="모델 선택..." />
+              </SelectTrigger>
+              <SelectContent className={theme === 'dark' ? 'bg-slate-800 border-slate-700' : ''}>
+                {availableModels.map(m => (
+                  <SelectItem key={m} value={m}>{m}{m === defaults?.embedding ? ' (기본값)' : ''}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center justify-between py-2">
+            <Label className={theme === 'dark' ? 'text-slate-200' : 'text-slate-700'}>다크 모드</Label>
+            <Switch checked={darkMode} onCheckedChange={setDarkMode} />
+          </div>
+        </div>
+
+        <DialogFooter className="flex-row justify-between items-center">
+          <Button variant="outline" onClick={handleShutdown}
+            className="bg-red-900/20 border-red-700 text-red-400 hover:bg-red-900/30 hover:text-red-300">
+            <Power className="size-4 mr-2" /> 종료
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}
+              className={theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700' : ''}>
+              취소
+            </Button>
+            <Button onClick={handleSave}
+              className="bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500">
+              확인
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

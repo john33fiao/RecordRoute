@@ -180,6 +180,38 @@ if !errorlevel! equ 0 (
     echo   Windows Package Manager: winget install ffmpeg
 )
 
+REM 6. Node.js & Frontend Build
+echo Step 5: Building Frontend...
+
+where node >nul 2>&1
+if !errorlevel! equ 0 (
+    echo Node.js가 설치되어 있습니다.
+    node --version
+
+    where npm >nul 2>&1
+    if !errorlevel! equ 0 (
+        echo 프론트엔드 의존성을 설치합니다...
+        cd /d "%SCRIPT_DIR%\frontend"
+        call npm install
+
+        echo 프론트엔드를 빌드합니다...
+        call npm run build
+        if !errorlevel! equ 0 (
+            echo 프론트엔드 빌드 성공.
+        ) else (
+            echo [경고] 프론트엔드 빌드에 실패했습니다. 수동으로 빌드하세요: cd frontend ^&^& npm run build
+        )
+        cd /d "%SCRIPT_DIR%"
+    ) else (
+        echo [경고] npm이 설치되어 있지 않습니다. Node.js 18 이상을 설치하세요.
+    )
+) else (
+    echo [경고] Node.js가 설치되어 있지 않습니다.
+    echo https://nodejs.org 에서 Node.js 18 이상을 다운로드하세요.
+    echo 설치 후 다음 명령어를 실행하세요: cd frontend ^&^& npm install ^&^& npm run build
+)
+echo.
+
 echo.
 echo ================================
 echo     Setup Complete!
