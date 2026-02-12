@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { useTheme } from '../contexts/ThemeContext';
 import * as api from '../api/client';
@@ -38,8 +38,8 @@ export function ResetAllDialog({ open, onOpenChange, onComplete }: ResetAllDialo
       <DialogContent className={`max-w-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
         <DialogHeader>
           <DialogTitle>전체 초기화</DialogTitle>
+          <DialogDescription className={`text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>초기화할 항목을 선택하세요.</DialogDescription>
         </DialogHeader>
-        <p className={`text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>초기화할 항목을 선택하세요.</p>
         <div className="space-y-3 py-4">
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={allChecked} onChange={toggleAll} className="rounded border-slate-600" />
@@ -89,10 +89,10 @@ export function SttEditResetDialog({ open, onOpenChange, recordId, onComplete }:
       <DialogContent className={`max-w-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
         <DialogHeader>
           <DialogTitle>초기화 확인</DialogTitle>
+          <DialogDescription className={`text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+            텍스트 수정이 완료되었습니다. 저장된 색인 및 요약을 초기화 하시겠습니까?
+          </DialogDescription>
         </DialogHeader>
-        <p className={`text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
-          텍스트 수정이 완료되었습니다. 저장된 색인 및 요약을 초기화 하시겠습니까?
-        </p>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}
             className={theme === 'dark' ? 'border-slate-700 text-slate-300' : ''}>닫기</Button>

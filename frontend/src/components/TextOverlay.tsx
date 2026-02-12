@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
 import { Copy, Download, Edit, Trash2, X, Save } from 'lucide-react';
@@ -87,14 +87,13 @@ export function TextOverlay({ open, onOpenChange, fileIdentifier, fileType, file
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`max-w-4xl max-h-[85vh] ${
-        theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
-      }`}>
+      <DialogContent className={`max-w-4xl max-h-[85vh] ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
+        }`}>
         <DialogHeader>
           <div className="flex items-start justify-between gap-4">
             <div>
               <DialogTitle className="text-xl">{fileType === 'stt' ? 'STT 결과' : '요약 결과'}</DialogTitle>
-              <p className={`text-sm mt-1 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>{filename}</p>
+              <DialogDescription className={`text-sm mt-1 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>{filename}</DialogDescription>
             </div>
           </div>
         </DialogHeader>
@@ -132,23 +131,20 @@ export function TextOverlay({ open, onOpenChange, fileIdentifier, fileType, file
           </Button>
         </div>
 
-        <ScrollArea className={`h-[500px] rounded-lg border p-4 ${
-          theme === 'dark' ? 'border-slate-700 bg-slate-950/50' : 'border-slate-200 bg-slate-50'
-        }`}>
+        <ScrollArea className={`h-[500px] rounded-lg border p-4 ${theme === 'dark' ? 'border-slate-700 bg-slate-950/50' : 'border-slate-200 bg-slate-50'
+          }`}>
           {loading ? (
             <p className={theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}>로딩 중...</p>
           ) : editing ? (
             <textarea
               value={editContent}
               onChange={(e) => setEditContent(e.target.value)}
-              className={`w-full h-full min-h-[450px] bg-transparent resize-none font-mono text-sm outline-none ${
-                theme === 'dark' ? 'text-slate-200' : 'text-slate-800'
-              }`}
+              className={`w-full h-full min-h-[450px] bg-transparent resize-none font-mono text-sm outline-none ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'
+                }`}
             />
           ) : (
-            <pre className={`whitespace-pre-wrap font-mono text-sm leading-relaxed ${
-              theme === 'dark' ? 'text-slate-200' : 'text-slate-800'
-            }`}>{content}</pre>
+            <pre className={`whitespace-pre-wrap font-mono text-sm leading-relaxed ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'
+              }`}>{content}</pre>
           )}
         </ScrollArea>
 

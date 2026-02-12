@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
 import { Badge } from './ui/badge';
@@ -46,7 +46,7 @@ export function SimilarDocsDialog({ open, onOpenChange, filePath, filename }: Si
       <DialogContent className={`max-w-3xl max-h-[85vh] ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
         <DialogHeader>
           <DialogTitle className="text-xl">유사한 문서 (상위 {docs.length}개)</DialogTitle>
-          <p className={`text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>기준: {filename}</p>
+          <DialogDescription className={`text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>기준: {filename}</DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="h-[500px] pr-4">
@@ -58,9 +58,8 @@ export function SimilarDocsDialog({ open, onOpenChange, filePath, filename }: Si
             <div className="space-y-3">
               {docs.map((doc, i) => (
                 <a key={i} href={doc.link || api.getDownloadUrl(doc.file_uuid || doc.file)} target="_blank" rel="noopener noreferrer"
-                  className={`block p-4 rounded-xl border transition-all cursor-pointer ${
-                    theme === 'dark' ? 'bg-slate-800/50 border-slate-700 hover:border-slate-600' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-                  }`}>
+                  className={`block p-4 rounded-xl border transition-all cursor-pointer ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700 hover:border-slate-600' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                    }`}>
                   <div className="flex items-start gap-3">
                     <div className="p-2 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 shrink-0">
                       <FileText className="size-4 text-white" />

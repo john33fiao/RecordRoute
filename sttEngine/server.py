@@ -2210,16 +2210,19 @@ class UploadHandler(BaseHTTPRequestHandler):
                 return
             
             # Read file content to use as search query
-            try:
-                with open(full_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-            except UnicodeDecodeError:
+            # Read file content to use as search query
+            content = None
+            encodings = ['utf-8', 'utf-8-sig', 'cp949', 'euc-kr', 'utf-16']
+            for enc in encodings:
                 try:
-                    with open(full_path, 'r', encoding='cp949') as f:
+                    with open(full_path, 'r', encoding=enc) as f:
                         content = f.read()
+                    break
                 except UnicodeDecodeError:
-                    with open(full_path, 'r', encoding='euc-kr') as f:
-                        content = f.read()
+                    continue
+            
+            if content is None:
+                raise UnicodeDecodeError(f"Failed to read file with encodings: {encodings}")
             
             # Use the content to search for similar documents (top 6 to exclude self)
             print(f"[DEBUG] 유사 문서 검색 시작 - 현재 파일: {current_file_name}")
@@ -2316,21 +2319,48 @@ class UploadHandler(BaseHTTPRequestHandler):
                 return
             
             # Read file content to use as search query
-            try:
-                with open(full_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-            except UnicodeDecodeError:
+            # Read file content to use as search query
+            content = None
+            encodings = ['utf-8', 'utf-8-sig', 'cp949', 'euc-kr', 'utf-16']
+            for enc in encodings:
                 try:
-                    with open(full_path, 'r', encoding='cp949') as f:
+                    with open(full_path, 'r', encoding=enc) as f:
                         content = f.read()
+                    break
                 except UnicodeDecodeError:
-                    with open(full_path, 'r', encoding='euc-kr') as f:
-                        content = f.read()
+                    continue
+            
+            if content is None:
+                raise UnicodeDecodeError(f"Failed to read file with encodings: {encodings}")
             
             # Use the content to search for similar documents (top 6 to exclude self)
             if refresh:
                 delete_cache_record(content, 6)
-            hits = search_vectors(content, BASE_DIR, top_k=6)
+            
+            # Dynamically import search to ensure we have the latest version and correct function
+            try:
+                import importlib
+                import vector_search
+                importlib.reload(vector_search)
+                from vector_search import search as dynamic_search_vectors
+                
+                print(f"[DEBUG] imported search: {dynamic_search_vectors}")
+                import inspect
+                sig = inspect.signature(dynamic_search_vectors)
+                print(f"[DEBUG] signature: {sig}")
+                
+                # Call with explicit arguments based on inspection
+                print(f"[DEBUG] Calling search with content len={len(content)}, BASE_DIR={BASE_DIR}")
+                hits = dynamic_search_vectors(query=content, base_dir=BASE_DIR, top_k=6)
+                
+            except Exception as e:
+                print(f"[DEBUG] Error during dynamic search call: {e}")
+                # Fallback to global if dynamic fails, but likely global is also broken if this fails
+                import traceback
+                traceback.print_exc()
+                hits = search_vectors(content, BASE_DIR, top_k=6)
+
+
             
             # Filter out the current document itself and limit to top 5
             similar_docs = []
