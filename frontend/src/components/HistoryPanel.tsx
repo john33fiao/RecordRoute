@@ -81,9 +81,17 @@ export function HistoryPanel({ onViewContent, onShowSimilarDocs, onShowResetAll 
   const handleTaskButton = (record: HistoryRecord, taskType: TaskType) => {
     const status = getTaskStatus(record, taskType);
     if (status === 'completed') {
-      const fileType = taskType === 'stt' ? 'stt' : taskType === 'summary' ? 'summary' : null;
-      if (fileType) {
-        onViewContent(record.id, fileType, record);
+      if (taskType === 'embedding') {
+        const filePath = record.file_path || record.info?.file_path || record.id;
+        onShowSimilarDocs(filePath, record.filename);
+      } else {
+        const fileType = taskType === 'stt' ? 'stt' : taskType === 'summary' ? 'summary' : null;
+        if (fileType) {
+          // Extract UUID from download link if available
+          const downloadLink = record.download_links?.[fileType];
+          const fileIdentifier = downloadLink ? downloadLink.replace('/download/', '') : record.id;
+          onViewContent(fileIdentifier, fileType, record);
+        }
       }
     } else if (status === 'pending') {
       // Use record.file_path if available, otherwise record.id
