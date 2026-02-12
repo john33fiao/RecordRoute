@@ -1926,7 +1926,7 @@ class UploadHandler(BaseHTTPRequestHandler):
     def _serve_static(self, filename: str, content_type: str):
         """Serve static frontend assets (legacy fallback)."""
         try:
-            with open(BASE_DIR / "frontend" / filename, "rb") as f:
+            with open(BASE_DIR / "frontend" / "legacy" / filename, "rb") as f:
                 content = f.read()
             self.send_response(200)
             self.send_header("Content-Type", content_type)
