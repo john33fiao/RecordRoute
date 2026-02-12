@@ -1922,6 +1922,12 @@ class UploadHandler(BaseHTTPRequestHandler):
         except FileNotFoundError:
             self.send_response(404)
             self.end_headers()
+        except IsADirectoryError:
+            self.send_response(404)
+            self.end_headers()
+        except PermissionError:
+            self.send_response(403)
+            self.end_headers()
 
     def _serve_static(self, filename: str, content_type: str):
         """Serve static frontend assets (legacy fallback)."""
