@@ -8,6 +8,7 @@ import { ScrollArea } from './ui/scroll-area';
 import { useTheme } from '../contexts/ThemeContext';
 import * as api from '../api/client';
 import type { KeywordMatch, SimilarDocument } from '../api/types';
+import { TextOverlay } from './TextOverlay';
 
 export function SearchPanel() {
   const { theme } = useTheme();
@@ -16,6 +17,11 @@ export function SearchPanel() {
   const [keywordResults, setKeywordResults] = useState<KeywordMatch[]>([]);
   const [similarResults, setSimilarResults] = useState<SimilarDocument[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
+
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailFileIdentifier, setDetailFileIdentifier] = useState<string | null>(null);
+  const [detailTitle, setDetailTitle] = useState('');
+  const [detailRecordId, setDetailRecordId] = useState('');
 
   const handleSearch = async () => {
     if (!query.trim()) return;
@@ -41,6 +47,29 @@ export function SearchPanel() {
   const formatDate = (dateStr: string) => {
     try { return new Date(dateStr).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' }); }
     catch { return dateStr; }
+  };
+
+  const getIdentifierFromDownloadLink = (link?: string | null) => {
+    if (!link) return null;
+    const prefix = '/download/';
+    if (!link.startsWith(prefix)) return null;
+    const raw = link.slice(prefix.length);
+    return raw ? raw : null;
+  };
+
+  const openKeywordDetail = (result: KeywordMatch) => {
+    setDetailFileIdentifier(result.file_uuid || result.file);
+    setDetailTitle((result.display_name || result.source_filename || '').normalize('NFC'));
+    setDetailRecordId('');
+    setDetailOpen(true);
+  };
+
+  const openSimilarDetail = (result: SimilarDocument) => {
+    const identifier = result.file_uuid || getIdentifierFromDownloadLink(result.link) || result.file;
+    setDetailFileIdentifier(identifier);
+    setDetailTitle((result.display_name || result.source_filename || '').normalize('NFC'));
+    setDetailRecordId(result.record_id || '');
+    setDetailOpen(true);
   };
 
   return (
@@ -83,9 +112,15 @@ export function SearchPanel() {
                 <div className="space-y-3">
                   <h3 className={`text-sm font-semibold ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>키워드 일치 문서</h3>
                   {keywordResults.map((result, i) => (
-                    <a key={i} href={api.getDownloadUrl(result.file_uuid)} target="_blank" rel="noopener noreferrer"
-                      className={`block p-4 rounded-xl border transition-all cursor-pointer ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700 hover:border-slate-600' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-                        }`}>
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => openKeywordDetail(result)}
+                      className={`block w-full text-left p-4 rounded-xl border transition-all cursor-pointer ${theme === 'dark'
+                        ? 'bg-slate-800/50 border-slate-700 hover:border-slate-600'
+                        : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                        }`}
+                    >
                       <div className="flex items-start gap-3">
                         <div className="p-2 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600">
                           <FileText className="size-4 text-white" />
@@ -102,7 +137,7 @@ export function SearchPanel() {
                           </div>
                         </div>
                       </div>
-                    </a>
+                    </button>
                   ))}
                 </div>
               )}
@@ -113,9 +148,15 @@ export function SearchPanel() {
                     <TrendingUp className="size-4 text-violet-400" /> 연관 문서
                   </h3>
                   {similarResults.map((result, i) => (
-                    <a key={i} href={result.link || api.getDownloadUrl(result.file_uuid || result.file)} target="_blank" rel="noopener noreferrer"
-                      className={`block p-4 rounded-xl border transition-all cursor-pointer ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700 hover:border-slate-600' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-                        }`}>
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => openSimilarDetail(result)}
+                      className={`block w-full text-left p-4 rounded-xl border transition-all cursor-pointer ${theme === 'dark'
+                        ? 'bg-slate-800/50 border-slate-700 hover:border-slate-600'
+                        : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                        }`}
+                    >
                       <div className="flex items-start gap-3">
                         <div className="p-2 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600">
                           <FileText className="size-4 text-white" />
@@ -132,7 +173,7 @@ export function SearchPanel() {
                           {result.uploaded_at && <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-600'}`}>{formatDate(result.uploaded_at)}</p>}
                         </div>
                       </div>
-                    </a>
+                    </button>
                   ))}
                 </div>
               )}
@@ -146,6 +187,15 @@ export function SearchPanel() {
           )}
         </ScrollArea>
       </div>
+
+      <TextOverlay
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        fileIdentifier={detailFileIdentifier}
+        fileType="stt"
+        filename={detailTitle}
+        recordId={detailRecordId}
+      />
     </Card>
   );
 }
