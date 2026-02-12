@@ -2,8 +2,8 @@
 
 from pathlib import Path
 import ollama
-from workflow.summarize import read_text_with_fallback, DEFAULT_MODEL
-from ollama_utils import safe_ollama_call
+from .workflow.summarize import read_text_with_fallback, DEFAULT_MODEL
+from .ollama_utils import safe_ollama_call
 
 
 def generate_one_line_summary(file_path: Path, model: str = None) -> str:

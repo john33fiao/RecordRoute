@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -9,18 +8,16 @@ import numpy as np
 import json
 from datetime import datetime
 
-from embedding_pipeline import (
+from .embedding_pipeline import (
     INDEX_FILE,
     VECTOR_DIR,
     embed_text_ollama,
     load_index,
     resolve_index_path,
 )
-from search_cache import get_cached_search_result, cache_search_result
+from .search_cache import cache_search_result, get_cached_search_result
 
-# 설정 모듈 임포트
-sys.path.append(str(Path(__file__).parent / "sttEngine"))
-from config import get_default_model, get_model_for_task, normalize_db_record_path
+from .config import get_default_model, get_model_for_task, normalize_db_record_path
 
 
 def search(query: str, base_dir: Path, top_k: int = 10,
