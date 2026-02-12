@@ -2177,6 +2177,47 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(f"Error getting task progress: {str(e)}".encode())
 
+    def _resolve_text_file_for_similar(self, full_path: Path):
+        """Resolve a file path to a readable text file for similar document search.
+
+        If ``full_path`` is already a text file (e.g. ``.md``, ``.txt``), it is
+        returned as-is.  Otherwise the method looks for the associated summary
+        or STT output under ``whisper_output/UUID/``.
+        """
+        TEXT_SUFFIXES = {'.md', '.txt', '.text', '.markdown'}
+
+        # If the file itself is already a text file, use it directly
+        if full_path.suffix.lower() in TEXT_SUFFIXES:
+            return full_path
+
+        # The file is likely audio/video.  Derive the UUID directory
+        # from the upload path structure:  DB/uploads/UUID/filename.ext
+        upload_uuid = full_path.parent.name
+        stem = full_path.stem
+        stt_output_dir = OUTPUT_DIR / upload_uuid
+
+        if stt_output_dir.exists():
+            # Prefer summary > corrected > raw STT
+            candidates = [
+                stt_output_dir / f"{stem}.summary.md",
+                stt_output_dir / f"{stem}.corrected.md",
+                stt_output_dir / f"{stem}.md",
+            ]
+            for candidate in candidates:
+                if candidate.exists():
+                    print(f"[DEBUG] 유사문서 검색용 텍스트 파일 찾음: {candidate}")
+                    return candidate
+
+            # Fallback: pick *any* .md file in the UUID directory
+            md_files = list(stt_output_dir.glob("*.md"))
+            if md_files:
+                chosen = md_files[0]
+                print(f"[DEBUG] 유사문서 검색용 대체 텍스트 파일: {chosen}")
+                return chosen
+
+        print(f"[DEBUG] 유사문서 검색용 텍스트 파일을 찾지 못함: {full_path}")
+        return None
+
     def _serve_similar_documents(self, file_identifier: str):
         """Find similar documents based on the provided file's content."""
         try:
@@ -2209,20 +2250,25 @@ class UploadHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
                 return
             
-            # Read file content to use as search query
-            # Read file content to use as search query
+            # Find the text file to use as search query.
+            # If the resolved path is a binary file (audio/video), look for
+            # the associated summary or STT text in whisper_output/UUID/.
+            text_path = self._resolve_text_file_for_similar(full_path)
+            if text_path is None:
+                raise ValueError(f"검색에 사용할 텍스트 파일을 찾을 수 없습니다: {full_path}")
+            
             content = None
             encodings = ['utf-8', 'utf-8-sig', 'cp949', 'euc-kr', 'utf-16']
             for enc in encodings:
                 try:
-                    with open(full_path, 'r', encoding=enc) as f:
+                    with open(text_path, 'r', encoding=enc) as f:
                         content = f.read()
                     break
                 except UnicodeDecodeError:
                     continue
             
             if content is None:
-                raise UnicodeDecodeError(f"Failed to read file with encodings: {encodings}")
+                raise ValueError(f"텍스트 파일을 읽을 수 없습니다: {text_path}")
             
             # Use the content to search for similar documents (top 6 to exclude self)
             print(f"[DEBUG] 유사 문서 검색 시작 - 현재 파일: {current_file_name}")
@@ -2257,7 +2303,8 @@ class UploadHandler(BaseHTTPRequestHandler):
                     similar_docs.append({
                         "file": normalized_hit,
                         "score": hit["score"],
-                        "link": download_link
+                        "link": download_link,
+                        "record_id": file_info.get("record_id") if file_uuid and file_info else None
                     })
                     print(f"[DEBUG] 유사 문서 추가됨: {hit_path_norm} (score: {hit['score']:.3f})")
                 else:
@@ -2318,48 +2365,29 @@ class UploadHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
                 return
             
-            # Read file content to use as search query
-            # Read file content to use as search query
+            # Find the text file to use as search query.
+            text_path = self._resolve_text_file_for_similar(full_path)
+            if text_path is None:
+                raise ValueError(f"검색에 사용할 텍스트 파일을 찾을 수 없습니다: {full_path}")
+            
             content = None
             encodings = ['utf-8', 'utf-8-sig', 'cp949', 'euc-kr', 'utf-16']
             for enc in encodings:
                 try:
-                    with open(full_path, 'r', encoding=enc) as f:
+                    with open(text_path, 'r', encoding=enc) as f:
                         content = f.read()
                     break
                 except UnicodeDecodeError:
                     continue
             
             if content is None:
-                raise UnicodeDecodeError(f"Failed to read file with encodings: {encodings}")
+                raise ValueError(f"텍스트 파일을 읽을 수 없습니다: {text_path}")
             
             # Use the content to search for similar documents (top 6 to exclude self)
             if refresh:
                 delete_cache_record(content, 6)
             
-            # Dynamically import search to ensure we have the latest version and correct function
-            try:
-                import importlib
-                import vector_search
-                importlib.reload(vector_search)
-                from vector_search import search as dynamic_search_vectors
-                
-                print(f"[DEBUG] imported search: {dynamic_search_vectors}")
-                import inspect
-                sig = inspect.signature(dynamic_search_vectors)
-                print(f"[DEBUG] signature: {sig}")
-                
-                # Call with explicit arguments based on inspection
-                print(f"[DEBUG] Calling search with content len={len(content)}, BASE_DIR={BASE_DIR}")
-                hits = dynamic_search_vectors(query=content, base_dir=BASE_DIR, top_k=6)
-                
-            except Exception as e:
-                print(f"[DEBUG] Error during dynamic search call: {e}")
-                # Fallback to global if dynamic fails, but likely global is also broken if this fails
-                import traceback
-                traceback.print_exc()
-                hits = search_vectors(content, BASE_DIR, top_k=6)
-
+            hits = search_vectors(content, BASE_DIR, top_k=6)
 
             
             # Filter out the current document itself and limit to top 5
@@ -2404,7 +2432,8 @@ class UploadHandler(BaseHTTPRequestHandler):
                         "score": hit["score"],
                         "link": download_link,
                         "display_name": display_filename,
-                        "title_summary": title_summary
+                        "title_summary": title_summary,
+                        "record_id": record_id
                     })
                 if len(similar_docs) >= 5:
                     break
@@ -2416,6 +2445,8 @@ class UploadHandler(BaseHTTPRequestHandler):
             
         except Exception as e:
             print(f"유사 문서 검색 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
             self.send_response(500)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

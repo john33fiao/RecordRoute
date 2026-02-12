@@ -53,6 +53,7 @@ export interface SimilarDocument {
   uploaded_at?: string;
   source_filename?: string;
   link: string;
+  record_id?: string;
 }
 
 // Models from GET /models
