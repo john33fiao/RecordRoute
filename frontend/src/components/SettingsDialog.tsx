@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -29,7 +29,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       api.getModels().then(data => {
         setAvailableModels(data.models || []);
         setDefaults(data.default);
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }, [open, modelSettings, theme]);
 
@@ -45,11 +45,16 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   };
 
+  if (!localSettings) {
+    return null;
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={`max-w-md ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
         <DialogHeader>
           <DialogTitle className={`text-xl ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>설정</DialogTitle>
+          <DialogDescription className="sr-only">RecordRoute 애플리케이션 설정을 변경합니다.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6 py-4">
@@ -69,12 +74,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
           <div className="space-y-2">
             <Label className={theme === 'dark' ? 'text-slate-200' : 'text-slate-700'}>Whisper 언어:</Label>
-            <Select value={localSettings.language} onValueChange={(v: string) => setLocalSettings(s => ({ ...s, language: v }))}>
+            <Select value={localSettings.language || 'auto'} onValueChange={(v: string) => setLocalSettings(s => ({ ...s, language: v === 'auto' ? '' : v }))}>
               <SelectTrigger className={theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-300'}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className={theme === 'dark' ? 'bg-slate-800 border-slate-700' : ''}>
-                <SelectItem value="">자동 감지</SelectItem>
+                <SelectItem value="auto">자동 감지</SelectItem>
                 <SelectItem value="ko">한국어</SelectItem>
                 <SelectItem value="en">English</SelectItem>
                 <SelectItem value="ja">日本語</SelectItem>

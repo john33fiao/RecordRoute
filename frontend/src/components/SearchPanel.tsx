@@ -84,9 +84,8 @@ export function SearchPanel() {
                   <h3 className={`text-sm font-semibold ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>키워드 일치 문서</h3>
                   {keywordResults.map((result, i) => (
                     <a key={i} href={api.getDownloadUrl(result.file_uuid)} target="_blank" rel="noopener noreferrer"
-                      className={`block p-4 rounded-xl border transition-all cursor-pointer ${
-                        theme === 'dark' ? 'bg-slate-800/50 border-slate-700 hover:border-slate-600' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-                      }`}>
+                      className={`block p-4 rounded-xl border transition-all cursor-pointer ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700 hover:border-slate-600' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                        }`}>
                       <div className="flex items-start gap-3">
                         <div className="p-2 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600">
                           <FileText className="size-4 text-white" />
@@ -97,8 +96,8 @@ export function SearchPanel() {
                               <h4 className={`font-medium ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'}`}>{(result.display_name || result.source_filename || '').normalize('NFC')}</h4>
                               {result.uploaded_at && <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-600'}`}>{formatDate(result.uploaded_at)}</p>}
                             </div>
-                            <Badge variant="outline" className={`${theme === 'dark' ? 'border-slate-600' : 'border-slate-400'} ${getSimilarityColor(result.score)}`}>
-                              {(result.score * 100).toFixed(0)}% 일치
+                            <Badge variant="outline" className={`${theme === 'dark' ? 'border-slate-600' : 'border-slate-400'} text-violet-400`}>
+                              {result.count}회 등장
                             </Badge>
                           </div>
                         </div>
@@ -115,9 +114,8 @@ export function SearchPanel() {
                   </h3>
                   {similarResults.map((result, i) => (
                     <a key={i} href={result.link || api.getDownloadUrl(result.file_uuid || result.file)} target="_blank" rel="noopener noreferrer"
-                      className={`block p-4 rounded-xl border transition-all cursor-pointer ${
-                        theme === 'dark' ? 'bg-slate-800/50 border-slate-700 hover:border-slate-600' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-                      }`}>
+                      className={`block p-4 rounded-xl border transition-all cursor-pointer ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700 hover:border-slate-600' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                        }`}>
                       <div className="flex items-start gap-3">
                         <div className="p-2 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600">
                           <FileText className="size-4 text-white" />

@@ -65,10 +65,9 @@ export function HistoryPanel({ onViewContent, onShowSimilarDocs, onShowResetAll 
   };
 
   const getTaskStatus = (record: HistoryRecord, taskType: string): 'completed' | 'pending' | 'queued' | 'processing' => {
-    const info = record.info || {};
-    const isComplete = taskType === 'stt' ? info.stt_completed :
-                       taskType === 'embedding' ? info.embedding_completed :
-                       info.summary_completed;
+    // Check top-level completed_tasks first, fallback to info for legacy compatibility if needed
+    const isComplete = record.completed_tasks?.[taskType] || record.info?.[`${taskType}_completed`];
+
     if (isComplete) return 'completed';
 
     const allTasks = currentTask ? [currentTask, ...queue] : queue;
@@ -87,14 +86,15 @@ export function HistoryPanel({ onViewContent, onShowSimilarDocs, onShowResetAll 
         onViewContent(record.id, fileType, record);
       }
     } else if (status === 'pending') {
-      const filePath = record.info?.file_path || record.id;
+      // Use record.file_path if available, otherwise record.id
+      const filePath = record.file_path || record.info?.file_path || record.id;
       addTask(record.id, filePath, taskType);
     }
   };
 
   const handleProcessAll = () => {
     history.forEach(record => {
-      const filePath = record.info?.file_path || record.id;
+      const filePath = record.file_path || record.info?.file_path || record.id;
       if (!getTaskStatus(record, 'stt').match(/completed|queued|processing/)) {
         if (record.file_type === 'audio') addTask(record.id, filePath, 'stt');
       }
@@ -177,9 +177,8 @@ export function HistoryPanel({ onViewContent, onShowSimilarDocs, onShowResetAll 
                 const sumStatus = getTaskStatus(item, 'summary');
 
                 return (
-                  <div key={item.id} className={`p-4 rounded-xl border transition-all space-y-3 group ${
-                    theme === 'dark' ? 'bg-slate-800/50 border-slate-700 hover:border-slate-600' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-                  }`}>
+                  <div key={item.id} className={`p-4 rounded-xl border transition-all space-y-3 group ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700 hover:border-slate-600' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                    }`}>
                     <div className="flex items-start gap-3">
                       <input type="checkbox" checked={selectedIds.has(item.id)}
                         onChange={() => toggleSelect(item.id)}
@@ -231,10 +230,9 @@ export function HistoryPanel({ onViewContent, onShowSimilarDocs, onShowResetAll 
                         className={`text-xs px-3 py-1 rounded-lg border transition-colors ${getTaskBtnClass(sumStatus)}`}>
                         요약
                       </button>
-                      <a href={api.getDownloadUrl(item.id)} download
-                        className={`text-xs px-3 py-1 rounded-lg border transition-colors ${
-                          theme === 'dark' ? 'border-slate-600 text-slate-400 hover:border-green-500 hover:bg-green-500/10' : 'border-slate-400 text-slate-600 hover:border-green-500 hover:bg-green-50'
-                        }`}>
+                      <a href={api.getDownloadUrl(item.file_path || item.id)} download
+                        className={`text-xs px-3 py-1 rounded-lg border transition-colors ${theme === 'dark' ? 'border-slate-600 text-slate-400 hover:border-green-500 hover:bg-green-500/10' : 'border-slate-400 text-slate-600 hover:border-green-500 hover:bg-green-50'
+                          }`}>
                         <Download className="size-3 inline mr-1" /> 다운로드
                       </a>
                     </div>

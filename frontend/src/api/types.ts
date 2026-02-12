@@ -9,6 +9,7 @@ export interface UploadResult {
 }
 
 // History record from GET /history
+// History record from GET /history
 export interface HistoryRecord {
   id: string;
   filename: string;
@@ -16,6 +17,9 @@ export interface HistoryRecord {
   timestamp: string;
   file_hash: string;
   duration?: string;
+  file_path: string;
+  completed_tasks: Record<string, boolean>;
+  download_links: Record<string, string>;
   info?: Record<string, any>;
 }
 
@@ -38,7 +42,7 @@ export interface KeywordMatch {
   uploaded_at: string;
   source_filename: string;
   display_name: string;
-  score: number;
+  count: number;
 }
 
 export interface SimilarDocument {
