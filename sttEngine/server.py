@@ -1860,9 +1860,34 @@ class UploadHandler(BaseHTTPRequestHandler):
         message = format % args
         if not any(code in message for code in ['" 200 ', ' 200 ']):
             super().log_message(format, *args)
+    # Content-Type mapping for Vite build assets
+    CONTENT_TYPES = {
+        ".html": "text/html; charset=utf-8",
+        ".css": "text/css; charset=utf-8",
+        ".js": "application/javascript; charset=utf-8",
+        ".mjs": "application/javascript; charset=utf-8",
+        ".json": "application/json; charset=utf-8",
+        ".svg": "image/svg+xml",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".ico": "image/x-icon",
+        ".woff": "font/woff",
+        ".woff2": "font/woff2",
+        ".ttf": "font/ttf",
+        ".eot": "application/vnd.ms-fontobject",
+        ".map": "application/json",
+    }
+
     def _serve_upload_page(self):
+        """Serve React app index.html from frontend/dist/."""
+        dist_index = BASE_DIR / "frontend" / "dist" / "index.html"
+        legacy_index = BASE_DIR / "frontend" / "legacy" / "upload.html"
         try:
-            with open(BASE_DIR / "frontend" / "upload.html", "rb") as f:
+            # Try React build first, fall back to legacy
+            target = dist_index if dist_index.exists() else legacy_index
+            with open(target, "rb") as f:
                 content = f.read()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1872,8 +1897,34 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def _serve_dist_file(self, rel_path: str):
+        """Serve static files from frontend/dist/ (Vite build output)."""
+        import posixpath
+        # Sanitize path to prevent directory traversal
+        rel_path = posixpath.normpath(rel_path).lstrip("/")
+        file_path = BASE_DIR / "frontend" / "dist" / rel_path
+        try:
+            if not file_path.resolve().is_relative_to((BASE_DIR / "frontend" / "dist").resolve()):
+                self.send_response(403)
+                self.end_headers()
+                return
+            with open(file_path, "rb") as f:
+                content = f.read()
+            ext = file_path.suffix.lower()
+            content_type = self.CONTENT_TYPES.get(ext, "application/octet-stream")
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            # Cache Vite hashed assets aggressively
+            if "/assets/" in rel_path:
+                self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+            self.end_headers()
+            self.wfile.write(content)
+        except FileNotFoundError:
+            self.send_response(404)
+            self.end_headers()
+
     def _serve_static(self, filename: str, content_type: str):
-        """Serve static frontend assets like CSS or JS files."""
+        """Serve static frontend assets (legacy fallback)."""
         try:
             with open(BASE_DIR / "frontend" / filename, "rb") as f:
                 content = f.read()
@@ -1941,9 +1992,15 @@ class UploadHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/":
             self._serve_upload_page()
+        elif self.path.startswith("/assets/"):
+            # Vite build assets (JS, CSS, images, fonts)
+            self._serve_dist_file(self.path.lstrip("/"))
         elif self.path in ("/upload.css", "/upload.js"):
+            # Legacy static files fallback
             content_type = "text/css" if self.path.endswith(".css") else "application/javascript"
             self._serve_static(self.path.lstrip("/"), content_type)
+        elif self.path in ("/favicon.ico", "/vite.svg"):
+            self._serve_dist_file(self.path.lstrip("/"))
         elif self.path.startswith("/download/"):
             file_identifier = unquote(self.path[len("/download/"):])
             self._serve_download(file_identifier)

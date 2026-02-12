@@ -170,6 +170,22 @@ else
 fi
 echo
 
+# 프론트엔드 빌드 확인
+if [ ! -d "$SCRIPT_DIR/frontend/dist" ]; then
+    echo "프론트엔드 빌드가 없습니다. 빌드를 시도합니다..."
+    if command -v npm > /dev/null 2>&1; then
+        (cd "$SCRIPT_DIR/frontend" && npm install && npm run build)
+        if [ $? -eq 0 ]; then
+            echo "프론트엔드 빌드 완료."
+        else
+            echo "경고: 프론트엔드 빌드에 실패했습니다. 레거시 UI로 실행됩니다."
+        fi
+    else
+        echo "경고: npm이 설치되지 않았습니다. 레거시 UI로 실행됩니다."
+        echo "프론트엔드를 빌드하려면: cd frontend && npm install && npm run build"
+    fi
+fi
+
 # 웹서버 실행
 echo "가상환경의 파이썬으로 웹서버를 실행합니다..."
 echo "서버 URL: http://localhost:8080"

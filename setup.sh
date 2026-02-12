@@ -160,6 +160,37 @@ else
     fi
 fi
 
+# 6. Node.js & Frontend Build
+echo "Step 5: Building Frontend..."
+if command -v node &>/dev/null; then
+    NODE_VER=$(node --version)
+    echo "Node.js $NODE_VER detected."
+
+    if command -v npm &>/dev/null; then
+        echo "Installing frontend dependencies..."
+        (cd "$SCRIPT_DIR/frontend" && npm install)
+
+        echo "Building frontend..."
+        if (cd "$SCRIPT_DIR/frontend" && npm run build); then
+            echo "Frontend built successfully."
+        else
+            echo "Warning: Frontend build failed. You can build manually: cd frontend && npm run build"
+        fi
+    else
+        echo "Warning: npm is not installed. Please install Node.js 18+ with npm."
+    fi
+else
+    echo "Warning: Node.js is NOT installed."
+    if [[ "$OS_NAME" == "macOS" ]]; then
+        echo "Please install via Homebrew: brew install node"
+    elif [[ "$OS_NAME" == "Linux" ]]; then
+        echo "Please install Node.js 18+:"
+        echo "  Ubuntu/Debian: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs"
+        echo "  Or use nvm: https://github.com/nvm-sh/nvm"
+    fi
+    echo "After installation, run: cd frontend && npm install && npm run build"
+fi
+
 echo
 echo "================================"
 echo "      Setup Complete!"

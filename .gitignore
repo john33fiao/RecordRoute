@@ -15,3 +15,7 @@ __pycache__/
 
 # 내장 DB 제외
 DB
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
