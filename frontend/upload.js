@@ -107,7 +107,10 @@ function initializeDropZone() {
 
         if (acceptedFiles.length > 0) {
             fileInput.files = dataTransfer.files;
-            showTemporaryStatus(`${acceptedFiles.length}개의 파일이 업로드 대기 목록에 추가되었습니다.`, 'success');
+            showTemporaryStatus(`${acceptedFiles.length}개의 파일을 업로드합니다.`, 'success');
+
+            // Auto-upload on drop
+            setTimeout(() => uploadFiles(), 100);
         }
 
         if (duplicateFiles.length > 0) {
@@ -138,7 +141,10 @@ function initializeDropZone() {
     fileInput.addEventListener('change', () => {
         const files = Array.from(fileInput.files || []);
         if (files.length > 0) {
-            showTemporaryStatus(`${files.length}개의 파일이 업로드 대기 중입니다.`, 'info');
+            showTemporaryStatus(`${files.length}개의 파일을 업로드합니다.`, 'info');
+
+            // Auto-upload on file selection
+            setTimeout(() => uploadFiles(), 100);
         }
     });
 }
@@ -2314,7 +2320,8 @@ async function processNextTask() {
     }
 }
 
-document.getElementById('uploadBtn').addEventListener('click', async () => {
+// Extract upload logic to a separate function for reuse
+async function uploadFiles() {
     const input = document.getElementById('fileInput');
     const status = document.getElementById('status');
     const files = Array.from(input.files);
@@ -2445,7 +2452,9 @@ document.getElementById('uploadBtn').addEventListener('click', async () => {
     } catch (err) {
         appendStatusLine(`업로드 중 오류가 발생했습니다: ${err.message}`);
     }
-});
+}
+
+document.getElementById('uploadBtn').addEventListener('click', uploadFiles);
 
 // Check for running tasks on page load
 async function checkRunningTasks() {
