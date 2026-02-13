@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import * as api from '../api/client';
-import type { QueueTask, TaskType, ModelSettings, QueueSortMode, TaskProgress } from '../api/types';
+import type { QueueTask, TaskType, ModelSettings, QueueSortMode, TaskProgress, TaskStage } from '../api/types';
 import { QueueTaskStatus } from '../api/types';
 
 const CATEGORY_ORDER: TaskType[] = ['stt', 'embedding', 'summary'];
@@ -53,13 +53,13 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
     setQueue(prev => [...prev, task]);
   }, []);
 
-  const applyProgressUpdate = useCallback((taskId: string, message: string, meta?: { error_code?: string; retryable?: boolean; failed_step?: string }) => {
+  const applyProgressUpdate = useCallback((taskId: string, message: string, meta?: { stage?: TaskStage; error_code?: string; retryable?: boolean; failed_step?: string }) => {
     const previousMessage = progressDedupRef.current.get(taskId);
     if (previousMessage === message) return;
     progressDedupRef.current.set(taskId, message);
 
-    setQueue(prev => prev.map(t => t.taskId === taskId ? { ...t, progress: message, errorCode: meta?.error_code, retryable: meta?.retryable, failedStep: meta?.failed_step } : t));
-    setCurrentTask(prev => prev && prev.taskId === taskId ? { ...prev, progress: message, errorCode: meta?.error_code, retryable: meta?.retryable, failedStep: meta?.failed_step } : prev);
+    setQueue(prev => prev.map(t => t.taskId === taskId ? { ...t, progress: message, stage: meta?.stage, errorCode: meta?.error_code, retryable: meta?.retryable, failedStep: meta?.failed_step } : t));
+    setCurrentTask(prev => prev && prev.taskId === taskId ? { ...prev, progress: message, stage: meta?.stage, errorCode: meta?.error_code, retryable: meta?.retryable, failedStep: meta?.failed_step } : prev);
   }, []);
 
   const removeTask = useCallback((taskId: string) => {
@@ -84,6 +84,7 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
       status: QueueTaskStatus.Pending,
       progress: '',
       retryCount: (task.retryCount || 0) + 1,
+      retryOfTaskId: task.retryOfTaskId || task.taskId,
       abortController: undefined,
       lastRetryTime: Date.now(),
     };
@@ -152,10 +153,12 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
           language: ms.language,
         },
         abortController.signal,
+        'new_task',
+        task.retryOfTaskId,
       );
 
       if (result.error) {
-        setCurrentTask(prev => prev ? { ...prev, status: QueueTaskStatus.Error, progress: result.error || "오류 발생", errorCode: result.error_code, retryable: result.retryable, failedStep: result.failed_step } : null);
+        setCurrentTask(prev => prev ? { ...prev, status: QueueTaskStatus.Error, progress: result.error || "오류 발생", stage: result.failed_step === 'correct' ? 'correct' : result.failed_step === 'summary' ? 'summary' : 'transform', errorCode: result.error_code, retryable: result.retryable, failedStep: result.failed_step } : null);
       } else {
         setCurrentTask(prev => prev ? { ...prev, status: QueueTaskStatus.Completed } : null);
       }
@@ -183,9 +186,9 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
       try {
         const progress: TaskProgress = await api.getProgress(currentTask.taskId);
         if (cancelled || !progress.message) return;
-        applyProgressUpdate(progress.task_id, progress.message, { error_code: progress.error_code, retryable: progress.retryable, failed_step: progress.failed_step });
+        applyProgressUpdate(progress.task_id, progress.message, { stage: progress.stage, error_code: progress.error_code, retryable: progress.retryable, failed_step: progress.failed_step });
       } catch {
-        // WebSocket path remains primary; polling is best-effort fallback.
+        // WebSocket is primary; polling explicitly prevents stale UI when websocket events are dropped.
       }
     };
 

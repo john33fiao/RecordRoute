@@ -25,6 +25,7 @@ from .state import (
     is_task_cancelled,
     unregister_process,
     update_task_progress,
+    TaskStage,
 )
 
 
@@ -36,6 +37,7 @@ def _workflow_error_result(task_id: str | None, exc: Exception, failed_step: str
         update_task_progress(
             task_id,
             f"{failed_step} 실패: {mapped.message}",
+            stage=TaskStage.CORRECT if (mapped.failed_step or failed_step)=="correct" else (TaskStage.SUMMARY if (mapped.failed_step or failed_step)=="summary" else TaskStage.TRANSFORM),
             error_code=mapped.code,
             retryable=mapped.retryable,
             failed_step=mapped.failed_step or failed_step,
@@ -202,7 +204,7 @@ def run_workflow(
 
             def progress_callback(message):
                 if task_id:
-                    update_task_progress(task_id, message)
+                    update_task_progress(task_id, message, stage=TaskStage.TRANSFORM)
 
             whisper_model = "large-v3-turbo"
             if model_settings and model_settings.get("whisper"):
@@ -238,7 +240,7 @@ def run_workflow(
             except Exception as e:
                 print(f"STT process failed: {e}")
                 if task_id:
-                    update_task_progress(task_id, f"STT 실패: {e}")
+                    update_task_progress(task_id, f"STT 실패: {e}", stage=TaskStage.TRANSFORM)
                 return _workflow_error_result(task_id, e, "stt")
 
             stt_file = individual_output_dir / f"{file_path.stem}.md"
@@ -259,7 +261,7 @@ def run_workflow(
 
                 if existing_stt:
                     if task_id:
-                        update_task_progress(task_id, f"기존 STT 결과 발견: {existing_stt.name}")
+                        update_task_progress(task_id, f"기존 STT 결과 발견: {existing_stt.name}", stage=TaskStage.TRANSFORM)
                     current_file = existing_stt
                     download_url = f"/download/{upload_folder_name}/{existing_stt.name}"
                     results["stt"] = download_url
@@ -269,12 +271,12 @@ def run_workflow(
                         update_task_completion(record_id, "stt", file_path_str)
                 else:
                     if task_id:
-                        update_task_progress(task_id, "STT 자동 실행 시작")
+                        update_task_progress(task_id, "STT 자동 실행 시작", stage=TaskStage.TRANSFORM)
                     try:
 
                         def progress_callback(message):
                             if task_id:
-                                update_task_progress(task_id, message)
+                                update_task_progress(task_id, message, stage=TaskStage.TRANSFORM)
 
                         whisper_model = "large-v3-turbo"
                         if model_settings and model_settings.get("whisper"):
@@ -309,7 +311,7 @@ def run_workflow(
                     except Exception as e:
                         print(f"STT process failed: {e}")
                         if task_id:
-                            update_task_progress(task_id, f"STT 실패: {e}")
+                            update_task_progress(task_id, f"STT 실패: {e}", stage=TaskStage.TRANSFORM)
                         return _workflow_error_result(task_id, e, "stt")
 
                     stt_file = individual_output_dir / f"{file_path.stem}.md"
@@ -322,21 +324,21 @@ def run_workflow(
                         update_task_completion(record_id, "stt", file_path_str)
 
             if task_id:
-                update_task_progress(task_id, "임베딩 생성 시작")
+                update_task_progress(task_id, "임베딩 생성 시작", stage=TaskStage.TRANSFORM)
 
             if generate_embedding(current_file, record_id):
                 if task_id:
-                    update_task_progress(task_id, "임베딩 생성 완료")
+                    update_task_progress(task_id, "임베딩 생성 완료", stage=TaskStage.TRANSFORM)
             else:
                 if task_id:
-                    update_task_progress(task_id, "임베딩 생성 실패")
+                    update_task_progress(task_id, "임베딩 생성 실패", stage=TaskStage.TRANSFORM)
 
         if "correct" in steps and current_file:
             if task_id and is_task_cancelled(task_id):
                 return {"error": "Task was cancelled"}
 
             if task_id:
-                update_task_progress(task_id, "교정 시작")
+                update_task_progress(task_id, "교정 시작", stage=TaskStage.CORRECT)
 
             corrected_file = Path(current_file).with_name(f"{Path(current_file).stem}.corrected.md")
             try:
@@ -363,7 +365,7 @@ def run_workflow(
 
                 if existing_stt:
                     if task_id:
-                        update_task_progress(task_id, f"기존 STT 결과 발견: {existing_stt.name}")
+                        update_task_progress(task_id, f"기존 STT 결과 발견: {existing_stt.name}", stage=TaskStage.TRANSFORM)
                     current_file = existing_stt
                     download_url = f"/download/{upload_folder_name}/{existing_stt.name}"
                     results["stt"] = download_url
@@ -373,12 +375,12 @@ def run_workflow(
                         update_task_completion(record_id, "stt", file_path_str)
                 else:
                     if task_id:
-                        update_task_progress(task_id, "STT 자동 실행 시작")
+                        update_task_progress(task_id, "STT 자동 실행 시작", stage=TaskStage.TRANSFORM)
                     try:
 
                         def progress_callback(message):
                             if task_id:
-                                update_task_progress(task_id, message)
+                                update_task_progress(task_id, message, stage=TaskStage.TRANSFORM)
 
                         whisper_model = "large-v3-turbo"
                         if model_settings and model_settings.get("whisper"):
@@ -413,7 +415,7 @@ def run_workflow(
                     except Exception as e:
                         print(f"STT process failed: {e}")
                         if task_id:
-                            update_task_progress(task_id, f"STT 실패: {e}")
+                            update_task_progress(task_id, f"STT 실패: {e}", stage=TaskStage.TRANSFORM)
                         return _workflow_error_result(task_id, e, "stt")
 
                     stt_file = individual_output_dir / f"{file_path.stem}.md"
@@ -429,7 +431,7 @@ def run_workflow(
 
             print(f"Starting summary for task {task_id}")
             if task_id:
-                update_task_progress(task_id, "요약 생성 시작")
+                update_task_progress(task_id, "요약 생성 시작", stage=TaskStage.SUMMARY)
 
             summarize_model = DEFAULT_MODEL
             if model_settings and model_settings.get("summarize"):
@@ -438,11 +440,11 @@ def run_workflow(
             try:
                 text = read_text_with_fallback(Path(current_file))
                 if task_id:
-                    update_task_progress(task_id, "텍스트 분석 중...")
+                    update_task_progress(task_id, "텍스트 분석 중...", stage=TaskStage.SUMMARY)
 
                 def summary_progress_callback(message):
                     if task_id:
-                        update_task_progress(task_id, message)
+                        update_task_progress(task_id, message, stage=TaskStage.SUMMARY)
 
                 summary = summarize_text_mapreduce(
                     text=text,
@@ -454,7 +456,7 @@ def run_workflow(
                 )
 
                 if task_id:
-                    update_task_progress(task_id, "요약 파일 저장 중...")
+                    update_task_progress(task_id, "요약 파일 저장 중...", stage=TaskStage.SUMMARY)
 
                 output_file = Path(current_file).with_name(f"{Path(current_file).stem}.summary.md")
                 save_output(summary, output_file, as_json=False)
@@ -477,7 +479,7 @@ def run_workflow(
                     created_at = datetime.now()
 
                     if task_id:
-                        update_task_progress(task_id, "Obsidian 전송 중...")
+                        update_task_progress(task_id, "Obsidian 전송 중...", stage=TaskStage.SUMMARY)
 
                     mcp_result = send_summary_to_obsidian_sync(
                         uuid=file_uuid,
@@ -489,7 +491,7 @@ def run_workflow(
                     if mcp_result["success"]:
                         print(f"Obsidian MCP 전송 성공: {mcp_result['message']}")
                         if task_id:
-                            update_task_progress(task_id, "Obsidian 전송 완료")
+                            update_task_progress(task_id, "Obsidian 전송 완료", stage=TaskStage.SUMMARY)
                     else:
                         print(f"Obsidian MCP 전송 실패 (처리는 계속): {mcp_result['message']}")
 
@@ -497,11 +499,11 @@ def run_workflow(
                     print(f"Obsidian MCP 전송 중 오류 (처리는 계속): {e}")
 
                 if task_id:
-                    update_task_progress(task_id, "요약 생성 완료")
+                    update_task_progress(task_id, "요약 생성 완료", stage=TaskStage.SUMMARY)
             except Exception as e:
                 print(f"Summary process failed: {e}")
                 if task_id:
-                    update_task_progress(task_id, f"요약 생성 실패: {e}")
+                    update_task_progress(task_id, f"요약 생성 실패: {e}", stage=TaskStage.SUMMARY)
                 return _workflow_error_result(task_id, e, "summary")
 
             summary_file = current_file.with_name(f"{current_file.stem}.summary.md")
@@ -518,7 +520,7 @@ def run_workflow(
     except Exception as exc:  # pragma: no cover
         if task_id:
             unregister_process(task_id)
-            update_task_progress(task_id, f"작업 실패: {exc}")
+            update_task_progress(task_id, f"작업 실패: {exc}", stage=TaskStage.TRANSFORM)
         return _workflow_error_result(task_id, exc, "workflow")
 
     finally:

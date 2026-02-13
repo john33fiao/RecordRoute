@@ -27,4 +27,6 @@ def parse_process_payload(handler) -> dict:
         "record_id": payload.get("record_id"),
         "task_id": payload.get("task_id") or str(uuid.uuid4()),
         "model_settings": payload.get("model_settings", {}),
+        "retry_mode": payload.get("retry_mode") or "new_task",
+        "retry_of_task_id": payload.get("retry_of_task_id"),
     }
