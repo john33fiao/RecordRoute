@@ -126,10 +126,10 @@ if command -v ollama &>/dev/null; then
     echo "Ollama is installed."
     echo "Checking models..."
     OLLAMA_MODEL="gemma3:4b-it-qat"
-    if ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -Fxq "$OLLAMA_MODEL"; then
-        echo "Model '$OLLAMA_MODEL' is already present. Skipping pull."
+    if ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -q .; then
+        echo "Existing Ollama model detected. Skipping pull step."
     else
-        echo "Pulling model '$OLLAMA_MODEL'..."
+        echo "No Ollama models found. Pulling default model '$OLLAMA_MODEL'..."
         ollama pull "$OLLAMA_MODEL"
     fi
 else
