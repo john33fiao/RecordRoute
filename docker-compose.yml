@@ -1,0 +1,30 @@
+services:
+  recordroute:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: recordroute:latest
+    container_name: recordroute
+    ports:
+      - "8080:8080"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      WORKFLOW_DEVICE: auto
+      OLLAMA_BASE_URL: http://ollama:11434
+      DB_FOLDER_PATH: /data/DB
+    volumes:
+      - ./DB:/data/DB
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: recordroute-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  ollama_data:

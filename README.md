@@ -278,3 +278,42 @@ python sttEngine/workflow/summarize.py input.md --model gpt-oss:20b --temperatur
 - 본 레포지토리는 UX 기획자에 의해, LLM 도구 및 Git에 대한 학습을 목적으로 운영됩니다. 
 - 대부분의 코드는 LLM(Claude > Gemini > ChatGPT 순)으로 작성되었습니다.
 - 구현 예정사항은 [Todo List](/TODO//TODO.md)로 정리합니다.
+
+## Docker 배포 (GPU 자동 활용 포함)
+
+### 검토 결과 요약
+- **CUDA(NVIDIA)**: Docker + NVIDIA Container Toolkit 환경이면 컨테이너 내부에서 GPU를 자동 감지하여 사용 가능합니다.
+- **Apple Metal(MPS)**: Linux 기반 Docker 컨테이너에서는 직접 사용이 어렵습니다. macOS에서는 보통 앱을 호스트에서 직접 실행할 때 MPS가 활성화됩니다.
+- **기타 GPU(예: AMD ROCm)**: 별도 ROCm 런타임/이미지가 필요하며 기본 compose 구성만으로는 보장되지 않습니다.
+
+즉, 현재 도커라이징은 **NVIDIA CUDA 환경에서 정상 동작 가능**하도록 구성했고, 그 외 환경은 CPU fallback 또는 추가 런타임 구성이 필요합니다.
+
+### 1) 빌드 및 실행
+```bash
+# 기본(내장 Ollama 포함)
+docker compose up -d --build
+
+# NVIDIA GPU 활성화
+# (사전조건: host에 nvidia-container-toolkit 설치)
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+```
+
+### 2) 접속
+- 웹 UI: `http://localhost:8080`
+- Ollama API: `http://localhost:11434`
+
+### 3) 데이터 영속화
+- `./DB` → 컨테이너 `/data/DB`
+- `ollama_data` 볼륨 → Ollama 모델 캐시
+
+### 4) 환경변수
+- `WORKFLOW_DEVICE=auto` (기본): CUDA/MPS/CPU 자동 선택
+- `OLLAMA_BASE_URL=http://ollama:11434` (compose 기본값)
+- `DB_FOLDER_PATH=/data/DB`
+
+### 5) 포함된 도커 파일
+- `Dockerfile`: Python + FFmpeg + Node 빌드 환경, frontend 빌드까지 포함
+- `docker/entrypoint.sh`: 컨테이너 시작 시 실행 환경 세팅 및 서버 기동
+- `docker-compose.yml`: RecordRoute + Ollama 통합 실행
+- `docker-compose.gpu.yml`: NVIDIA GPU 할당 오버레이
+- `.dockerignore`: 이미지 빌드 최적화
