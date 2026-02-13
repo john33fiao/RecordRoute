@@ -93,6 +93,32 @@
 
 **참고**: 프론트엔드 리팩토링(`upload.js` 모듈화 등)은 GUI.md 참조
 
+## Electron 동봉 배포 전환 백로그 (적절 항목 선별)
+
+### P0. 로컬 전용 보안/실행 안정화
+- [ ] 백엔드 바인딩을 `127.0.0.1`/`::1`로 강제하고, Electron 빌드에서 외부 노출 옵션(예: Tunnel) 비활성화
+- [ ] 백엔드 포트를 고정값 대신 랜덤 에페메럴 포트로 할당
+- [ ] Electron main 시작 시 세션 토큰을 생성하고, 백엔드 API에서 `X-RecordRoute-Token` 헤더 검증
+- [ ] 파괴적 엔드포인트(`shutdown`/`delete`/`reset` 계열) 보호 정책 수립: Electron 패키지에서는 제거 또는 강화 인증 적용
+- [ ] Electron main에서 백엔드 프로세스 spawn → `/health` 확인 후 UI 오픈 → 종료 시 graceful shutdown 연동
+
+### P0. Electron 기본 보안 설정
+- [ ] `nodeIntegration: false`, `contextIsolation: true` 적용
+- [ ] preload 기반 화이트리스트 IPC만 노출 (직접 파일/명령 실행 차단)
+- [ ] `shell.openExternal` URL allowlist 적용
+- [ ] 렌더러의 백엔드 직접 호출 대신 `renderer → IPC → main(fetch)` 프록시 패턴 적용
+
+### P0. 데이터/로그 경로 통일
+- [ ] 데이터 루트를 Electron `userData` 하위 단일 경로로 주입하고, 백엔드 파일 I/O를 해당 루트로 강제
+- [ ] `records/`, `uploads/`, `outputs/`, `vectors/`, `cache/`, `logs/` 폴더 구조 표준화
+- [ ] 백엔드 로그 + Electron 크래시/런타임 로그 수집 경로 통합
+
+### P1. 배포 실무/호환성
+- [ ] Python 백엔드 바이너리화(PyInstaller 등) 및 FFmpeg 포함 전략 확정
+- [ ] Ollama는 우선 "외부 의존 + 설치 감지/안내" 전략으로 적용 (동봉은 후순위)
+- [ ] 모델 다운로드 시 checksum 검증 및 캐시 경로 표준화
+- [ ] 백엔드 `/version` + 프론트 기대 버전 비교(핸드셰이크) 추가
+
 ---
 
 ## 역할 분담 가이드
