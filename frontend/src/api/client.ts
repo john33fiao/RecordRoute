@@ -2,6 +2,7 @@ import type {
   UploadResult,
   HistoryRecord,
   SearchResponse,
+  SearchRequest,
   SimilarDocument,
   ModelsResponse,
   RunningTask,
@@ -113,26 +114,17 @@ export const resetSummaryEmbedding = (recordId: string) => apiRequest('/reset_su
   body: JSON.stringify({ record_id: recordId }),
 });
 
-export async function search(
-  query: string,
-  startDate?: string,
-  endDate?: string,
-  options?: {
-    sortBy?: string;
-    sortOrder?: 'asc' | 'desc';
-    minScore?: number;
-    page?: number;
-    pageSize?: number;
-  }
-): Promise<SearchResponse> {
-  const params = new URLSearchParams({ q: query });
-  if (startDate) params.set('start', startDate);
-  if (endDate) params.set('end', endDate);
-  if (options?.sortBy) params.set('sort_by', options.sortBy);
-  if (options?.sortOrder) params.set('sort_order', options.sortOrder);
-  if (options?.minScore !== undefined) params.set('min_score', String(options.minScore));
-  if (options?.page !== undefined) params.set('page', String(options.page));
-  if (options?.pageSize !== undefined) params.set('page_size', String(options.pageSize));
+export async function search(request: SearchRequest): Promise<SearchResponse> {
+  const params = new URLSearchParams({ query: request.query });
+  if (request.limit !== undefined) params.set('limit', String(request.limit));
+  if (request.start_date) params.set('start_date', request.start_date);
+  if (request.end_date) params.set('end_date', request.end_date);
+  if (request.sort_by) params.set('sort_by', request.sort_by);
+  if (request.sort_order) params.set('sort_order', request.sort_order);
+  if (request.min_score !== undefined) params.set('min_score', String(request.min_score));
+  if (request.page !== undefined) params.set('page', String(request.page));
+  if (request.page_size !== undefined) params.set('page_size', String(request.page_size));
+  if (request.include_timing !== undefined) params.set('include_timing', String(request.include_timing));
   return apiRequest<SearchResponse>(`/search?${params}`);
 }
 

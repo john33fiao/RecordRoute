@@ -50,10 +50,27 @@ export interface ProcessResult {
   error?: string;
 }
 
+
+export interface SearchRequest {
+  query: string;
+  limit?: number;
+  start_date?: string;
+  end_date?: string;
+  sort_by?: 'similarity' | 'date';
+  sort_order?: 'asc' | 'desc';
+  min_score?: number;
+  page?: number;
+  page_size?: number;
+  include_timing?: boolean;
+}
+
 export interface SearchResponse {
   keywordMatches: KeywordMatch[];
   similarDocuments: SimilarDocument[];
+  query?: string;
+  limit?: number;
   sort?: { by: string; order: 'asc' | 'desc' };
+  filters?: { start_date?: string | null; end_date?: string | null; min_score?: number | null };
   scoreBreakdown?: { keywordWeight: number; vectorWeight: number };
   pagination?: { page: number; pageSize: number; returned: number; hasNext: boolean };
   timing?: Record<string, number>;

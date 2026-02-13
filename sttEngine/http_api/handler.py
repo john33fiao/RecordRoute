@@ -222,14 +222,22 @@ class UploadHandler(BaseHTTPRequestHandler):
 
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
-            query = params.get("q", [""])[0].strip()
-            start_date = params.get("start", [None])[0]
-            end_date = params.get("end", [None])[0]
-            sort_by = params.get("sort_by", ["similarity"])[0]
-            sort_order = params.get("sort_order", ["desc"])[0]
-            min_score_raw = params.get("min_score", [None])[0]
-            page_raw = params.get("page", ["1"])[0]
-            page_size_raw = params.get("page_size", ["5"])[0]
+
+            def _first(name: str, default=None):
+                return params.get(name, [default])[0]
+
+            query = (_first("query") or _first("q") or "").strip()
+            limit_raw = _first("limit")
+            start_date = _first("start_date") or _first("start")
+            end_date = _first("end_date") or _first("end")
+            sort_by = (_first("sort_by", "similarity") or "similarity").lower()
+            sort_order = (_first("sort_order", "desc") or "desc").lower()
+            min_score_raw = _first("min_score")
+            page_raw = _first("page", "1")
+            page_size_raw = _first("page_size", "5")
+            include_timing_raw = _first("include_timing", "false")
+
+            include_timing = str(include_timing_raw).lower() in {"1", "true", "yes", "y", "on"}
 
             min_score = None
             if min_score_raw not in (None, ""):
@@ -249,13 +257,25 @@ class UploadHandler(BaseHTTPRequestHandler):
                 page_size = 5
 
             try:
+                limit = int(limit_raw) if limit_raw not in (None, "") else max(10, page * page_size)
+                limit = max(1, limit)
+            except (TypeError, ValueError):
+                limit = max(10, page * page_size)
+
+            try:
                 response_data = {
+                    "query": query,
+                    "limit": limit,
                     "keywordMatches": [],
                     "similarDocuments": [],
                     "sort": {"by": sort_by, "order": sort_order},
+                    "filters": {
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "min_score": min_score,
+                    },
                     "pagination": {"page": page, "pageSize": page_size, "returned": 0, "hasNext": False},
                     "scoreBreakdown": {"keywordWeight": 0.0, "vectorWeight": 1.0},
-                    "timing": {},
                 }
 
                 if query:
@@ -263,7 +283,7 @@ class UploadHandler(BaseHTTPRequestHandler):
                     history = get_active_history()
                     history_map = {record.get("id"): record for record in history}
 
-                    keyword_matches = collect_keyword_matches(query, documents, history_map)
+                    keyword_matches = collect_keyword_matches(query, documents, history_map, limit=limit)
                     response_data["keywordMatches"] = keyword_matches
 
                     keyword_paths = {item["file"] for item in keyword_matches}
@@ -272,7 +292,7 @@ class UploadHandler(BaseHTTPRequestHandler):
                     search_payload = search_vectors(
                         query,
                         BASE_DIR,
-                        top_k=max(10, page * page_size),
+                        top_k=limit,
                         start_date=start_date,
                         end_date=end_date,
                         sort_by=sort_by,
@@ -280,11 +300,17 @@ class UploadHandler(BaseHTTPRequestHandler):
                         min_score=min_score,
                         page=page,
                         page_size=page_size,
-                        include_timing=True,
+                        include_timing=include_timing,
                     )
 
-                    hits = search_payload.get("results", [])
-                    response_data["timing"] = search_payload.get("timing", {})
+                    if isinstance(search_payload, dict):
+                        hits = search_payload.get("results", [])
+                        if include_timing:
+                            response_data["timing"] = search_payload.get("timing", {})
+                            response_data["cache"] = {"hit": bool(search_payload.get("cache_hit"))}
+                    else:
+                        hits = search_payload
+
                     similar_documents = []
                     for hit in hits:
                         rel_path = hit.get("file")
@@ -334,7 +360,6 @@ class UploadHandler(BaseHTTPRequestHandler):
                     response_data["similarDocuments"] = similar_documents
                     response_data["pagination"]["returned"] = len(similar_documents)
                     response_data["pagination"]["hasNext"] = len(hits) >= page_size
-                    response_data["cache"] = {"hit": bool(search_payload.get("cache_hit"))}
                     response_data["performanceTargetMs"] = {
                         "keyword_only_p95": 120.0,
                         "vector_only_p95": 450.0,

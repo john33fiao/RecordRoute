@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 import hashlib
+import time
 
 try:  # pragma: no cover - import resolution for both package/script execution
     from .config import DB_ALIAS, get_db_base_path
@@ -40,6 +41,8 @@ CACHE_DIR = _resolve_cache_directory()
 
 # 캐시 만료 시간 (24시간)
 CACHE_EXPIRY_HOURS = 24
+CACHE_CLEANUP_INTERVAL_SECONDS = 600
+_LAST_CLEANUP_AT = 0.0
 
 
 def _build_cache_key_payload(
@@ -55,7 +58,7 @@ def _build_cache_key_payload(
 ) -> Dict[str, Any]:
     """검색 캐시 키를 구성하는 정규화된 페이로드를 반환한다."""
     return {
-        "query": query,
+        "query": (query or "").strip(),
         "top_k": int(top_k),
         "filters": {
             "start_date": start_date or "",
@@ -67,8 +70,8 @@ def _build_cache_key_payload(
             "order": (sort_order or "desc").lower(),
         },
         "pagination": {
-            "page": int(page) if page is not None else None,
-            "page_size": int(page_size) if page_size is not None else None,
+            "page": max(1, int(page)) if page is not None else None,
+            "page_size": max(1, int(page_size)) if page_size is not None else None,
         },
     }
 
@@ -125,13 +128,24 @@ def is_cache_expired(timestamp_str: str) -> bool:
     """캐시가 만료되었는지 확인 (24시간 기준)"""
     try:
         cache_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-        if cache_time.tzinfo is None:
-            cache_time = cache_time.replace(tzinfo=None)
+        if cache_time.tzinfo is not None:
+            cache_time = cache_time.astimezone().replace(tzinfo=None)
         current_time = datetime.now()
-        
         return (current_time - cache_time) > timedelta(hours=CACHE_EXPIRY_HOURS)
     except (ValueError, AttributeError):
         return True
+
+
+def maybe_cleanup_expired_cache(force: bool = False) -> int:
+    """Throttle cleanup calls to avoid directory scans on every request."""
+    global _LAST_CLEANUP_AT
+    now = time.time()
+    if not force and now - _LAST_CLEANUP_AT < CACHE_CLEANUP_INTERVAL_SECONDS:
+        return 0
+
+    cleaned = cleanup_expired_cache()
+    _LAST_CLEANUP_AT = now
+    return cleaned
 
 
 def get_cached_search_result(query: str, top_k: int,
@@ -143,8 +157,8 @@ def get_cached_search_result(query: str, top_k: int,
                              page: Optional[int] = None,
                              page_size: Optional[int] = None) -> Optional[List[Dict[str, Any]]]:
     """캐시된 검색 결과 조회"""
-    # 캐시 사용 전 만료된 항목을 정리하여 디스크 사용량을 관리
-    cleanup_expired_cache()
+    # 캐시 사용 전 만료된 항목을 주기적으로 정리하여 디스크 사용량을 관리
+    maybe_cleanup_expired_cache()
 
     query_hash = get_query_hash(
         query,
@@ -163,6 +177,10 @@ def get_cached_search_result(query: str, top_k: int,
         return None
     
     if is_cache_expired(record.get('timestamp', '')):
+        try:
+            (CACHE_DIR / f"{query_hash}.json").unlink()
+        except OSError:
+            pass
         return None
     
     return record.get('results', [])
@@ -203,7 +221,7 @@ def cache_search_result(query: str, top_k: int, results: List[Dict[str, Any]],
     
     record = {
         "uuid": search_uuid,
-        "query": query,
+        "query": (query or "").strip(),
         "top_k": top_k,
         "timestamp": datetime.now().isoformat(),
         "query_hash": query_hash,
