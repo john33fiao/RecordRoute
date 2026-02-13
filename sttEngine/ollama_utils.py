@@ -3,6 +3,7 @@ import logging
 import subprocess
 import sys
 import time
+import os
 from typing import Optional, Tuple
 import requests
 import platform
@@ -11,6 +12,11 @@ try:
     import ollama
 except ImportError:
     ollama = None
+
+
+def get_ollama_base_url() -> str:
+    """환경변수 기반 Ollama API 기본 URL을 반환합니다."""
+    return os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 
 def check_ollama_server() -> Tuple[bool, str]:
     """
@@ -21,7 +27,7 @@ def check_ollama_server() -> Tuple[bool, str]:
     """
     try:
         # HTTP 요청으로 ollama 서버 상태 확인
-        response = requests.get("http://localhost:11434/api/version", timeout=5)
+        response = requests.get(f"{get_ollama_base_url()}/api/version", timeout=5)
         if response.status_code == 200:
             return True, "Ollama 서버가 정상적으로 실행 중입니다."
     except requests.exceptions.ConnectionError:
