@@ -21,15 +21,15 @@ from sttEngine.workflow.cli_utils import (
 )
 
 
-# 플랫폼별 기본 모델 설정 (.env 파일에서 로드)
+# 교정 모델은 요약 모델 설정과 동일한 값을 사용
 try:
-    DEFAULT_MODEL = get_model_for_task("CORRECT", get_default_model("CORRECT"))
+    DEFAULT_MODEL = get_model_for_task("SUMMARY", get_default_model("SUMMARY"))
 except:
-    # 환경변수 설정이 없을 때 기존 로직 사용
+    # 환경변수 설정이 없을 때 요약 모델 기본값 사용
     if platform.system() == "Windows":
         DEFAULT_MODEL = "gemma3:4b"
     else:
-        DEFAULT_MODEL = "gemma3:12b-it-qat"
+        DEFAULT_MODEL = "gpt-oss:20b"
 
 SYSTEM_PROMPT = (
     "당신은 한국어 텍스트를 전문적으로 교정하는 편집자입니다. "
