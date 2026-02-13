@@ -16,14 +16,15 @@ except ImportError:
     print("오류: ollama 패키지가 설치되지 않았습니다. 'pip install ollama'로 설치하세요.")
     sys.exit(1)
 
-# 설정 모듈 임포트
-sys.path.append(str(Path(__file__).parent.parent))
-from config import get_model_for_task, get_default_model, get_config_value
-from logger import setup_logging
-from obsidian_mcp import send_summary_to_obsidian_sync
-
-setup_logging()
-from ollama_utils import ensure_ollama_server, check_ollama_model_available, safe_ollama_call
+from sttEngine.config import get_model_for_task, get_default_model, get_config_value
+from sttEngine.obsidian_mcp import send_summary_to_obsidian_sync
+from sttEngine.ollama_utils import ensure_ollama_server, check_ollama_model_available, safe_ollama_call
+from sttEngine.workflow.cli_utils import (
+    add_encoding_argument,
+    add_verbose_argument,
+    configure_cli_logging,
+    read_text_with_fallback,
+)
 
 # 설정 상수 - .env 파일에서 로드
 try:
@@ -75,12 +76,6 @@ REDUCE_PROMPT = BASE_PROMPT + """
 class SummarizationError(Exception):
     """요약 처리 중 발생하는 예외"""
     pass
-
-def setup_logging(verbose: bool) -> None:
-    """로깅 설정"""
-    level = logging.DEBUG if verbose else logging.INFO
-    format_str = "%(asctime)s - %(levelname)s: %(message)s"
-    logging.basicConfig(level=level, format=format_str, datefmt="%H:%M:%S")
 
 def validate_model(model: str) -> bool:
     """모델 존재 여부 확인"""
@@ -220,24 +215,6 @@ def strip_prefix_before_bracket(text: str) -> str:
         else:
             processed_lines.append(line)
     return "\n".join(processed_lines)
-
-def read_text_with_fallback(path: Path, encoding: str = "utf-8") -> str:
-    """인코딩 fallback을 지원하는 텍스트 읽기"""
-    encodings = [encoding, "utf-8", "cp949", "euc-kr", "latin-1"]
-    
-    for enc in encodings:
-        try:
-            content = path.read_text(encoding=enc)
-            if enc != encoding:
-                logging.info(f"인코딩 변경: {encoding} → {enc}")
-            return content
-        except UnicodeDecodeError:
-            continue
-        except Exception as e:
-            logging.error(f"파일 읽기 실패 ({enc}): {e}")
-            continue
-    
-    raise SummarizationError(f"모든 인코딩으로 파일 읽기 실패: {path}")
 
 def chunk_text(text: str, max_bytes: int, target_chunks: Optional[int] = None) -> List[str]:
     """텍스트를 바이트 단위로 청크 분할 (안전한 방식)"""
@@ -605,21 +582,13 @@ def main() -> None:
         action="store_true",
         help="JSON 형식으로 섹션별 구조화된 출력"
     )
-    parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="상세한 진행 로그 출력"
-    )
+    add_verbose_argument(parser)
     parser.add_argument(
         "--stdin",
         action="store_true",
         help="표준 입력에서 텍스트 읽기"
     )
-    parser.add_argument(
-        "--encoding",
-        default="utf-8",
-        help="입력 파일 인코딩 (기본값: utf-8)"
-    )
+    add_encoding_argument(parser)
     parser.add_argument(
         "--target-chunks",
         type=int,
@@ -629,7 +598,7 @@ def main() -> None:
     args = parser.parse_args()
     
     # 로깅 설정
-    setup_logging(args.verbose)
+    configure_cli_logging(args.verbose, fmt="%(asctime)s - %(levelname)s: %(message)s", datefmt="%H:%M:%S")
     
     try:
         # 입력 검증

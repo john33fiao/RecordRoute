@@ -9,14 +9,16 @@ import platform
 import ollama
 from typing import List, Optional
 
-# 설정 모듈 임포트
-sys.path.append(str(Path(__file__).parent.parent))
-from config import get_model_for_task, get_default_model, get_config_value, get_db_base_path
-from ollama_utils import safe_ollama_call
-from logger import setup_logging
-from vocabulary_manager import VocabularyManager
+from sttEngine.config import get_model_for_task, get_default_model, get_config_value, get_db_base_path
+from sttEngine.ollama_utils import safe_ollama_call
+from sttEngine.vocabulary_manager import VocabularyManager
+from sttEngine.workflow.cli_utils import (
+    add_encoding_argument,
+    add_verbose_argument,
+    configure_cli_logging,
+    read_text_with_fallback,
+)
 
-setup_logging()
 
 # 플랫폼별 기본 모델 설정 (.env 파일에서 로드)
 try:
@@ -48,32 +50,6 @@ CORRECTION_INSTRUCTIONS = (
     "주의: 설명, 사과, 인사, 메타 코멘트, 요약을 출력하지 마세요. "
     "오직 교정 결과 텍스트만 반환하세요."
 )
-
-def setup_logging(verbose: bool = False):
-    """로깅 설정"""
-    level = logging.DEBUG if verbose else logging.INFO
-    format_str = "%(levelname)s: %(message)s"
-    logging.basicConfig(level=level, format=format_str)
-
-def read_text(path: Path, encoding: str = "utf-8") -> str:
-    """안전한 텍스트 파일 읽기 (인코딩 후퇴 전략 포함)"""
-    encodings_to_try = [encoding]
-    if encoding == "utf-8":
-        encodings_to_try.extend(["utf-8-sig", "cp949", "euc-kr"])
-    
-    last_error = None
-    for enc in encodings_to_try:
-        try:
-            content = path.read_text(encoding=enc)
-            if enc != encoding:
-                logging.info("인코딩 %s로 파일을 성공적으로 읽었습니다.", enc)
-            return content
-        except UnicodeDecodeError as e:
-            last_error = e
-            logging.debug("인코딩 %s 실패: %s", enc, e)
-            continue
-    
-    raise UnicodeDecodeError(f"모든 인코딩 시도 실패. 마지막 오류: {last_error}")
 
 def maybe_strip_heading(text: str, strip_heading: bool) -> str:
     """옵션에 따라 첫 번째 H1 헤더만 제거"""
@@ -244,7 +220,7 @@ def correct_text_file(input_file: Path, output_file: Optional[Path] = None,
             return False
 
         # 텍스트 읽기
-        original_text = read_text(input_file, encoding=encoding)
+        original_text = read_text_with_fallback(input_file, encoding=encoding)
         
         if not original_text.strip():
             logging.warning("입력 파일이 비어있거나 공백만 포함되어 있습니다.")
@@ -377,21 +353,19 @@ def main():
                        help="컨텍스트 길이 (기본: 8192)")
     
     # 텍스트 처리 옵션
-    parser.add_argument("--encoding", default="utf-8", 
-                       help="입력 파일 인코딩 (기본: utf-8, 자동 후퇴 지원)")
+    add_encoding_argument(parser)
     parser.add_argument("--strip-heading", action="store_true", 
                        help="맨 앞 H1 헤더(# )만 제거")
     parser.add_argument("--max-chars", type=int, default=8000, 
                        help="청크 최대 문자수 (기본: 8000)")
     
     # 로깅 옵션
-    parser.add_argument("-v", "--verbose", action="store_true", 
-                       help="상세 로그 출력")
+    add_verbose_argument(parser)
     
     args = parser.parse_args()
     
     # 로깅 설정
-    setup_logging(args.verbose)
+    configure_cli_logging(args.verbose)
     
     # 입력 검증
     input_files = []

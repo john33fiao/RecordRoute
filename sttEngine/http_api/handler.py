@@ -13,6 +13,9 @@ from urllib.parse import unquote
 from ..search_cache import cleanup_expired_cache, delete_cache_record, get_cache_stats
 from ..vector_search import search as search_vectors
 from ..ollama_utils import ensure_ollama_server
+from ..server.routes import history as history_route
+from ..server.routes import process as process_route
+from ..server.routes import progress as progress_route
 
 from .embedding import run_incremental_embedding
 from .history import (
@@ -32,12 +35,11 @@ from .records import (
 )
 from .registry import get_file_by_uuid, load_file_registry, update_filename
 from .search import collect_keyword_matches, collect_searchable_documents
-from .state import cancel_task, get_running_tasks, get_task_progress
+from .state import cancel_task, get_running_tasks
 from .workflow import (
     find_existing_stt_file,
     get_audio_duration,
     get_file_type,
-    run_workflow,
 )
 
 
@@ -182,12 +184,12 @@ class UploadHandler(BaseHTTPRequestHandler):
             file_identifier = unquote(self.path[len("/download/") :])
             self._serve_download(file_identifier)
         elif self.path == "/history":
-            self._serve_history()
+            history_route.handle(self)
         elif self.path == "/tasks":
             self._serve_running_tasks()
         elif self.path.startswith("/progress/"):
             task_id = self.path[len("/progress/") :]
-            self._serve_task_progress(task_id)
+            progress_route.handle(self, task_id)
         elif self.path.startswith("/file_search"):
             from urllib.parse import parse_qs, urlparse
 
@@ -310,18 +312,6 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    def _serve_history(self):
-        try:
-            history = get_active_history()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(history, ensure_ascii=False).encode())
-        except Exception as e:
-            self.send_response(500)
-            self.end_headers()
-            self.wfile.write(f"Error loading history: {str(e)}".encode())
-
     def _serve_running_tasks(self):
         try:
             tasks = get_running_tasks()
@@ -333,18 +323,6 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_response(500)
             self.end_headers()
             self.wfile.write(f"Error getting running tasks: {str(e)}".encode())
-
-    def _serve_task_progress(self, task_id: str):
-        try:
-            progress = get_task_progress(task_id)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(progress, ensure_ascii=False).encode())
-        except Exception as e:
-            self.send_response(500)
-            self.end_headers()
-            self.wfile.write(f"Error getting task progress: {str(e)}".encode())
 
     def _resolve_text_file_for_similar(self, full_path: Path):
         TEXT_SUFFIXES = {".md", ".txt", ".text", ".markdown"}
@@ -845,38 +823,7 @@ class UploadHandler(BaseHTTPRequestHandler):
                 return
 
         if self.path == "/process":
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length)) if length else {}
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Invalid JSON payload")
-                return
-            file_path = payload.get("file_path")
-            steps = payload.get("steps", [])
-            record_id = payload.get("record_id")
-            task_id = payload.get("task_id")
-            model_settings = payload.get("model_settings", {})
-
-            if not file_path:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Missing file_path")
-                return
-
-            if not task_id:
-                task_id = str(uuid.uuid4())
-
-            print(f"Processing task {task_id} with steps {steps} and model settings {model_settings}")
-            normalized_path = normalize_record_path(file_path)
-            absolute_path = resolve_record_path(normalized_path)
-
-            results = run_workflow(absolute_path, steps, record_id, task_id, model_settings)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(results).encode())
+            process_route.handle(self)
             return
 
         if self.path == "/cancel":
