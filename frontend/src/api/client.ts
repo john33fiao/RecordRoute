@@ -6,18 +6,32 @@ import type {
   ModelsResponse,
   RunningTask,
   ModelSettings,
+  ProcessResult,
+  TaskProgress,
+  ViewerFileType,
 } from './types';
 
-// Upload files (multipart/form-data)
+interface ApiRequestOptions extends RequestInit {
+  skipJson?: boolean;
+}
+
+async function apiRequest<T>(input: RequestInfo | URL, init: ApiRequestOptions = {}): Promise<T> {
+  const { skipJson, ...requestInit } = init;
+  const res = await fetch(input, requestInit);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(body || `API request failed (${res.status})`);
+  }
+  if (skipJson) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
 export async function uploadFiles(files: File[], signal?: AbortSignal): Promise<UploadResult[]> {
   const formData = new FormData();
   files.forEach(file => formData.append('files', file));
-  const res = await fetch('/upload', { method: 'POST', body: formData, signal });
-  if (!res.ok) throw new Error('Upload failed');
-  return res.json();
+  return apiRequest<UploadResult[]>('/upload', { method: 'POST', body: formData, signal });
 }
 
-// Process a task (STT, embedding, summary)
 export async function processTask(
   filePath: string,
   steps: string[],
@@ -25,8 +39,8 @@ export async function processTask(
   taskId?: string,
   modelSettings?: Partial<ModelSettings>,
   signal?: AbortSignal
-): Promise<any> {
-  const res = await fetch('/process', {
+): Promise<ProcessResult> {
+  return apiRequest<ProcessResult>('/process', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -38,103 +52,74 @@ export async function processTask(
     }),
     signal,
   });
-  return res.json();
 }
 
-// Cancel a running task
 export async function cancelTask(taskId: string): Promise<void> {
-  await fetch('/cancel', {
+  await apiRequest('/cancel', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ task_id: taskId }),
+    skipJson: true,
   });
 }
 
-// Get upload history
-export async function getHistory(): Promise<HistoryRecord[]> {
-  const res = await fetch('/history');
-  if (!res.ok) throw new Error('Failed to fetch history');
-  return res.json();
-}
+export const getHistory = () => apiRequest<HistoryRecord[]>('/history');
 
-// Delete multiple records
-export async function deleteRecords(recordIds: string[]): Promise<any> {
-  const res = await fetch('/delete_records', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ record_ids: recordIds }),
-  });
-  return res.json();
-}
+export const deleteRecords = (recordIds: string[]) => apiRequest('/delete_records', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ record_ids: recordIds }),
+});
 
-// Reset a single record
 export async function resetRecord(recordId: string): Promise<void> {
-  await fetch('/reset', {
+  await apiRequest('/reset', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ record_id: recordId }),
+    skipJson: true,
   });
 }
 
-// Reset all tasks by type
-export async function resetAllTasks(tasks: string[]): Promise<any> {
-  const res = await fetch('/reset_all_tasks', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tasks }),
-  });
-  return res.json();
-}
+export const resetAllTasks = (tasks: string[]) => apiRequest('/reset_all_tasks', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ tasks }),
+});
 
-// Update filename
 export async function updateFilename(recordId: string, filename: string): Promise<void> {
-  await fetch('/update_filename', {
+  await apiRequest('/update_filename', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ record_id: recordId, filename }),
+    skipJson: true,
   });
 }
 
-// Update STT text
-export async function updateSttText(fileIdentifier: string, content: string): Promise<any> {
-  const res = await fetch('/update_stt_text', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ file_identifier: fileIdentifier, content }),
-  });
-  return res.json();
-}
+export const updateSttText = (fileIdentifier: string, content: string) => apiRequest('/update_stt_text', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ file_identifier: fileIdentifier, content }),
+});
 
-// Check existing STT
-export async function checkExistingStt(
-  filePath: string
-): Promise<{ has_stt: boolean; stt_file?: string }> {
-  const res = await fetch('/check_existing_stt', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ file_path: filePath }),
-  });
-  return res.json();
-}
+export const checkExistingStt = (filePath: string) => apiRequest<{ has_stt: boolean; stt_file?: string }>('/check_existing_stt', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ file_path: filePath }),
+});
 
-// Reset summary and embedding
-export async function resetSummaryEmbedding(recordId: string): Promise<any> {
-  const res = await fetch('/reset_summary_embedding', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ record_id: recordId }),
-  });
-  return res.json();
-}
+export const resetSummaryEmbedding = (recordId: string) => apiRequest('/reset_summary_embedding', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ record_id: recordId }),
+});
 
-// Search (keyword + vector)
 export async function search(
   query: string,
   startDate?: string,
   endDate?: string,
   options?: {
     sortBy?: string;
-    sortOrder?: "asc" | "desc";
+    sortOrder?: 'asc' | 'desc';
     minScore?: number;
     page?: number;
     pageSize?: number;
@@ -148,74 +133,49 @@ export async function search(
   if (options?.minScore !== undefined) params.set('min_score', String(options.minScore));
   if (options?.page !== undefined) params.set('page', String(options.page));
   if (options?.pageSize !== undefined) params.set('page_size', String(options.pageSize));
-  const res = await fetch(`/search?${params}`);
-  if (!res.ok) throw new Error('Search failed');
-  return res.json();
+  return apiRequest<SearchResponse>(`/search?${params}`);
 }
 
-// Get similar documents
-export async function getSimilarDocs(
+export const getSimilarDocs = (
   fileIdentifier: string,
   userFilename?: string,
   refresh?: boolean
-): Promise<SimilarDocument[]> {
-  const res = await fetch('/similar', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      file_identifier: fileIdentifier,
-      user_filename: userFilename,
-      refresh,
-    }),
-  });
-  return res.json();
-}
+): Promise<SimilarDocument[]> => apiRequest('/similar', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    file_identifier: fileIdentifier,
+    user_filename: userFilename,
+    refresh,
+  }),
+});
 
-// Delete a file (stt/summary/embedding)
-export async function deleteFile(fileIdentifier: string, fileType: string): Promise<void> {
-  await fetch('/delete', {
+export async function deleteFile(fileIdentifier: string, fileType: ViewerFileType): Promise<void> {
+  await apiRequest('/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ file_identifier: fileIdentifier, file_type: fileType }),
+    skipJson: true,
   });
 }
 
-// Get download URL
-export function getDownloadUrl(fileIdentifier: string): string {
-  return `/download/${encodeURIComponent(fileIdentifier)}`;
-}
+export const getDownloadUrl = (fileIdentifier: string): string => `/download/${encodeURIComponent(fileIdentifier)}`;
 
-// Get available models
-export async function getModels(): Promise<ModelsResponse> {
-  const res = await fetch('/models');
-  if (!res.ok) throw new Error('Failed to fetch models');
-  return res.json();
-}
+export const getModels = () => apiRequest<ModelsResponse>('/models');
 
-// Shutdown server
 export async function shutdown(): Promise<void> {
-  await fetch('/shutdown', {
+  await apiRequest('/shutdown', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
+    skipJson: true,
   });
 }
 
-// Get running tasks
-export async function getRunningTasks(): Promise<RunningTask[]> {
-  const res = await fetch('/tasks');
-  return res.json();
-}
+export const getRunningTasks = () => apiRequest<RunningTask[]>('/tasks');
 
-// Get task progress
-export async function getProgress(
-  taskId: string
-): Promise<{ task_id: string; message: string }> {
-  const res = await fetch(`/progress/${taskId}`);
-  return res.json();
-}
+export const getProgress = (taskId: string) => apiRequest<TaskProgress>(`/progress/${taskId}`);
 
-// Download file content as text
 export async function downloadFileAsText(fileIdentifier: string): Promise<string> {
   const res = await fetch(getDownloadUrl(fileIdentifier));
   if (!res.ok) throw new Error('Download failed');

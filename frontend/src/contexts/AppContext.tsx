@@ -3,27 +3,24 @@ import { useTaskQueue } from '../hooks/useTaskQueue';
 import { useHistory } from '../hooks/useHistory';
 import { useModelSettings } from '../hooks/useModelSettings';
 import { useWebSocket } from '../hooks/useWebSocket';
-import type { QueueTask, TaskType, ModelSettings, HistoryRecord } from '../api/types';
+import type { QueueTask, TaskType, ModelSettings, HistoryRecord, AsyncState, QueueSortMode } from '../api/types';
 
 interface AppContextValue {
-  // Task Queue
   queue: QueueTask[];
   currentTask: QueueTask | null;
-  sortMode: 'category' | 'order';
-  setSortMode: (mode: 'category' | 'order') => void;
+  sortMode: QueueSortMode;
+  setSortMode: (mode: QueueSortMode) => void;
   addTask: (recordId: string, filePath: string, taskType: TaskType) => void;
   removeTask: (taskId: string) => void;
+  retryTask: (task: QueueTask) => void;
   cancelAll: () => void;
   categoryLabels: Record<TaskType, string>;
 
-  // History
-  history: HistoryRecord[];
-  historyLoading: boolean;
+  historyState: AsyncState<HistoryRecord[]>;
   loadHistory: () => Promise<void>;
   deleteRecords: (ids: string[]) => Promise<void>;
   updateFilename: (recordId: string, filename: string) => Promise<void>;
 
-  // Model Settings
   modelSettings: ModelSettings;
   updateModelSettings: (updates: Partial<ModelSettings>) => void;
   setModelSettings: (settings: ModelSettings) => void;
@@ -33,7 +30,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const { settings: modelSettings, updateSettings: updateModelSettings, setSettings: setModelSettings } = useModelSettings();
-  const { history, loading: historyLoading, loadHistory, deleteRecords, updateFilename } = useHistory();
+  const { state: historyState, loadHistory, deleteRecords, updateFilename } = useHistory();
 
   const handleTaskComplete = useCallback(() => {
     loadHistory();
@@ -41,21 +38,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const {
     queue, currentTask, sortMode, setSortMode,
-    addTask, removeTask, cancelAll, updateTaskProgress, categoryLabels,
+    addTask, removeTask, retryTask, cancelAll, updateTaskProgress, categoryLabels,
   } = useTaskQueue(modelSettings, handleTaskComplete);
 
-  // WebSocket for progress updates
   useWebSocket(updateTaskProgress);
 
-  // Load history on mount
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
 
   return (
     <AppContext.Provider value={{
-      queue, currentTask, sortMode, setSortMode, addTask, removeTask, cancelAll, categoryLabels,
-      history, historyLoading, loadHistory, deleteRecords, updateFilename,
+      queue, currentTask, sortMode, setSortMode, addTask, removeTask, retryTask, cancelAll, categoryLabels,
+      historyState, loadHistory, deleteRecords, updateFilename,
       modelSettings, updateModelSettings, setModelSettings,
     }}>
       {children}
