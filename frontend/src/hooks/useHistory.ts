@@ -1,20 +1,25 @@
 import { useState, useCallback } from 'react';
 import * as api from '../api/client';
-import type { HistoryRecord } from '../api/types';
+import type { AsyncState, HistoryRecord } from '../api/types';
+
+const initialState: AsyncState<HistoryRecord[]> = {
+  data: [],
+  loading: false,
+  error: null,
+  stale: false,
+};
 
 export function useHistory() {
-  const [history, setHistory] = useState<HistoryRecord[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [state, setState] = useState<AsyncState<HistoryRecord[]>>(initialState);
 
   const loadHistory = useCallback(async () => {
+    setState(prev => ({ ...prev, loading: true, error: null, stale: prev.data.length > 0 }));
     try {
-      setLoading(true);
       const data = await api.getHistory();
-      setHistory(data);
+      setState({ data, loading: false, error: null, stale: false });
     } catch (e) {
-      console.error('Failed to load history:', e);
-    } finally {
-      setLoading(false);
+      const message = e instanceof Error ? e.message : 'Failed to load history';
+      setState(prev => ({ ...prev, loading: false, error: message, stale: prev.data.length > 0 }));
     }
   }, []);
 
@@ -23,18 +28,23 @@ export function useHistory() {
       await api.deleteRecords(ids);
       await loadHistory();
     } catch (e) {
-      console.error('Failed to delete records:', e);
+      const message = e instanceof Error ? e.message : 'Failed to delete records';
+      setState(prev => ({ ...prev, error: message, stale: prev.data.length > 0 }));
     }
   }, [loadHistory]);
 
   const updateFilename = useCallback(async (recordId: string, filename: string) => {
     try {
       await api.updateFilename(recordId, filename);
-      setHistory(prev => prev.map(h => h.id === recordId ? { ...h, filename } : h));
+      setState(prev => ({
+        ...prev,
+        data: prev.data.map(h => h.id === recordId ? { ...h, filename } : h),
+      }));
     } catch (e) {
-      console.error('Failed to update filename:', e);
+      const message = e instanceof Error ? e.message : 'Failed to update filename';
+      setState(prev => ({ ...prev, error: message, stale: prev.data.length > 0 }));
     }
   }, []);
 
-  return { history, loading, loadHistory, deleteRecords, updateFilename };
+  return { state, loadHistory, deleteRecords, updateFilename };
 }

@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import * as api from '../api/client';
-import type { QueueTask, TaskType, ModelSettings } from '../api/types';
+import type { QueueTask, TaskType, ModelSettings, QueueSortMode, TaskProgress } from '../api/types';
+import { QueueTaskStatus } from '../api/types';
 
 const CATEGORY_ORDER: TaskType[] = ['stt', 'embedding', 'summary'];
 const CATEGORY_LABELS: Record<TaskType, string> = {
@@ -14,7 +15,7 @@ let globalOrderCounter = 0;
 export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () => void) {
   const [queue, setQueue] = useState<QueueTask[]>([]);
   const [currentTask, setCurrentTask] = useState<QueueTask | null>(null);
-  const [sortMode, setSortMode] = useState<'category' | 'order'>('category');
+  const [sortMode, setSortMode] = useState<QueueSortMode>('category');
   const processingRef = useRef(false);
   const queueRef = useRef(queue);
   queueRef.current = queue;
@@ -22,6 +23,7 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
   currentTaskRef.current = currentTask;
   const modelSettingsRef = useRef(modelSettings);
   modelSettingsRef.current = modelSettings;
+  const progressDedupRef = useRef<Map<string, string>>(new Map());
 
   const getStepForType = (type: TaskType): string[] => {
     switch (type) {
@@ -32,9 +34,8 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
   };
 
   const addTask = useCallback((recordId: string, filePath: string, taskType: TaskType) => {
-    // Check duplicates
     const allTasks = [...queueRef.current, currentTaskRef.current].filter(Boolean) as QueueTask[];
-    const exists = allTasks.some(t => t.recordId === recordId && t.taskType === taskType && t.status !== 'error' && t.status !== 'completed');
+    const exists = allTasks.some(t => t.recordId === recordId && t.taskType === taskType && t.status !== QueueTaskStatus.Error && t.status !== QueueTaskStatus.Completed && t.status !== QueueTaskStatus.Cancelled);
     if (exists) return;
 
     const task: QueueTask = {
@@ -42,7 +43,7 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
       recordId,
       filePath,
       taskType,
-      status: 'pending',
+      status: QueueTaskStatus.Pending,
       progress: '',
       order: globalOrderCounter++,
       taskId: `task_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -52,12 +53,43 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
     setQueue(prev => [...prev, task]);
   }, []);
 
+  const applyProgressUpdate = useCallback((taskId: string, message: string) => {
+    const previousMessage = progressDedupRef.current.get(taskId);
+    if (previousMessage === message) return;
+    progressDedupRef.current.set(taskId, message);
+
+    setQueue(prev => prev.map(t => t.taskId === taskId ? { ...t, progress: message } : t));
+    setCurrentTask(prev => prev && prev.taskId === taskId ? { ...prev, progress: message } : prev);
+  }, []);
+
   const removeTask = useCallback((taskId: string) => {
     setQueue(prev => {
       const task = prev.find(t => t.id === taskId);
-      if (task?.abortController) task.abortController.abort();
+      task?.abortController?.abort();
       return prev.filter(t => t.id !== taskId);
     });
+
+    setCurrentTask(prev => {
+      if (prev?.id !== taskId) return prev;
+      prev.abortController?.abort();
+      return { ...prev, status: QueueTaskStatus.Cancelled, progress: '취소됨' };
+    });
+  }, []);
+
+  const retryTask = useCallback((task: QueueTask) => {
+    const retried: QueueTask = {
+      ...task,
+      id: `task_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      taskId: `task_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      status: QueueTaskStatus.Pending,
+      progress: '',
+      retryCount: (task.retryCount || 0) + 1,
+      abortController: undefined,
+      lastRetryTime: Date.now(),
+    };
+
+    setCurrentTask(prev => prev?.id === task.id ? null : prev);
+    setQueue(prev => [...prev.filter(q => q.id !== task.id), retried]);
   }, []);
 
   const cancelAll = useCallback(() => {
@@ -67,11 +99,6 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
     setCurrentTask(null);
     processingRef.current = false;
   }, [queue, currentTask]);
-
-  const updateTaskProgress = useCallback((taskId: string, message: string) => {
-    setQueue(prev => prev.map(t => t.taskId === taskId ? { ...t, progress: message } : t));
-    setCurrentTask(prev => prev && prev.taskId === taskId ? { ...prev, progress: message } : prev);
-  }, []);
 
   const processNext = useCallback(async () => {
     if (processingRef.current) return;
@@ -92,19 +119,17 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
 
     processingRef.current = true;
     const abortController = new AbortController();
-    const processingTask = { ...task, status: 'processing' as const, abortController };
+    const processingTask = { ...task, status: QueueTaskStatus.Processing as const, abortController };
 
     setCurrentTask(processingTask);
     setQueue(prev => prev.filter(t => t.id !== task.id));
 
     try {
-      // Check STT dependency for embedding/summary
       if (task.taskType === 'embedding' || task.taskType === 'summary') {
         const sttCheck = await api.checkExistingStt(task.filePath);
         if (!sttCheck.has_stt) {
-          // Re-queue with retry
           const retried = { ...task, retryCount: (task.retryCount || 0) + 1, lastRetryTime: Date.now() };
-          if (retried.retryCount <= 20) {
+          if ((retried.retryCount || 0) <= 20) {
             setQueue(prev => [...prev, retried]);
           }
           setCurrentTask(null);
@@ -126,28 +151,49 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
           summarize: ms.summarize,
           language: ms.language,
         },
-        abortController.signal
+        abortController.signal,
       );
 
-      setCurrentTask(prev => prev ? { ...prev, status: 'completed' } : null);
+      setCurrentTask(prev => prev ? { ...prev, status: QueueTaskStatus.Completed } : null);
       onTaskComplete?.();
     } catch (e: any) {
       if (e.name === 'AbortError') {
-        setCurrentTask(prev => prev ? { ...prev, status: 'error', progress: '취소됨' } : null);
+        setCurrentTask(prev => prev ? { ...prev, status: QueueTaskStatus.Cancelled, progress: '취소됨' } : null);
       } else {
-        setCurrentTask(prev => prev ? { ...prev, status: 'error', progress: e.message || '오류 발생' } : null);
+        setCurrentTask(prev => prev ? { ...prev, status: QueueTaskStatus.Error, progress: e.message || '오류 발생' } : null);
       }
     } finally {
       processingRef.current = false;
-      // Auto-process next after a delay
       setTimeout(() => {
-        setCurrentTask(null);
+        setCurrentTask(prev => (prev?.status === QueueTaskStatus.Processing ? null : prev));
         processNext();
-      }, 1000);
+      }, 700);
     }
   }, [sortMode, onTaskComplete]);
 
-  // Auto-process when queue changes
+  useEffect(() => {
+    if (!currentTask?.taskId || currentTask.status !== QueueTaskStatus.Processing) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const progress: TaskProgress = await api.getProgress(currentTask.taskId);
+        if (cancelled || !progress.message) return;
+        applyProgressUpdate(progress.task_id, progress.message);
+      } catch {
+        // WebSocket path remains primary; polling is best-effort fallback.
+      }
+    };
+
+    const timer = setInterval(poll, 1500);
+    poll();
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [currentTask?.taskId, currentTask?.status, applyProgressUpdate]);
+
   useEffect(() => {
     if (!processingRef.current && queue.length > 0 && !currentTask) {
       processNext();
@@ -170,8 +216,9 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
     setSortMode,
     addTask,
     removeTask,
+    retryTask,
     cancelAll,
-    updateTaskProgress,
+    updateTaskProgress: applyProgressUpdate,
     categoryLabels: CATEGORY_LABELS,
   };
 }

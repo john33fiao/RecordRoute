@@ -1,40 +1,59 @@
-// Upload
+export type FileType = 'audio' | 'document' | 'other';
+export type ViewerFileType = 'stt' | 'summary';
+
+export enum QueueTaskStatus {
+  Pending = 'pending',
+  Queued = 'queued',
+  Processing = 'processing',
+  Completed = 'completed',
+  Error = 'error',
+  Cancelled = 'cancelled',
+}
+
+export type QueueSortMode = 'category' | 'order';
+export type TaskType = 'stt' | 'embedding' | 'summary';
+
+export interface AsyncState<T> {
+  data: T;
+  loading: boolean;
+  error: string | null;
+  stale: boolean;
+}
+
 export interface UploadResult {
   file_path: string;
-  file_type: 'audio' | 'document' | 'other';
+  file_type: FileType;
   record_id: string;
   duplicate?: boolean;
   original_record_id?: string;
   filename?: string;
 }
 
-// History record from GET /history
-// History record from GET /history
 export interface HistoryRecord {
   id: string;
   filename: string;
-  file_type: 'audio' | 'document' | 'other';
+  file_type: FileType;
   timestamp: string;
   file_hash: string;
   duration?: string;
   file_path: string;
-  completed_tasks: Record<string, boolean>;
-  download_links: Record<string, string>;
-  info?: Record<string, any>;
+  completed_tasks: Partial<Record<TaskType, boolean>>;
+  download_links: Partial<Record<ViewerFileType, string>>;
+  info?: Record<string, unknown>;
 }
 
-// Process task
 export interface ProcessResult {
+  accepted?: boolean;
+  task_id?: string;
   stt?: string;
   summary?: string;
   error?: string;
 }
 
-// Search result from GET /search
 export interface SearchResponse {
   keywordMatches: KeywordMatch[];
   similarDocuments: SimilarDocument[];
-  sort?: { by: string; order: string };
+  sort?: { by: string; order: 'asc' | 'desc' };
   scoreBreakdown?: { keywordWeight: number; vectorWeight: number };
   pagination?: { page: number; pageSize: number; returned: number; hasNext: boolean };
   timing?: Record<string, number>;
@@ -67,7 +86,6 @@ export interface SimilarDocument {
   };
 }
 
-// Models from GET /models
 export interface ModelsResponse {
   models: string[];
   default: {
@@ -77,22 +95,24 @@ export interface ModelsResponse {
   };
 }
 
-// Running task from GET /tasks
 export interface RunningTask {
   task_id: string;
-  status: string;
-  [key: string]: any;
+  status: QueueTaskStatus | string;
+  message?: string;
+  [key: string]: unknown;
 }
 
-// Task queue item (client-side)
-export type TaskType = 'stt' | 'embedding' | 'summary';
+export interface TaskProgress {
+  task_id: string;
+  message: string;
+}
 
 export interface QueueTask {
   id: string;
   recordId: string;
   filePath: string;
   taskType: TaskType;
-  status: 'pending' | 'queued' | 'processing' | 'completed' | 'error';
+  status: QueueTaskStatus;
   progress: string;
   order: number;
   taskId: string;
@@ -102,7 +122,6 @@ export interface QueueTask {
   modelInfo?: string;
 }
 
-// Model settings (stored in localStorage)
 export interface ModelSettings {
   transcribe: string;
   summarize: string;
