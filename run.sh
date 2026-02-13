@@ -15,8 +15,9 @@ fi
 # 가상환경의 Python 실행 파일 경로
 VENV_PYTHON="$SCRIPT_DIR/venv/bin/python"
 
-# 웹서버 스크립트 경로
+# 웹서버 스크립트 경로/모듈
 WEB_SERVER="$SCRIPT_DIR/sttEngine/server.py"
+WEB_SERVER_MODULE="sttEngine.server"
 
 # 가상환경 존재 확인
 if [ ! -f "$VENV_PYTHON" ]; then
@@ -193,7 +194,7 @@ echo "(웹브라우저에서 http://localhost:8080 에 접속하세요)"
 echo
 
 cd "$SCRIPT_DIR"
-"$VENV_PYTHON" "$WEB_SERVER"
+"$VENV_PYTHON" -m "$WEB_SERVER_MODULE"
 EXIT_CODE=$?
 
 echo
