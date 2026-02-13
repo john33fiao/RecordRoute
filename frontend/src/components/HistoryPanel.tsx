@@ -80,6 +80,32 @@ export function HistoryPanel({ onViewContent, onShowSimilarDocs, onShowResetAll 
     }
   };
 
+  const getProcessTaskTypes = (record: HistoryRecord): TaskType[] => {
+    if (record.file_type === 'audio') return ['stt', 'embedding', 'summary'];
+    return ['embedding', 'summary'];
+  };
+
+  const handleProcessAll = () => {
+    let tasksAdded = 0;
+
+    history.forEach(record => {
+      getProcessTaskTypes(record).forEach(taskType => {
+        const status = getTaskStatus(record, taskType);
+        if (status === QueueTaskStatus.Pending || status === QueueTaskStatus.Error || status === QueueTaskStatus.Cancelled) {
+          addTask(record.id, record.file_path || record.id, taskType);
+          tasksAdded += 1;
+        }
+      });
+    });
+
+    if (tasksAdded > 0) {
+      alert(`${tasksAdded}개의 작업이 큐에 추가되었습니다.`);
+      return;
+    }
+
+    alert('진행할 미완료 작업이 없습니다.');
+  };
+
   const getTaskBtnClass = (status: QueueTaskStatus) => {
     if (status === QueueTaskStatus.Completed) return 'bg-green-500/20 text-green-400 border-green-500/50 hover:bg-green-500/30';
     if (status === QueueTaskStatus.Processing) return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50 cursor-not-allowed';
@@ -96,6 +122,7 @@ export function HistoryPanel({ onViewContent, onShowSimilarDocs, onShowResetAll 
         <div className="flex items-center justify-between gap-2">
           <h2 className={`text-xl font-semibold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>업로드 기록</h2>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleProcessAll}><Play className="size-3 mr-1" /> 전체 진행</Button>
             <Button variant="outline" size="sm" onClick={onShowResetAll}><Play className="size-3 mr-1" /> 전체 초기화</Button>
             {selectedIds.size > 0 && <Button variant="outline" size="sm" onClick={handleDeleteSelected}><Trash2 className="size-3 mr-1" /> 삭제 ({selectedIds.size})</Button>}
           </div>
