@@ -131,11 +131,23 @@ export async function resetSummaryEmbedding(recordId: string): Promise<any> {
 export async function search(
   query: string,
   startDate?: string,
-  endDate?: string
+  endDate?: string,
+  options?: {
+    sortBy?: string;
+    sortOrder?: "asc" | "desc";
+    minScore?: number;
+    page?: number;
+    pageSize?: number;
+  }
 ): Promise<SearchResponse> {
   const params = new URLSearchParams({ q: query });
   if (startDate) params.set('start', startDate);
   if (endDate) params.set('end', endDate);
+  if (options?.sortBy) params.set('sort_by', options.sortBy);
+  if (options?.sortOrder) params.set('sort_order', options.sortOrder);
+  if (options?.minScore !== undefined) params.set('min_score', String(options.minScore));
+  if (options?.page !== undefined) params.set('page', String(options.page));
+  if (options?.pageSize !== undefined) params.set('page_size', String(options.pageSize));
   const res = await fetch(`/search?${params}`);
   if (!res.ok) throw new Error('Search failed');
   return res.json();

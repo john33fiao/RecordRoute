@@ -7,7 +7,7 @@ import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { useTheme } from '../contexts/ThemeContext';
 import * as api from '../api/client';
-import type { KeywordMatch, SimilarDocument } from '../api/types';
+import type { KeywordMatch, SimilarDocument, SearchResponse } from '../api/types';
 import { TextOverlay } from './TextOverlay';
 
 export function SearchPanel() {
@@ -17,6 +17,7 @@ export function SearchPanel() {
   const [keywordResults, setKeywordResults] = useState<KeywordMatch[]>([]);
   const [similarResults, setSimilarResults] = useState<SimilarDocument[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
+  const [searchMeta, setSearchMeta] = useState<SearchResponse | null>(null);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailFileIdentifier, setDetailFileIdentifier] = useState<string | null>(null);
@@ -31,6 +32,7 @@ export function SearchPanel() {
       setKeywordResults(data.keywordMatches || []);
       setSimilarResults(data.similarDocuments || []);
       setHasSearched(true);
+      setSearchMeta(data);
     } catch (e) {
       console.error('Search failed:', e);
     } finally {
@@ -108,6 +110,15 @@ export function SearchPanel() {
             </div>
           ) : (
             <div className="space-y-6">
+
+              {searchMeta?.pagination && (
+                <div className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+                  정렬: {(searchMeta.sort?.by || 'similarity')} / {(searchMeta.sort?.order || 'desc')} ·
+                  페이지: {searchMeta.pagination.page} ·
+                  반환: {searchMeta.pagination.returned}
+                  {searchMeta.cache?.hit ? ' · 캐시 히트' : ''}
+                </div>
+              )}
               {keywordResults.length > 0 && (
                 <div className="space-y-3">
                   <h3 className={`text-sm font-semibold ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>키워드 일치 문서</h3>

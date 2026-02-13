@@ -218,9 +218,38 @@ class UploadHandler(BaseHTTPRequestHandler):
             query = params.get("q", [""])[0].strip()
             start_date = params.get("start", [None])[0]
             end_date = params.get("end", [None])[0]
+            sort_by = params.get("sort_by", ["similarity"])[0]
+            sort_order = params.get("sort_order", ["desc"])[0]
+            min_score_raw = params.get("min_score", [None])[0]
+            page_raw = params.get("page", ["1"])[0]
+            page_size_raw = params.get("page_size", ["5"])[0]
+
+            min_score = None
+            if min_score_raw not in (None, ""):
+                try:
+                    min_score = float(min_score_raw)
+                except ValueError:
+                    min_score = None
 
             try:
-                response_data = {"keywordMatches": [], "similarDocuments": []}
+                page = max(1, int(page_raw))
+            except (TypeError, ValueError):
+                page = 1
+
+            try:
+                page_size = max(1, int(page_size_raw))
+            except (TypeError, ValueError):
+                page_size = 5
+
+            try:
+                response_data = {
+                    "keywordMatches": [],
+                    "similarDocuments": [],
+                    "sort": {"by": sort_by, "order": sort_order},
+                    "pagination": {"page": page, "pageSize": page_size, "returned": 0, "hasNext": False},
+                    "scoreBreakdown": {"keywordWeight": 0.0, "vectorWeight": 1.0},
+                    "timing": {},
+                }
 
                 if query:
                     documents, path_index = collect_searchable_documents()
@@ -233,14 +262,22 @@ class UploadHandler(BaseHTTPRequestHandler):
                     keyword_paths = {item["file"] for item in keyword_matches}
                     keyword_uuids = {item["file_uuid"] for item in keyword_matches}
 
-                    hits = search_vectors(
+                    search_payload = search_vectors(
                         query,
                         BASE_DIR,
-                        top_k=10,
+                        top_k=max(10, page * page_size),
                         start_date=start_date,
                         end_date=end_date,
+                        sort_by=sort_by,
+                        sort_order=sort_order,
+                        min_score=min_score,
+                        page=page,
+                        page_size=page_size,
+                        include_timing=True,
                     )
 
+                    hits = search_payload.get("results", [])
+                    response_data["timing"] = search_payload.get("timing", {})
                     similar_documents = []
                     for hit in hits:
                         rel_path = hit.get("file")
@@ -273,16 +310,29 @@ class UploadHandler(BaseHTTPRequestHandler):
                                 "file": rel_path,
                                 "display_name": display_name,
                                 "score": hit.get("score"),
+                                "score_breakdown": {
+                                    "vector_similarity": hit.get("score"),
+                                    "keyword_overlap": 0.0,
+                                    "composite": hit.get("score"),
+                                },
                                 "uploaded_at": uploaded_at,
                                 "source_filename": source_filename,
                                 "link": link,
                             }
                         )
 
-                        if len(similar_documents) >= 5:
+                        if len(similar_documents) >= page_size:
                             break
 
                     response_data["similarDocuments"] = similar_documents
+                    response_data["pagination"]["returned"] = len(similar_documents)
+                    response_data["pagination"]["hasNext"] = len(hits) >= page_size
+                    response_data["cache"] = {"hit": bool(search_payload.get("cache_hit"))}
+                    response_data["performanceTargetMs"] = {
+                        "keyword_only_p95": 120.0,
+                        "vector_only_p95": 450.0,
+                        "hybrid_with_date_filter_p95": 650.0,
+                    }
 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")

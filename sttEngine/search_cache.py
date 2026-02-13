@@ -42,11 +42,58 @@ CACHE_DIR = _resolve_cache_directory()
 CACHE_EXPIRY_HOURS = 24
 
 
+def _build_cache_key_payload(
+    query: str,
+    top_k: int,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
+    min_score: Optional[float] = None,
+    page: Optional[int] = None,
+    page_size: Optional[int] = None,
+) -> Dict[str, Any]:
+    """검색 캐시 키를 구성하는 정규화된 페이로드를 반환한다."""
+    return {
+        "query": query,
+        "top_k": int(top_k),
+        "filters": {
+            "start_date": start_date or "",
+            "end_date": end_date or "",
+            "min_score": float(min_score) if min_score is not None else None,
+        },
+        "sort": {
+            "by": (sort_by or "similarity").lower(),
+            "order": (sort_order or "desc").lower(),
+        },
+        "pagination": {
+            "page": int(page) if page is not None else None,
+            "page_size": int(page_size) if page_size is not None else None,
+        },
+    }
+
+
 def get_query_hash(query: str, top_k: int,
                    start_date: Optional[str] = None,
-                   end_date: Optional[str] = None) -> str:
+                   end_date: Optional[str] = None,
+                   sort_by: Optional[str] = None,
+                   sort_order: Optional[str] = None,
+                   min_score: Optional[float] = None,
+                   page: Optional[int] = None,
+                   page_size: Optional[int] = None) -> str:
     """검색 쿼리와 파라미터에 대한 해시값 생성"""
-    query_data = f"{query}:{top_k}:{start_date or ''}:{end_date or ''}"
+    payload = _build_cache_key_payload(
+        query,
+        top_k,
+        start_date=start_date,
+        end_date=end_date,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        min_score=min_score,
+        page=page,
+        page_size=page_size,
+    )
+    query_data = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.md5(query_data.encode('utf-8')).hexdigest()
 
 
@@ -89,12 +136,27 @@ def is_cache_expired(timestamp_str: str) -> bool:
 
 def get_cached_search_result(query: str, top_k: int,
                              start_date: Optional[str] = None,
-                             end_date: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
+                             end_date: Optional[str] = None,
+                             sort_by: Optional[str] = None,
+                             sort_order: Optional[str] = None,
+                             min_score: Optional[float] = None,
+                             page: Optional[int] = None,
+                             page_size: Optional[int] = None) -> Optional[List[Dict[str, Any]]]:
     """캐시된 검색 결과 조회"""
     # 캐시 사용 전 만료된 항목을 정리하여 디스크 사용량을 관리
     cleanup_expired_cache()
 
-    query_hash = get_query_hash(query, top_k, start_date, end_date)
+    query_hash = get_query_hash(
+        query,
+        top_k,
+        start_date,
+        end_date,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        min_score=min_score,
+        page=page,
+        page_size=page_size,
+    )
     record = load_cache_record(query_hash)
     
     if not record:
@@ -109,9 +171,24 @@ def get_cached_search_result(query: str, top_k: int,
 def cache_search_result(query: str, top_k: int, results: List[Dict[str, Any]],
                        existing_uuid: Optional[str] = None,
                        start_date: Optional[str] = None,
-                       end_date: Optional[str] = None) -> str:
+                       end_date: Optional[str] = None,
+                       sort_by: Optional[str] = None,
+                       sort_order: Optional[str] = None,
+                       min_score: Optional[float] = None,
+                       page: Optional[int] = None,
+                       page_size: Optional[int] = None) -> str:
     """검색 결과를 캐시에 저장"""
-    query_hash = get_query_hash(query, top_k, start_date, end_date)
+    query_hash = get_query_hash(
+        query,
+        top_k,
+        start_date,
+        end_date,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        min_score=min_score,
+        page=page,
+        page_size=page_size,
+    )
     
     # 기존 UUID 유지하거나 새로 생성
     if existing_uuid:
@@ -132,7 +209,12 @@ def cache_search_result(query: str, top_k: int, results: List[Dict[str, Any]],
         "query_hash": query_hash,
         "results": results,
         "start_date": start_date,
-        "end_date": end_date
+        "end_date": end_date,
+        "sort_by": sort_by,
+        "sort_order": sort_order,
+        "min_score": min_score,
+        "page": page,
+        "page_size": page_size,
     }
     
     save_cache_record(query_hash, record)
@@ -141,9 +223,24 @@ def cache_search_result(query: str, top_k: int, results: List[Dict[str, Any]],
 
 def delete_cache_record(query: str, top_k: int,
                         start_date: Optional[str] = None,
-                        end_date: Optional[str] = None) -> bool:
+                        end_date: Optional[str] = None,
+                        sort_by: Optional[str] = None,
+                        sort_order: Optional[str] = None,
+                        min_score: Optional[float] = None,
+                        page: Optional[int] = None,
+                        page_size: Optional[int] = None) -> bool:
     """Delete cached search result for a given query."""
-    query_hash = get_query_hash(query, top_k, start_date, end_date)
+    query_hash = get_query_hash(
+        query,
+        top_k,
+        start_date,
+        end_date,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        min_score=min_score,
+        page=page,
+        page_size=page_size,
+    )
     cache_file = CACHE_DIR / f"{query_hash}.json"
     try:
         cache_file.unlink()
