@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+_SNIPPET_WINDOW = 80
+
 from ..search_cache import CACHE_DIR
 from ..workflow.summarize import read_text_with_fallback
 from .history import get_active_history
@@ -113,6 +115,32 @@ def _save_disk_frequency_cache(cache_key: str, count: int) -> None:
         return
 
 
+
+
+def build_highlight_snippet(text: str, query: str, window: int = _SNIPPET_WINDOW) -> str:
+    if not text:
+        return ""
+    if not query:
+        return text[: window * 2].strip()
+
+    lower_text = text.lower()
+    idx = lower_text.find(query.lower())
+    if idx < 0:
+        return text[: window * 2].strip()
+
+    start = max(0, idx - window)
+    end = min(len(text), idx + len(query) + window)
+    snippet = text[start:end].strip()
+    if start > 0:
+        snippet = f"...{snippet}"
+    if end < len(text):
+        snippet = f"{snippet}..."
+    return snippet
+
+
+def get_document_text(path: Path) -> str:
+    return _get_cached_text(path)
+
 def _count_keyword_occurrence(pattern: re.Pattern[str], path: Path, query: str) -> int:
     file_version = _get_file_version(path)
     frequency_key = _build_frequency_cache_key(path, query, file_version)
@@ -153,12 +181,16 @@ def collect_keyword_matches(query: str, documents, history_map: dict, limit: int
         record = history_map.get(doc["info"].get("record_id"), {})
         timestamp = record.get("timestamp")
 
+        snippet = build_highlight_snippet(_get_cached_text(doc["full_path"]), query)
+
         matches.append(
             {
                 "file_uuid": doc["uuid"],
                 "file": doc["relative_path"],
                 "display_name": doc["info"].get("original_filename") or Path(doc["relative_path"]).name,
                 "count": count,
+                "score": float(count),
+                "snippet": snippet,
                 "uploaded_at": timestamp,
                 "source_filename": record.get("filename"),
                 "link": f"/download/{doc['uuid']}",

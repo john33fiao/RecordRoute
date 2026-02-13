@@ -125,6 +125,9 @@ export async function search(request: SearchRequest): Promise<SearchResponse> {
   if (request.page !== undefined) params.set('page', String(request.page));
   if (request.page_size !== undefined) params.set('page_size', String(request.page_size));
   if (request.include_timing !== undefined) params.set('include_timing', String(request.include_timing));
+  if (request.file_type?.length) params.set('file_type', request.file_type.join(','));
+  if (request.status) params.set('status', request.status);
+  if (request.status_task) params.set('status_task', request.status_task);
   return apiRequest<SearchResponse>(`/search?${params}`);
 }
 

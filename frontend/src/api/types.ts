@@ -66,6 +66,9 @@ export interface SearchRequest {
   page?: number;
   page_size?: number;
   include_timing?: boolean;
+  file_type?: string[];
+  status?: 'completed' | 'pending';
+  status_task?: 'stt' | 'summary' | 'embedding';
 }
 
 export interface SearchResponse {
@@ -74,7 +77,7 @@ export interface SearchResponse {
   query?: string;
   limit?: number;
   sort?: { by: string; order: 'asc' | 'desc' };
-  filters?: { start_date?: string | null; end_date?: string | null; min_score?: number | null };
+  filters?: { start_date?: string | null; end_date?: string | null; min_score?: number | null; file_type?: string[]; status?: string | null; status_task?: string | null };
   scoreBreakdown?: { keywordWeight: number; vectorWeight: number };
   pagination?: { page: number; pageSize: number; returned: number; hasNext: boolean };
   timing?: Record<string, number>;
@@ -89,6 +92,8 @@ export interface KeywordMatch {
   source_filename: string;
   display_name: string;
   count: number;
+  score?: number;
+  snippet?: string;
 }
 
 export interface SimilarDocument {
@@ -96,6 +101,7 @@ export interface SimilarDocument {
   file: string;
   display_name?: string;
   score: number;
+  snippet?: string;
   uploaded_at?: string;
   source_filename?: string;
   link: string;
