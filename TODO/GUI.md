@@ -2,6 +2,38 @@
 
 RecordRoute 프로젝트의 현재 코드베이스를 기반으로 한 UI/UX 개선 작업 목록입니다.
 
+## React 전환 이후 리팩토링 TODO (신규)
+
+> 현황: 기존 `frontend/legacy/upload.*` 기반 UI에서 `frontend/src` React + TypeScript 구조로 이전 완료.
+
+### 아키텍처/상태관리
+- [ ] `App.tsx`에 집중된 상태를 도메인 단위 커스텀 훅으로 분리 (`upload`, `queue`, `search`, `viewer`)
+- [ ] API 호출 상태(`loading`, `error`, `stale`)를 공통 패턴으로 표준화
+- [ ] 폴링/웹소켓 갱신 로직의 책임 경계를 정리하고 중복 갱신 방지
+- [ ] Context 사용 범위를 점검해 불필요한 전역 리렌더 최소화
+
+### 컴포넌트 구조
+- [ ] 프레젠테이션 컴포넌트와 컨테이너 컴포넌트 역할 재정리
+- [ ] `Dialog`/`Overlay`류 컴포넌트 공통 인터페이스 정의 (`open`, `onClose`, `onConfirm`)
+- [ ] 리스트성 UI(`HistoryPanel`, `JobQueue`)의 아이템 렌더러 분리 및 재사용성 개선
+- [ ] 컴포넌트 Props 타입을 더 엄격히 정의하고 optional 남용 정리
+
+### 타입/모델 정리
+- [ ] `src/api/types.ts` 기준으로 서버 응답 스키마 단일화
+- [ ] 문자열 리터럴 상태값을 유니온 타입/enum으로 치환
+- [ ] 날짜/시간/파일크기 포맷 타입 유틸 정리
+
+### 에러/사용성
+- [ ] 네트워크 실패, 타임아웃, 서버 에러에 대한 UI 피드백 정책 통일
+- [ ] 장시간 작업(요약/임베딩) 중 취소/재시도 UX를 컴포넌트 전반에 일관 적용
+- [ ] 키보드 접근성(포커스 트랩, ESC 닫기, ARIA 라벨) 점검 체크리스트 추가
+
+### 성능/품질
+- [ ] 불필요 렌더링 구간 React DevTools로 프로파일링 후 메모이제이션 적용
+- [ ] 대용량 히스토리 대응 가상 스크롤 도입 검토
+- [ ] 단위 테스트(훅/유틸) + 핵심 사용자 플로우 컴포넌트 테스트 추가
+- [ ] ESLint/Prettier/TypeScript 규칙에서 React 패턴 관련 경고를 점진적 에러화
+
 ## 파일 업로드 UI 개선
 
 ### 드래그&드롭 강화
@@ -172,4 +204,4 @@ RecordRoute 프로젝트의 현재 코드베이스를 기반으로 한 UI/UX 개
 
 ---
 
-*본 문서는 RecordRoute 프로젝트의 실제 코드베이스(`frontend/upload.html`, `frontend/upload.js`, `frontend/upload.css`)를 기반으로 작성되었습니다.*
+*본 문서는 RecordRoute 프로젝트의 현재 코드베이스(`frontend/src/*`)를 기준으로 작성되었으며, 레거시 참조는 `frontend/legacy/*`에 보관되어 있습니다.*
