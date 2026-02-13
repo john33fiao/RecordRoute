@@ -1,5 +1,8 @@
 # Todo List
 
+- 마지막 점검일: 2026-02-13
+- 판단 기준(코드 경로): `sttEngine/server.py`, `sttEngine/http_api/app.py`, `sttEngine/http_api/handler.py`, `sttEngine/server/routes/*`, `sttEngine/server/tasks/*`, `sttEngine/similarity_matrix.py`, `frontend/src/*`, `frontend/graph-view.html`
+
 ## 동작 방식
 - [x] 음성 파일을 업로드하면
 - [x] 그것을 STT 하고
@@ -34,9 +37,11 @@
 - [x] 전문 검색 (vector_search.py 기반 확장)
     - [x] 날짜/시간 기반 필터링 (DB 인덱싱)
 - [x] 파일명/태그 검색 (백엔드 API)
-- [ ] 전문 검색 성능 최적화
+- [부분완료] 전문 검색 성능 최적화
+  - 남은 범위: 캐시/정렬/페이지네이션은 반영되어 있으나, 대용량 데이터셋 기준 벤치마크 자동화와 인덱스 튜닝 기준이 문서화되지 않음.
 - [x] 검색 결과 캐싱
-- [ ] 검색 API 확장
+- [부분완료] 검색 API 확장
+  - 남은 범위: `/search`, `/file_search`, `/api/similarity-graph`, `/api/documents/metadata`는 제공되나, 버전드 API/고급 필터 표준화가 미구현.
 - [x] 키워드+유사도 통합 검색 API 설계 및 구현
 - [x] 검색 결과 정렬 로직 개선 (키워드 빈도·업로드 시각·유사도)
 - [x] 검색 UI에 통합 검색 결과 표시
@@ -45,79 +50,86 @@
 
 ### 3. 문서 분석 도구
 - [x] 키워드 빈도 분석
-- [ ] 문서 길이/처리 시간 통계
-- [ ] 음성 품질 평가 (노이즈 감지)
-- [ ] 언어 감지 및 다국어 지원
-- [ ] 화자 분리 기능 (diarization)
-- [ ] 감정 분석 및 톤 분석
+- [부분완료] 문서 길이/처리 시간 통계
+  - 남은 범위: 개별 처리 중 진행률·오디오 길이 추정은 있으나, 히스토리 단위 집계 통계 API/대시보드는 미구현.
+- [미착수] 음성 품질 평가 (노이즈 감지)
+- [미착수] 언어 감지 및 다국어 지원
+- [미착수] 화자 분리 기능 (diarization)
+- [미착수] 감정 분석 및 톤 분석
 
 ### 4. 사용성 개선 (백엔드/기능 중심)
-- [ ] 처리 로그 상세 보기 (서버 로깅 시스템)
+- [미착수] 처리 로그 상세 보기 (서버 로깅 시스템)
 - [x] 설정 페이지 (모델 선택, 품질 설정)
-- [ ] 키보드 단축키 API 지원
-- [ ] 배치 처리 최적화
-- [ ] 에러 복구 시스템
+- [미착수] 키보드 단축키 API 지원
+- [부분완료] 배치 처리 최적화
+  - 남은 범위: 요약 단계 배치 리듀스는 있으나, 업로드/워크플로우 전반의 배치 스케줄링 정책은 없음.
+- [부분완료] 에러 복구 시스템
+  - 남은 범위: 작업 재시도/취소와 라우트 공통 오류 응답은 있으나, 장애 유형별 자동 복구 시나리오는 미정의.
 
 **참고**: UI 관련 항목은 GUI.md로 이동됨
 
 ### 5. 데이터 관리
-- [ ] 자동 백업 시스템
+- [미착수] 자동 백업 시스템
 - [x] 중복 파일 감지
-- [ ] 스토리지 사용량 모니터링
-- [ ] 오래된 파일 자동 정리
-- [ ] 태그 기반 분류 시스템
-- [ ] 즐겨찾기 및 중요도 설정
+- [미착수] 스토리지 사용량 모니터링
+- [미착수] 오래된 파일 자동 정리
+- [미착수] 태그 기반 분류 시스템
+- [미착수] 즐겨찾기 및 중요도 설정
 
 ### 6. API 및 확장성
 - [x] RESTful API 제공
 - [x] WebSocket 기반 실시간 업데이트 (백엔드)
 - [x] 설정 파일 기반 구성 관리
-- [ ] 플러그인 시스템 구조
+- [미착수] 플러그인 시스템 구조
 - [x] 로그 관리 및 모니터링
-- [ ] API 문서 자동 생성 (Swagger/OpenAPI)
-- [ ] API 버전 관리
-- [ ] 인증/권한 시스템
+- [미착수] API 문서 자동 생성 (Swagger/OpenAPI)
+- [미착수] API 버전 관리
+- [미착수] 인증/권한 시스템
 
 ### 그래프
-- [ ] Obsidian의 로컬 그래프 방식 리서치
-- [ ] [그래프 TODO](Graph.md) 수행
+- [미착수] Obsidian의 로컬 그래프 방식 리서치
+- [미착수] [그래프 TODO](Graph.md) 수행
 
 ## 리팩토링 및 구조 개선 (우선 구현)
-- [ ] `sttEngine`을 파이썬 패키지로 구성하여 `sys.path` 수정 제거
-- [ ] `embed_text_ollama` 중복 로직을 공용 유틸 모듈로 분리
-- [ ] `server.py`를 라우팅·작업 관리·파일 처리 등으로 모듈화
-- [ ] `transcribe`·`summarize`·`correct` 스크립트의 중복 CLI 로직 정리
-- [ ] 에러 처리 및 예외 상황 통합 관리
-- [ ] 설정 파일 유효성 검증 강화
-- [ ] 테스트 코드 구조 정비
+- [완료] `sttEngine`을 파이썬 패키지로 구성하여 `sys.path` 수정 제거
+- [부분완료] `embed_text_ollama` 중복 로직을 공용 유틸 모듈로 분리
+  - 남은 범위: 임베딩 호출 함수는 `embedding_pipeline.py`에 있으나, 검색/파이프라인 경계에서 의존 역전과 테스트 분리가 추가로 필요.
+- [부분완료] `server.py`를 라우팅·작업 관리·파일 처리 등으로 모듈화
+  - 남은 범위: 엔트리포인트 분리와 `routes/`, `tasks/` 모듈은 도입되었지만, `http_api/handler.py`의 단일 클래스 책임이 여전히 큼.
+- [부분완료] `transcribe`·`summarize`·`correct` 스크립트의 중복 CLI 로직 정리
+  - 남은 범위: `workflow/cli_utils.py` 공통화가 시작되었으나, 인자/출력 포맷 표준화는 추가 정리 필요.
+- [부분완료] 에러 처리 및 예외 상황 통합 관리
+  - 남은 범위: 일부 라우트 공통 에러 핸들링이 적용되었으나, 전체 HTTP 핸들러/워크플로우 계층까지 통합되지 않음.
+- [미착수] 설정 파일 유효성 검증 강화
+- [미착수] 테스트 코드 구조 정비
 
 **참고**: 프론트엔드 리팩토링(`upload.js` 모듈화 등)은 GUI.md 참조
 
 ## Electron 동봉 배포 전환 백로그 (적절 항목 선별)
 
 ### P0. 로컬 전용 보안/실행 안정화
-- [ ] 백엔드 바인딩을 `127.0.0.1`/`::1`로 강제하고, Electron 빌드에서 외부 노출 옵션(예: Tunnel) 비활성화
-- [ ] 백엔드 포트를 고정값 대신 랜덤 에페메럴 포트로 할당
-- [ ] Electron main 시작 시 세션 토큰을 생성하고, 백엔드 API에서 `X-RecordRoute-Token` 헤더 검증
-- [ ] 파괴적 엔드포인트(`shutdown`/`delete`/`reset` 계열) 보호 정책 수립: Electron 패키지에서는 제거 또는 강화 인증 적용
-- [ ] Electron main에서 백엔드 프로세스 spawn → `/health` 확인 후 UI 오픈 → 종료 시 graceful shutdown 연동
+- [미착수] 백엔드 바인딩을 `127.0.0.1`/`::1`로 강제하고, Electron 빌드에서 외부 노출 옵션(예: Tunnel) 비활성화
+- [미착수] 백엔드 포트를 고정값 대신 랜덤 에페메럴 포트로 할당
+- [미착수] Electron main 시작 시 세션 토큰을 생성하고, 백엔드 API에서 `X-RecordRoute-Token` 헤더 검증
+- [미착수] 파괴적 엔드포인트(`shutdown`/`delete`/`reset` 계열) 보호 정책 수립: Electron 패키지에서는 제거 또는 강화 인증 적용
+- [미착수] Electron main에서 백엔드 프로세스 spawn → `/health` 확인 후 UI 오픈 → 종료 시 graceful shutdown 연동
 
 ### P0. Electron 기본 보안 설정
-- [ ] `nodeIntegration: false`, `contextIsolation: true` 적용
-- [ ] preload 기반 화이트리스트 IPC만 노출 (직접 파일/명령 실행 차단)
-- [ ] `shell.openExternal` URL allowlist 적용
-- [ ] 렌더러의 백엔드 직접 호출 대신 `renderer → IPC → main(fetch)` 프록시 패턴 적용
+- [미착수] `nodeIntegration: false`, `contextIsolation: true` 적용
+- [미착수] preload 기반 화이트리스트 IPC만 노출 (직접 파일/명령 실행 차단)
+- [미착수] `shell.openExternal` URL allowlist 적용
+- [미착수] 렌더러의 백엔드 직접 호출 대신 `renderer → IPC → main(fetch)` 프록시 패턴 적용
 
 ### P0. 데이터/로그 경로 통일
-- [ ] 데이터 루트를 Electron `userData` 하위 단일 경로로 주입하고, 백엔드 파일 I/O를 해당 루트로 강제
-- [ ] `records/`, `uploads/`, `outputs/`, `vectors/`, `cache/`, `logs/` 폴더 구조 표준화
-- [ ] 백엔드 로그 + Electron 크래시/런타임 로그 수집 경로 통합
+- [미착수] 데이터 루트를 Electron `userData` 하위 단일 경로로 주입하고, 백엔드 파일 I/O를 해당 루트로 강제
+- [미착수] `records/`, `uploads/`, `outputs/`, `vectors/`, `cache/`, `logs/` 폴더 구조 표준화
+- [미착수] 백엔드 로그 + Electron 크래시/런타임 로그 수집 경로 통합
 
 ### P1. 배포 실무/호환성
-- [ ] Python 백엔드 바이너리화(PyInstaller 등) 및 FFmpeg 포함 전략 확정
-- [ ] Ollama는 우선 "외부 의존 + 설치 감지/안내" 전략으로 적용 (동봉은 후순위)
-- [ ] 모델 다운로드 시 checksum 검증 및 캐시 경로 표준화
-- [ ] 백엔드 `/version` + 프론트 기대 버전 비교(핸드셰이크) 추가
+- [미착수] Python 백엔드 바이너리화(PyInstaller 등) 및 FFmpeg 포함 전략 확정
+- [미착수] Ollama는 우선 "외부 의존 + 설치 감지/안내" 전략으로 적용 (동봉은 후순위)
+- [미착수] 모델 다운로드 시 checksum 검증 및 캐시 경로 표준화
+- [미착수] 백엔드 `/version` + 프론트 기대 버전 비교(핸드셰이크) 추가
 
 ---
 
