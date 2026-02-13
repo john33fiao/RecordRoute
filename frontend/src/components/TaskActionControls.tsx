@@ -3,12 +3,13 @@ import { Button } from './ui/button';
 interface TaskActionControlsProps {
   canCancel?: boolean;
   canRetry?: boolean;
+  retryLabel?: string;
   onCancel?: () => void;
   onRetry?: () => void;
   compact?: boolean;
 }
 
-export function TaskActionControls({ canCancel, canRetry, onCancel, onRetry, compact = false }: TaskActionControlsProps) {
+export function TaskActionControls({ canCancel, canRetry, retryLabel = "재시도", onCancel, onRetry, compact = false }: TaskActionControlsProps) {
   if (!canCancel && !canRetry) return null;
 
   return (
@@ -20,7 +21,7 @@ export function TaskActionControls({ canCancel, canRetry, onCancel, onRetry, com
       )}
       {canRetry && onRetry && (
         <Button size="sm" variant="outline" onClick={onRetry} className="text-amber-400 border-amber-500/50 hover:bg-amber-500/10">
-          재시도
+          {retryLabel}
         </Button>
       )}
     </div>

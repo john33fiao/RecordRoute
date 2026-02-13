@@ -76,15 +76,25 @@ def is_task_cancelled(task_id: str) -> bool:
         return False
 
 
-def update_task_progress(task_id: str, message: str) -> None:
+def update_task_progress(
+    task_id: str,
+    message: str,
+    error_code: str | None = None,
+    retryable: bool | None = None,
+    failed_step: str | None = None,
+) -> None:
     """Update progress message for a task."""
     with progress_lock:
         task_progress[task_id] = {
+            "task_id": task_id,
             "message": message,
             "timestamp": time.time(),
+            "error_code": error_code,
+            "retryable": retryable,
+            "failed_step": failed_step,
         }
         print(f"Task {task_id}: {message}")
-    broadcast_progress(task_id, message)
+    broadcast_progress(task_id, message, error_code, retryable, failed_step)
 
 
 def get_task_progress(task_id: str) -> dict:

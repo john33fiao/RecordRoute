@@ -12,6 +12,7 @@ from typing import List, Optional
 from sttEngine.config import get_model_for_task, get_default_model, get_config_value, get_db_base_path
 from sttEngine.ollama_utils import safe_ollama_call
 from sttEngine.vocabulary_manager import VocabularyManager
+from sttEngine.server.services.errors import map_workflow_exception
 from sttEngine.workflow.cli_utils import (
     add_encoding_argument,
     add_verbose_argument,
@@ -189,7 +190,7 @@ def chat_once(model: str, system: str, user: str, temperature: float = 0.0,
                 logging.info("%.1f초 후 재시도합니다...", sleep_time)
                 time.sleep(sleep_time)
     
-    raise RuntimeError(f"모델 통신 {retries}회 시도 모두 실패: {last_error}")
+    raise map_workflow_exception(RuntimeError(f"모델 통신 {retries}회 시도 모두 실패: {last_error}"), "correct")
 
 def correct_text_file(input_file: Path, output_file: Optional[Path] = None,
                      model: str = DEFAULT_MODEL, temperature: float = 0.0,
@@ -217,14 +218,14 @@ def correct_text_file(input_file: Path, output_file: Optional[Path] = None,
         # 파일 존재 확인
         if not input_file.exists():
             logging.error("파일을 찾을 수 없습니다: %s", input_file)
-            return False
+            raise map_workflow_exception(FileNotFoundError(f"파일을 찾을 수 없습니다: {input_file}"), "correct")
 
         # 텍스트 읽기
         original_text = read_text_with_fallback(input_file, encoding=encoding)
         
         if not original_text.strip():
             logging.warning("입력 파일이 비어있거나 공백만 포함되어 있습니다.")
-            return False
+            raise map_workflow_exception(ValueError("입력 파일이 비어있거나 공백만 포함되어 있습니다."), "correct")
         
         # 헤더 제거 (옵션)
         target_text = maybe_strip_heading(original_text, strip_heading=strip_heading)
@@ -290,7 +291,7 @@ def correct_text_file(input_file: Path, output_file: Optional[Path] = None,
         
     except Exception as e:
         logging.error("파일 교정 중 오류 발생: %s", str(e))
-        return False
+        raise map_workflow_exception(e, "correct")
 
 def process_multiple_files(input_files: List[Path], **kwargs) -> None:
     """여러 파일 배치 처리"""

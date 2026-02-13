@@ -19,6 +19,7 @@ except ImportError:
 from sttEngine.config import get_model_for_task, get_default_model, get_config_value
 from sttEngine.obsidian_mcp import send_summary_to_obsidian_sync
 from sttEngine.ollama_utils import ensure_ollama_server, check_ollama_model_available, safe_ollama_call
+from sttEngine.server.services.errors import map_workflow_exception
 from sttEngine.workflow.cli_utils import (
     add_encoding_argument,
     add_verbose_argument,
@@ -276,7 +277,7 @@ def call_ollama_with_timeout(
         except FutureTimeoutError:
             logging.error(f"Ollama 호출 타임아웃 ({timeout}초)")
             future.cancel()
-            raise SummarizationError(f"Ollama 호출이 {timeout}초 내에 완료되지 않음")
+            raise map_workflow_exception(SummarizationError(f"Ollama 호출이 {timeout}초 내에 완료되지 않음"), "summary")
 
 def call_ollama_with_retry(
     model: str, 
@@ -320,7 +321,7 @@ def call_ollama_with_retry(
                 logging.info(f"{RETRY_DELAY}초 후 재시도...")
                 time.sleep(RETRY_DELAY)
             else:
-                raise SummarizationError(f"모든 재시도 실패: {e}")
+                raise map_workflow_exception(SummarizationError(f"모든 재시도 실패: {e}"), "summary")
 
 def summarize_text_mapreduce(
     text: str,
@@ -522,14 +523,14 @@ def save_output(content: str, output_path: Path, as_json: bool = False) -> None:
         logging.info(f"요약 결과 저장: {output_path}")
         
     except Exception as e:
-        raise SummarizationError(f"파일 저장 실패: {e}")
+        raise map_workflow_exception(SummarizationError(f"파일 저장 실패: {e}"), "summary")
 
 def read_from_stdin() -> str:
     """표준 입력에서 텍스트 읽기"""
     try:
         return sys.stdin.read()
     except Exception as e:
-        raise SummarizationError(f"표준 입력 읽기 실패: {e}")
+        raise map_workflow_exception(SummarizationError(f"표준 입력 읽기 실패: {e}"), "summary")
 
 def main() -> None:
     """메인 함수"""

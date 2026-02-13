@@ -53,13 +53,13 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
     setQueue(prev => [...prev, task]);
   }, []);
 
-  const applyProgressUpdate = useCallback((taskId: string, message: string) => {
+  const applyProgressUpdate = useCallback((taskId: string, message: string, meta?: { error_code?: string; retryable?: boolean; failed_step?: string }) => {
     const previousMessage = progressDedupRef.current.get(taskId);
     if (previousMessage === message) return;
     progressDedupRef.current.set(taskId, message);
 
-    setQueue(prev => prev.map(t => t.taskId === taskId ? { ...t, progress: message } : t));
-    setCurrentTask(prev => prev && prev.taskId === taskId ? { ...prev, progress: message } : prev);
+    setQueue(prev => prev.map(t => t.taskId === taskId ? { ...t, progress: message, errorCode: meta?.error_code, retryable: meta?.retryable, failedStep: meta?.failed_step } : t));
+    setCurrentTask(prev => prev && prev.taskId === taskId ? { ...prev, progress: message, errorCode: meta?.error_code, retryable: meta?.retryable, failedStep: meta?.failed_step } : prev);
   }, []);
 
   const removeTask = useCallback((taskId: string) => {
@@ -141,7 +141,7 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
 
       const steps = getStepForType(task.taskType);
       const ms = modelSettingsRef.current;
-      await api.processTask(
+      const result = await api.processTask(
         task.filePath,
         steps,
         task.recordId,
@@ -154,8 +154,12 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
         abortController.signal,
       );
 
-      setCurrentTask(prev => prev ? { ...prev, status: QueueTaskStatus.Completed } : null);
-      onTaskComplete?.();
+      if (result.error) {
+        setCurrentTask(prev => prev ? { ...prev, status: QueueTaskStatus.Error, progress: result.error || "오류 발생", errorCode: result.error_code, retryable: result.retryable, failedStep: result.failed_step } : null);
+      } else {
+        setCurrentTask(prev => prev ? { ...prev, status: QueueTaskStatus.Completed } : null);
+      }
+      if (!result.error) onTaskComplete?.();
     } catch (e: any) {
       if (e.name === 'AbortError') {
         setCurrentTask(prev => prev ? { ...prev, status: QueueTaskStatus.Cancelled, progress: '취소됨' } : null);
@@ -179,7 +183,7 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
       try {
         const progress: TaskProgress = await api.getProgress(currentTask.taskId);
         if (cancelled || !progress.message) return;
-        applyProgressUpdate(progress.task_id, progress.message);
+        applyProgressUpdate(progress.task_id, progress.message, { error_code: progress.error_code, retryable: progress.retryable, failed_step: progress.failed_step });
       } catch {
         // WebSocket path remains primary; polling is best-effort fallback.
       }

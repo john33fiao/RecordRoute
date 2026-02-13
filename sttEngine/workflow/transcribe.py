@@ -27,6 +27,7 @@ from sttEngine.logger import setup_logging
 from sttEngine.vocabulary_manager import VocabularyManager
 from sttEngine.obsidian_mcp import send_stt_to_obsidian_sync
 from sttEngine.workflow.cli_utils import add_verbose_argument, configure_cli_logging
+from sttEngine.server.services.errors import map_workflow_exception
 
 DB_BASE_PATH = get_db_base_path()
 DEFAULT_OUTPUT_DIR = DB_BASE_PATH / "whisper_output"
@@ -279,7 +280,7 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
             
             if result.returncode != 0:
                 logging.error(f"ffmpeg 변환 실패: {file_path.name}\n{result.stderr}")
-                raise RuntimeError(f"ffmpeg 변환 실패: {result.stderr}")
+                raise map_workflow_exception(RuntimeError(f"ffmpeg 변환 실패: {result.stderr}"), "stt")
             
             file_to_process = temp_wav_path
             logging.info(f"성공적으로 '{temp_wav_path.name}' 파일로 변환했습니다.")
@@ -622,7 +623,7 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
     if not files_to_process:
         logging.info("입력 디렉토리 '%s'에 처리할 파일이 없습니다.", input_path_obj.resolve())
         logging.info("스크립트를 종료합니다.")
-        return
+        raise map_workflow_exception(RuntimeError("입력 디렉토리에 처리할 파일이 없습니다."), "stt")
 
     logging.info("처리 대상 파일 수: %d개", len(files_to_process))
     if recursive:
@@ -653,7 +654,7 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
         logging.error("스크립트를 종료합니다. 모델 이름이나 경로가 올바른지 확인하세요.")
         if progress_callback:
             progress_callback(f"모델 로드 실패: {e}")
-        return
+        raise map_workflow_exception(e, "stt")
 
     # 변환 실행
     failures = []
@@ -711,7 +712,8 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
         logging.error("실패한 파일 목록:")
         for file_path, error_msg in failures:
             logging.error("- %s: %s", file_path.name, error_msg)
-    
+        raise map_workflow_exception(RuntimeError(f"{len(failures)}개 파일 변환 실패"), "stt")
+
     logging.info("모든 파일 변환 처리가 완료되었습니다.")
 
 def main():
