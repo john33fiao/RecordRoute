@@ -55,6 +55,8 @@ def _build_cache_key_payload(
     min_score: Optional[float] = None,
     page: Optional[int] = None,
     page_size: Optional[int] = None,
+    filter_signature: Optional[str] = None,
+    index_signature: Optional[str] = None,
 ) -> Dict[str, Any]:
     """검색 캐시 키를 구성하는 정규화된 페이로드를 반환한다."""
     return {
@@ -73,6 +75,8 @@ def _build_cache_key_payload(
             "page": max(1, int(page)) if page is not None else None,
             "page_size": max(1, int(page_size)) if page_size is not None else None,
         },
+        "filter_signature": filter_signature or "",
+        "index_signature": index_signature or "",
     }
 
 
@@ -83,7 +87,9 @@ def get_query_hash(query: str, top_k: int,
                    sort_order: Optional[str] = None,
                    min_score: Optional[float] = None,
                    page: Optional[int] = None,
-                   page_size: Optional[int] = None) -> str:
+                   page_size: Optional[int] = None,
+                   filter_signature: Optional[str] = None,
+                   index_signature: Optional[str] = None) -> str:
     """검색 쿼리와 파라미터에 대한 해시값 생성"""
     payload = _build_cache_key_payload(
         query,
@@ -95,6 +101,8 @@ def get_query_hash(query: str, top_k: int,
         min_score=min_score,
         page=page,
         page_size=page_size,
+        filter_signature=filter_signature,
+        index_signature=index_signature,
     )
     query_data = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.md5(query_data.encode('utf-8')).hexdigest()
@@ -155,7 +163,9 @@ def get_cached_search_result(query: str, top_k: int,
                              sort_order: Optional[str] = None,
                              min_score: Optional[float] = None,
                              page: Optional[int] = None,
-                             page_size: Optional[int] = None) -> Optional[List[Dict[str, Any]]]:
+                             page_size: Optional[int] = None,
+                             filter_signature: Optional[str] = None,
+                             index_signature: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
     """캐시된 검색 결과 조회"""
     # 캐시 사용 전 만료된 항목을 주기적으로 정리하여 디스크 사용량을 관리
     maybe_cleanup_expired_cache()
@@ -170,6 +180,8 @@ def get_cached_search_result(query: str, top_k: int,
         min_score=min_score,
         page=page,
         page_size=page_size,
+        filter_signature=filter_signature,
+        index_signature=index_signature,
     )
     record = load_cache_record(query_hash)
     
@@ -194,7 +206,9 @@ def cache_search_result(query: str, top_k: int, results: List[Dict[str, Any]],
                        sort_order: Optional[str] = None,
                        min_score: Optional[float] = None,
                        page: Optional[int] = None,
-                       page_size: Optional[int] = None) -> str:
+                       page_size: Optional[int] = None,
+                       filter_signature: Optional[str] = None,
+                       index_signature: Optional[str] = None) -> str:
     """검색 결과를 캐시에 저장"""
     query_hash = get_query_hash(
         query,
@@ -206,6 +220,8 @@ def cache_search_result(query: str, top_k: int, results: List[Dict[str, Any]],
         min_score=min_score,
         page=page,
         page_size=page_size,
+        filter_signature=filter_signature,
+        index_signature=index_signature,
     )
     
     # 기존 UUID 유지하거나 새로 생성
@@ -233,6 +249,8 @@ def cache_search_result(query: str, top_k: int, results: List[Dict[str, Any]],
         "min_score": min_score,
         "page": page,
         "page_size": page_size,
+        "filter_signature": filter_signature,
+        "index_signature": index_signature,
     }
     
     save_cache_record(query_hash, record)

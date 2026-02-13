@@ -39,7 +39,12 @@ from .records import (
     update_stt_text,
 )
 from .registry import get_file_by_uuid, load_file_registry, update_filename
-from .search import collect_keyword_matches, collect_searchable_documents
+from .search import (
+    build_highlight_snippet,
+    collect_keyword_matches,
+    collect_searchable_documents,
+    get_document_text,
+)
 from .state import cancel_task, get_running_tasks
 from .workflow import (
     find_existing_stt_file,
@@ -226,6 +231,10 @@ class UploadHandler(BaseHTTPRequestHandler):
             def _first(name: str, default=None):
                 return params.get(name, [default])[0]
 
+            def _csv(name: str) -> set[str]:
+                raw = _first(name, "") or ""
+                return {token.strip().lower() for token in raw.split(",") if token.strip()}
+
             query = (_first("query") or _first("q") or "").strip()
             limit_raw = _first("limit")
             start_date = _first("start_date") or _first("start")
@@ -236,6 +245,9 @@ class UploadHandler(BaseHTTPRequestHandler):
             page_raw = _first("page", "1")
             page_size_raw = _first("page_size", "5")
             include_timing_raw = _first("include_timing", "false")
+            file_types = _csv("file_type")
+            status_filter = (_first("status") or "").strip().lower()
+            status_task = (_first("status_task") or "stt").strip().lower()
 
             include_timing = str(include_timing_raw).lower() in {"1", "true", "yes", "y", "on"}
 
@@ -263,6 +275,12 @@ class UploadHandler(BaseHTTPRequestHandler):
                 limit = max(10, page * page_size)
 
             try:
+                filter_signature = json.dumps({
+                    "file_type": sorted(file_types),
+                    "status": status_filter,
+                    "status_task": status_task,
+                }, ensure_ascii=False, sort_keys=True)
+
                 response_data = {
                     "query": query,
                     "limit": limit,
@@ -273,6 +291,9 @@ class UploadHandler(BaseHTTPRequestHandler):
                         "start_date": start_date,
                         "end_date": end_date,
                         "min_score": min_score,
+                        "file_type": sorted(file_types),
+                        "status": status_filter or None,
+                        "status_task": status_task or None,
                     },
                     "pagination": {"page": page, "pageSize": page_size, "returned": 0, "hasNext": False},
                     "scoreBreakdown": {"keywordWeight": 0.0, "vectorWeight": 1.0},
@@ -283,7 +304,23 @@ class UploadHandler(BaseHTTPRequestHandler):
                     history = get_active_history()
                     history_map = {record.get("id"): record for record in history}
 
-                    keyword_matches = collect_keyword_matches(query, documents, history_map, limit=limit)
+                    def _record_passes(record: dict) -> bool:
+                        if file_types and str(record.get("file_type", "")).lower() not in file_types:
+                            return False
+                        if status_filter:
+                            completed = bool((record.get("completed_tasks") or {}).get(status_task, False))
+                            if status_filter in {"completed", "done", "success"} and not completed:
+                                return False
+                            if status_filter in {"pending", "incomplete", "todo"} and completed:
+                                return False
+                        return True
+
+                    filtered_documents = [
+                        doc for doc in documents
+                        if _record_passes(history_map.get(doc["info"].get("record_id"), {}))
+                    ]
+
+                    keyword_matches = collect_keyword_matches(query, filtered_documents, history_map, limit=limit)
                     response_data["keywordMatches"] = keyword_matches
 
                     keyword_paths = {item["file"] for item in keyword_matches}
@@ -301,6 +338,7 @@ class UploadHandler(BaseHTTPRequestHandler):
                         page=page,
                         page_size=page_size,
                         include_timing=include_timing,
+                        filter_signature=filter_signature,
                     )
 
                     if isinstance(search_payload, dict):
@@ -308,8 +346,10 @@ class UploadHandler(BaseHTTPRequestHandler):
                         if include_timing:
                             response_data["timing"] = search_payload.get("timing", {})
                             response_data["cache"] = {"hit": bool(search_payload.get("cache_hit"))}
+                        response_data["pagination"]["hasNext"] = bool(search_payload.get("total_candidates", 0) > page * page_size)
                     else:
                         hits = search_payload
+                        response_data["pagination"]["hasNext"] = len(hits) >= page_size
 
                     similar_documents = []
                     for hit in hits:
@@ -325,17 +365,26 @@ class UploadHandler(BaseHTTPRequestHandler):
 
                         display_name = Path(rel_path).name
                         link = f"/download/{rel_path}"
-                        uploaded_at = None
+                        uploaded_at = hit.get("uploaded_at")
                         source_filename = None
                         file_uuid = None
+                        record_id = None
+                        snippet = ""
 
                         if doc:
                             record = history_map.get(doc["info"].get("record_id"), {})
-                            uploaded_at = record.get("timestamp")
+                            if not _record_passes(record):
+                                continue
+                            record_id = doc["info"].get("record_id")
+                            uploaded_at = record.get("timestamp") or uploaded_at
                             source_filename = record.get("filename")
                             display_name = doc["info"].get("original_filename") or display_name
                             link = f"/download/{doc['uuid']}"
                             file_uuid = doc["uuid"]
+                            try:
+                                snippet = build_highlight_snippet(get_document_text(doc["full_path"]), query)
+                            except Exception:
+                                snippet = ""
 
                         similar_documents.append(
                             {
@@ -343,6 +392,7 @@ class UploadHandler(BaseHTTPRequestHandler):
                                 "file": rel_path,
                                 "display_name": display_name,
                                 "score": hit.get("score"),
+                                "snippet": snippet,
                                 "score_breakdown": {
                                     "vector_similarity": hit.get("score"),
                                     "keyword_overlap": 0.0,
@@ -350,21 +400,14 @@ class UploadHandler(BaseHTTPRequestHandler):
                                 },
                                 "uploaded_at": uploaded_at,
                                 "source_filename": source_filename,
+                                "record_id": record_id,
                                 "link": link,
                             }
                         )
 
-                        if len(similar_documents) >= page_size:
-                            break
-
                     response_data["similarDocuments"] = similar_documents
                     response_data["pagination"]["returned"] = len(similar_documents)
-                    response_data["pagination"]["hasNext"] = len(hits) >= page_size
-                    response_data["performanceTargetMs"] = {
-                        "keyword_only_p95": 120.0,
-                        "vector_only_p95": 450.0,
-                        "hybrid_with_date_filter_p95": 650.0,
-                    }
+                    response_data["contract_version"] = "search-v2"
 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")

@@ -136,6 +136,32 @@ ollama pull bge-m3:latest
 - `bge-m3:latest`: 벡터 임베딩 모델 (모든 플랫폼)
 
 
+## 검색 API 계약 (하위호환 확장)
+
+`GET /search`
+
+기존 파라미터(`query`, `limit`, `start_date`, `end_date`, `sort_by`, `sort_order`, `min_score`, `page`, `page_size`, `include_timing`)는 그대로 유지됩니다.
+
+추가 필터(선택):
+- `file_type`: `audio,document,other` 중 콤마 구분 목록
+- `status`: `completed` 또는 `pending`
+- `status_task`: `stt|summary|embedding` (기본 `stt`)
+
+정렬:
+- `sort_by=similarity|date`
+- `sort_order=asc|desc`
+
+응답 확장(기존 필드 유지):
+- `filters.file_type`, `filters.status`, `filters.status_task`
+- `contract_version: "search-v2"`
+- `keywordMatches[].snippet`, `keywordMatches[].score`
+- `similarDocuments[].snippet`, `similarDocuments[].score`
+
+캐시 정책:
+- TTL 24시간 유지
+- 페이지별 캐시 중복 생성을 줄이기 위해 정렬된 후보 집합을 캐시하고, 페이지네이션은 캐시 조회 후 적용
+- 인덱스 파일 시그니처 및 필터 시그니처를 캐시 키에 포함해 stale-hit를 방지
+
 ## 사용법
 
 ### 웹 인터페이스 실행

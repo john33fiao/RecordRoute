@@ -1,25 +1,30 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import List, Dict, Any, Optional
 import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import numpy as np
-import json
-from datetime import datetime
 
-from .embedding_pipeline import (
-    INDEX_FILE,
-    VECTOR_DIR,
-    embed_text_ollama,
-    load_index,
-    resolve_index_path,
-)
+from .config import get_default_model, get_model_for_task, normalize_db_record_path
+from .embedding_pipeline import INDEX_FILE, VECTOR_DIR, embed_text_ollama, load_index, resolve_index_path
 from .search_cache import cache_search_result, get_cached_search_result
 from .similarity_matrix import invalidate_similarity_cache
 
-from .config import get_default_model, get_model_for_task, normalize_db_record_path
+
+def _build_index_signature() -> str:
+    try:
+        stat = INDEX_FILE.stat()
+        return f"{int(stat.st_mtime_ns)}:{int(stat.st_size)}"
+    except OSError:
+        return "missing"
+
+
+def _paginate(results: List[Dict[str, Any]], page: int, page_size: int) -> List[Dict[str, Any]]:
+    offset = (page - 1) * page_size
+    return results[offset: offset + page_size]
 
 
 def search(query: str, base_dir: Path, top_k: int = 10,
@@ -30,18 +35,14 @@ def search(query: str, base_dir: Path, top_k: int = 10,
            min_score: Optional[float] = None,
            page: int = 1,
            page_size: int = 5,
-           include_timing: bool = False) -> List[Dict[str, Any]] | Dict[str, Any]:
-    """Return top_k most similar documents for the given query.
-
-    날짜/시간 필터링을 위해 ISO 형식의 ``start_date``와 ``end_date``를
-    선택적으로 받을 수 있다.
-    """
-    # 캐시된 결과 확인
+           include_timing: bool = False,
+           filter_signature: Optional[str] = None) -> List[Dict[str, Any]] | Dict[str, Any]:
     overall_start = time.perf_counter()
     normalized_sort_by = (sort_by or "similarity").lower()
     normalized_sort_order = (sort_order or "desc").lower()
     page = max(1, int(page or 1))
     page_size = max(1, int(page_size or 5))
+    index_signature = _build_index_signature()
 
     timing = {
         "cache_lookup_ms": 0.0,
@@ -53,7 +54,7 @@ def search(query: str, base_dir: Path, top_k: int = 10,
     }
 
     cache_lookup_start = time.perf_counter()
-    cached_results = get_cached_search_result(
+    cached_ranked_results = get_cached_search_result(
         query,
         top_k,
         start_date,
@@ -61,23 +62,29 @@ def search(query: str, base_dir: Path, top_k: int = 10,
         sort_by=normalized_sort_by,
         sort_order=normalized_sort_order,
         min_score=min_score,
-        page=page,
-        page_size=page_size,
+        page=None,
+        page_size=None,
+        filter_signature=filter_signature,
+        index_signature=index_signature,
     )
     timing["cache_lookup_ms"] = (time.perf_counter() - cache_lookup_start) * 1000
-    if cached_results is not None:
-        print(f"캐시에서 검색 결과 반환: {len(cached_results)}개 항목")
+    if cached_ranked_results is not None:
+        paged = _paginate(cached_ranked_results, page, page_size)
         timing["total_ms"] = (time.perf_counter() - overall_start) * 1000
         if include_timing:
-            return {"results": cached_results, "timing": timing, "cache_hit": True}
-        return cached_results
-    
+            return {
+                "results": paged,
+                "timing": timing,
+                "cache_hit": True,
+                "total_candidates": len(cached_ranked_results),
+            }
+        return paged
+
     try:
         model_name = get_model_for_task("EMBEDDING", get_default_model("EMBEDDING"))
-    except:
-        # 환경변수 설정이 없을 때 기본 모델 사용
+    except Exception:
         model_name = os.environ.get("EMBEDDING_MODEL", "bge-m3:latest")
-    
+
     try:
         embedding_start = time.perf_counter()
         query_vec = embed_text_ollama(query, model_name)
@@ -112,7 +119,6 @@ def search(query: str, base_dir: Path, top_k: int = 10,
             if not vec_file.exists():
                 continue
             doc_vec = np.load(vec_file)
-            # cosine similarity
             denom = (np.linalg.norm(query_vec) * np.linalg.norm(doc_vec))
             if denom == 0:
                 continue
@@ -130,7 +136,7 @@ def search(query: str, base_dir: Path, top_k: int = 10,
 
             rel_path = normalize_db_record_path(rel_path, base_dir)
             results.append({"file": rel_path, "score": score, "uploaded_at": timestamp_str})
-        
+
         timing["vector_scan_ms"] = (time.perf_counter() - vector_scan_start) * 1000
 
         postprocess_start = time.perf_counter()
@@ -149,35 +155,37 @@ def search(query: str, base_dir: Path, top_k: int = 10,
         else:
             results.sort(key=lambda x: x["score"], reverse=reverse)
 
-        offset = (page - 1) * page_size
-        truncated_results = results[:top_k]
-        final_results = truncated_results[offset: offset + page_size]
-
+        ranked_results = results[:top_k]
+        final_results = _paginate(ranked_results, page, page_size)
         timing["postprocess_ms"] = (time.perf_counter() - postprocess_start) * 1000
 
-        # 결과를 캐시에 저장
         cache_search_result(
             query,
             top_k,
-            final_results,
+            ranked_results,
             start_date=start_date,
             end_date=end_date,
             sort_by=normalized_sort_by,
             sort_order=normalized_sort_order,
             min_score=min_score,
-            page=page,
-            page_size=page_size,
+            page=None,
+            page_size=None,
+            filter_signature=filter_signature,
+            index_signature=index_signature,
         )
-        print(f"새로운 검색 결과를 캐시에 저장: {len(final_results)}개 항목")
 
         timing["total_ms"] = (time.perf_counter() - overall_start) * 1000
         if include_timing:
-            return {"results": final_results, "timing": timing, "cache_hit": False, "total_candidates": len(results)}
+            return {
+                "results": final_results,
+                "timing": timing,
+                "cache_hit": False,
+                "total_candidates": len(ranked_results),
+            }
         return final_results
-    
+
     except Exception as e:
         print(f"검색 중 오류 발생: {e}")
-        # 오류 발생 시 빈 결과 반환
         if include_timing:
             timing["total_ms"] = (time.perf_counter() - overall_start) * 1000
             return {"results": [], "timing": timing, "cache_hit": False, "total_candidates": 0}
@@ -187,4 +195,3 @@ def search(query: str, base_dir: Path, top_k: int = 10,
 def refresh_similarity_data() -> None:
     """Invalidate similarity graph caches after embedding/index updates."""
     invalidate_similarity_cache()
-

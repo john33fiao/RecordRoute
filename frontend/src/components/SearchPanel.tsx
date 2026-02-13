@@ -22,6 +22,9 @@ export function SearchPanel() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(5);
   const [includeTiming, setIncludeTiming] = useState(false);
+  const [fileTypeFilter, setFileTypeFilter] = useState<'all' | 'audio' | 'document' | 'other'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending'>('all');
+  const [statusTask, setStatusTask] = useState<'stt' | 'summary' | 'embedding'>('stt');
 
   const [searching, setSearching] = useState(false);
   const [keywordResults, setKeywordResults] = useState<KeywordMatch[]>([]);
@@ -49,6 +52,9 @@ export function SearchPanel() {
         page,
         page_size: pageSize,
         include_timing: includeTiming,
+        file_type: fileTypeFilter === 'all' ? undefined : [fileTypeFilter],
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        status_task: statusTask,
       });
       setKeywordResults(data.keywordMatches || []);
       setSimilarResults(data.similarDocuments || []);
@@ -102,10 +108,12 @@ export function SearchPanel() {
       `정렬:${sortBy}/${sortOrder}`,
       `페이지:${page}·크기:${pageSize}`,
       `limit:${limit}`,
+      `유형:${fileTypeFilter}`,
+      `상태:${statusFilter}/${statusTask}`,
       includeTiming ? 'timing:on' : 'timing:off',
     ];
     return parts.join(' · ');
-  }, [startDate, endDate, minScore, sortBy, sortOrder, page, pageSize, limit, includeTiming]);
+  }, [startDate, endDate, minScore, sortBy, sortOrder, page, pageSize, limit, includeTiming, fileTypeFilter, statusFilter, statusTask]);
 
   return (
     <Card className={`backdrop-blur-sm ${theme === 'dark' ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-white/50'}`}>
@@ -148,6 +156,22 @@ export function SearchPanel() {
           </select>
           <Input type="number" min={1} value={page} onChange={(e) => setPage(Math.max(1, Number(e.target.value || 1)))} placeholder="page" />
           <Input type="number" min={1} value={pageSize} onChange={(e) => setPageSize(Math.max(1, Number(e.target.value || 1)))} placeholder="page size" />
+          <select value={fileTypeFilter} onChange={(e) => setFileTypeFilter(e.target.value as 'all' | 'audio' | 'document' | 'other')} className="border rounded px-2 py-1 bg-transparent">
+            <option value="all">all types</option>
+            <option value="audio">audio</option>
+            <option value="document">document</option>
+            <option value="other">other</option>
+          </select>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | 'completed' | 'pending')} className="border rounded px-2 py-1 bg-transparent">
+            <option value="all">all status</option>
+            <option value="completed">completed</option>
+            <option value="pending">pending</option>
+          </select>
+          <select value={statusTask} onChange={(e) => setStatusTask(e.target.value as 'stt' | 'summary' | 'embedding')} className="border rounded px-2 py-1 bg-transparent">
+            <option value="stt">stt</option>
+            <option value="summary">summary</option>
+            <option value="embedding">embedding</option>
+          </select>
         </div>
 
         <div className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>현재 필터: {filterSummary}</div>
@@ -181,6 +205,7 @@ export function SearchPanel() {
                             <div>
                               <h4 className={`font-medium ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'}`}>{(result.display_name || result.source_filename || '').normalize('NFC')}</h4>
                               {result.uploaded_at && <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-600'}`}>{formatDate(result.uploaded_at)}</p>}
+                              {result.snippet && <p className={`text-xs mt-2 line-clamp-2 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>{result.snippet}</p>}
                             </div>
                             <Badge variant="outline" className={`${theme === 'dark' ? 'border-slate-600' : 'border-slate-400'} text-violet-400`}>{result.count}회 등장</Badge>
                           </div>
@@ -205,6 +230,7 @@ export function SearchPanel() {
                             <Badge variant="outline" className={`${theme === 'dark' ? 'border-slate-600' : 'border-slate-400'} ${getSimilarityColor(result.score)}`}>{(result.score * 100).toFixed(0)}%</Badge>
                           </div>
                           {result.uploaded_at && <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-600'}`}>{formatDate(result.uploaded_at)}</p>}
+                          {result.snippet && <p className={`text-xs mt-2 line-clamp-2 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>{result.snippet}</p>}
                         </div>
                       </div>
                     </button>
