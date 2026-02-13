@@ -145,13 +145,14 @@ if !errorlevel! equ 0 (
     echo Ollama가 설치되어 있습니다.
     echo 모델을 확인하고 있습니다...
     
-    ollama list 2>nul | findstr /i "gemma" >nul
+    set OLLAMA_MODEL=gemma3:4b-it-qat
+    ollama list 2>nul | findstr /i /b /c:"!OLLAMA_MODEL! " >nul
     if !errorlevel! equ 0 (
-        echo Gemma 모델이 이미 설치되어 있습니다.
+        echo 모델 '!OLLAMA_MODEL!'이(가) 이미 설치되어 있습니다. pull을 건너뜁니다.
     ) else (
-        echo Gemma 모델을 설치하고 있습니다...
+        echo 모델 '!OLLAMA_MODEL!'을(를) 설치하고 있습니다...
         echo (이 과정은 시간이 걸릴 수 있습니다)
-        ollama pull gemma3:4b-it-qat
+        ollama pull !OLLAMA_MODEL!
     )
 ) else (
     echo Ollama가 설치되어 있지 않습니다.
