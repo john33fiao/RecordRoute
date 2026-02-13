@@ -13,10 +13,21 @@ let lastEditedRecordId = null;
 let lastEditedFileIdentifier = null;
 
 let progressSocket = null;
+let progressPollingInterval = null;
+let websocketReconnectTimer = null;
+const PROGRESS_POLL_MS = 2000;
 const selectedRecords = new Set();
 
 function initWebSocket() {
-    progressSocket = new WebSocket('ws://localhost:8765');
+    if (websocketReconnectTimer) {
+        clearTimeout(websocketReconnectTimer);
+        websocketReconnectTimer = null;
+    }
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = window.location.hostname || 'localhost';
+    progressSocket = new WebSocket(`${wsProtocol}//${wsHost}:8765`);
+
     progressSocket.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
@@ -29,6 +40,23 @@ function initWebSocket() {
         } catch (e) {
             console.error('WebSocket message error:', e);
         }
+    };
+
+    progressSocket.onopen = () => {
+        console.log('WebSocket connected for progress updates');
+    };
+
+    progressSocket.onerror = (event) => {
+        console.warn('WebSocket connection error. Falling back to HTTP progress polling.', event);
+    };
+
+    progressSocket.onclose = () => {
+        if (websocketReconnectTimer) {
+            clearTimeout(websocketReconnectTimer);
+        }
+
+        // Keep trying to reconnect so WS progress can recover automatically.
+        websocketReconnectTimer = setTimeout(() => initWebSocket(), 3000);
     };
 }
 
@@ -509,9 +537,37 @@ function updateDeleteButtonState() {
     deleteBtn.textContent = count > 0 ? `삭제 (${count})` : '삭제';
 }
 
-// Progress updates are pushed via WebSocket; polling functions are no-ops
-function startProgressPolling(task) {}
-function stopProgressPolling() {}
+// Progress updates are pushed via WebSocket. Polling is kept as a fallback
+// when WS cannot connect (proxy/tunnel/cross-origin environments).
+function startProgressPolling(task) {
+    stopProgressPolling();
+    if (!task || !task.taskId) return;
+
+    progressPollingInterval = setInterval(async () => {
+        if (!task || !task.taskId) return;
+
+        try {
+            const response = await fetch(`/progress/${task.taskId}`);
+            if (!response.ok) return;
+
+            const progress = await response.json();
+            if (!progress || !progress.message) return;
+
+            task.progress = progress.message;
+            updateQueueDisplay();
+        } catch (error) {
+            // Keep polling resiliently; WS may still be active.
+            console.warn('Progress polling failed:', error);
+        }
+    }, PROGRESS_POLL_MS);
+}
+
+function stopProgressPolling() {
+    if (progressPollingInterval) {
+        clearInterval(progressPollingInterval);
+        progressPollingInterval = null;
+    }
+}
 
 document.getElementById('overlayClose').addEventListener('click', () => {
     const overlay = document.getElementById('textOverlay');
@@ -2182,6 +2238,7 @@ async function processNextTask() {
         // Initialize progress message; updates will come via WebSocket
         currentTask.progress = '작업 준비 중...';
         updateQueueDisplay();
+        startProgressPolling(currentTask);
 
         // Create AbortController for this task
         currentTask.abortController = new AbortController();
