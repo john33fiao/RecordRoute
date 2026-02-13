@@ -193,7 +193,7 @@ echo "(웹브라우저에서 http://localhost:8080 에 접속하세요)"
 echo
 
 cd "$SCRIPT_DIR"
-"$VENV_PYTHON" -m sttEngine.server
+"$VENV_PYTHON" "$WEB_SERVER"
 EXIT_CODE=$?
 
 echo
