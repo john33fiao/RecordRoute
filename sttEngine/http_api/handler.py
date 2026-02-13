@@ -15,7 +15,6 @@ from ..vector_search import search as search_vectors
 from ..similarity_matrix import (
     get_documents_metadata,
     get_similarity_graph,
-    get_similarity_subgraph,
 )
 from ..ollama_utils import ensure_ollama_server
 from ..server.routes import history as history_route
@@ -429,25 +428,21 @@ class UploadHandler(BaseHTTPRequestHandler):
 
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
-            threshold = float(params.get("threshold", ["0.65"])[0])
+            min_similarity = float(params.get("min_similarity", params.get("threshold", ["0.65"]))[0])
             max_neighbors = int(params.get("max_neighbors", ["12"])[0])
+            max_nodes = int(params.get("max_nodes", ["150"])[0])
+            sampling_strategy = (params.get("sampling", ["hybrid"])[0] or "hybrid").lower()
+            doc_id = (params.get("doc_id", [""])[0] or "").strip() or None
             refresh = params.get("refresh", ["false"])[0].lower() == "true"
 
-            base_path = parsed.path
-            if base_path == "/api/similarity-graph":
-                payload = get_similarity_graph(
-                    threshold=threshold,
-                    max_neighbors=max_neighbors,
-                    refresh=refresh,
-                )
-            else:
-                doc_id = unquote(base_path[len("/api/similarity-graph/"):])
-                payload = get_similarity_subgraph(
-                    doc_id=doc_id,
-                    threshold=threshold,
-                    max_neighbors=max_neighbors,
-                    refresh=refresh,
-                )
+            payload = get_similarity_graph(
+                min_similarity=min_similarity,
+                max_neighbors=max_neighbors,
+                max_nodes=max_nodes,
+                sampling_strategy=sampling_strategy,
+                doc_id=doc_id,
+                refresh=refresh,
+            )
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json")

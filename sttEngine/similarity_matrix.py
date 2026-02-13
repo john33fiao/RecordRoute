@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from pathlib import Path
+import random
 from typing import Any
 
 import numpy as np
@@ -13,8 +14,13 @@ from .http_api.paths import BASE_DIR, normalize_record_path
 from .http_api.registry import load_file_registry
 
 _CACHE_LOCK = threading.Lock()
-_GRAPH_CACHE: dict[tuple[float, int], dict[str, Any]] = {}
-_SUBGRAPH_CACHE: dict[tuple[str, float, int], dict[str, Any]] = {}
+_GRAPH_CACHE: dict[tuple[float, int, int, str], dict[str, Any]] = {}
+
+DEFAULT_MIN_SIMILARITY = 0.65
+DEFAULT_MAX_NEIGHBORS = 12
+DEFAULT_MAX_NODES = 150
+DEFAULT_SAMPLING_STRATEGY = "hybrid"
+ALLOWED_SAMPLING_STRATEGIES = {"hybrid", "recent", "random"}
 
 
 def _cosine_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
@@ -78,10 +84,71 @@ def _build_doc_catalog() -> list[dict[str, Any]]:
     return docs
 
 
-def _compute_graph(threshold: float = 0.65, max_neighbors: int = 12) -> dict[str, Any]:
+def _safe_timestamp(value: Any) -> float:
+    try:
+        if value is None:
+            return 0.0
+        return float(value)
+    except Exception:
+        return 0.0
+
+
+def _sample_docs(docs: list[dict[str, Any]], max_nodes: int, strategy: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    total_docs = len(docs)
+    if max_nodes <= 0 or total_docs <= max_nodes:
+        return docs, {
+            "strategy": strategy,
+            "total_before_sampling": total_docs,
+            "sampled": False,
+            "max_nodes": max_nodes,
+        }
+
+    if strategy == "recent":
+        sampled = sorted(docs, key=lambda item: _safe_timestamp(item.get("uploaded_at")), reverse=True)[:max_nodes]
+    elif strategy == "random":
+        rng = random.Random(42)
+        sampled = rng.sample(docs, max_nodes)
+    else:
+        recent_count = max(1, int(max_nodes * 0.7))
+        random_count = max_nodes - recent_count
+        sorted_recent = sorted(docs, key=lambda item: _safe_timestamp(item.get("uploaded_at")), reverse=True)
+        sampled = sorted_recent[:recent_count]
+        if random_count > 0:
+            remaining = sorted_recent[recent_count:]
+            if remaining:
+                rng = random.Random(42)
+                sampled.extend(rng.sample(remaining, min(random_count, len(remaining))))
+
+    sampled.sort(key=lambda item: item.get("display_name") or item["id"])
+    return sampled, {
+        "strategy": strategy,
+        "total_before_sampling": total_docs,
+        "sampled": True,
+        "max_nodes": max_nodes,
+        "total_after_sampling": len(sampled),
+    }
+
+
+def _compute_graph(
+    min_similarity: float = DEFAULT_MIN_SIMILARITY,
+    max_neighbors: int = DEFAULT_MAX_NEIGHBORS,
+    max_nodes: int = DEFAULT_MAX_NODES,
+    sampling_strategy: str = DEFAULT_SAMPLING_STRATEGY,
+) -> dict[str, Any]:
     docs = _build_doc_catalog()
+    docs, sampling_meta = _sample_docs(docs, max_nodes=max_nodes, strategy=sampling_strategy)
+
     if not docs:
-        return {"nodes": [], "edges": [], "meta": {"threshold": threshold, "count": 0, "generated_at": time.time()}}
+        return {
+            "nodes": [],
+            "edges": [],
+            "meta": {
+                "min_similarity": min_similarity,
+                "count": 0,
+                "generated_at": time.time(),
+                "sampling": sampling_meta,
+            },
+        }
 
     vectors: list[np.ndarray] = []
     valid_docs: list[dict[str, Any]] = []
@@ -94,7 +161,16 @@ def _compute_graph(threshold: float = 0.65, max_neighbors: int = 12) -> dict[str
 
     node_count = len(valid_docs)
     if node_count == 0:
-        return {"nodes": [], "edges": [], "meta": {"threshold": threshold, "count": 0, "generated_at": time.time()}}
+        return {
+            "nodes": [],
+            "edges": [],
+            "meta": {
+                "min_similarity": min_similarity,
+                "count": 0,
+                "generated_at": time.time(),
+                "sampling": sampling_meta,
+            },
+        }
 
     matrix = np.zeros((node_count, node_count), dtype=float)
     for i in range(node_count):
@@ -118,14 +194,14 @@ def _compute_graph(threshold: float = 0.65, max_neighbors: int = 12) -> dict[str
     edges: list[dict[str, Any]] = []
     for i in range(node_count):
         row = matrix[i]
-        candidate_idx = [j for j in np.argsort(row)[::-1] if j != i and row[j] >= threshold][:max_neighbors]
+        candidate_idx = [j for j in np.argsort(row)[::-1] if j != i and row[j] >= min_similarity][:max_neighbors]
         for j in candidate_idx:
             if i < j:
                 edges.append(
                     {
                         "source": valid_docs[i]["id"],
                         "target": valid_docs[j]["id"],
-                        "score": float(row[j]),
+                        "weight": float(row[j]),
                     }
                 )
 
@@ -133,8 +209,13 @@ def _compute_graph(threshold: float = 0.65, max_neighbors: int = 12) -> dict[str
         "nodes": nodes,
         "edges": edges,
         "meta": {
-            "threshold": threshold,
+            "node_schema": {"id": "string", "label": "string", "record_id": "string|null", "file": "string"},
+            "edge_schema": {"source": "string", "target": "string", "weight": "number"},
+            "min_similarity": min_similarity,
             "count": node_count,
+            "max_neighbors": max_neighbors,
+            "max_nodes": max_nodes,
+            "sampling": sampling_meta,
             "generated_at": time.time(),
         },
     }
@@ -143,31 +224,36 @@ def _compute_graph(threshold: float = 0.65, max_neighbors: int = 12) -> dict[str
 def invalidate_similarity_cache() -> None:
     with _CACHE_LOCK:
         _GRAPH_CACHE.clear()
-        _SUBGRAPH_CACHE.clear()
 
 
-def get_similarity_graph(threshold: float = 0.65, max_neighbors: int = 12, refresh: bool = False) -> dict[str, Any]:
-    key = (round(float(threshold), 4), int(max_neighbors))
+def get_similarity_graph(
+    min_similarity: float = DEFAULT_MIN_SIMILARITY,
+    max_neighbors: int = DEFAULT_MAX_NEIGHBORS,
+    max_nodes: int = DEFAULT_MAX_NODES,
+    sampling_strategy: str = DEFAULT_SAMPLING_STRATEGY,
+    doc_id: str | None = None,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    strategy = sampling_strategy if sampling_strategy in ALLOWED_SAMPLING_STRATEGIES else DEFAULT_SAMPLING_STRATEGY
+    key = (round(float(min_similarity), 4), int(max_neighbors), int(max_nodes), strategy)
     with _CACHE_LOCK:
         if not refresh and key in _GRAPH_CACHE:
-            return _GRAPH_CACHE[key]
+            graph = _GRAPH_CACHE[key]
+        else:
+            graph = _compute_graph(
+                min_similarity=min_similarity,
+                max_neighbors=max_neighbors,
+                max_nodes=max_nodes,
+                sampling_strategy=strategy,
+            )
+            _GRAPH_CACHE[key] = graph
 
-    graph = _compute_graph(threshold=threshold, max_neighbors=max_neighbors)
-    with _CACHE_LOCK:
-        _GRAPH_CACHE[key] = graph
-    return graph
+    if not doc_id:
+        return graph
 
-
-def get_similarity_subgraph(doc_id: str, threshold: float = 0.65, max_neighbors: int = 12, refresh: bool = False) -> dict[str, Any]:
-    cache_key = (doc_id, round(float(threshold), 4), int(max_neighbors))
-    with _CACHE_LOCK:
-        if not refresh and cache_key in _SUBGRAPH_CACHE:
-            return _SUBGRAPH_CACHE[cache_key]
-
-    graph = get_similarity_graph(threshold=threshold, max_neighbors=max_neighbors, refresh=refresh)
     node_ids = {node["id"] for node in graph["nodes"]}
     if doc_id not in node_ids:
-        return {"nodes": [], "edges": [], "meta": {"doc_id": doc_id, "found": False}}
+        return {"nodes": [], "edges": [], "meta": {"doc_id": doc_id, "found": False, "min_similarity": min_similarity}}
 
     kept_ids = {doc_id}
     for edge in graph["edges"]:
@@ -189,12 +275,12 @@ def get_similarity_subgraph(doc_id: str, threshold: float = 0.65, max_neighbors:
         "meta": {
             "doc_id": doc_id,
             "found": True,
-            "threshold": threshold,
+            "min_similarity": min_similarity,
             "count": len(sub_nodes),
+            "node_schema": graph["meta"].get("node_schema"),
+            "edge_schema": graph["meta"].get("edge_schema"),
         },
     }
-    with _CACHE_LOCK:
-        _SUBGRAPH_CACHE[cache_key] = payload
     return payload
 
 
