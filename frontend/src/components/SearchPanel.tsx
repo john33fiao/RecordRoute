@@ -115,6 +115,13 @@ export function SearchPanel() {
     return parts.join(' · ');
   }, [startDate, endDate, minScore, sortBy, sortOrder, page, pageSize, limit, includeTiming, fileTypeFilter, statusFilter, statusTask]);
 
+  const fieldLabelClass = theme === 'dark' ? 'text-slate-200' : 'text-slate-700';
+  const fieldHelpClass = theme === 'dark' ? 'text-slate-400' : 'text-slate-500';
+  const fieldInputClass = theme === 'dark'
+    ? 'h-10 bg-slate-800/70 border-slate-700 text-slate-100 placeholder:text-slate-400'
+    : 'h-10 bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-500';
+  const fieldSelectClass = `${fieldInputClass} rounded-md border px-3 py-2 text-sm`;
+
   return (
     <Card className={`backdrop-blur-sm ${theme === 'dark' ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-white/50'}`}>
       <div className="p-6 space-y-6">
@@ -138,40 +145,102 @@ export function SearchPanel() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
-          <Input type="number" min={1} value={limit} onChange={(e) => setLimit(Math.max(1, Number(e.target.value || 1)))} placeholder="limit" />
-          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-          <Input type="number" min={0} max={1} step={0.01} value={minScore} onChange={(e) => setMinScore(e.target.value)} placeholder="min score" />
-          <label className="flex items-center gap-2 px-2">
-            <input type="checkbox" checked={includeTiming} onChange={(e) => setIncludeTiming(e.target.checked)} /> timing
-          </label>
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as 'similarity' | 'date')} className="border rounded px-2 py-1 bg-transparent">
-            <option value="similarity">similarity</option>
-            <option value="date">date</option>
-          </select>
-          <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')} className="border rounded px-2 py-1 bg-transparent">
-            <option value="desc">desc</option>
-            <option value="asc">asc</option>
-          </select>
-          <Input type="number" min={1} value={page} onChange={(e) => setPage(Math.max(1, Number(e.target.value || 1)))} placeholder="page" />
-          <Input type="number" min={1} value={pageSize} onChange={(e) => setPageSize(Math.max(1, Number(e.target.value || 1)))} placeholder="page size" />
-          <select value={fileTypeFilter} onChange={(e) => setFileTypeFilter(e.target.value as 'all' | 'audio' | 'document' | 'other')} className="border rounded px-2 py-1 bg-transparent">
-            <option value="all">all types</option>
-            <option value="audio">audio</option>
-            <option value="document">document</option>
-            <option value="other">other</option>
-          </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | 'completed' | 'pending')} className="border rounded px-2 py-1 bg-transparent">
-            <option value="all">all status</option>
-            <option value="completed">completed</option>
-            <option value="pending">pending</option>
-          </select>
-          <select value={statusTask} onChange={(e) => setStatusTask(e.target.value as 'stt' | 'summary' | 'embedding')} className="border rounded px-2 py-1 bg-transparent">
-            <option value="stt">stt</option>
-            <option value="summary">summary</option>
-            <option value="embedding">embedding</option>
-          </select>
+        <div className={`rounded-xl border p-4 ${theme === 'dark' ? 'border-slate-700/80 bg-slate-900/60' : 'border-slate-200 bg-slate-50/60'}`}>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="space-y-2">
+              <label className={`text-xs font-semibold ${fieldLabelClass}`}>검색 개수 제한</label>
+              <p className={`text-[11px] ${fieldHelpClass}`}>한 번의 검색에서 가져올 최대 문서 수입니다.</p>
+              <Input type="number" min={1} value={limit} onChange={(e) => setLimit(Math.max(1, Number(e.target.value || 1)))} placeholder="예: 10" className={fieldInputClass} />
+            </div>
+
+            <div className="space-y-2">
+              <label className={`text-xs font-semibold ${fieldLabelClass}`}>시작일</label>
+              <p className={`text-[11px] ${fieldHelpClass}`}>이 날짜 이후 업로드된 문서만 검색합니다.</p>
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={fieldInputClass} />
+            </div>
+
+            <div className="space-y-2">
+              <label className={`text-xs font-semibold ${fieldLabelClass}`}>종료일</label>
+              <p className={`text-[11px] ${fieldHelpClass}`}>이 날짜 이전 업로드 문서까지만 포함합니다.</p>
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className={fieldInputClass} />
+            </div>
+
+            <div className="space-y-2">
+              <label className={`text-xs font-semibold ${fieldLabelClass}`}>최소 유사도 점수</label>
+              <p className={`text-[11px] ${fieldHelpClass}`}>설정값 이상 점수를 가진 결과만 보여줍니다 (0~1).</p>
+              <Input type="number" min={0} max={1} step={0.01} value={minScore} onChange={(e) => setMinScore(e.target.value)} placeholder="예: 0.75" className={fieldInputClass} />
+            </div>
+
+            <div className="space-y-2">
+              <label className={`text-xs font-semibold ${fieldLabelClass}`}>정렬 기준</label>
+              <p className={`text-[11px] ${fieldHelpClass}`}>유사도 또는 날짜 기준으로 결과를 정렬합니다.</p>
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value as 'similarity' | 'date')} className={fieldSelectClass}>
+                <option value="similarity">유사도</option>
+                <option value="date">날짜</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className={`text-xs font-semibold ${fieldLabelClass}`}>정렬 방향</label>
+              <p className={`text-[11px] ${fieldHelpClass}`}>내림차순(desc) 또는 오름차순(asc) 정렬입니다.</p>
+              <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')} className={fieldSelectClass}>
+                <option value="desc">내림차순 (desc)</option>
+                <option value="asc">오름차순 (asc)</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className={`text-xs font-semibold ${fieldLabelClass}`}>페이지 번호</label>
+              <p className={`text-[11px] ${fieldHelpClass}`}>결과 페이지를 직접 이동할 때 사용합니다.</p>
+              <Input type="number" min={1} value={page} onChange={(e) => setPage(Math.max(1, Number(e.target.value || 1)))} placeholder="예: 1" className={fieldInputClass} />
+            </div>
+
+            <div className="space-y-2">
+              <label className={`text-xs font-semibold ${fieldLabelClass}`}>페이지 크기</label>
+              <p className={`text-[11px] ${fieldHelpClass}`}>한 페이지에 노출할 결과 개수입니다.</p>
+              <Input type="number" min={1} value={pageSize} onChange={(e) => setPageSize(Math.max(1, Number(e.target.value || 1)))} placeholder="예: 5" className={fieldInputClass} />
+            </div>
+
+            <div className="space-y-2">
+              <label className={`text-xs font-semibold ${fieldLabelClass}`}>문서 유형 필터</label>
+              <p className={`text-[11px] ${fieldHelpClass}`}>오디오/문서 등 원하는 유형만 검색합니다.</p>
+              <select value={fileTypeFilter} onChange={(e) => setFileTypeFilter(e.target.value as 'all' | 'audio' | 'document' | 'other')} className={fieldSelectClass}>
+                <option value="all">전체 유형</option>
+                <option value="audio">audio</option>
+                <option value="document">document</option>
+                <option value="other">other</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className={`text-xs font-semibold ${fieldLabelClass}`}>처리 상태</label>
+              <p className={`text-[11px] ${fieldHelpClass}`}>완료/대기 상태 문서만 따로 볼 수 있습니다.</p>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | 'completed' | 'pending')} className={fieldSelectClass}>
+                <option value="all">전체 상태</option>
+                <option value="completed">completed</option>
+                <option value="pending">pending</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className={`text-xs font-semibold ${fieldLabelClass}`}>상태 기준 작업</label>
+              <p className={`text-[11px] ${fieldHelpClass}`}>상태 필터를 STT/요약/임베딩 중 어떤 단계에 적용할지 선택합니다.</p>
+              <select value={statusTask} onChange={(e) => setStatusTask(e.target.value as 'stt' | 'summary' | 'embedding')} className={fieldSelectClass}>
+                <option value="stt">stt</option>
+                <option value="summary">summary</option>
+                <option value="embedding">embedding</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className={`text-xs font-semibold ${fieldLabelClass}`}>성능 타이밍 포함</label>
+              <p className={`text-[11px] ${fieldHelpClass}`}>응답에 검색 성능 측정값을 함께 받아옵니다.</p>
+              <label className={`flex h-10 items-center gap-2 rounded-md border px-3 text-sm ${theme === 'dark' ? 'border-slate-700 bg-slate-800/60 text-slate-200' : 'border-slate-300 bg-white text-slate-700'}`}>
+                <input type="checkbox" checked={includeTiming} onChange={(e) => setIncludeTiming(e.target.checked)} />
+                include timing
+              </label>
+            </div>
+          </div>
         </div>
 
         <div className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>현재 필터: {filterSummary}</div>
