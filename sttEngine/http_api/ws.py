@@ -11,17 +11,17 @@ connected_clients: set[Any] = set()
 websocket_loop = asyncio.new_event_loop()
 
 
-async def _send_progress(task_id: str, message: str) -> None:
-    data = json.dumps({"task_id": task_id, "message": message})
+async def _send_progress(task_id: str, message: str, error_code: str | None = None, retryable: bool | None = None, failed_step: str | None = None) -> None:
+    data = json.dumps({"task_id": task_id, "message": message, "error_code": error_code, "retryable": retryable, "failed_step": failed_step})
     if connected_clients:
         await asyncio.gather(
             *[client.send(data) for client in list(connected_clients) if not client.closed]
         )
 
 
-def broadcast_progress(task_id: str, message: str) -> None:
+def broadcast_progress(task_id: str, message: str, error_code: str | None = None, retryable: bool | None = None, failed_step: str | None = None) -> None:
     if websocket_loop.is_running():
-        asyncio.run_coroutine_threadsafe(_send_progress(task_id, message), websocket_loop)
+        asyncio.run_coroutine_threadsafe(_send_progress(task_id, message, error_code, retryable, failed_step), websocket_loop)
 
 
 async def websocket_handler(websocket):

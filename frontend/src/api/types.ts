@@ -47,7 +47,11 @@ export interface ProcessResult {
   task_id?: string;
   stt?: string;
   summary?: string;
+  correct?: string;
   error?: string;
+  error_code?: string;
+  retryable?: boolean;
+  failed_step?: string;
 }
 
 
@@ -122,6 +126,9 @@ export interface RunningTask {
 export interface TaskProgress {
   task_id: string;
   message: string;
+  error_code?: string;
+  retryable?: boolean;
+  failed_step?: string;
 }
 
 export interface QueueTask {
@@ -137,6 +144,9 @@ export interface QueueTask {
   lastRetryTime?: number;
   retryCount?: number;
   modelInfo?: string;
+  errorCode?: string;
+  retryable?: boolean;
+  failedStep?: string;
 }
 
 export interface ModelSettings {

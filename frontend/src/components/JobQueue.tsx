@@ -46,6 +46,8 @@ export function JobQueue() {
 
   const isAudioTask = (task: QueueTask) => ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.webm', '.mp4'].some(ext => task.filePath.toLowerCase().endsWith(ext));
 
+  const stepLabels: Record<string, string> = { stt: 'STT', correct: '교정', embedding: '임베딩', summary: '요약', summarize: '요약' };
+
   return (
     <div className="space-y-6">
       <Card className={`backdrop-blur-sm ${theme === 'dark' ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-white/50'}`}>
@@ -92,12 +94,20 @@ export function JobQueue() {
                           {getStatusIcon(task.status)}
                           <span className={theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}>{task.progress || '대기 중...'}</span>
                         </div>
+                        {task.status === QueueTaskStatus.Error && (task.failedStep || task.errorCode) && (
+                          <div className={`text-xs ${theme === 'dark' ? 'text-red-300' : 'text-red-600'}`}>
+                            실패 단계: {task.failedStep ? (stepLabels[task.failedStep] || task.failedStep) : '-'}
+                            {task.errorCode ? ` · 코드: ${task.errorCode}` : ''}
+                            {task.retryable === false ? ' · 재시도 불가' : ''}
+                          </div>
+                        )}
 
                         {task.status === QueueTaskStatus.Processing && <Progress value={50} className="h-1.5" />}
                         <TaskActionControls
                           compact
                           canCancel={task.status === QueueTaskStatus.Processing || task.status === QueueTaskStatus.Pending || task.status === QueueTaskStatus.Queued}
-                          canRetry={task.status === QueueTaskStatus.Error || task.status === QueueTaskStatus.Cancelled}
+                          canRetry={(task.status === QueueTaskStatus.Error && task.retryable !== false) || task.status === QueueTaskStatus.Cancelled}
+                          retryLabel={task.failedStep ? `${stepLabels[task.failedStep] || task.failedStep} 단계만 재시도` : "재시도"}
                           onCancel={() => removeTask(task.id)}
                           onRetry={() => retryTask(task)}
                         />

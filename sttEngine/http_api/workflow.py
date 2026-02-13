@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ..obsidian_mcp import send_summary_to_obsidian_sync
 from ..workflow.transcribe import transcribe_audio_files
+from ..workflow.correct import correct_text_file
 from ..workflow.summarize import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_MODEL,
@@ -18,6 +19,7 @@ from .embedding import generate_embedding
 from .history import load_upload_history
 from .paths import OUTPUT_DIR, UPLOAD_DIR, to_record_path
 from .registry import generate_and_store_title_summary, update_task_completion
+from ..server.services.errors import map_workflow_exception
 from .state import (
     clear_task_progress,
     is_task_cancelled,
@@ -25,6 +27,25 @@ from .state import (
     update_task_progress,
 )
 
+
+
+
+def _workflow_error_result(task_id: str | None, exc: Exception, failed_step: str):
+    mapped = map_workflow_exception(exc, failed_step)
+    if task_id:
+        update_task_progress(
+            task_id,
+            f"{failed_step} 실패: {mapped.message}",
+            error_code=mapped.code,
+            retryable=mapped.retryable,
+            failed_step=mapped.failed_step or failed_step,
+        )
+    return {
+        "error": mapped.message,
+        "error_code": mapped.code,
+        "retryable": mapped.retryable,
+        "failed_step": mapped.failed_step or failed_step,
+    }
 
 def get_file_type(file_path: Path) -> str:
     """Determine if the file is audio or text."""
@@ -158,7 +179,7 @@ def run_workflow(
                 pdf_text = "\n".join(page.extract_text() or "" for page in reader.pages)
             except Exception as e:
                 print(f"PDF text extraction failed: {e}")
-                return {"error": f"PDF text extraction failed: {e}"}
+                return _workflow_error_result(task_id, e, "stt")
 
             text_file = individual_output_dir / f"{file_path.stem}.md"
             text_file.write_text(pdf_text, encoding="utf-8")
@@ -218,7 +239,7 @@ def run_workflow(
                 print(f"STT process failed: {e}")
                 if task_id:
                     update_task_progress(task_id, f"STT 실패: {e}")
-                return {"error": f"STT process failed: {e}"}
+                return _workflow_error_result(task_id, e, "stt")
 
             stt_file = individual_output_dir / f"{file_path.stem}.md"
             download_url = f"/download/{upload_folder_name}/{stt_file.name}"
@@ -289,7 +310,7 @@ def run_workflow(
                         print(f"STT process failed: {e}")
                         if task_id:
                             update_task_progress(task_id, f"STT 실패: {e}")
-                        return {"error": f"STT process failed: {e}"}
+                        return _workflow_error_result(task_id, e, "stt")
 
                     stt_file = individual_output_dir / f"{file_path.stem}.md"
                     download_url = f"/download/{upload_folder_name}/{stt_file.name}"
@@ -309,6 +330,29 @@ def run_workflow(
             else:
                 if task_id:
                     update_task_progress(task_id, "임베딩 생성 실패")
+
+        if "correct" in steps and current_file:
+            if task_id and is_task_cancelled(task_id):
+                return {"error": "Task was cancelled"}
+
+            if task_id:
+                update_task_progress(task_id, "교정 시작")
+
+            corrected_file = Path(current_file).with_name(f"{Path(current_file).stem}.corrected.md")
+            try:
+                ok = correct_text_file(
+                    input_file=Path(current_file),
+                    output_file=corrected_file,
+                    model=(model_settings or {}).get("correct") or (model_settings or {}).get("summarize") or DEFAULT_MODEL,
+                )
+                if not ok:
+                    raise RuntimeError("교정 처리 결과가 실패로 반환되었습니다")
+            except Exception as e:
+                return _workflow_error_result(task_id, e, "correct")
+
+            current_file = corrected_file
+            results["correct"] = f"/download/{upload_folder_name}/{corrected_file.name}"
+
 
         if "summary" in steps:
             if task_id and is_task_cancelled(task_id):
@@ -370,7 +414,7 @@ def run_workflow(
                         print(f"STT process failed: {e}")
                         if task_id:
                             update_task_progress(task_id, f"STT 실패: {e}")
-                        return {"error": f"STT process failed: {e}"}
+                        return _workflow_error_result(task_id, e, "stt")
 
                     stt_file = individual_output_dir / f"{file_path.stem}.md"
                     download_url = f"/download/{upload_folder_name}/{stt_file.name}"
@@ -458,7 +502,7 @@ def run_workflow(
                 print(f"Summary process failed: {e}")
                 if task_id:
                     update_task_progress(task_id, f"요약 생성 실패: {e}")
-                return {"error": f"Summary process failed: {e}"}
+                return _workflow_error_result(task_id, e, "summary")
 
             summary_file = current_file.with_name(f"{current_file.stem}.summary.md")
             download_url = f"/download/{upload_folder_name}/{summary_file.name}"
@@ -475,7 +519,7 @@ def run_workflow(
         if task_id:
             unregister_process(task_id)
             update_task_progress(task_id, f"작업 실패: {exc}")
-        return {"error": str(exc)}
+        return _workflow_error_result(task_id, exc, "workflow")
 
     finally:
         if task_id:
