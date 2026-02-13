@@ -9,6 +9,14 @@ import { useApp } from '../contexts/AppContext';
 import type { QueueTask } from '../api/types';
 import { QueueTaskStatus } from '../api/types';
 
+const STAGE_ORDER: Array<'upload' | 'transform' | 'correct' | 'summary'> = ['upload', 'transform', 'correct', 'summary'];
+const STAGE_LABEL: Record<(typeof STAGE_ORDER)[number], string> = {
+  upload: '업로드',
+  transform: '변환',
+  correct: '교정',
+  summary: '요약',
+};
+
 export function JobQueue() {
   const { theme } = useTheme();
   const { queue, currentTask, sortMode, setSortMode, removeTask, retryTask, cancelAll, categoryLabels } = useApp();
@@ -46,7 +54,15 @@ export function JobQueue() {
 
   const isAudioTask = (task: QueueTask) => ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.webm', '.mp4'].some(ext => task.filePath.toLowerCase().endsWith(ext));
 
-  const stepLabels: Record<string, string> = { stt: 'STT', correct: '교정', embedding: '임베딩', summary: '요약', summarize: '요약' };
+  const stepLabels: Record<string, string> = { stt: '변환', correct: '교정', embedding: '변환', summary: '요약', summarize: '요약' };
+
+  const getCurrentStage = (task: QueueTask): (typeof STAGE_ORDER)[number] => {
+    if (task.stage) return task.stage;
+    if (task.status === QueueTaskStatus.Pending || task.status === QueueTaskStatus.Queued) return 'upload';
+    if (task.failedStep === 'correct') return 'correct';
+    if (task.failedStep === 'summary') return 'summary';
+    return 'transform';
+  };
 
   return (
     <div className="space-y-6">
@@ -102,11 +118,27 @@ export function JobQueue() {
                           </div>
                         )}
 
-                        {task.status === QueueTaskStatus.Processing && <Progress value={50} className="h-1.5" />}
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-4 gap-2">
+                            {STAGE_ORDER.map((stage, idx) => {
+                              const current = getCurrentStage(task);
+                              const currentIndex = STAGE_ORDER.indexOf(current);
+                              const complete = task.status === QueueTaskStatus.Completed || idx < currentIndex;
+                              const active = idx === currentIndex && task.status !== QueueTaskStatus.Completed;
+                              return (
+                                <div key={stage} className="space-y-1">
+                                  <div className={`h-1.5 rounded ${complete ? 'bg-violet-500' : active ? 'bg-violet-300/80' : 'bg-slate-600/40'}`} />
+                                  <div className={`text-[11px] ${active ? (theme === 'dark' ? 'text-violet-300' : 'text-violet-700') : (theme === 'dark' ? 'text-slate-500' : 'text-slate-500')}`}>{STAGE_LABEL[stage]}</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {task.status === QueueTaskStatus.Processing && <Progress value={Math.max(20, (STAGE_ORDER.indexOf(getCurrentStage(task)) + 1) * 25)} className="h-1.5" />}
+                        </div>
                         <TaskActionControls
                           compact
                           canCancel={task.status === QueueTaskStatus.Processing || task.status === QueueTaskStatus.Pending || task.status === QueueTaskStatus.Queued}
-                          canRetry={(task.status === QueueTaskStatus.Error && task.retryable !== false) || task.status === QueueTaskStatus.Cancelled}
+                          canRetry={task.status === QueueTaskStatus.Error && task.retryable !== false}
                           retryLabel={task.failedStep ? `${stepLabels[task.failedStep] || task.failedStep} 단계만 재시도` : "재시도"}
                           onCancel={() => removeTask(task.id)}
                           onRetry={() => retryTask(task)}

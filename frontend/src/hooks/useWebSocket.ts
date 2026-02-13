@@ -1,6 +1,10 @@
 import { useEffect, useRef, useCallback } from 'react';
 
-type MessageHandler = (taskId: string, message: string, meta?: { error_code?: string; retryable?: boolean; failed_step?: string }) => void;
+type MessageHandler = (
+  taskId: string,
+  message: string,
+  meta?: { stage?: 'upload' | 'transform' | 'correct' | 'summary'; error_code?: string; retryable?: boolean; failed_step?: string }
+) => void;
 
 export function useWebSocket(onMessage: MessageHandler) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -22,7 +26,12 @@ export function useWebSocket(onMessage: MessageHandler) {
         try {
           const data = JSON.parse(event.data);
           if (data.task_id && data.message) {
-            onMessageRef.current(data.task_id, data.message, { error_code: data.error_code, retryable: data.retryable, failed_step: data.failed_step });
+            onMessageRef.current(data.task_id, data.message, {
+              stage: data.stage,
+              error_code: data.error_code,
+              retryable: data.retryable,
+              failed_step: data.failed_step,
+            });
           }
         } catch (e) {
           console.error('WebSocket message parse error:', e);

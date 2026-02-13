@@ -12,6 +12,8 @@ export enum QueueTaskStatus {
 
 export type QueueSortMode = 'category' | 'order';
 export type TaskType = 'stt' | 'embedding' | 'summary';
+export type TaskStage = 'upload' | 'transform' | 'correct' | 'summary';
+export type RetryMode = 'new_task' | 'resume_existing';
 
 export interface AsyncState<T> {
   data: T;
@@ -45,6 +47,8 @@ export interface HistoryRecord {
 export interface ProcessResult {
   accepted?: boolean;
   task_id?: string;
+  retry_mode?: RetryMode;
+  retry_of_task_id?: string;
   stt?: string;
   summary?: string;
   correct?: string;
@@ -132,6 +136,7 @@ export interface RunningTask {
 export interface TaskProgress {
   task_id: string;
   message: string;
+  stage?: TaskStage;
   error_code?: string;
   retryable?: boolean;
   failed_step?: string;
@@ -149,10 +154,12 @@ export interface QueueTask {
   abortController?: AbortController;
   lastRetryTime?: number;
   retryCount?: number;
+  retryOfTaskId?: string;
   modelInfo?: string;
   errorCode?: string;
   retryable?: boolean;
   failedStep?: string;
+  stage?: TaskStage;
 }
 
 export interface ModelSettings {

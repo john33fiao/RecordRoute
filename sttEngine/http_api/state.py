@@ -3,11 +3,19 @@ from __future__ import annotations
 import subprocess
 import threading
 import time
+from enum import StrEnum
 
 from .ws import broadcast_progress
 
 
 TASK_TYPES = ("stt", "embedding", "summary")
+
+
+class TaskStage(StrEnum):
+    UPLOAD = "upload"
+    TRANSFORM = "transform"
+    CORRECT = "correct"
+    SUMMARY = "summary"
 
 # Global dictionary to track running processes
 running_processes: dict[str, dict] = {}
@@ -79,6 +87,7 @@ def is_task_cancelled(task_id: str) -> bool:
 def update_task_progress(
     task_id: str,
     message: str,
+    stage: TaskStage | str | None = None,
     error_code: str | None = None,
     retryable: bool | None = None,
     failed_step: str | None = None,
@@ -88,13 +97,14 @@ def update_task_progress(
         task_progress[task_id] = {
             "task_id": task_id,
             "message": message,
+            "stage": str(stage) if stage else None,
             "timestamp": time.time(),
             "error_code": error_code,
             "retryable": retryable,
             "failed_step": failed_step,
         }
         print(f"Task {task_id}: {message}")
-    broadcast_progress(task_id, message, error_code, retryable, failed_step)
+    broadcast_progress(task_id, message, str(stage) if stage else None, error_code, retryable, failed_step)
 
 
 def get_task_progress(task_id: str) -> dict:

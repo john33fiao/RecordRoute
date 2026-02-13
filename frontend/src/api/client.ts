@@ -8,6 +8,7 @@ import type {
   RunningTask,
   ModelSettings,
   ProcessResult,
+  RetryMode,
   TaskProgress,
   ViewerFileType,
 } from './types';
@@ -39,7 +40,9 @@ export async function processTask(
   recordId?: string,
   taskId?: string,
   modelSettings?: Partial<ModelSettings>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  retryMode: RetryMode = 'new_task',
+  retryOfTaskId?: string,
 ): Promise<ProcessResult> {
   return apiRequest<ProcessResult>('/process', {
     method: 'POST',
@@ -50,6 +53,8 @@ export async function processTask(
       record_id: recordId,
       task_id: taskId,
       model_settings: modelSettings,
+      retry_mode: retryMode,
+      retry_of_task_id: retryOfTaskId,
     }),
     signal,
   });
