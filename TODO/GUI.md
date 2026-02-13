@@ -1,214 +1,50 @@
-# GUI 개선 TodoList
+# GUI 백로그 (React 전환 기준)
 
 - 마지막 점검일: 2026-02-13
-- 판단 기준(코드 경로): `frontend/src/*`, `frontend/graph-view.html`, `sttEngine/http_api/handler.py`
+- 대조 기준 파일: `frontend/src/*`, `sttEngine/http_api/handler.py`
 
-RecordRoute 프로젝트의 현재 코드베이스를 기반으로 한 UI/UX 개선 작업 목록입니다.
+## 0) 트랙 분리
 
-## React 전환 이후 리팩토링 TODO (신규)
+### A. 레거시 트랙 (유지보수 전용)
+> `frontend/legacy/*` 대상. 신규 기능 개발 대상 아님.
 
-> 현황: 기존 `frontend/legacy/upload.*` 기반 UI에서 `frontend/src` React + TypeScript 구조로 이전 완료.
+| 항목 | 상태 | 우선순위 | 의존관계 |
+|---|---|---|---|
+| `upload.js` 모듈화 완결/정리 | 미착수 | P2 | 레거시 제거 일정 확정 |
+| 레거시 화면 버그 핫픽스만 허용 | 진행중(운영정책) | P2 | React 배포 안정성 |
 
-### 아키텍처/상태관리
-- [완료] `App.tsx`에 집중된 상태를 도메인 단위 커스텀 훅으로 분리 (`upload`, `queue`, `search`, `viewer`)
-- [미착수] API 호출 상태(`loading`, `error`, `stale`)를 공통 패턴으로 표준화
-- [미착수] 폴링/웹소켓 갱신 로직의 책임 경계를 정리하고 중복 갱신 방지
-- [미착수] Context 사용 범위를 점검해 불필요한 전역 리렌더 최소화
+### B. React 트랙 (유효 백로그)
+> `frontend/src/*` 대상. 다음 스프린트 실행 대상.
 
-### 컴포넌트 구조
-- [미착수] 프레젠테이션 컴포넌트와 컨테이너 컴포넌트 역할 재정리
-- [미착수] `Dialog`/`Overlay`류 컴포넌트 공통 인터페이스 정의 (`open`, `onClose`, `onConfirm`)
-- [미착수] 리스트성 UI(`HistoryPanel`, `JobQueue`)의 아이템 렌더러 분리 및 재사용성 개선
-- [미착수] 컴포넌트 Props 타입을 더 엄격히 정의하고 optional 남용 정리
+## 1) 현재 구현 상태 요약 (React)
 
-### 타입/모델 정리
-- [미착수] `src/api/types.ts` 기준으로 서버 응답 스키마 단일화
-- [미착수] 문자열 리터럴 상태값을 유니온 타입/enum으로 치환
-- [미착수] 날짜/시간/파일크기 포맷 타입 유틸 정리
+| 영역 | 상태 | 근거 |
+|---|---|---|
+| 업로드 드래그앤드롭 + 다중 파일 선택/미리목록 | 완료 | `UploadSection`에서 DnD, 파일 검증/중복 제외, 목록 렌더링 |
+| 작업 큐/정렬/취소/재시도 | 부분완료 | `JobQueue`, `useTaskQueue`에 동작 존재, 단계별 수치 진행률/ETA 부재 |
+| 실시간 갱신(WebSocket + 폴링 폴백) | 부분완료 | WebSocket 연결 + progress polling 동시 운용, 정책 통합 미완료 |
+| 검색 UI(질의 + 결과 + 유사문서 다이얼로그) | 부분완료 | 검색 기능은 존재, 고급 필터 UX/하이라이트 부족 |
+| 텍스트 오버레이(열람/복사/수정/삭제) | 부분완료 | 핵심 액션 구현됨, 접근성 체크리스트 미정리 |
+| 설정/테마 | 부분완료 | 모델 설정 저장은 있음, 테마 영속화(localStorage) 부재 |
 
-### 에러/사용성
-- [미착수] 네트워크 실패, 타임아웃, 서버 에러에 대한 UI 피드백 정책 통일
-- [미착수] 장시간 작업(요약/임베딩) 중 취소/재시도 UX를 컴포넌트 전반에 일관 적용
-- [미착수] 키보드 접근성(포커스 트랩, ESC 닫기, ARIA 라벨) 점검 체크리스트 추가
+## 2) 다음 스프린트 유효 백로그
 
-### 성능/품질
-- [미착수] 불필요 렌더링 구간 React DevTools로 프로파일링 후 메모이제이션 적용
-- [미착수] 대용량 히스토리 대응 가상 스크롤 도입 검토
-- [미착수] 단위 테스트(훅/유틸) + 핵심 사용자 플로우 컴포넌트 테스트 추가
-- [미착수] ESLint/Prettier/TypeScript 규칙에서 React 패턴 관련 경고를 점진적 에러화
+| 항목 | 상태 | 우선순위 | 의존관계 |
+|---|---|---|---|
+| 큐 단계 진행률(%) + ETA 노출 | 미착수 | P0 | 백엔드 progress 메시지 규격화 |
+| 오류 카드 표준화(오류코드/재시도 가능 여부/권장 액션) | 미착수 | P0 | 백엔드 에러 DTO 통일 |
+| 오버레이 접근성(ESC/포커스 트랩/ARIA 라벨) | 미착수 | P0 | 공통 Dialog 규약 정의 |
+| 검색 고급필터 UI(기간/최소점수/정렬) 정식 노출 | 부분완료 | P1 | 검색 API 계약 문서화 |
+| 검색 결과 하이라이트/스니펫 | 미착수 | P1 | 백엔드 스니펫 응답 또는 프론트 하이라이트 규칙 |
+| ThemeContext 영속화(localStorage + 시스템 테마 감지) | 미착수 | P1 | 디자인 토큰 정리 |
+| Context 리렌더 최적화(AppContext 분리) | 미착수 | P2 | 프로파일링 리포트 |
+| 대용량 히스토리 가상 스크롤 | 미착수 | P2 | 목록 아이템 컴포넌트 분리 |
+| 훅/컴포넌트 테스트 추가(useTaskQueue, SearchPanel, TextOverlay) | 미착수 | P1 | 테스트 러너/픽스처 정비 |
 
-## 파일 업로드 UI 개선
+## 3) 실행 순서 제안
 
-### 드래그&드롭 강화
-- [완료] 현재 기본 파일 입력을 드래그&드롭 영역으로 교체
-- [미착수] 업로드 중 진행률 표시 추가
-- [부분완료] 파일 타입별 아이콘 표시 (오디오/텍스트/PDF)
-  - 남은 범위: 오디오/텍스트 아이콘은 반영되었고, PDF 전용 아이콘/배지는 별도 구분이 필요.
-- [완료] 다중 파일 선택 시 개별 파일 미리보기
-
-**참고 레퍼런스**: 
-- [Uppy Dashboard](https://uppy.io/docs/dashboard/)
-- [Dribbble 파일 업로드 UI](https://dribbble.com/tags/file-upload-ui)
-- [파일 업로드 베스트 프랙티스](https://www.uinkits.com/blog-post/best-practices-for-file-upload-components)
-
-### 파일 미리보기 기능
-- [미착수] 오디오 파일: 파형 표시 및 간단한 재생 컨트롤
-- [미착수] 텍스트 파일: 첫 몇 줄 미리보기
-- [미착수] PDF: 첫 페이지 썸네일
-- [미착수] 파일 크기 및 예상 처리 시간 표시
-
-## 작업 큐 및 진행 상태 UI
-
-### 큐 시각화 개선
-- [미착수] 현재 카테고리별 정렬을 시각적 파이프라인으로 표현
-- [미착수] STT → 교정 → 요약 → 임베딩 단계를 프로그레스 바로 시각화
-- [미착수] 각 단계별 예상 소요 시간 표시
-- [미착수] 큐 내 작업 순서 드래그&드롭으로 변경 가능
-
-**참고 레퍼런스**:
-- [Queue Status 모듈](https://docs.datamatics.com/TruCap+/7.7.0/Monitoring%20Data/Queue%20Status.htm)
-- [Telerik Upload 컴포넌트](https://www.telerik.com/design-system/docs/components/upload/)
-
-### 실시간 상태 표시
-- [미착수] 현재 작업 중인 파일의 실시간 로그 스트리밍
-- [미착수] 각 단계별 완료율 표시 (STT: 45%, 요약: 대기중...)
-- [미착수] 오류 발생 시 상세 에러 메시지 및 재시도 버튼
-- [미착수] 전체 큐 처리 예상 완료 시간
-
-**참고 레퍼런스**:
-- [RealtimeSTT](https://github.com/KoljaB/RealtimeSTT)
-- [Deepgram 스트리밍](https://deepgram.com/learn/all-about-transcription-for-real-time-audio-streaming)
-- [Gladia API](https://www.gladia.io)
-
-## 오버레이 모달 UI 개선
-
-### 텍스트 뷰어 모달
-- [미착수] 현재 `#textOverlay` 모달의 접근성 개선
-- [미착수] 텍스트 검색 및 하이라이트 기능
-- [미착수] 폰트 크기 조절, 다크모드 토글
-- [미착수] 텍스트 편집 기능 (간단한 수정 후 저장)
-- [미착수] 문서 간 빠른 전환 탭
-
-**참고 레퍼런스**:
-- [PatternFly Modal Overlay](https://pf3.patternfly.org/v3/pattern-library/forms-and-controls/modal-overlay/)
-- [Pure CSS Modal](https://www.cssscript.com/minimal-overlay-modal-pure-css/)
-
-### 설정 모달 개선
-- [미착수] 현재 `#modelSettingsPopup`의 UX 개선
-- [미착수] 모델별 성능/정확도 정보 표시
-- [미착수] 실시간 모델 상태 확인 (Ollama 연결 상태)
-- [미착수] 설정 저장 및 프리셋 관리
-- [미착수] 고급 설정 접기/펼치기
-
-## 검색 및 탐색 강화
-
-### 검색 인터페이스 개선
-- [미착수] 현재 단순한 `#searchInput`을 고급 검색으로 확장
-- [미착수] 검색 필터: 날짜, 파일 타입, 처리 상태
-- [미착수] 검색 결과 하이라이트 및 스니펫 표시
-- [미착수] 검색 히스토리 및 자동완성
-- [미착수] 태그 기반 검색
-
-### 유사 문서 탐색
-- [미착수] 현재 `#similarDocsPopup` 기능 강화
-- [미착수] 유사도 점수 시각화
-- [미착수] 문서 간 연관 관계 그래프
-- [미착수] 클러스터링 기반 문서 그룹핑
-
-## 대시보드 레이아웃 개선
-
-### 전체 레이아웃 최적화
-- [미착수] 현재 섹션별 구조를 대시보드 형태로 재구성
-- [미착수] 사이드바: 파일 트리 및 빠른 액세스
-- [미착수] 메인 영역: 작업 상태 및 진행률
-- [미착수] 우측 패널: 속성 및 설정
-
-### 반응형 디자인
-- [미착수] 모바일/태블릿 최적화
-- [미착수] 화면 크기별 레이아웃 적응
-- [미착수] 터치 인터페이스 지원
-
-**참고 레퍼런스**:
-- [Tabler](https://github.com/tabler/tabler) - 무료 HTML 대시보드 템플릿
-- [Eleken 대시보드 예제](https://www.eleken.co/blog-posts/dashboard-design-examples-that-catch-the-eye)
-
-## 테마 및 스타일링
-
-### 다크모드 구현
-- [부분완료] 현재 `#themeToggle` 기능 완성
-  - 남은 범위: `ThemeContext`가 있으나 UI 토글 노출/저장 전략은 완결되지 않음.
-- [미착수] CSS 변수 기반 테마 시스템
-- [미착수] 사용자 선택 저장 (localStorage)
-- [미착수] 시스템 테마 자동 감지
-
-### 컴포넌트 일관성
-- [미착수] 버튼, 입력창, 모달 등 일관된 디자인 시스템
-- [미착수] 로딩 스피너 및 스켈레톤 UI
-- [미착수] 애니메이션 및 트랜지션 추가
-- [미착수] 접근성 준수 (ARIA 라벨, 키보드 네비게이션)
-
-## 성능 최적화
-
-### 프론트엔드 최적화
-- [부분완료] 현재 `upload.js`의 모듈화 및 분리
-  - 남은 범위: React 전환으로 legacy 의존은 감소했지만, `frontend/legacy/upload.js`는 보관 상태라 완전 제거/정리는 필요.
-- [미착수] 가상 스크롤링 (대량 파일 목록)
-- [미착수] 이미지 레이지 로딩
-- [미착수] Service Worker 캐싱
-
-### 실시간 업데이트
-- [완료] WebSocket 연결로 실시간 상태 업데이트
-- [부분완료] 폴링 최적화 및 배터리 절약
-  - 남은 범위: WebSocket 우선 + 폴링 폴백 구조는 있으나, 배터리/백그라운드 탭 정책 최적화는 미구현.
-- [미착수] 오프라인 모드 지원
-
-## 추가 기능
-
-### 사용자 경험 개선
-- [미착수] 온보딩 튜토리얼
-- [미착수] 키보드 단축키 지원
-- [미착수] 컨텍스트 메뉴 (우클릭)
-- [미착수] 실행 취소/다시 실행
-
-### 데이터 시각화
-- [미착수] 처리 통계 대시보드
-- [미착수] 파일 크기/처리 시간 차트
-- [미착수] 모델 성능 비교 그래프
-
-## 구현 우선순위
-
-### Phase 1 (즉시 구현)
-1. 파일 업로드 드래그&드롭 강화
-2. 작업 큐 시각화 개선
-3. 오버레이 모달 접근성 개선
-
-### Phase 2 (단기)
-1. 검색 인터페이스 고급화
-2. 실시간 상태 표시
-3. 다크모드 완성
-
-### Phase 3 (중기)
-1. 대시보드 레이아웃 재구성
-2. 반응형 디자인
-3. 성능 최적화
-
-### Phase 4 (장기)
-1. 고급 데이터 시각화
-2. 사용자 경험 고도화
-3. 추가 기능 구현
-
-## 참고 자료
-
-### 디자인 시스템 및 템플릿
-- [Figma Community](https://www.figma.com/community) - 대시보드 UI 킷
-- [Untitled UI](https://www.untitledui.com/components/file-uploaders) - Figma 컴포넌트
-- [Envato Elements](https://elements.envato.com/graphic-templates/dashboard+ui) - 대시보드 템플릿
-
-### 기술 레퍼런스
-- [React MUI 파일 업로드](https://www.dhiwise.com/post/how-to-implement-react-mui-file-upload-in-your-applications)
-- [Bulk Upload UX Case Study](https://medium.com/design-bootcamp/ux-case-study-bulk-upload-feature-785803089328)
-- [모바일 모달 베스트 프랙티스](https://www.appcues.com/blog/mobile-app-modal-windows)
-
----
-
-*본 문서는 RecordRoute 프로젝트의 현재 코드베이스(`frontend/src/*`)를 기준으로 작성되었으며, 레거시 참조는 `frontend/legacy/*`에 보관되어 있습니다.*
+1. **P0** 진행률/오류 UX 규격 먼저 고정
+2. **P0** 오버레이 접근성 적용
+3. **P1** 검색 고급화(필터/하이라이트)
+4. **P1** 테마 영속화 + 테스트 보강
+5. **P2** 성능 최적화(리렌더/가상 스크롤)
