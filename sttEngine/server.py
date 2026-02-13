@@ -9,18 +9,13 @@ The server exposes:
 Only selected workflow steps return download links.
 """
 
-try:
-    from .logger import setup_logging
-except ImportError:  # pragma: no cover - fallback for script execution
-    from logger import setup_logging
-
+from sttEngine.logger import setup_logging
+from sttEngine.http_api.app import main as run_app
 
 setup_logging()
 
 
 def main() -> None:
-    from .http_api.app import main as run_app
-
     run_app()
 
 

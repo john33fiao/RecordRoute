@@ -22,14 +22,11 @@ except ImportError:
     pass
 
 # 설정 모듈 임포트
-import sys
-sys.path.append(str(Path(__file__).parent.parent))
-from config import get_db_base_path, get_default_model, get_model_for_task
-from logger import setup_logging
-from vocabulary_manager import VocabularyManager
-from obsidian_mcp import send_stt_to_obsidian_sync
-
-setup_logging()
+from sttEngine.config import get_db_base_path, get_default_model, get_model_for_task
+from sttEngine.logger import setup_logging
+from sttEngine.vocabulary_manager import VocabularyManager
+from sttEngine.obsidian_mcp import send_stt_to_obsidian_sync
+from sttEngine.workflow.cli_utils import add_verbose_argument, configure_cli_logging
 
 DB_BASE_PATH = get_db_base_path()
 DEFAULT_OUTPUT_DIR = DB_BASE_PATH / "whisper_output"
@@ -820,7 +817,11 @@ def main():
         help="과도한 연속 마침표를 '...'로 정규화"
     )
 
+    add_verbose_argument(parser)
+
     args = parser.parse_args()
+
+    configure_cli_logging(args.verbose)
 
     # 모델 경로 결정 (플랫폼별 캐시 경로 지원)
     model_to_use = args.model_size
