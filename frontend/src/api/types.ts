@@ -34,6 +34,12 @@ export interface ProcessResult {
 export interface SearchResponse {
   keywordMatches: KeywordMatch[];
   similarDocuments: SimilarDocument[];
+  sort?: { by: string; order: string };
+  scoreBreakdown?: { keywordWeight: number; vectorWeight: number };
+  pagination?: { page: number; pageSize: number; returned: number; hasNext: boolean };
+  timing?: Record<string, number>;
+  performanceTargetMs?: Record<string, number>;
+  cache?: { hit: boolean };
 }
 
 export interface KeywordMatch {
@@ -54,6 +60,11 @@ export interface SimilarDocument {
   source_filename?: string;
   link: string;
   record_id?: string;
+  score_breakdown?: {
+    vector_similarity: number;
+    keyword_overlap: number;
+    composite: number;
+  };
 }
 
 // Models from GET /models
