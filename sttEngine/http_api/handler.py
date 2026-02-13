@@ -12,6 +12,11 @@ from urllib.parse import unquote
 
 from ..search_cache import cleanup_expired_cache, delete_cache_record, get_cache_stats
 from ..vector_search import search as search_vectors
+from ..similarity_matrix import (
+    get_documents_metadata,
+    get_similarity_graph,
+    get_similarity_subgraph,
+)
 from ..ollama_utils import ensure_ollama_server
 from ..server.routes import history as history_route
 from ..server.routes import process as process_route
@@ -178,6 +183,8 @@ class UploadHandler(BaseHTTPRequestHandler):
         elif self.path in ("/upload.css", "/upload.js"):
             content_type = "text/css" if self.path.endswith(".css") else "application/javascript"
             self._serve_static(self.path.lstrip("/"), content_type)
+        elif self.path in ("/graph-view", "/graph-view.html"):
+            self._serve_static("graph-view.html", "text/html; charset=utf-8")
         elif self.path in ("/favicon.ico", "/vite.svg"):
             self._serve_dist_file(self.path.lstrip("/"))
         elif self.path.startswith("/download/"):
@@ -349,6 +356,41 @@ class UploadHandler(BaseHTTPRequestHandler):
                     "details": str(e),
                 }
                 self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
+        elif self.path.startswith("/api/similarity-graph"):
+            from urllib.parse import parse_qs, urlparse
+
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            threshold = float(params.get("threshold", ["0.65"])[0])
+            max_neighbors = int(params.get("max_neighbors", ["12"])[0])
+            refresh = params.get("refresh", ["false"])[0].lower() == "true"
+
+            base_path = parsed.path
+            if base_path == "/api/similarity-graph":
+                payload = get_similarity_graph(
+                    threshold=threshold,
+                    max_neighbors=max_neighbors,
+                    refresh=refresh,
+                )
+            else:
+                doc_id = unquote(base_path[len("/api/similarity-graph/"):])
+                payload = get_similarity_subgraph(
+                    doc_id=doc_id,
+                    threshold=threshold,
+                    max_neighbors=max_neighbors,
+                    refresh=refresh,
+                )
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload, ensure_ascii=False).encode())
+        elif self.path.startswith("/api/documents/metadata"):
+            payload = get_documents_metadata()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload, ensure_ascii=False).encode())
         elif self.path.startswith("/similar/"):
             file_identifier = unquote(self.path[len("/similar/") :])
             self._serve_similar_documents(file_identifier)

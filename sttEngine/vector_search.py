@@ -17,6 +17,7 @@ from .embedding_pipeline import (
     resolve_index_path,
 )
 from .search_cache import cache_search_result, get_cached_search_result
+from .similarity_matrix import invalidate_similarity_cache
 
 from .config import get_default_model, get_model_for_task, normalize_db_record_path
 
@@ -181,3 +182,9 @@ def search(query: str, base_dir: Path, top_k: int = 10,
             timing["total_ms"] = (time.perf_counter() - overall_start) * 1000
             return {"results": [], "timing": timing, "cache_hit": False, "total_candidates": 0}
         return []
+
+
+def refresh_similarity_data() -> None:
+    """Invalidate similarity graph caches after embedding/index updates."""
+    invalidate_similarity_cache()
+

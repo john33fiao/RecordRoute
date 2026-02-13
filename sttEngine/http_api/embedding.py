@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from ..embedding_pipeline import embed_text_ollama, load_index, save_index
+from ..vector_search import refresh_similarity_data
 from .paths import OUTPUT_DIR, VECTOR_DIR, to_record_path
 from .registry import update_task_completion
 
@@ -83,6 +84,8 @@ def run_incremental_embedding(base_dir: Path | None = None) -> int:
 
         # Save updated index
         save_index(index)
+        if processed_count > 0:
+            refresh_similarity_data()
         print(f"증분 임베딩 완료: {processed_count}개 파일 처리됨")
         return processed_count
 
@@ -127,6 +130,7 @@ def generate_embedding(file_path: Path, record_id: str | None = None) -> bool:
             "vector_deleted_path": None,
         }
         save_index(index)
+        refresh_similarity_data()
 
         # Update task completion
         if record_id:
