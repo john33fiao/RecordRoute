@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { FileAudio, FileText, Download, Trash2, Calendar, Search, Pencil, Check, X, Play, ChevronDown } from 'lucide-react';
+import { FileAudio, FileText, Download, Trash2, Trash, Calendar, Search, Pencil, Check, X, Play, ChevronDown } from 'lucide-react';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -123,7 +123,7 @@ export function HistoryPanel({ onViewContent, onShowSimilarDocs, onShowResetAll 
           <h2 className={`text-xl font-semibold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>업로드 기록</h2>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={handleProcessAll}><Play className="size-3 mr-1" /> 전체 진행</Button>
-            <Button variant="outline" size="sm" onClick={onShowResetAll}><Play className="size-3 mr-1" /> 전체 초기화</Button>
+            <Button variant="outline" size="sm" onClick={onShowResetAll}><Trash className="size-3 mr-1" /> 전체 초기화</Button>
             {selectedIds.size > 0 && <Button variant="outline" size="sm" onClick={handleDeleteSelected}><Trash2 className="size-3 mr-1" /> 삭제 ({selectedIds.size})</Button>}
           </div>
         </div>
