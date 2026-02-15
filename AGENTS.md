@@ -16,7 +16,7 @@
   - `ThreadingHTTPServer` + `UploadHandler`
   - WebSocket 서버는 별도 스레드에서 실행 (`sttEngine/http_api/ws.py`, 포트 `8765`)
 - 런처 래퍼: `sttEngine/server.py` (`python -m sttEngine.server`)
-- 핵심 HTTP 라우팅: `sttEngine/http_api/handler.py`
+- 핵심 HTTP 라우팅: `sttEngine/http_api/handler.py` + 라우트 모듈(`sttEngine/http_api/routes/*`)
 - 워크플로우 실행: `sttEngine/http_api/workflow.py`
 - 프론트엔드: React + Vite (`frontend/src/*`)
 - 레거시 UI: `frontend/legacy/*` (프론트 빌드 실패 시 fallback)

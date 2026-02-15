@@ -10,18 +10,13 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import unquote
 
-from ..search_cache import cleanup_expired_cache, delete_cache_record, get_cache_stats
+from ..search_cache import delete_cache_record
 from ..vector_search import search as search_vectors
-from ..similarity_matrix import (
-    get_documents_metadata,
-    get_similarity_graph,
-)
 from ..ollama_utils import ensure_ollama_server
 from ..server.routes import history as history_route
 from ..server.routes import process as process_route
 from ..server.routes import progress as progress_route
 
-from .embedding import run_incremental_embedding
 from .history import (
     add_upload_record,
     compute_file_hash,
@@ -29,27 +24,16 @@ from .history import (
     load_upload_history,
 )
 from .paths import BASE_DIR, OUTPUT_DIR, UPLOAD_DIR, normalize_record_path, resolve_record_path, to_record_path
-from .records import (
-    delete_file,
-    delete_records,
-    reset_summary_and_embedding,
-    reset_tasks_for_all_records,
-    reset_upload_record,
-    update_stt_text,
-)
-from .registry import get_file_by_uuid, load_file_registry, update_filename
+from .registry import get_file_by_uuid, load_file_registry
 from .search import (
     build_highlight_snippet,
     collect_keyword_matches,
     collect_searchable_documents,
     get_document_text,
 )
-from .state import cancel_task, get_running_tasks
-from .workflow import (
-    find_existing_stt_file,
-    get_audio_duration,
-    get_file_type,
-)
+from .state import get_running_tasks
+from .workflow import get_audio_duration, get_file_type
+from .routes import admin_routes, management_routes, records_routes, search_routes, similarity_routes
 
 
 class UploadHandler(BaseHTTPRequestHandler):
@@ -196,273 +180,17 @@ class UploadHandler(BaseHTTPRequestHandler):
             self._serve_download(file_identifier)
         elif self.path == "/history":
             history_route.handle(self)
-        elif self.path == "/tasks":
-            self._serve_running_tasks()
         elif self.path.startswith("/progress/"):
             task_id = self.path[len("/progress/") :]
             progress_route.handle(self, task_id)
-        elif self.path.startswith("/file_search"):
-            from urllib.parse import parse_qs, urlparse
-
-            parsed = urlparse(self.path)
-            params = parse_qs(parsed.query)
-            query = params.get("q", [""])[0].lower()
-
-            results = []
-            if query:
-                history = get_active_history()
-                for record in history:
-                    filename = record.get("filename", "")
-                    tags = record.get("tags", [])
-                    if query in filename.lower() or any(query in t.lower() for t in tags):
-                        results.append({"id": record.get("id"), "filename": filename, "tags": tags})
-
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(results, ensure_ascii=False).encode())
-        elif self.path.startswith("/search"):
-            from urllib.parse import parse_qs, urlparse
-
-            parsed = urlparse(self.path)
-            params = parse_qs(parsed.query)
-
-            def _first(name: str, default=None):
-                return params.get(name, [default])[0]
-
-            def _csv(name: str) -> set[str]:
-                raw = _first(name, "") or ""
-                return {token.strip().lower() for token in raw.split(",") if token.strip()}
-
-            query = (_first("query") or _first("q") or "").strip()
-            limit_raw = _first("limit")
-            start_date = _first("start_date") or _first("start")
-            end_date = _first("end_date") or _first("end")
-            sort_by = (_first("sort_by", "similarity") or "similarity").lower()
-            sort_order = (_first("sort_order", "desc") or "desc").lower()
-            min_score_raw = _first("min_score")
-            page_raw = _first("page", "1")
-            page_size_raw = _first("page_size", "5")
-            include_timing_raw = _first("include_timing", "false")
-            file_types = _csv("file_type")
-            status_filter = (_first("status") or "").strip().lower()
-            status_task = (_first("status_task") or "stt").strip().lower()
-
-            include_timing = str(include_timing_raw).lower() in {"1", "true", "yes", "y", "on"}
-
-            min_score = None
-            if min_score_raw not in (None, ""):
-                try:
-                    min_score = float(min_score_raw)
-                except ValueError:
-                    min_score = None
-
-            try:
-                page = max(1, int(page_raw))
-            except (TypeError, ValueError):
-                page = 1
-
-            try:
-                page_size = max(1, int(page_size_raw))
-            except (TypeError, ValueError):
-                page_size = 5
-
-            try:
-                limit = int(limit_raw) if limit_raw not in (None, "") else max(10, page * page_size)
-                limit = max(1, limit)
-            except (TypeError, ValueError):
-                limit = max(10, page * page_size)
-
-            try:
-                filter_signature = json.dumps({
-                    "file_type": sorted(file_types),
-                    "status": status_filter,
-                    "status_task": status_task,
-                }, ensure_ascii=False, sort_keys=True)
-
-                response_data = {
-                    "query": query,
-                    "limit": limit,
-                    "keywordMatches": [],
-                    "similarDocuments": [],
-                    "sort": {"by": sort_by, "order": sort_order},
-                    "filters": {
-                        "start_date": start_date,
-                        "end_date": end_date,
-                        "min_score": min_score,
-                        "file_type": sorted(file_types),
-                        "status": status_filter or None,
-                        "status_task": status_task or None,
-                    },
-                    "pagination": {"page": page, "pageSize": page_size, "returned": 0, "hasNext": False},
-                    "scoreBreakdown": {"keywordWeight": 0.0, "vectorWeight": 1.0},
-                }
-
-                if query:
-                    documents, path_index = collect_searchable_documents()
-                    history = get_active_history()
-                    history_map = {record.get("id"): record for record in history}
-
-                    def _record_passes(record: dict) -> bool:
-                        if file_types and str(record.get("file_type", "")).lower() not in file_types:
-                            return False
-                        if status_filter:
-                            completed = bool((record.get("completed_tasks") or {}).get(status_task, False))
-                            if status_filter in {"completed", "done", "success"} and not completed:
-                                return False
-                            if status_filter in {"pending", "incomplete", "todo"} and completed:
-                                return False
-                        return True
-
-                    filtered_documents = [
-                        doc for doc in documents
-                        if _record_passes(history_map.get(doc["info"].get("record_id"), {}))
-                    ]
-
-                    keyword_matches = collect_keyword_matches(query, filtered_documents, history_map, limit=limit)
-                    response_data["keywordMatches"] = keyword_matches
-
-                    keyword_paths = {item["file"] for item in keyword_matches}
-                    keyword_uuids = {item["file_uuid"] for item in keyword_matches}
-
-                    search_payload = search_vectors(
-                        query,
-                        BASE_DIR,
-                        top_k=limit,
-                        start_date=start_date,
-                        end_date=end_date,
-                        sort_by=sort_by,
-                        sort_order=sort_order,
-                        min_score=min_score,
-                        page=page,
-                        page_size=page_size,
-                        include_timing=include_timing,
-                        filter_signature=filter_signature,
-                    )
-
-                    if isinstance(search_payload, dict):
-                        hits = search_payload.get("results", [])
-                        if include_timing:
-                            response_data["timing"] = search_payload.get("timing", {})
-                            response_data["cache"] = {"hit": bool(search_payload.get("cache_hit"))}
-                        response_data["pagination"]["hasNext"] = bool(search_payload.get("total_candidates", 0) > page * page_size)
-                    else:
-                        hits = search_payload
-                        response_data["pagination"]["hasNext"] = len(hits) >= page_size
-
-                    similar_documents = []
-                    for hit in hits:
-                        rel_path = hit.get("file")
-                        if not rel_path:
-                            continue
-
-                        doc = path_index.get(rel_path)
-                        if doc and (doc["uuid"] in keyword_uuids or rel_path in keyword_paths):
-                            continue
-                        if not doc and rel_path in keyword_paths:
-                            continue
-
-                        display_name = Path(rel_path).name
-                        link = f"/download/{rel_path}"
-                        uploaded_at = hit.get("uploaded_at")
-                        source_filename = None
-                        file_uuid = None
-                        record_id = None
-                        snippet = ""
-
-                        if doc:
-                            record = history_map.get(doc["info"].get("record_id"), {})
-                            if not _record_passes(record):
-                                continue
-                            record_id = doc["info"].get("record_id")
-                            uploaded_at = record.get("timestamp") or uploaded_at
-                            source_filename = record.get("filename")
-                            display_name = doc["info"].get("original_filename") or display_name
-                            link = f"/download/{doc['uuid']}"
-                            file_uuid = doc["uuid"]
-                            try:
-                                snippet = build_highlight_snippet(get_document_text(doc["full_path"]), query)
-                            except Exception:
-                                snippet = ""
-
-                        similar_documents.append(
-                            {
-                                "file_uuid": file_uuid,
-                                "file": rel_path,
-                                "display_name": display_name,
-                                "score": hit.get("score"),
-                                "snippet": snippet,
-                                "score_breakdown": {
-                                    "vector_similarity": hit.get("score"),
-                                    "keyword_overlap": 0.0,
-                                    "composite": hit.get("score"),
-                                },
-                                "uploaded_at": uploaded_at,
-                                "source_filename": source_filename,
-                                "record_id": record_id,
-                                "link": link,
-                            }
-                        )
-
-                    response_data["similarDocuments"] = similar_documents
-                    response_data["pagination"]["returned"] = len(similar_documents)
-                    response_data["contract_version"] = "search-v2"
-
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode())
-
-            except Exception as e:
-                print(f"검색 요청 처리 중 오류: {e}")
-                self.send_response(500)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                error_response = {
-                    "error": "검색 중 오류가 발생했습니다. Ollama 서버가 실행 중인지 확인하고, 임베딩 모델이 설치되어 있는지 확인해주세요.",
-                    "details": str(e),
-                }
-                self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
-        elif self.path.startswith("/api/similarity-graph"):
-            from urllib.parse import parse_qs, urlparse
-
-            parsed = urlparse(self.path)
-            params = parse_qs(parsed.query)
-            min_similarity = float(params.get("min_similarity", params.get("threshold", ["0.65"]))[0])
-            max_neighbors = int(params.get("max_neighbors", ["12"])[0])
-            max_nodes = int(params.get("max_nodes", ["150"])[0])
-            sampling_strategy = (params.get("sampling", ["hybrid"])[0] or "hybrid").lower()
-            doc_id = (params.get("doc_id", [""])[0] or "").strip() or None
-            refresh = params.get("refresh", ["false"])[0].lower() == "true"
-
-            payload = get_similarity_graph(
-                min_similarity=min_similarity,
-                max_neighbors=max_neighbors,
-                max_nodes=max_nodes,
-                sampling_strategy=sampling_strategy,
-                doc_id=doc_id,
-                refresh=refresh,
-            )
-
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(payload, ensure_ascii=False).encode())
-        elif self.path.startswith("/api/documents/metadata"):
-            payload = get_documents_metadata()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(payload, ensure_ascii=False).encode())
-        elif self.path.startswith("/similar/"):
-            file_identifier = unquote(self.path[len("/similar/") :])
-            self._serve_similar_documents(file_identifier)
-        elif self.path == "/models":
-            self._serve_available_models()
-        elif self.path == "/cache/stats":
-            self._serve_cache_stats()
-        elif self.path == "/cache/cleanup":
-            self._serve_cache_cleanup()
+        elif management_routes.handle_get(self):
+            return
+        elif search_routes.handle_get(self):
+            return
+        elif similarity_routes.handle_get(self):
+            return
+        elif admin_routes.handle_get(self):
+            return
         else:
             self.send_response(404)
             self.end_headers()
@@ -981,339 +709,18 @@ class UploadHandler(BaseHTTPRequestHandler):
             process_route.handle(self)
             return
 
-        if self.path == "/cancel":
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length)) if length else {}
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Invalid JSON payload")
-                return
-            task_id = payload.get("task_id")
-            if not task_id:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Missing task_id")
-                return
-
-            success = cancel_task(task_id)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"success": success}).encode())
+        if management_routes.handle_post(self):
             return
 
-        if self.path == "/shutdown":
-            print("Shutdown request received via /shutdown endpoint")
-            response_data = {
-                "success": True,
-                "message": "서버 종료 요청이 접수되었습니다. 잠시 후 서버가 종료됩니다.",
-            }
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode())
-            self._schedule_server_shutdown()
-            self.close_connection = True
+        if records_routes.handle_post(self):
             return
 
-        if self.path == "/reset":
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length)) if length else {}
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Invalid JSON payload")
-                return
-            record_id = payload.get("record_id")
-            if not record_id:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Missing record_id")
-                return
-
-            success = reset_upload_record(record_id)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"success": success}).encode())
+        if similarity_routes.handle_post(self):
             return
 
-        if self.path == "/update_filename":
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length)) if length else {}
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Invalid JSON payload")
-                return
-            record_id = payload.get("record_id")
-            new_filename = payload.get("filename")
-
-            if not record_id or not new_filename:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Missing record_id or filename")
-                return
-
-            update_filename(record_id, new_filename)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"success": True}).encode())
-            return
-
-        if self.path == "/incremental_embedding":
-            try:
-                processed_count = run_incremental_embedding()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(
-                    json.dumps(
-                        {
-                            "success": True,
-                            "processed_count": processed_count,
-                            "message": f"증분 임베딩 완료: {processed_count}개 파일 처리됨",
-                        }
-                    ).encode()
-                )
-            except Exception as e:
-                self.send_response(500)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
-            return
-
-        if self.path == "/check_existing_stt":
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length)) if length else {}
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Invalid JSON payload")
-                return
-
-            file_path = payload.get("file_path")
-            if not file_path:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Missing file_path")
-                return
-
-            try:
-                normalized_path = normalize_record_path(file_path)
-                original_file = resolve_record_path(normalized_path)
-                existing_stt = find_existing_stt_file(original_file)
-
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(
-                    json.dumps(
-                        {
-                            "has_stt": existing_stt is not None,
-                            "stt_file": to_record_path(existing_stt) if existing_stt else None,
-                        }
-                    ).encode()
-                )
-            except Exception as e:
-                self.send_response(500)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"has_stt": False, "error": str(e)}).encode())
-            return
-
-        if self.path == "/update_stt_text":
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length)) if length else {}
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"success": False, "error": "Invalid JSON payload"}).encode())
-                return
-
-            file_identifier = payload.get("file_identifier")
-            content = payload.get("content", "")
-            if not isinstance(content, str):
-                content = str(content)
-
-            success, message, record_id = update_stt_text(file_identifier, content)
-            if success:
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"success": True, "record_id": record_id}).encode())
-            else:
-                self.send_response(400)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(
-                    json.dumps({"success": False, "error": message, "record_id": record_id}).encode()
-                )
-            return
-
-        if self.path == "/reset_summary_embedding":
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length)) if length else {}
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"success": False, "error": "Invalid JSON payload"}).encode())
-                return
-
-            record_id = payload.get("record_id")
-            success, message = reset_summary_and_embedding(record_id)
-            status_code = 200 if success else 400
-            self.send_response(status_code)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"success": success, "message": message}).encode())
-            return
-
-        if self.path == "/reset_all_tasks":
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length)) if length else {}
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"success": False, "error": "Invalid JSON payload"}).encode())
-                return
-
-            tasks = payload.get("tasks")
-            if not isinstance(tasks, list):
-                self.send_response(400)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"success": False, "error": "tasks 필드는 배열이어야 합니다."}).encode())
-                return
-
-            success, counts, message = reset_tasks_for_all_records(set(tasks))
-            status_code = 200 if success else 400
-            self.send_response(status_code)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"success": success, "message": message, "counts": counts}).encode())
-            return
-
-        if self.path == "/similar":
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length)) if length else {}
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Invalid JSON payload")
-                return
-
-            file_identifier = payload.get("file_identifier")
-            user_filename = payload.get("user_filename")
-            refresh = payload.get("refresh", False)
-
-            if not file_identifier:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Missing file_identifier")
-                return
-
-            self._serve_similar_documents_with_filename(file_identifier, user_filename, refresh)
-            return
-
-        if self.path == "/delete":
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length)) if length else {}
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Invalid JSON payload")
-                return
-
-            file_identifier = payload.get("file_identifier")
-            file_type = payload.get("file_type")
-            if not file_identifier or not file_type:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Missing file_identifier or file_type")
-                return
-
-            success, error_msg = delete_file(file_identifier, file_type)
-            if success:
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"success": True}).encode())
-            else:
-                self.send_response(400)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"error": error_msg}).encode())
-            return
-
-        if self.path == "/delete_records":
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length)) if length else {}
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Invalid JSON payload")
-                return
-
-            record_ids = payload.get("record_ids")
-            if not isinstance(record_ids, list):
-                self.send_response(400)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"success": False, "error": "record_ids 필드는 배열이어야 합니다."}).encode())
-                return
-
-            success, results = delete_records([str(r) for r in record_ids])
-            status_code = 200 if success else 207
-            self.send_response(status_code)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"success": success, "results": results}, ensure_ascii=False).encode())
+        if admin_routes.handle_post(self):
             return
 
         self.send_response(404)
         self.end_headers()
 
-    def _serve_cache_stats(self):
-        try:
-            stats = get_cache_stats()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(stats, ensure_ascii=False).encode())
-        except Exception as e:
-            self.send_response(500)
-            self.end_headers()
-            self.wfile.write(f"Error getting cache stats: {str(e)}".encode())
-
-    def _serve_cache_cleanup(self):
-        try:
-            cleaned_count = cleanup_expired_cache()
-            response = {
-                "success": True,
-                "cleaned_entries": cleaned_count,
-                "message": f"정리된 만료된 캐시 항목: {cleaned_count}개",
-            }
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(response, ensure_ascii=False).encode())
-        except Exception as e:
-            self.send_response(500)
-            self.end_headers()
-            self.wfile.write(json.dumps({"success": False, "error": f"캐시 정리 중 오류: {str(e)}"}, ensure_ascii=False).encode())
