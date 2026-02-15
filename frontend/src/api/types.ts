@@ -117,6 +117,35 @@ export interface SimilarDocument {
   };
 }
 
+export interface SimilarityGraphNode {
+  id: string;
+  label: string;
+  file?: string;
+  record_id?: string | null;
+  uploaded_at?: string | null;
+}
+
+export interface SimilarityEdge {
+  source: string;
+  target: string;
+  weight: number;
+}
+
+export interface SimilarityGraphResponse {
+  nodes: SimilarityGraphNode[];
+  edges: SimilarityEdge[];
+  meta?: Record<string, unknown>;
+}
+
+export interface SimilarityGraphRequest {
+  min_similarity?: number;
+  max_neighbors?: number;
+  max_nodes?: number;
+  sampling?: 'recent' | 'random' | 'hybrid';
+  doc_id?: string;
+  refresh?: boolean;
+}
+
 export interface ModelsResponse {
   models: string[];
   default: {
