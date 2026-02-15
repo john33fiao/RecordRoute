@@ -17,7 +17,7 @@ RecordRoute는 음성/문서 입력을 STT, 교정, 요약, 임베딩 검색으�
 
 ## 현재 아키텍처
 - HTTP 서버 엔트리: `sttEngine/http_api/app.py`
-- 핸들러/라우팅: `sttEngine/http_api/handler.py`
+- 핸들러/라우팅: `sttEngine/http_api/handler.py`, `sttEngine/http_api/routes/*`
 - 워크플로우 실행: `sttEngine/http_api/workflow.py`
 - WebSocket 서버: `sttEngine/http_api/ws.py` (`ws://localhost:8765`)
 - 서버 실행 래퍼: `sttEngine/server.py` (`python -m sttEngine.server`)
