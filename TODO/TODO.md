@@ -14,25 +14,25 @@
 
 ## 1) P0 (즉시 착수)
 
-- [ ] Obsidian MCP 재설계 전 임시 비활성화 유지
-  - 현황: 방향성 재정렬 전까지 코드 레벨 전역 비활성화 적용 (`sttEngine/obsidian_mcp.py`)
-  - 재활성화 조건: 전송 트리거/파일명 정책/실패 처리 규약 재정의 후 단계적 롤아웃
+- [x] Obsidian MCP 재설계 전 임시 비활성화 유지
+  - 점검 결과: `_MCP_TEMPORARILY_DISABLED = True`와 `self.enabled = requested_enabled and not _MCP_TEMPORARILY_DISABLED`로 코드 레벨 전역 비활성화가 유지되고 있음 (`sttEngine/obsidian_mcp.py`)
+  - 후속: 재활성화 조건(전송 트리거/파일명 정책/실패 처리 규약) 정의 전까지 현 상태 유지
 
-- [ ] `handler.py` 책임 분리 (라우트 단위 모듈화)
-  - 목표: 검색/기록/관리/유사도/관리자 API를 모듈로 분리
-  - 의존: 기존 응답 스키마 고정, 최소 회귀 테스트 세트 확보
+- [ ] `handler.py` 책임 분리 (라우트 단위 모듈화) — **부분완료**
+  - 점검 결과: `sttEngine/http_api/routes/*` 모듈로 GET/POST 일부가 분리됐지만, `UploadHandler` 내부에 다운로드/유사문서/정적 서빙/업로드 처리 로직이 여전히 대형 메서드로 남아 있음
+  - 잔여 작업: `handler.py` 잔존 책임(파일 서빙/도메인별 응답 조합) 추가 분리 + 회귀 테스트 고정
 
 - [ ] 파괴적 API 보호
-  - 대상: `/shutdown`, `/delete*`, `/reset*`
+  - 점검 결과: `/shutdown`, `/delete`, `/delete_records`, `/reset`, `/reset_all_tasks`, `/reset_summary_embedding` 호출 경로에서 토큰/세션 검증이 확인되지 않음
   - 목표: 토큰/세션 기반 보호 정책 도입
 
-- [ ] 그래프 렌더 엔진 확정 + 상호작용 MVP
-  - 범위: 줌/팬/드래그
-  - 전제: 현행 `graph-view` MVP를 React 메인 플로우로 연결 가능한 수준까지 정리
+- [x] 그래프 렌더 엔진 확정 + 상호작용 MVP
+  - 점검 결과: React `SimilarityGraphPanel`이 API 연동(`getSimilarityGraph`) + 줌/팬/노드 드래그를 구현했고, 메인 탭(`App.tsx`)에 통합되어 있음
+  - 후속: 스타일/필터 고도화는 P1 항목으로 유지
 
-- [ ] 큐 진행률 UX 고도화
-  - 범위: 진행률(%) + ETA 노출, 오류 카드 표준화
-  - 의존: progress/오류 DTO 표준화
+- [x] 큐 진행률 UX 고도화
+  - 점검 결과: 백엔드 진행률 DTO(`progress_percent`, `eta_seconds`, `error`)가 HTTP/WebSocket 모두에서 제공되고, 프론트 `JobQueue`에 퍼센트/ETA/오류 카드가 연결되어 있음
+  - 후속: 실패 복구 정책 표준화는 P1에서 지속
 
 ## 2) P1 (다음 스프린트)
 
