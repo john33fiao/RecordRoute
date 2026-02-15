@@ -44,7 +44,7 @@
 
 GET
 - `/`, `/assets/*`, `/download/<uuid_or_path>`
-- `/history`, `/tasks`, `/progress/<task_id>`
+- `/history`, `/tasks`, `/progress/<task_id>` (진행률 %, ETA, 표준 오류 payload 포함)
 - `/file_search`, `/search`
 - `/api/similarity-graph`, `/api/documents/metadata`
 - `/similar/<uuid_or_path>`, `/models`
@@ -79,6 +79,7 @@ POST
 - 백엔드 기준 요약 step 키는 `summary`
 - STT 모델 키는 `whisper`
 - 실패 응답 필드: `error`, `error_code`, `retryable`, `failed_step`
+- 진행률 응답(`/progress/<task_id>`, WebSocket)은 `progress_percent`, `eta_seconds`, `error`(표준 오류 카드용 객체) 포함
 
 ## 6. 수정 시 우선 확인할 파일
 - 라우트/핸들러: `sttEngine/http_api/handler.py`

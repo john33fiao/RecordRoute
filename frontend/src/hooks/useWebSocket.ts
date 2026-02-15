@@ -3,7 +3,7 @@ import { useEffect, useRef, useCallback } from 'react';
 type MessageHandler = (
   taskId: string,
   message: string,
-  meta?: { stage?: 'upload' | 'transform' | 'correct' | 'summary'; error_code?: string; retryable?: boolean; failed_step?: string }
+  meta?: { stage?: 'upload' | 'transform' | 'correct' | 'summary'; error_code?: string; retryable?: boolean; failed_step?: string; progress_percent?: number; eta_seconds?: number | null; error?: { message: string; code?: string | null; retryable?: boolean | null; failed_step?: string | null } | null }
 ) => void;
 
 export function useWebSocket(onMessage: MessageHandler) {
@@ -31,6 +31,9 @@ export function useWebSocket(onMessage: MessageHandler) {
               error_code: data.error_code,
               retryable: data.retryable,
               failed_step: data.failed_step,
+              progress_percent: data.progress_percent,
+              eta_seconds: data.eta_seconds,
+              error: data.error,
             });
           }
         } catch (e) {

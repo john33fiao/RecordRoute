@@ -18,6 +18,9 @@ async def _send_progress(
     error_code: str | None = None,
     retryable: bool | None = None,
     failed_step: str | None = None,
+    progress_percent: int | None = None,
+    eta_seconds: int | None = None,
+    error: dict | None = None,
 ) -> None:
     data = json.dumps({
         "task_id": task_id,
@@ -26,6 +29,9 @@ async def _send_progress(
         "error_code": error_code,
         "retryable": retryable,
         "failed_step": failed_step,
+        "progress_percent": progress_percent,
+        "eta_seconds": eta_seconds,
+        "error": error,
     })
     if connected_clients:
         await asyncio.gather(
@@ -40,10 +46,13 @@ def broadcast_progress(
     error_code: str | None = None,
     retryable: bool | None = None,
     failed_step: str | None = None,
+    progress_percent: int | None = None,
+    eta_seconds: int | None = None,
+    error: dict | None = None,
 ) -> None:
     if websocket_loop.is_running():
         asyncio.run_coroutine_threadsafe(
-            _send_progress(task_id, message, stage, error_code, retryable, failed_step), websocket_loop
+            _send_progress(task_id, message, stage, error_code, retryable, failed_step, progress_percent, eta_seconds, error), websocket_loop
         )
 
 
