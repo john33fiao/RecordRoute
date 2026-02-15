@@ -133,12 +133,16 @@ venv\Scripts\python.exe -m sttEngine.server
 - 엔드포인트: `GET /search`
 - 주요 파라미터:
   - `query`, `limit`, `start_date`, `end_date`
-  - `sort_by=similarity|date`, `sort_order=asc|desc`
-  - `min_score`, `page`, `page_size`, `include_timing`
-  - `file_type`, `status`, `status_task`
+  - `sort_by=similarity|date` (`uploaded_at`은 `date`로 별칭 처리, 그 외 값은 `similarity`로 정규화)
+  - `sort_order=asc|desc` (그 외 값은 `desc`로 정규화)
+  - `min_score` (0~1 범위를 벗어나면 `null` 처리)
+  - `page`(기본 1), `page_size`(최소 1), `include_timing`
+  - `file_type=audio|document|other` (허용값만 반영)
+  - `status=completed|pending` (`done/success`→`completed`, `incomplete/todo`→`pending`), `status_task=stt|summary|embedding`
 - 응답 핵심 필드:
   - `keywordMatches`, `similarDocuments`
-  - `pagination`, `filters`, `cache`, `timing`, `contract_version`
+  - `pagination`, `filters`, `cache`, `timing`
+  - `contract_version` (`search-v2`)
 
 ## 단계별 CLI 실행
 

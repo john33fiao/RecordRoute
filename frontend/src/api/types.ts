@@ -87,6 +87,7 @@ export interface SearchResponse {
   timing?: Record<string, number>;
   performanceTargetMs?: Record<string, number>;
   cache?: { hit: boolean };
+  contract_version?: string;
 }
 
 export interface KeywordMatch {
