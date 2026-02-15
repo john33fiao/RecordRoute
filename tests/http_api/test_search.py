@@ -66,11 +66,25 @@ def test_search_parses_query_and_pagination_defaults(search_server: str):
     )
 
     assert payload["query"] == "hello"
-    assert payload["sort"] == {"by": "uploaded_at", "order": "asc"}
+    assert payload["sort"] == {"by": "date", "order": "asc"}
     assert payload["filters"]["min_score"] is None
     assert payload["pagination"]["page"] == 1
     assert payload["pagination"]["pageSize"] == 1
     assert payload["limit"] == 10
+    assert payload["contract_version"] == "search-v2"
+
+
+def test_search_validates_filter_values(search_server: str):
+    payload = _get_json(
+        f"{search_server}/search?query=hello&file_type=document,unknown"
+        "&status=done&status_task=bad&min_score=1.3&sort_order=up"
+    )
+
+    assert payload["filters"]["file_type"] == ["document"]
+    assert payload["filters"]["status"] == "completed"
+    assert payload["filters"]["status_task"] == "stt"
+    assert payload["filters"]["min_score"] is None
+    assert payload["sort"]["order"] == "desc"
 
 
 def test_search_reports_cache_hit(search_server: str):

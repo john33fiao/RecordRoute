@@ -10,6 +10,31 @@ import * as api from '../api/client';
 import type { KeywordMatch, SimilarDocument, SearchResponse } from '../api/types';
 import { TextOverlay } from './TextOverlay';
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  if (!text || !query.trim()) {
+    return <>{text}</>;
+  }
+
+  const regex = new RegExp(`(${escapeRegExp(query)})`, 'gi');
+  const parts = text.split(regex);
+
+  return (
+    <>
+      {parts.map((part, idx) =>
+        part.toLowerCase() === query.toLowerCase() ? (
+          <mark key={`${part}-${idx}`} className="rounded bg-violet-500/30 px-0.5 text-inherit">{part}</mark>
+        ) : (
+          <span key={`${part}-${idx}`}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
 export function SearchPanel() {
   const { theme } = useTheme();
   const [query, setQuery] = useState('');
@@ -27,6 +52,7 @@ export function SearchPanel() {
   const [statusTask, setStatusTask] = useState<'stt' | 'summary' | 'embedding'>('stt');
 
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [keywordResults, setKeywordResults] = useState<KeywordMatch[]>([]);
   const [similarResults, setSimilarResults] = useState<SimilarDocument[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
@@ -40,6 +66,7 @@ export function SearchPanel() {
   const handleSearch = async () => {
     if (!query.trim()) return;
     setSearching(true);
+    setSearchError(null);
     try {
       const data = await api.search({
         query: query.trim(),
@@ -62,6 +89,10 @@ export function SearchPanel() {
       setSearchMeta(data);
     } catch (e) {
       console.error('Search failed:', e);
+      setSearchError('검색 요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+      setHasSearched(true);
+      setKeywordResults([]);
+      setSimilarResults([]);
     } finally {
       setSearching(false);
     }
@@ -152,25 +183,21 @@ export function SearchPanel() {
               <p className={`text-[11px] ${fieldHelpClass}`}>한 번의 검색에서 가져올 최대 문서 수입니다.</p>
               <Input type="number" min={1} value={limit} onChange={(e) => setLimit(Math.max(1, Number(e.target.value || 1)))} placeholder="예: 10" className={fieldInputClass} />
             </div>
-
             <div className="space-y-2">
               <label className={`text-xs font-semibold ${fieldLabelClass}`}>시작일</label>
               <p className={`text-[11px] ${fieldHelpClass}`}>이 날짜 이후 업로드된 문서만 검색합니다.</p>
               <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={fieldInputClass} />
             </div>
-
             <div className="space-y-2">
               <label className={`text-xs font-semibold ${fieldLabelClass}`}>종료일</label>
               <p className={`text-[11px] ${fieldHelpClass}`}>이 날짜 이전 업로드 문서까지만 포함합니다.</p>
               <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className={fieldInputClass} />
             </div>
-
             <div className="space-y-2">
               <label className={`text-xs font-semibold ${fieldLabelClass}`}>최소 유사도 점수</label>
               <p className={`text-[11px] ${fieldHelpClass}`}>설정값 이상 점수를 가진 결과만 보여줍니다 (0~1).</p>
               <Input type="number" min={0} max={1} step={0.01} value={minScore} onChange={(e) => setMinScore(e.target.value)} placeholder="예: 0.75" className={fieldInputClass} />
             </div>
-
             <div className="space-y-2">
               <label className={`text-xs font-semibold ${fieldLabelClass}`}>정렬 기준</label>
               <p className={`text-[11px] ${fieldHelpClass}`}>유사도 또는 날짜 기준으로 결과를 정렬합니다.</p>
@@ -179,7 +206,6 @@ export function SearchPanel() {
                 <option value="date">날짜</option>
               </select>
             </div>
-
             <div className="space-y-2">
               <label className={`text-xs font-semibold ${fieldLabelClass}`}>정렬 방향</label>
               <p className={`text-[11px] ${fieldHelpClass}`}>내림차순(desc) 또는 오름차순(asc) 정렬입니다.</p>
@@ -188,19 +214,16 @@ export function SearchPanel() {
                 <option value="asc">오름차순 (asc)</option>
               </select>
             </div>
-
             <div className="space-y-2">
               <label className={`text-xs font-semibold ${fieldLabelClass}`}>페이지 번호</label>
               <p className={`text-[11px] ${fieldHelpClass}`}>결과 페이지를 직접 이동할 때 사용합니다.</p>
               <Input type="number" min={1} value={page} onChange={(e) => setPage(Math.max(1, Number(e.target.value || 1)))} placeholder="예: 1" className={fieldInputClass} />
             </div>
-
             <div className="space-y-2">
               <label className={`text-xs font-semibold ${fieldLabelClass}`}>페이지 크기</label>
               <p className={`text-[11px] ${fieldHelpClass}`}>한 페이지에 노출할 결과 개수입니다.</p>
               <Input type="number" min={1} value={pageSize} onChange={(e) => setPageSize(Math.max(1, Number(e.target.value || 1)))} placeholder="예: 5" className={fieldInputClass} />
             </div>
-
             <div className="space-y-2">
               <label className={`text-xs font-semibold ${fieldLabelClass}`}>문서 유형 필터</label>
               <p className={`text-[11px] ${fieldHelpClass}`}>오디오/문서 등 원하는 유형만 검색합니다.</p>
@@ -211,7 +234,6 @@ export function SearchPanel() {
                 <option value="other">other</option>
               </select>
             </div>
-
             <div className="space-y-2">
               <label className={`text-xs font-semibold ${fieldLabelClass}`}>처리 상태</label>
               <p className={`text-[11px] ${fieldHelpClass}`}>완료/대기 상태 문서만 따로 볼 수 있습니다.</p>
@@ -221,7 +243,6 @@ export function SearchPanel() {
                 <option value="pending">pending</option>
               </select>
             </div>
-
             <div className="space-y-2">
               <label className={`text-xs font-semibold ${fieldLabelClass}`}>상태 기준 작업</label>
               <p className={`text-[11px] ${fieldHelpClass}`}>상태 필터를 STT/요약/임베딩 중 어떤 단계에 적용할지 선택합니다.</p>
@@ -231,7 +252,6 @@ export function SearchPanel() {
                 <option value="embedding">embedding</option>
               </select>
             </div>
-
             <div className="space-y-2">
               <label className={`text-xs font-semibold ${fieldLabelClass}`}>성능 타이밍 포함</label>
               <p className={`text-[11px] ${fieldHelpClass}`}>응답에 검색 성능 측정값을 함께 받아옵니다.</p>
@@ -252,6 +272,14 @@ export function SearchPanel() {
                 <SearchIcon className={`size-8 ${theme === 'dark' ? 'text-slate-600' : 'text-slate-400'}`} />
               </div>
               <p className={theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}>검색어를 입력하여 문서를 찾아보세요</p>
+            </div>
+          ) : searching ? (
+            <div className={`rounded-lg border p-4 text-sm ${theme === 'dark' ? 'border-slate-700 text-slate-300' : 'border-slate-200 text-slate-700'}`}>
+              검색 결과를 불러오는 중입니다...
+            </div>
+          ) : searchError ? (
+            <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-4 text-sm text-red-300">
+              {searchError}
             </div>
           ) : (
             <div className="space-y-6">
@@ -274,7 +302,7 @@ export function SearchPanel() {
                             <div>
                               <h4 className={`font-medium ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'}`}>{(result.display_name || result.source_filename || '').normalize('NFC')}</h4>
                               {result.uploaded_at && <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-600'}`}>{formatDate(result.uploaded_at)}</p>}
-                              {result.snippet && <p className={`text-xs mt-2 line-clamp-2 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>{result.snippet}</p>}
+                              {result.snippet && <p className={`text-xs mt-2 line-clamp-2 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}><HighlightedText text={result.snippet} query={query} /></p>}
                             </div>
                             <Badge variant="outline" className={`${theme === 'dark' ? 'border-slate-600' : 'border-slate-400'} text-violet-400`}>{result.count}회 등장</Badge>
                           </div>
@@ -299,11 +327,17 @@ export function SearchPanel() {
                             <Badge variant="outline" className={`${theme === 'dark' ? 'border-slate-600' : 'border-slate-400'} ${getSimilarityColor(result.score)}`}>{(result.score * 100).toFixed(0)}%</Badge>
                           </div>
                           {result.uploaded_at && <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-600'}`}>{formatDate(result.uploaded_at)}</p>}
-                          {result.snippet && <p className={`text-xs mt-2 line-clamp-2 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>{result.snippet}</p>}
+                          {result.snippet && <p className={`text-xs mt-2 line-clamp-2 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}><HighlightedText text={result.snippet} query={query} /></p>}
                         </div>
                       </div>
                     </button>
                   ))}
+                </div>
+              )}
+
+              {keywordResults.length === 0 && similarResults.length === 0 && (
+                <div className={`rounded-lg border p-4 text-sm ${theme === 'dark' ? 'border-slate-700 text-slate-300' : 'border-slate-200 text-slate-700'}`}>
+                  현재 필터 조건에서 검색 결과가 없습니다.
                 </div>
               )}
             </div>

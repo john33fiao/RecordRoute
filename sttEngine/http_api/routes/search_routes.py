@@ -15,6 +15,23 @@ from ..search import (
     get_document_text,
 )
 
+_SORT_BY_ALIASES = {
+    'similarity': 'similarity',
+    'date': 'date',
+    'uploaded_at': 'date',
+}
+_ALLOWED_SORT_ORDER = {'asc', 'desc'}
+_ALLOWED_FILE_TYPES = {'audio', 'document', 'other'}
+_STATUS_ALIASES = {
+    'completed': 'completed',
+    'done': 'completed',
+    'success': 'completed',
+    'pending': 'pending',
+    'incomplete': 'pending',
+    'todo': 'pending',
+}
+_ALLOWED_STATUS_TASK = {'stt', 'summary', 'embedding'}
+
 
 def _resolve(name: str, default):
     handler_module = importlib.import_module("sttEngine.http_api.handler")
@@ -65,16 +82,24 @@ def handle_get(handler) -> bool:
     page_raw = _first('page', '1')
     page_size_raw = _first('page_size', '5')
     include_timing_raw = _first('include_timing', 'false')
-    file_types = _csv('file_type')
+    file_types = {value for value in _csv('file_type') if value in _ALLOWED_FILE_TYPES}
     status_filter = (_first('status') or '').strip().lower()
     status_task = (_first('status_task') or 'stt').strip().lower()
+
+    sort_by = _SORT_BY_ALIASES.get(sort_by, 'similarity')
+    if sort_order not in _ALLOWED_SORT_ORDER:
+        sort_order = 'desc'
+    status_filter = _STATUS_ALIASES.get(status_filter, '')
+    if status_task not in _ALLOWED_STATUS_TASK:
+        status_task = 'stt'
 
     include_timing = str(include_timing_raw).lower() in {'1', 'true', 'yes', 'y', 'on'}
 
     min_score = None
     if min_score_raw not in (None, ''):
         try:
-            min_score = float(min_score_raw)
+            parsed_min_score = float(min_score_raw)
+            min_score = parsed_min_score if 0.0 <= parsed_min_score <= 1.0 else None
         except ValueError:
             min_score = None
 
@@ -104,6 +129,7 @@ def handle_get(handler) -> bool:
         response_data = {
             'query': query,
             'limit': limit,
+            'contract_version': 'search-v2',
             'keywordMatches': [],
             'similarDocuments': [],
             'sort': {'by': sort_by, 'order': sort_order},
@@ -129,9 +155,9 @@ def handle_get(handler) -> bool:
                     return False
                 if status_filter:
                     completed = bool((record.get('completed_tasks') or {}).get(status_task, False))
-                    if status_filter in {'completed', 'done', 'success'} and not completed:
+                    if status_filter == 'completed' and not completed:
                         return False
-                    if status_filter in {'pending', 'incomplete', 'todo'} and completed:
+                    if status_filter == 'pending' and completed:
                         return False
                 return True
 
@@ -228,8 +254,6 @@ def handle_get(handler) -> bool:
 
             response_data['similarDocuments'] = similar_documents
             response_data['pagination']['returned'] = len(similar_documents)
-            response_data['contract_version'] = 'search-v2'
-
         handler.send_response(200)
         handler.send_header('Content-Type', 'application/json')
         handler.end_headers()
