@@ -25,6 +25,26 @@ process_lock = threading.Lock()
 task_progress: dict[str, dict] = {}
 progress_lock = threading.Lock()
 
+_STAGE_PROGRESS_BASE: dict[str, int] = {
+    "upload": 10,
+    "transform": 45,
+    "correct": 70,
+    "summary": 90,
+}
+
+
+def _infer_progress_percent(stage: TaskStage | str | None, message: str, previous: int | None) -> int:
+    lower_message = message.lower()
+    if "완료" in message or "complete" in lower_message or "success" in lower_message:
+        return 100
+    if "실패" in message or "error" in lower_message or "취소" in message:
+        return min(99, previous or 0)
+
+    inferred = _STAGE_PROGRESS_BASE.get(str(stage), 25)
+    if "시작" in message or "중" in message:
+        inferred = max(15, inferred - 5)
+    return max(previous or 0, min(99, inferred))
+
 
 def register_process(task_id: str, process) -> None:
     """Register a running process for a task."""
@@ -93,18 +113,55 @@ def update_task_progress(
     failed_step: str | None = None,
 ) -> None:
     """Update progress message for a task."""
+    now = time.time()
     with progress_lock:
+        current = task_progress.get(task_id, {})
+        started_at = current.get("started_at")
+        if not started_at:
+            with process_lock:
+                process_info = running_processes.get(task_id) or {}
+            started_at = process_info.get("start_time", now)
+
+        progress_percent = _infer_progress_percent(stage, message, current.get("progress_percent"))
+        elapsed = max(0.0, now - float(started_at))
+        eta_seconds = None
+        if 0 < progress_percent < 100:
+            eta_seconds = int((elapsed * (100 - progress_percent)) / progress_percent)
+
+        error_payload = None
+        if error_code or failed_step or retryable is not None:
+            error_payload = {
+                "message": message,
+                "code": error_code,
+                "retryable": retryable,
+                "failed_step": failed_step,
+            }
+
         task_progress[task_id] = {
             "task_id": task_id,
             "message": message,
             "stage": str(stage) if stage else None,
-            "timestamp": time.time(),
+            "timestamp": now,
+            "started_at": started_at,
+            "progress_percent": progress_percent,
+            "eta_seconds": eta_seconds,
             "error_code": error_code,
             "retryable": retryable,
             "failed_step": failed_step,
+            "error": error_payload,
         }
         print(f"Task {task_id}: {message}")
-    broadcast_progress(task_id, message, str(stage) if stage else None, error_code, retryable, failed_step)
+    broadcast_progress(
+        task_id,
+        message,
+        str(stage) if stage else None,
+        error_code,
+        retryable,
+        failed_step,
+        progress_percent=progress_percent,
+        eta_seconds=eta_seconds,
+        error=error_payload,
+    )
 
 
 def get_task_progress(task_id: str) -> dict:

@@ -53,13 +53,13 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
     setQueue(prev => [...prev, task]);
   }, []);
 
-  const applyProgressUpdate = useCallback((taskId: string, message: string, meta?: { stage?: TaskStage; error_code?: string; retryable?: boolean; failed_step?: string }) => {
+  const applyProgressUpdate = useCallback((taskId: string, message: string, meta?: { stage?: TaskStage; error_code?: string; retryable?: boolean; failed_step?: string; progress_percent?: number; eta_seconds?: number | null; error?: { message: string; code?: string | null; retryable?: boolean | null; failed_step?: string | null } | null }) => {
     const previousMessage = progressDedupRef.current.get(taskId);
     if (previousMessage === message) return;
     progressDedupRef.current.set(taskId, message);
 
-    setQueue(prev => prev.map(t => t.taskId === taskId ? { ...t, progress: message, stage: meta?.stage, errorCode: meta?.error_code, retryable: meta?.retryable, failedStep: meta?.failed_step } : t));
-    setCurrentTask(prev => prev && prev.taskId === taskId ? { ...prev, progress: message, stage: meta?.stage, errorCode: meta?.error_code, retryable: meta?.retryable, failedStep: meta?.failed_step } : prev);
+    setQueue(prev => prev.map(t => t.taskId === taskId ? { ...t, progress: message, stage: meta?.stage, errorCode: meta?.error_code, retryable: meta?.retryable, failedStep: meta?.failed_step, progressPercent: meta?.progress_percent, etaSeconds: meta?.eta_seconds, error: meta?.error } : t));
+    setCurrentTask(prev => prev && prev.taskId === taskId ? { ...prev, progress: message, stage: meta?.stage, errorCode: meta?.error_code, retryable: meta?.retryable, failedStep: meta?.failed_step, progressPercent: meta?.progress_percent, etaSeconds: meta?.eta_seconds, error: meta?.error } : prev);
   }, []);
 
   const removeTask = useCallback((taskId: string) => {
@@ -158,7 +158,7 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
       );
 
       if (result.error) {
-        setCurrentTask(prev => prev ? { ...prev, status: QueueTaskStatus.Error, progress: result.error || "오류 발생", stage: result.failed_step === 'correct' ? 'correct' : result.failed_step === 'summary' ? 'summary' : 'transform', errorCode: result.error_code, retryable: result.retryable, failedStep: result.failed_step } : null);
+        setCurrentTask(prev => prev ? { ...prev, status: QueueTaskStatus.Error, progress: result.error || "오류 발생", stage: result.failed_step === 'correct' ? 'correct' : result.failed_step === 'summary' ? 'summary' : 'transform', errorCode: result.error_code, retryable: result.retryable, failedStep: result.failed_step, error: { message: result.error || '오류 발생', code: result.error_code, retryable: result.retryable, failed_step: result.failed_step } } : null);
       } else {
         setCurrentTask(prev => prev ? { ...prev, status: QueueTaskStatus.Completed } : null);
       }
@@ -186,7 +186,7 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
       try {
         const progress: TaskProgress = await api.getProgress(currentTask.taskId);
         if (cancelled || !progress.message) return;
-        applyProgressUpdate(progress.task_id, progress.message, { stage: progress.stage, error_code: progress.error_code, retryable: progress.retryable, failed_step: progress.failed_step });
+        applyProgressUpdate(progress.task_id, progress.message, { stage: progress.stage, error_code: progress.error_code, retryable: progress.retryable, failed_step: progress.failed_step, progress_percent: progress.progress_percent, eta_seconds: progress.eta_seconds, error: progress.error });
       } catch {
         // WebSocket is primary; polling explicitly prevents stale UI when websocket events are dropped.
       }

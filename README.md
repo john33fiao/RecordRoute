@@ -102,7 +102,7 @@ venv\Scripts\python.exe -m sttEngine.server
 
 주요 GET:
 - `/`, `/assets/*`, `/download/<uuid_or_path>`
-- `/history`, `/tasks`, `/progress/<task_id>`
+- `/history`, `/tasks`, `/progress/<task_id>` (진행률 %, ETA, 표준 오류 payload 포함)
 - `/search`, `/models`, `/cache/stats`, `/cache/cleanup`
 - `/api/similarity-graph`, `/api/documents/metadata`
 

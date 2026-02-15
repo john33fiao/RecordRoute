@@ -1,4 +1,4 @@
-import { Clock, Loader2, CheckCircle2, XCircle, FileAudio, FileText, X } from 'lucide-react';
+import { Clock, Loader2, CheckCircle2, XCircle, FileAudio, FileText, X, AlertTriangle } from 'lucide-react';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
@@ -56,6 +56,16 @@ export function JobQueue() {
 
   const stepLabels: Record<string, string> = { stt: '변환', correct: '교정', embedding: '변환', summary: '요약', summarize: '요약' };
 
+
+
+  const formatEta = (seconds?: number | null) => {
+    if (seconds === undefined || seconds === null || Number.isNaN(seconds)) return null;
+    if (seconds <= 0) return '곧 완료';
+    const min = Math.floor(seconds / 60);
+    const sec = seconds % 60;
+    return min > 0 ? `약 ${min}분 ${sec}초` : `약 ${sec}초`;
+  };
+
   const getCurrentStage = (task: QueueTask): (typeof STAGE_ORDER)[number] => {
     if (task.stage) return task.stage;
     if (task.status === QueueTaskStatus.Pending || task.status === QueueTaskStatus.Queued) return 'upload';
@@ -109,12 +119,19 @@ export function JobQueue() {
                         <div className="flex items-center gap-2 text-sm">
                           {getStatusIcon(task.status)}
                           <span className={theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}>{task.progress || '대기 중...'}</span>
+                          {(task.status === QueueTaskStatus.Processing || task.status === QueueTaskStatus.Queued) && (task.progressPercent !== undefined || task.etaSeconds !== undefined) && (
+                            <span className={theme === 'dark' ? 'text-xs text-slate-500' : 'text-xs text-slate-500'}>{task.progressPercent !== undefined ? `${task.progressPercent}%` : ''}{task.etaSeconds !== undefined && formatEta(task.etaSeconds) ? ` · ETA ${formatEta(task.etaSeconds)}` : ''}</span>
+                          )}
                         </div>
-                        {task.status === QueueTaskStatus.Error && (task.failedStep || task.errorCode) && (
-                          <div className={`text-xs ${theme === 'dark' ? 'text-red-300' : 'text-red-600'}`}>
-                            실패 단계: {task.failedStep ? (stepLabels[task.failedStep] || task.failedStep) : '-'}
-                            {task.errorCode ? ` · 코드: ${task.errorCode}` : ''}
-                            {task.retryable === false ? ' · 재시도 불가' : ''}
+                        {task.status === QueueTaskStatus.Error && (
+                          <div className={`rounded-lg border p-2 text-xs space-y-1 ${theme === 'dark' ? 'border-red-500/40 bg-red-950/30 text-red-200' : 'border-red-300 bg-red-50 text-red-700'}`}>
+                            <div className="flex items-center gap-1 font-medium"><AlertTriangle className="size-3.5" />오류 정보</div>
+                            <div>{task.error?.message || task.progress || '오류 발생'}</div>
+                            <div>
+                              실패 단계: {task.error?.failed_step ? (stepLabels[task.error.failed_step] || task.error.failed_step) : (task.failedStep ? (stepLabels[task.failedStep] || task.failedStep) : '-')}
+                              {(task.error?.code || task.errorCode) ? ` · 코드: ${task.error?.code || task.errorCode}` : ''}
+                              {task.retryable === false || task.error?.retryable === false ? ' · 재시도 불가' : ''}
+                            </div>
                           </div>
                         )}
 
@@ -133,7 +150,7 @@ export function JobQueue() {
                               );
                             })}
                           </div>
-                          {task.status === QueueTaskStatus.Processing && <Progress value={Math.max(20, (STAGE_ORDER.indexOf(getCurrentStage(task)) + 1) * 25)} className="h-1.5" />}
+                          {task.status === QueueTaskStatus.Processing && <Progress value={task.progressPercent ?? Math.max(20, (STAGE_ORDER.indexOf(getCurrentStage(task)) + 1) * 25)} className="h-1.5" />}
                         </div>
                         <TaskActionControls
                           compact

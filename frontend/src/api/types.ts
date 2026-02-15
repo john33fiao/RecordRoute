@@ -162,13 +162,23 @@ export interface RunningTask {
   [key: string]: unknown;
 }
 
+export interface StandardErrorPayload {
+  message: string;
+  code?: string | null;
+  retryable?: boolean | null;
+  failed_step?: string | null;
+}
+
 export interface TaskProgress {
   task_id: string;
   message: string;
   stage?: TaskStage;
+  progress_percent?: number;
+  eta_seconds?: number | null;
   error_code?: string;
   retryable?: boolean;
   failed_step?: string;
+  error?: StandardErrorPayload | null;
 }
 
 export interface QueueTask {
@@ -189,6 +199,9 @@ export interface QueueTask {
   retryable?: boolean;
   failedStep?: string;
   stage?: TaskStage;
+  progressPercent?: number;
+  etaSeconds?: number | null;
+  error?: StandardErrorPayload | null;
 }
 
 export interface ModelSettings {
