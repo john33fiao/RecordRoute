@@ -19,6 +19,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+# MCP 동작 방향성 재정렬 전까지는 전역 비활성화 상태를 유지한다.
+_MCP_TEMPORARILY_DISABLED = True
+
+
 class ObsidianMCPIntegration:
     """Obsidian MCP 서버와 통신하여 파일을 생성/업데이트하는 클래스"""
 
@@ -30,10 +34,14 @@ class ObsidianMCPIntegration:
         - OBSIDIAN_API_KEY: Obsidian API 키
         - OBSIDIAN_VAULT_FOLDER: Vault 내 저장 폴더 경로
         """
-        self.enabled = os.getenv("OBSIDIAN_MCP_ENABLED", "false").lower() == "true"
+        requested_enabled = os.getenv("OBSIDIAN_MCP_ENABLED", "false").lower() == "true"
+        self.enabled = requested_enabled and not _MCP_TEMPORARILY_DISABLED
         self.server_path = os.getenv("OBSIDIAN_MCP_SERVER_PATH")
         self.api_key = os.getenv("OBSIDIAN_API_KEY")
         self.vault_folder = os.getenv("OBSIDIAN_VAULT_FOLDER", "RecordRoute")
+
+        if requested_enabled and _MCP_TEMPORARILY_DISABLED:
+            print("[Obsidian MCP] INFO: 임시 비활성화 상태입니다. TODO 항목 완료 전까지 전송을 건너뜁니다.")
 
         # 설정 검증
         if self.enabled:
@@ -133,7 +141,7 @@ aliases:
         if not self.enabled:
             return {
                 "success": False,
-                "message": "Obsidian MCP가 비활성화되어 있습니다.",
+                "message": "Obsidian MCP가 임시 비활성화되어 있습니다.",
                 "action": "skipped"
             }
 
@@ -231,7 +239,7 @@ aliases:
         if not self.enabled:
             return {
                 "success": False,
-                "message": "Obsidian MCP가 비활성화되어 있습니다.",
+                "message": "Obsidian MCP가 임시 비활성화되어 있습니다.",
                 "action": "skipped"
             }
 
