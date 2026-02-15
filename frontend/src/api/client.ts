@@ -11,6 +11,8 @@ import type {
   RetryMode,
   TaskProgress,
   ViewerFileType,
+  SimilarityGraphRequest,
+  SimilarityGraphResponse,
 } from './types';
 
 interface ApiRequestOptions extends RequestInit {
@@ -134,6 +136,19 @@ export async function search(request: SearchRequest): Promise<SearchResponse> {
   if (request.status) params.set('status', request.status);
   if (request.status_task) params.set('status_task', request.status_task);
   return apiRequest<SearchResponse>(`/search?${params}`);
+}
+
+
+export async function getSimilarityGraph(request: SimilarityGraphRequest = {}): Promise<SimilarityGraphResponse> {
+  const params = new URLSearchParams();
+  if (request.min_similarity !== undefined) params.set('min_similarity', String(request.min_similarity));
+  if (request.max_neighbors !== undefined) params.set('max_neighbors', String(request.max_neighbors));
+  if (request.max_nodes !== undefined) params.set('max_nodes', String(request.max_nodes));
+  if (request.sampling) params.set('sampling', request.sampling);
+  if (request.doc_id) params.set('doc_id', request.doc_id);
+  if (request.refresh !== undefined) params.set('refresh', String(request.refresh));
+  const query = params.toString();
+  return apiRequest<SimilarityGraphResponse>(`/api/similarity-graph${query ? `?${query}` : ''}`);
 }
 
 export const getSimilarDocs = (

@@ -1,9 +1,10 @@
 import { useCallback } from 'react';
-import { Upload, Clock, History, Search, Settings, Sparkles } from 'lucide-react';
+import { Upload, Clock, History, Search, Settings, Sparkles, Network } from 'lucide-react';
 import { UploadSection } from './components/UploadSection';
 import { JobQueue } from './components/JobQueue';
 import { HistoryPanel } from './components/HistoryPanel';
 import { SearchPanel } from './components/SearchPanel';
+import { SimilarityGraphPanel } from './components/SimilarityGraphPanel';
 import { SettingsDialog } from './components/SettingsDialog';
 import { TextOverlay } from './components/TextOverlay';
 import { SimilarDocsDialog } from './components/SimilarDocsDialog';
@@ -72,6 +73,7 @@ function AppContent() {
             <TabsTrigger value="queue" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-600 data-[state=active]:to-fuchsia-600 gap-2"><Clock className="size-4" /> 작업 큐</TabsTrigger>
             <TabsTrigger value="history" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-600 data-[state=active]:to-fuchsia-600 gap-2"><History className="size-4" /> 기록</TabsTrigger>
             <TabsTrigger value="search" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-600 data-[state=active]:to-fuchsia-600 gap-2"><Search className="size-4" /> 검색</TabsTrigger>
+            <TabsTrigger value="graph" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-600 data-[state=active]:to-fuchsia-600 gap-2"><Network className="size-4" /> 그래프</TabsTrigger>
           </TabsList>
 
           <TabsContent value="upload"><UploadSection /></TabsContent>
@@ -84,6 +86,7 @@ function AppContent() {
             />
           </TabsContent>
           <TabsContent value="search"><SearchPanel /></TabsContent>
+          <TabsContent value="graph"><SimilarityGraphPanel /></TabsContent>
         </Tabs>
       </div>
 
