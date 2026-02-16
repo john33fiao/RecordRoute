@@ -92,6 +92,10 @@ venv\Scripts\python.exe -m sttEngine.server
 
 주요 변수:
 - `DB_FOLDER_PATH`: 데이터 저장 루트 (미설정 시 프로젝트의 `DB/`)
+- `LLM_PROVIDER`: 교정/요약 LLM provider 선택 (`ollama` 기본, `llamacpp` 지원)
+- `LLAMA_CPP_COMMAND`: llama.cpp 실행 커맨드 (기본 `llama-cli`)
+- `LLAMA_CPP_MODEL_PATH`: llama.cpp 기본 모델 경로 (`.gguf`)
+- `LLAMA_CPP_TIMEOUT`: llama.cpp 호출 타임아웃(초, 기본 300)
 - `TRANSCRIBE_MODEL_WINDOWS`, `TRANSCRIBE_MODEL_UNIX`
 - `SUMMARY_MODEL_WINDOWS`, `SUMMARY_MODEL_UNIX`
 - `EMBEDDING_MODEL_WINDOWS`, `EMBEDDING_MODEL_UNIX`
@@ -123,6 +127,7 @@ venv\Scripts\python.exe -m sttEngine.server
     "whisper": "large-v3-turbo",
     "language": "ko",
     "device": "auto",
+    "provider": "ollama",
     "correct": "gpt-oss:20b",
     "summarize": "gpt-oss:20b"
   }
