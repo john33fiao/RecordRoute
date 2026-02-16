@@ -1,16 +1,14 @@
-import { useState, useCallback } from 'react';
-import { FileAudio, FileText, Download, Trash2, Trash, Calendar, Search, Pencil, Check, X, Play, ChevronDown } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Trash2, Trash, Calendar, Search, Play, ChevronDown } from 'lucide-react';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { ScrollArea } from './ui/scroll-area';
 import { Input } from './ui/input';
-import { TaskActionControls } from './TaskActionControls';
 import { useTheme } from '../contexts/ThemeContext';
 import { useApp } from '../contexts/AppContext';
-import * as api from '../api/client';
 import type { HistoryRecord, TaskType } from '../api/types';
 import { QueueTaskStatus } from '../api/types';
+import { HistoryListItem } from './HistoryListItem';
 
 interface HistoryPanelProps {
   onViewContent: (fileIdentifier: string, fileType: 'stt' | 'summary', record: HistoryRecord) => void;
@@ -18,25 +16,42 @@ interface HistoryPanelProps {
   onShowResetAll: () => void;
 }
 
+const LIST_HEIGHT = 600;
+const ITEM_HEIGHT = 196;
+const OVERSCAN = 4;
+const VIRTUALIZATION_THRESHOLD = 80;
+
 export function HistoryPanel({ onViewContent, onShowSimilarDocs, onShowResetAll }: HistoryPanelProps) {
   const { theme } = useTheme();
   const { historyState, loadHistory, deleteRecords, updateFilename, addTask, queue, currentTask } = useApp();
   const history = historyState.data;
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest'>('newest');
+  const [scrollTop, setScrollTop] = useState(0);
 
-  const filteredHistory = history
-    .filter(item => item.filename.toLowerCase().includes(searchQuery.toLowerCase()))
-    .sort((a, b) => sortBy === 'newest' ? new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime() : new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const filteredHistory = useMemo(() => {
+    return history
+      .filter((item) => item.filename.toLowerCase().includes(searchQuery.toLowerCase()))
+      .sort((a, b) => (sortBy === 'newest'
+        ? new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        : new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()));
+  }, [history, searchQuery, sortBy]);
 
-  const toggleSelect = (id: string) => setSelectedIds(prev => {
-    const next = new Set(prev);
-    next.has(id) ? next.delete(id) : next.add(id);
-    return next;
-  });
+  useEffect(() => {
+    setScrollTop(0);
+  }, [searchQuery, sortBy]);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
   const handleDeleteSelected = async () => {
     if (selectedIds.size === 0) return;
@@ -46,17 +61,21 @@ export function HistoryPanel({ onViewContent, onShowSimilarDocs, onShowResetAll 
   };
 
   const saveEditing = async () => {
-    if (editingId && editingName.trim()) await updateFilename(editingId, editingName.trim().normalize('NFC'));
+    if (editingId && editingName.trim()) {
+      await updateFilename(editingId, editingName.trim().normalize('NFC'));
+    }
     setEditingId(null);
   };
 
   const getQueueTask = (record: HistoryRecord, taskType: TaskType) => {
     const allTasks = currentTask ? [currentTask, ...queue] : queue;
-    return allTasks.find(t => t.recordId === record.id && t.taskType === taskType);
+    return allTasks.find((t) => t.recordId === record.id && t.taskType === taskType);
   };
 
   const getTaskStatus = (record: HistoryRecord, taskType: TaskType) => {
-    if (record.completed_tasks?.[taskType] || record.info?.[`${taskType}_completed`]) return QueueTaskStatus.Completed;
+    if (record.completed_tasks?.[taskType] || record.info?.[`${taskType}_completed`]) {
+      return QueueTaskStatus.Completed;
+    }
     return getQueueTask(record, taskType)?.status || QueueTaskStatus.Pending;
   };
 
@@ -87,9 +106,8 @@ export function HistoryPanel({ onViewContent, onShowSimilarDocs, onShowResetAll 
 
   const handleProcessAll = () => {
     let tasksAdded = 0;
-
-    history.forEach(record => {
-      getProcessTaskTypes(record).forEach(taskType => {
+    history.forEach((record) => {
+      getProcessTaskTypes(record).forEach((taskType) => {
         const status = getTaskStatus(record, taskType);
         if (status === QueueTaskStatus.Pending || status === QueueTaskStatus.Error || status === QueueTaskStatus.Cancelled) {
           addTask(record.id, record.file_path || record.id, taskType);
@@ -106,15 +124,26 @@ export function HistoryPanel({ onViewContent, onShowSimilarDocs, onShowResetAll 
     alert('진행할 미완료 작업이 없습니다.');
   };
 
-  const getTaskBtnClass = (status: QueueTaskStatus) => {
-    if (status === QueueTaskStatus.Completed) return 'bg-green-500/20 text-green-400 border-green-500/50 hover:bg-green-500/30';
-    if (status === QueueTaskStatus.Processing) return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50 cursor-not-allowed';
-    if (status === QueueTaskStatus.Queued) return 'bg-blue-500/20 text-blue-400 border-blue-500/50 cursor-not-allowed';
-    if (status === QueueTaskStatus.Error || status === QueueTaskStatus.Cancelled) return 'bg-red-500/20 text-red-300 border-red-500/50';
-    return theme === 'dark' ? 'border-slate-600 text-slate-400 hover:border-violet-500 hover:bg-violet-500/10' : 'border-slate-400 text-slate-600 hover:border-violet-500 hover:bg-violet-500/10';
+  const handleRetryFailed = (record: HistoryRecord, statuses: Record<TaskType, QueueTaskStatus>) => {
+    if (statuses.stt === QueueTaskStatus.Error || statuses.stt === QueueTaskStatus.Cancelled) {
+      addTask(record.id, record.file_path || record.id, 'stt');
+    }
+    if (statuses.embedding === QueueTaskStatus.Error || statuses.embedding === QueueTaskStatus.Cancelled) {
+      addTask(record.id, record.file_path || record.id, 'embedding');
+    }
+    if (statuses.summary === QueueTaskStatus.Error || statuses.summary === QueueTaskStatus.Cancelled) {
+      addTask(record.id, record.file_path || record.id, 'summary');
+    }
   };
 
-  const FileIcon = useCallback(({ fileType }: { fileType: string }) => fileType === 'audio' ? <FileAudio className="size-4 text-white" /> : <FileText className="size-4 text-white" />, []);
+  const virtualizationEnabled = filteredHistory.length >= VIRTUALIZATION_THRESHOLD;
+  const visibleCount = Math.ceil(LIST_HEIGHT / ITEM_HEIGHT);
+  const startIndex = virtualizationEnabled ? Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - OVERSCAN) : 0;
+  const endIndex = virtualizationEnabled ? Math.min(filteredHistory.length - 1, startIndex + visibleCount + OVERSCAN * 2) : filteredHistory.length - 1;
+  const visibleItems = filteredHistory.slice(startIndex, endIndex + 1);
+
+  const totalHeight = filteredHistory.length * ITEM_HEIGHT;
+  const topPadding = startIndex * ITEM_HEIGHT;
 
   return (
     <Card className={`backdrop-blur-sm ${theme === 'dark' ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-white/50'}`}>
@@ -134,9 +163,14 @@ export function HistoryPanel({ onViewContent, onShowSimilarDocs, onShowResetAll 
             className={`text-sm rounded-lg border px-2 py-1 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-900'}`}>
             <option value="newest">최신순</option><option value="oldest">오래된 순</option>
           </select>
+          {virtualizationEnabled && (
+            <Badge variant="outline" className="gap-1">
+              <ChevronDown className="size-3" /> 가상 스크롤
+            </Badge>
+          )}
         </div>
 
-        <ScrollArea className="h-[600px] pr-4">
+        <div className="h-[600px] overflow-y-auto pr-4" onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
           {filteredHistory.length === 0 ? (
             <div className="text-center py-12">
               <div className={`inline-block p-4 rounded-full mb-4 ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-100'}`}><Calendar className={`size-8 ${theme === 'dark' ? 'text-slate-600' : 'text-slate-400'}`} /></div>
@@ -144,53 +178,48 @@ export function HistoryPanel({ onViewContent, onShowSimilarDocs, onShowResetAll 
               {historyState.error && <p className="text-red-400 text-xs mt-2">{historyState.error}</p>}
             </div>
           ) : (
-            <div className="space-y-3">
-              {filteredHistory.map(item => {
-                const sttStatus = getTaskStatus(item, 'stt');
-                const embStatus = getTaskStatus(item, 'embedding');
-                const sumStatus = getTaskStatus(item, 'summary');
-                return (
-                  <div key={item.id} className={`p-4 rounded-xl border transition-all space-y-3 group ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700 hover:border-slate-600' : 'bg-slate-50 border-slate-200 hover:border-slate-300'}`}>
-                    <div className="flex items-start gap-3">
-                      <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)} className="mt-1.5 rounded border-slate-600" />
-                      <div className="p-2 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600"><FileIcon fileType={item.file_type} /></div>
-                      <div className="flex-1 min-w-0">
-                        {editingId === item.id ? (
-                          <div className="flex items-center gap-2">
-                            <input type="text" value={editingName} onChange={(e) => setEditingName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveEditing(); if (e.key === 'Escape') setEditingId(null); }} className="flex-1 text-sm px-2 py-1 rounded border" />
-                            <button onClick={saveEditing} className="text-green-400 hover:text-green-300"><Check className="size-4" /></button>
-                            <button onClick={() => setEditingId(null)} className="text-red-400 hover:text-red-300"><X className="size-4" /></button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <p className={`font-medium truncate ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'}`}>{item.filename.normalize('NFC')}</p>
-                            <button onClick={() => { setEditingId(item.id); setEditingName(item.filename); }} className="opacity-0 group-hover:opacity-100 transition-opacity"><Pencil className={`size-3 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`} /></button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+            <div className="relative" style={virtualizationEnabled ? { height: totalHeight } : undefined}>
+              <div className="space-y-3" style={virtualizationEnabled ? { transform: `translateY(${topPadding}px)` } : undefined}>
+                {visibleItems.map((item) => {
+                  const sttStatus = getTaskStatus(item, 'stt');
+                  const embStatus = getTaskStatus(item, 'embedding');
+                  const sumStatus = getTaskStatus(item, 'summary');
 
-                    <div className="flex flex-wrap gap-2 pl-12">
-                      <button onClick={() => handleTaskButton(item, 'stt')} disabled={sttStatus === QueueTaskStatus.Queued || sttStatus === QueueTaskStatus.Processing} className={`text-xs px-3 py-1 rounded-lg border transition-colors ${getTaskBtnClass(sttStatus)}`}>STT</button>
-                      <button onClick={() => handleTaskButton(item, 'embedding')} disabled={embStatus === QueueTaskStatus.Queued || embStatus === QueueTaskStatus.Processing} className={`text-xs px-3 py-1 rounded-lg border transition-colors ${getTaskBtnClass(embStatus)}`}>색인</button>
-                      <button onClick={() => handleTaskButton(item, 'summary')} disabled={sumStatus === QueueTaskStatus.Queued || sumStatus === QueueTaskStatus.Processing} className={`text-xs px-3 py-1 rounded-lg border transition-colors ${getTaskBtnClass(sumStatus)}`}>요약</button>
-                      <a href={api.getDownloadUrl(item.file_path || item.id)} download className={`text-xs px-3 py-1 rounded-lg border transition-colors ${theme === 'dark' ? 'border-slate-600 text-slate-400 hover:border-green-500 hover:bg-green-500/10' : 'border-slate-400 text-slate-600 hover:border-green-500 hover:bg-green-50'}`}><Download className="size-3 inline mr-1" /> 다운로드</a>
+                  return (
+                    <div key={item.id} style={virtualizationEnabled ? { minHeight: ITEM_HEIGHT - 12 } : undefined}>
+                      <HistoryListItem
+                        item={item}
+                        theme={theme}
+                        isSelected={selectedIds.has(item.id)}
+                        isEditing={editingId === item.id}
+                        editingName={editingName}
+                        sttStatus={sttStatus}
+                        embStatus={embStatus}
+                        sumStatus={sumStatus}
+                        onToggleSelect={toggleSelect}
+                        onStartEditing={(id, filename) => {
+                          setEditingId(id);
+                          setEditingName(filename);
+                        }}
+                        onCancelEditing={() => setEditingId(null)}
+                        onChangeEditingName={setEditingName}
+                        onSaveEditing={saveEditing}
+                        onTaskAction={handleTaskButton}
+                        onRetryFailed={handleRetryFailed}
+                      />
                     </div>
-
-                    <TaskActionControls
-                      canRetry={[sttStatus, embStatus, sumStatus].some((s) => s === QueueTaskStatus.Error || s === QueueTaskStatus.Cancelled)}
-                      onRetry={() => {
-                        if (sttStatus === QueueTaskStatus.Error || sttStatus === QueueTaskStatus.Cancelled) addTask(item.id, item.file_path || item.id, 'stt');
-                        if (embStatus === QueueTaskStatus.Error || embStatus === QueueTaskStatus.Cancelled) addTask(item.id, item.file_path || item.id, 'embedding');
-                        if (sumStatus === QueueTaskStatus.Error || sumStatus === QueueTaskStatus.Cancelled) addTask(item.id, item.file_path || item.id, 'summary');
-                      }}
-                    />
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
-        </ScrollArea>
+        </div>
+
+        <div className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+          전체 {filteredHistory.length}개 항목 · 현재 렌더링 {visibleItems.length}개
+        </div>
+
+        <Button variant="outline" size="sm" onClick={loadHistory}>새로고침</Button>
       </div>
     </Card>
   );
