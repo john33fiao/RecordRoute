@@ -17,6 +17,8 @@
   - WebSocket 서버는 별도 스레드에서 실행 (`sttEngine/http_api/ws.py`, 포트 `8765`)
 - 런처 래퍼: `sttEngine/server.py` (`python -m sttEngine.server`)
 - 핵심 HTTP 라우팅: `sttEngine/http_api/handler.py` + 라우트 모듈(`sttEngine/http_api/routes/*`)
+  - 파일/정적 서빙: `sttEngine/http_api/routes/file_routes.py`
+  - 유사문서 응답 조합: `sttEngine/http_api/routes/similar_documents.py`
 - 워크플로우 실행: `sttEngine/http_api/workflow.py`
 - 프론트엔드: React + Vite (`frontend/src/*`)
 - 레거시 UI: `frontend/legacy/*` (프론트 빌드 실패 시 fallback)
@@ -86,7 +88,7 @@ POST
 - 진행률 응답(`/progress/<task_id>`, WebSocket)은 `progress_percent`, `eta_seconds`, `error`(표준 오류 카드용 객체) 포함
 
 ## 6. 수정 시 우선 확인할 파일
-- 라우트/핸들러: `sttEngine/http_api/handler.py`
+- 라우트/핸들러: `sttEngine/http_api/handler.py`, `sttEngine/http_api/routes/file_routes.py`
 - 워크플로우: `sttEngine/http_api/workflow.py`
 - 에러 매핑: `sttEngine/server/services/errors.py`
 - 히스토리/레지스트리: `sttEngine/http_api/history.py`, `sttEngine/http_api/registry.py`, `sttEngine/http_api/records.py`

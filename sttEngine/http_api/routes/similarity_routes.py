@@ -4,6 +4,7 @@ import json
 from urllib.parse import parse_qs, unquote, urlparse
 
 from ...similarity_matrix import get_documents_metadata, get_similarity_graph
+from .similar_documents import SimilarDocumentNotFound, find_similar_documents
 
 
 def _read_json_payload(handler):
@@ -47,7 +48,30 @@ def handle_get(handler) -> bool:
 
     if handler.path.startswith('/similar/'):
         file_identifier = unquote(handler.path[len('/similar/'):])
-        handler._serve_similar_documents(file_identifier)
+        try:
+            similar_docs = find_similar_documents(file_identifier)
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps(similar_docs, ensure_ascii=False).encode())
+        except SimilarDocumentNotFound as exc:
+            handler.send_response(404)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps({'error': str(exc)}, ensure_ascii=False).encode())
+        except Exception as exc:
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(
+                json.dumps(
+                    {
+                        'error': '유사 문서 검색 중 오류가 발생했습니다. 색인이 생성되어 있는지 확인해주세요.',
+                        'details': str(exc),
+                    },
+                    ensure_ascii=False,
+                ).encode()
+            )
         return True
 
     return False
@@ -75,5 +99,28 @@ def handle_post(handler) -> bool:
         handler.wfile.write(b'Missing file_identifier')
         return True
 
-    handler._serve_similar_documents_with_filename(file_identifier, user_filename, refresh)
+    try:
+        similar_docs = find_similar_documents(file_identifier, user_filename=user_filename, refresh=refresh)
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'application/json')
+        handler.end_headers()
+        handler.wfile.write(json.dumps(similar_docs, ensure_ascii=False).encode())
+    except SimilarDocumentNotFound as exc:
+        handler.send_response(404)
+        handler.send_header('Content-Type', 'application/json')
+        handler.end_headers()
+        handler.wfile.write(json.dumps({'error': str(exc)}, ensure_ascii=False).encode())
+    except Exception as exc:
+        handler.send_response(500)
+        handler.send_header('Content-Type', 'application/json')
+        handler.end_headers()
+        handler.wfile.write(
+            json.dumps(
+                {
+                    'error': '유사 문서 검색 중 오류가 발생했습니다. 색인이 생성되어 있는지 확인해주세요.',
+                    'details': str(exc),
+                },
+                ensure_ascii=False,
+            ).encode()
+        )
     return True
