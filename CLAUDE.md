@@ -10,6 +10,10 @@
    - 워크플로우: `sttEngine/http_api/workflow.py`
    - 프론트 API 연동: `frontend/src/api/client.ts`, `frontend/src/api/types.ts`
 
+## 문서 점검
+
+- 백로그는 `TODO/TODO.md`(실행 항목만 유지), 최신 점검 결과는 `TODO/STATUS_REVIEW.md`를 우선 참고합니다.
+
 ## 최소 검증
 
 - `pytest tests/http_api/test_workflow.py tests/http_api/test_search.py tests/server/test_queue.py tests/test_vocab_system.py`

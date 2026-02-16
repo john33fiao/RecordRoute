@@ -1,24 +1,24 @@
-# 코드베이스 상태 점검 (2026-02-16, 문서 정합성 갱신)
+# 코드베이스 상태 점검 (2026-02-16, 문서 정합성 재갱신)
 
 ## 1) 이번 점검 범위
 
 다음 기준 문서와 실제 구현 파일을 대조해 상태를 갱신했다.
-- 기준 문서: `TODO/TODO.md`, `TODO/GUI.md`, `TODO/Graph.md`, `README.md`, `AGENTS.md`
-- 구현 근거: `sttEngine/http_api/handler.py`, `sttEngine/http_api/state.py`, `sttEngine/http_api/ws.py`, `sttEngine/http_api/routes/*`, `frontend/src/*`, `sttEngine/similarity_matrix.py`
+- 기준 문서: `TODO/TODO.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`
+- 구현 근거: `sttEngine/http_api/handler.py`, `sttEngine/http_api/destructive_guard.py`, `sttEngine/http_api/routes/*`, `frontend/scripts/benchmark-similarity-graph.mjs`, `frontend/src/*`
 
 ## 2) 핵심 결론
 
-1. **기존 P0 중 일부는 완료 상태**다. 그래프 React 탭 통합/줌·팬·드래그, 큐 진행률(%)·ETA·오류 카드는 코드에 반영되어 있다.
-2. **미완료 P0는 2개**다. `handler.py` 책임 분리와 파괴적 API 보호 정책은 여전히 필요하다.
-3. **Graph/GUI 문서는 “미착수” 과대표기를 제거**하고 완료·부분완료·미착수로 재분류했다.
-4. TODO 문서는 원칙대로 **완료 항목을 백로그에서 제거**하고 실행 항목만 유지하도록 정리했다.
+1. **기존 P0 중 2개는 완료 상태**다.
+   - 파괴적 API 보호(기본 안전 모드 + 토큰/세션 검증)는 라우트 레벨에서 적용되어 있다.
+   - 그래프 성능 계측 자동화(100/500/1000 문서 기준선 생성 스크립트)는 제공된다.
+2. **현재 미완료 P0는 1개**다.
+   - `handler.py` 내부 업로드 처리 책임 분리가 남아 있다.
+3. TODO 원칙에 맞춰 **완료 항목은 `TODO/TODO.md`에서 제거**했고, 실행이 필요한 작업만 유지했다.
 
 ## 3) 현재 유효 백로그 요약
 
 ### P0
 1. `handler.py` 책임 분리(라우트 단위 모듈화 마무리)
-2. 파괴적 API 보호(`/shutdown`, `/delete*`, `/reset*`)
-3. Graph 대용량 성능 계측 자동화(100/500/1000 문서 기준)
 
 ### P1
 1. 검색 고급필터 UI + 하이라이트
@@ -39,11 +39,10 @@
 ## 4) 의존관계 맵 (실행 전 체크)
 
 - 검색 고급화(P1) ← 검색 API 계약 명세/OpenAPI 초안
-- 그래프 고도화(P1) ← 성능 계측/기준선(P0)
 - 운영 지표(P2) ← 로깅/메트릭 스키마 정리
 
 ## 5) 상태값 정리 결과
 
-- 완료된 작업(그래프 상호작용 MVP, 큐 진행률/ETA/오류 UX)은 TODO 체크리스트에서 삭제했다.
+- 완료된 작업(파괴적 API 보호, 그래프 성능 계측 자동화)은 TODO 체크리스트에서 삭제했다.
 - TODO 문서는 실행 관점(P0/P1/P2) 기준으로 재배치했다.
-- README/AGENTS와 충돌하지 않도록 현재 아키텍처/용어 기준을 유지했다.
+- README/AGENTS/CLAUDE/GEMINI와 충돌하지 않도록 현재 아키텍처/용어 기준을 유지했다.
