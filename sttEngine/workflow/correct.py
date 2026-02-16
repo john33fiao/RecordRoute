@@ -6,11 +6,10 @@ import sys
 import time
 import re
 import platform
-import ollama
 from typing import List, Optional
 
 from sttEngine.config import get_model_for_task, get_default_model, get_config_value, get_db_base_path
-from sttEngine.ollama_utils import safe_ollama_call
+from sttEngine.llm_provider import chat_completion, normalize_provider_name
 from sttEngine.vocabulary_manager import VocabularyManager
 from sttEngine.server.services.errors import map_workflow_exception
 from sttEngine.workflow.cli_utils import (
@@ -131,7 +130,8 @@ def validate_correction(original: str, corrected: str) -> bool:
     return True
 
 def chat_once(model: str, system: str, user: str, temperature: float = 0.0, 
-              num_ctx: int = 8192, retries: int = 3, backoff: float = 1.5) -> str:
+              num_ctx: int = 8192, retries: int = 3, backoff: float = 1.5,
+              provider_name: Optional[str] = None) -> str:
     """단일 교정 요청 (재시도 및 에러 처리 포함)"""
     last_error = None
     
@@ -139,27 +139,21 @@ def chat_once(model: str, system: str, user: str, temperature: float = 0.0,
         try:
             logging.debug("모델 %s에 요청 중... (시도 %d/%d)", model, attempt, retries)
             
-            # ollama.chat() 호출 방식 수정 - 기본 형태로 단순화
             messages = [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user + "\n\n" + CORRECTION_INSTRUCTIONS},
             ]
-            
-            try:
-                # 최신 ollama 라이브러리 방식 (safe_ollama_call 사용)
-                resp = safe_ollama_call(
-                    ollama.chat,
-                    model=model,
-                    messages=messages,
-                    options={
-                        "temperature": temperature,
-                        "num_ctx": num_ctx,
-                    }
-                )
-            except TypeError as te:
-                # 구 버전 ollama 라이브러리 방식
-                logging.warning("새로운 ollama.chat 방식 실패, 구 버전 방식으로 재시도: %s", te)
-                resp = safe_ollama_call(ollama.chat, model, messages)
+
+            provider = normalize_provider_name(provider_name)
+            resp = chat_completion(
+                model=model,
+                messages=messages,
+                options={
+                    "temperature": temperature,
+                    "num_ctx": num_ctx,
+                },
+                provider_name=provider,
+            )
             
             # 응답 검증
             # if not isinstance(resp, dict):
@@ -196,7 +190,7 @@ def correct_text_file(input_file: Path, output_file: Optional[Path] = None,
                      model: str = DEFAULT_MODEL, temperature: float = 0.0,
                      num_ctx: int = 8192, encoding: str = "utf-8",
                      strip_heading: bool = False, inplace: bool = False,
-                     max_chunk_chars: int = 8000) -> bool:
+                     max_chunk_chars: int = 8000, provider_name: Optional[str] = None) -> bool:
     """단일 파일 교정"""
     try:
         logging.info("파일 읽는 중: %s", input_file)
@@ -257,7 +251,8 @@ def correct_text_file(input_file: Path, output_file: Optional[Path] = None,
                 system=SYSTEM_PROMPT,
                 user=user_prompt,
                 temperature=temperature,
-                num_ctx=num_ctx
+                num_ctx=num_ctx,
+                provider_name=provider_name,
             )
             
             # 교정 결과 검증
@@ -344,7 +339,12 @@ def main():
     
     # 모델 옵션
     parser.add_argument("-m", "--model", default=DEFAULT_MODEL, 
-                       help=f"사용할 Ollama 모델 (기본: {DEFAULT_MODEL})")
+                       help=f"사용할 모델 (기본: {DEFAULT_MODEL})")
+    parser.add_argument(
+        "--provider",
+        default=None,
+        help="LLM provider 선택 (ollama|llamacpp). 미지정 시 LLM_PROVIDER 환경변수 또는 ollama",
+    )
     # .env 파일에서 기본 온도 설정 로드
     default_temp = get_config_value("DEFAULT_TEMPERATURE_CORRECT", 0.0, float)
     
@@ -394,6 +394,7 @@ def main():
         "strip_heading": args.strip_heading,
         "inplace": args.inplace,
         "max_chunk_chars": args.max_chars,
+        "provider_name": args.provider,
     }
     
     try:

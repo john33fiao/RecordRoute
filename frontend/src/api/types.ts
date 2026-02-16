@@ -210,4 +210,6 @@ export interface ModelSettings {
   summarize: string;
   embedding: string;
   language: string;
+  provider?: 'ollama' | 'llamacpp';
+  llm_provider?: 'ollama' | 'llamacpp';
 }

@@ -346,6 +346,7 @@ def run_workflow(
                     input_file=Path(current_file),
                     output_file=corrected_file,
                     model=(model_settings or {}).get("correct") or (model_settings or {}).get("summarize") or DEFAULT_MODEL,
+                    provider_name=(model_settings or {}).get("provider") or (model_settings or {}).get("llm_provider"),
                 )
                 if not ok:
                     raise RuntimeError("교정 처리 결과가 실패로 반환되었습니다")
@@ -453,6 +454,7 @@ def run_workflow(
                     max_tokens=None,
                     temperature=DEFAULT_TEMPERATURE,
                     progress_callback=summary_progress_callback,
+                    provider_name=(model_settings or {}).get("provider") or (model_settings or {}).get("llm_provider"),
                 )
 
                 if task_id:
