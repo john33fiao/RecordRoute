@@ -49,7 +49,7 @@ RecordRoute/
 │   ├── embedding_pipeline.py
 │   ├── vector_search.py
 │   └── server.py
-├── db/
+├── DB/
 └── tests/
 ```
 
@@ -211,4 +211,5 @@ docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 - 프론트 문제: `cd frontend && npm install && npm run build` 재실행
 
 ## 참고
-- 구현 예정 사항: `TODO/TODO.md`
+- 진행 중 백로그(완료 항목 제외): `TODO/TODO.md`
+- 최신 점검 요약: `TODO/STATUS_REVIEW.md`

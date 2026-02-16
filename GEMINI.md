@@ -8,6 +8,10 @@
 - 백엔드 핵심: `sttEngine/http_api/handler.py`, `sttEngine/http_api/workflow.py`
 - 프론트 핵심: `frontend/src/*`
 
+## 문서 점검
+
+- 백로그는 `TODO/TODO.md`(실행 항목만 유지), 최신 점검 결과는 `TODO/STATUS_REVIEW.md`를 우선 참고합니다.
+
 ## 작업 체크리스트
 
 1. 백엔드 라우트/스키마 변경 시 `frontend/src/api/client.ts`와 `frontend/src/api/types.ts` 동기화

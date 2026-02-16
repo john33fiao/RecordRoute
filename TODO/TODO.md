@@ -1,24 +1,16 @@
 # TODO Master (신규 백로그)
 
 - 마지막 점검일: 2026-02-16
-- 점검 기준: `README.md`, `CLAUDE.md`, `GEMINI.md`, `TODO/STATUS_REVIEW.md`, 주요 구현 파일(`sttEngine/http_api/handler.py`, `sttEngine/http_api/routes/*`, `frontend/src/*`)
+- 점검 기준: `README.md`, `CLAUDE.md`, `GEMINI.md`, `TODO/STATUS_REVIEW.md`, 주요 구현 파일(`sttEngine/http_api/handler.py`, `sttEngine/http_api/destructive_guard.py`, `frontend/scripts/benchmark-similarity-graph.mjs`, `frontend/src/*`)
 - 원칙: **완료 항목은 TODO에서 제거**하고, 실행이 필요한 항목만 유지
 
 ---
 
 ## 1) P0 (즉시 착수)
 
-- [ ] `handler.py` 책임 분리 (라우트 단위 모듈화)
-  - 점검 결과: `sttEngine/http_api/routes/*`로 분리됐지만 `UploadHandler`에 다운로드/정적 파일 서빙/유사문서 처리 등 대형 로직이 잔존
-  - 잔여 작업: 파일 서빙/도메인별 응답 조합 책임 추가 분리 + 회귀 테스트 고정
-
-- [ ] 파괴적 API 보호
-  - 범위: `/shutdown`, `/delete`, `/delete_records`, `/reset`, `/reset_all_tasks`, `/reset_summary_embedding`
-  - 목표: 토큰/세션 기반 보호 정책 도입 + 기본값 안전 모드
-
-- [ ] Graph 대용량 성능 계측 자동화
-  - 점검 결과: React 그래프 MVP(줌/팬/드래그/탭 통합)는 완료되었으나 100/500/1000 문서 기준 성능 지표 자동 수집 부재
-  - 목표: 응답시간/렌더시간 벤치 스크립트 및 기준선 리포트 추가
+- [ ] `handler.py` 책임 분리 (라우트 단위 모듈화 마무리)
+  - 점검 결과: `sttEngine/http_api/routes/*` 분리는 진행됐지만, `UploadHandler` 내부에 업로드 파싱/저장/응답 조합 로직이 크게 남아 있음
+  - 잔여 작업: 업로드 처리 책임 분리 + 회귀 테스트 고정
 
 ## 2) P1 (다음 스프린트)
 
@@ -54,7 +46,6 @@
 ## 4) 의존관계 체크포인트
 
 - 검색 고급화(P1) ← 검색 API 계약(파라미터/응답) 명세
-- 그래프 고도화(P1) ← 성능 계측/기준선(P0)
 - 운영 지표(P2) ← 로깅/메트릭 스키마 정리
 
 ## 5) 메모
