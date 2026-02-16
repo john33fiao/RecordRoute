@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from ..destructive_guard import check_destructive_api_access, reject_destructive_api_request
 from ..paths import normalize_record_path, resolve_record_path, to_record_path
 from ..records import delete_file, delete_records, reset_summary_and_embedding, update_stt_text
 from ..registry import update_filename
@@ -116,6 +117,11 @@ def handle_post(handler) -> bool:
             handler.wfile.write(json.dumps({'success': False, 'error': 'Invalid JSON payload'}).encode())
             return True
 
+        allowed, message = check_destructive_api_access(handler, payload)
+        if not allowed:
+            reject_destructive_api_request(handler, message or 'Forbidden')
+            return True
+
         record_id = payload.get('record_id')
         success, message = reset_summary_and_embedding(record_id)
         status_code = 200 if success else 400
@@ -132,6 +138,11 @@ def handle_post(handler) -> bool:
             handler.send_response(400)
             handler.end_headers()
             handler.wfile.write(b'Invalid JSON payload')
+            return True
+
+        allowed, message = check_destructive_api_access(handler, payload)
+        if not allowed:
+            reject_destructive_api_request(handler, message or 'Forbidden')
             return True
 
         file_identifier = payload.get('file_identifier')
@@ -162,6 +173,11 @@ def handle_post(handler) -> bool:
             handler.send_response(400)
             handler.end_headers()
             handler.wfile.write(b'Invalid JSON payload')
+            return True
+
+        allowed, message = check_destructive_api_access(handler, payload)
+        if not allowed:
+            reject_destructive_api_request(handler, message or 'Forbidden')
             return True
 
         record_ids = payload.get('record_ids')

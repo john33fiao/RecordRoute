@@ -13,10 +13,37 @@ import type {
   ViewerFileType,
   SimilarityGraphRequest,
   SimilarityGraphResponse,
+  DestructiveApiAuth,
 } from './types';
 
 interface ApiRequestOptions extends RequestInit {
   skipJson?: boolean;
+}
+
+
+function buildDestructiveApiAuthOptions(auth?: DestructiveApiAuth): { headers?: Record<string, string>; body?: Record<string, string> } {
+  if (!auth) return {};
+
+  const headers: Record<string, string> = {};
+  const body: Record<string, string> = {};
+
+  if (auth.adminToken) {
+    headers['X-RecordRoute-Admin-Token'] = auth.adminToken;
+    body.admin_token = auth.adminToken;
+  }
+  if (auth.sessionId) {
+    headers['X-RecordRoute-Session-Id'] = auth.sessionId;
+    body.session_id = auth.sessionId;
+  }
+  if (auth.sessionToken) {
+    headers['X-RecordRoute-Session-Token'] = auth.sessionToken;
+    body.session_token = auth.sessionToken;
+  }
+
+  return {
+    headers: Object.keys(headers).length ? headers : undefined,
+    body: Object.keys(body).length ? body : undefined,
+  };
 }
 
 async function apiRequest<T>(input: RequestInfo | URL, init: ApiRequestOptions = {}): Promise<T> {
@@ -73,26 +100,33 @@ export async function cancelTask(taskId: string): Promise<void> {
 
 export const getHistory = () => apiRequest<HistoryRecord[]>('/history');
 
-export const deleteRecords = (recordIds: string[]) => apiRequest('/delete_records', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ record_ids: recordIds }),
-});
+export const deleteRecords = (recordIds: string[], auth?: DestructiveApiAuth) => {
+  const authOptions = buildDestructiveApiAuthOptions(auth);
+  return apiRequest('/delete_records', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(authOptions.headers ?? {}) },
+    body: JSON.stringify({ record_ids: recordIds, ...(authOptions.body ?? {}) }),
+  });
+};
 
-export async function resetRecord(recordId: string): Promise<void> {
+export async function resetRecord(recordId: string, auth?: DestructiveApiAuth): Promise<void> {
+  const authOptions = buildDestructiveApiAuthOptions(auth);
   await apiRequest('/reset', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ record_id: recordId }),
+    headers: { 'Content-Type': 'application/json', ...(authOptions.headers ?? {}) },
+    body: JSON.stringify({ record_id: recordId, ...(authOptions.body ?? {}) }),
     skipJson: true,
   });
 }
 
-export const resetAllTasks = (tasks: string[]) => apiRequest('/reset_all_tasks', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ tasks }),
-});
+export const resetAllTasks = (tasks: string[], auth?: DestructiveApiAuth) => {
+  const authOptions = buildDestructiveApiAuthOptions(auth);
+  return apiRequest('/reset_all_tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(authOptions.headers ?? {}) },
+    body: JSON.stringify({ tasks, ...(authOptions.body ?? {}) }),
+  });
+};
 
 export async function updateFilename(recordId: string, filename: string): Promise<void> {
   await apiRequest('/update_filename', {
@@ -115,11 +149,14 @@ export const checkExistingStt = (filePath: string) => apiRequest<{ has_stt: bool
   body: JSON.stringify({ file_path: filePath }),
 });
 
-export const resetSummaryEmbedding = (recordId: string) => apiRequest('/reset_summary_embedding', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ record_id: recordId }),
-});
+export const resetSummaryEmbedding = (recordId: string, auth?: DestructiveApiAuth) => {
+  const authOptions = buildDestructiveApiAuthOptions(auth);
+  return apiRequest('/reset_summary_embedding', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(authOptions.headers ?? {}) },
+    body: JSON.stringify({ record_id: recordId, ...(authOptions.body ?? {}) }),
+  });
+};
 
 export async function search(request: SearchRequest): Promise<SearchResponse> {
   const params = new URLSearchParams({ query: request.query });
@@ -165,11 +202,12 @@ export const getSimilarDocs = (
   }),
 });
 
-export async function deleteFile(fileIdentifier: string, fileType: ViewerFileType): Promise<void> {
+export async function deleteFile(fileIdentifier: string, fileType: ViewerFileType, auth?: DestructiveApiAuth): Promise<void> {
+  const authOptions = buildDestructiveApiAuthOptions(auth);
   await apiRequest('/delete', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ file_identifier: fileIdentifier, file_type: fileType }),
+    headers: { 'Content-Type': 'application/json', ...(authOptions.headers ?? {}) },
+    body: JSON.stringify({ file_identifier: fileIdentifier, file_type: fileType, ...(authOptions.body ?? {}) }),
     skipJson: true,
   });
 }
@@ -178,11 +216,12 @@ export const getDownloadUrl = (fileIdentifier: string): string => `/download/${e
 
 export const getModels = () => apiRequest<ModelsResponse>('/models');
 
-export async function shutdown(): Promise<void> {
+export async function shutdown(auth?: DestructiveApiAuth): Promise<void> {
+  const authOptions = buildDestructiveApiAuthOptions(auth);
   await apiRequest('/shutdown', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
+    headers: { 'Content-Type': 'application/json', ...(authOptions.headers ?? {}) },
+    body: JSON.stringify({ ...(authOptions.body ?? {}) }),
     skipJson: true,
   });
 }

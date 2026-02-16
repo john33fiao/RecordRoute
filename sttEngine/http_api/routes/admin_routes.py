@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+from ..destructive_guard import check_destructive_api_access, reject_destructive_api_request
+
 
 def handle_get(handler) -> bool:
     if handler.path == '/models':
@@ -13,6 +15,12 @@ def handle_get(handler) -> bool:
 def handle_post(handler) -> bool:
     if handler.path != '/shutdown':
         return False
+
+    payload = {}
+    allowed, message = check_destructive_api_access(handler, payload)
+    if not allowed:
+        reject_destructive_api_request(handler, message or 'Forbidden')
+        return True
 
     print('Shutdown request received via /shutdown endpoint')
     response_data = {

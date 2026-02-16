@@ -15,6 +15,12 @@ export type TaskType = 'stt' | 'embedding' | 'summary';
 export type TaskStage = 'upload' | 'transform' | 'correct' | 'summary';
 export type RetryMode = 'new_task' | 'resume_existing';
 
+export interface DestructiveApiAuth {
+  adminToken?: string;
+  sessionId?: string;
+  sessionToken?: string;
+}
+
 export interface AsyncState<T> {
   data: T;
   loading: boolean;
