@@ -102,6 +102,9 @@ POST
 - `pytest tests/http_api/test_search.py`
 - `pytest tests/server/test_queue.py`
 - `pytest tests/test_vocab_system.py`
+- 그래프 성능 기준선 생성: `node frontend/scripts/benchmark-similarity-graph.mjs`
+  - 출력: `docs/perf/similarity-graph-baseline.json`, `docs/perf/similarity-graph-baseline.md`
+  - 실서버 응답 포함: `node frontend/scripts/benchmark-similarity-graph.mjs --api-base-url=http://localhost:8080`
 
 ## 8. 에이전트 작업 규칙
 - 라우트 추가/변경 시 백엔드 + 프론트 API 클라이언트 + 타입 + 테스트를 함께 업데이트
