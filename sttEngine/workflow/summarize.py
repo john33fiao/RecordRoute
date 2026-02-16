@@ -8,17 +8,10 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-
-try:
-    import ollama
-except ImportError:
-    print("오류: ollama 패키지가 설치되지 않았습니다. 'pip install ollama'로 설치하세요.")
-    sys.exit(1)
 
 from sttEngine.config import get_model_for_task, get_default_model, get_config_value
+from sttEngine.llm_provider import chat_completion, check_model_available, normalize_provider_name
 from sttEngine.obsidian_mcp import send_summary_to_obsidian_sync
-from sttEngine.ollama_utils import ensure_ollama_server, check_ollama_model_available, safe_ollama_call
 from sttEngine.server.services.errors import map_workflow_exception
 from sttEngine.workflow.cli_utils import (
     add_encoding_argument,
@@ -78,17 +71,10 @@ class SummarizationError(Exception):
     """요약 처리 중 발생하는 예외"""
     pass
 
-def validate_model(model: str) -> bool:
+def validate_model(model: str, provider_name: Optional[str] = None) -> bool:
     """모델 존재 여부 확인"""
     try:
-        # Ollama 서버 상태 확인 및 필요시 시작
-        server_ok, server_msg = ensure_ollama_server()
-        if not server_ok:
-            logging.warning(f"Ollama 서버 오류: {server_msg}")
-            return False
-        
-        # 모델 사용 가능성 확인
-        model_ok, model_msg = check_ollama_model_available(model)
+        model_ok, model_msg = check_model_available(model, provider_name=provider_name)
         if not model_ok:
             logging.warning(f"모델 확인 오류: {model_msg}")
         return model_ok
@@ -257,36 +243,30 @@ def call_ollama_with_timeout(
     model: str,
     prompt: str,
     options: dict,
-    timeout: int = OLLAMA_TIMEOUT
+    timeout: int = OLLAMA_TIMEOUT,
+    provider_name: Optional[str] = None,
 ) -> str:
-    """타임아웃을 적용한 Ollama 호출"""
-    def _call_ollama():
-        return safe_ollama_call(
-            ollama.chat,
+    """타임아웃을 적용한 모델 호출"""
+    try:
+        return chat_completion(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             options=options,
-            stream=False,
+            provider_name=normalize_provider_name(provider_name),
+            timeout=timeout,
         )
-    
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(_call_ollama)
-        try:
-            response = future.result(timeout=timeout)
-            return response
-        except FutureTimeoutError:
-            logging.error(f"Ollama 호출 타임아웃 ({timeout}초)")
-            future.cancel()
-            raise map_workflow_exception(SummarizationError(f"Ollama 호출이 {timeout}초 내에 완료되지 않음"), "summary")
+    except Exception as exc:
+        raise map_workflow_exception(SummarizationError(str(exc)), "summary")
 
 def call_ollama_with_retry(
     model: str, 
     prompt: str, 
     temperature: float = DEFAULT_TEMPERATURE,
     num_ctx: int = DEFAULT_NUM_CTX,
-    max_tokens: Optional[int] = None
+    max_tokens: Optional[int] = None,
+    provider_name: Optional[str] = None,
 ) -> str:
-    """재시도 로직과 타임아웃을 포함한 Ollama 호출"""
+    """재시도 로직과 타임아웃을 포함한 모델 호출"""
     options = {
         "temperature": temperature,
         "num_ctx": num_ctx,
@@ -299,7 +279,13 @@ def call_ollama_with_retry(
         try:
             logging.debug(f"모델 호출 시도 {attempt + 1}/{MAX_RETRIES}")
             
-            response = call_ollama_with_timeout(model, prompt, options, OLLAMA_TIMEOUT)
+            response = call_ollama_with_timeout(
+                model,
+                prompt,
+                options,
+                OLLAMA_TIMEOUT,
+                provider_name=provider_name,
+            )
 
             # 응답 형식 처리
             try:
@@ -330,7 +316,8 @@ def summarize_text_mapreduce(
     max_tokens: Optional[int],
     temperature: float = DEFAULT_TEMPERATURE,
     progress_callback=None,
-    target_chunks: Optional[int] = None
+    target_chunks: Optional[int] = None,
+    provider_name: Optional[str] = None,
 ) -> str:
     """맵-리듀스 패턴으로 텍스트 요약"""
     if not text.strip():
@@ -360,7 +347,13 @@ def summarize_text_mapreduce(
     if len(chunks) == 1:
         logging.info("단일 청크 요약 수행")
         prompt = CHUNK_PROMPT.format(chunk=chunks[0])
-        return call_ollama_with_retry(model, prompt, temperature, max_tokens=max_tokens)
+        return call_ollama_with_retry(
+            model,
+            prompt,
+            temperature,
+            max_tokens=max_tokens,
+            provider_name=provider_name,
+        )
     
     # 다중 청크 처리 시작 알림
     logging.info("텍스트가 길어 분할 처리중...")
@@ -386,7 +379,13 @@ def summarize_text_mapreduce(
             prompt_chars = len(prompt)
             print(f"[DEBUG] 청크 {i} 프롬프트 크기: {prompt_chars:,} 문자, {prompt_bytes:,} bytes")
             print(f"[DEBUG] 청크 {i} 내용 첫 200자: {repr(chunk[:200])}")
-            summary = call_ollama_with_retry(model, prompt, temperature, max_tokens=max_tokens)
+            summary = call_ollama_with_retry(
+                model,
+                prompt,
+                temperature,
+                max_tokens=max_tokens,
+                provider_name=provider_name,
+            )
             chunk_summaries.append(summary)
             
             summary_bytes = len(summary.encode('utf-8'))
@@ -424,7 +423,13 @@ def summarize_text_mapreduce(
             
             batch_combined = '\n\n---청크 요약 구분선---\n\n'.join(batch_chunk_summaries)
             batch_prompt = REDUCE_PROMPT.format(summaries=batch_combined)
-            batch_summary = call_ollama_with_retry(model, batch_prompt, temperature, max_tokens=max_tokens)
+            batch_summary = call_ollama_with_retry(
+                model,
+                batch_prompt,
+                temperature,
+                max_tokens=max_tokens,
+                provider_name=provider_name,
+            )
             batch_summaries.append(batch_summary)
         
         # 2차 파이널 리듀스: 1차 리듀스 결과들을 최종 통합
@@ -452,7 +457,13 @@ def summarize_text_mapreduce(
                     if progress_callback:
                         progress_callback(progress_msg)
                     group_prompt = REDUCE_PROMPT.format(summaries=summary_chunk)
-                    group_summary = call_ollama_with_retry(model, group_prompt, temperature, max_tokens=max_tokens)
+                    group_summary = call_ollama_with_retry(
+                        model,
+                        group_prompt,
+                        temperature,
+                        max_tokens=max_tokens,
+                        provider_name=provider_name,
+                    )
                     final_summaries.append(group_summary)
                 
                 final_combined = '\n\n---최종 통합 구분선---\n\n'.join(final_summaries)
@@ -462,7 +473,13 @@ def summarize_text_mapreduce(
         else:
             reduce_prompt = REDUCE_PROMPT.format(summaries=combined_summaries)
     
-    final_summary = call_ollama_with_retry(model, reduce_prompt, temperature, max_tokens=max_tokens)
+    final_summary = call_ollama_with_retry(
+        model,
+        reduce_prompt,
+        temperature,
+        max_tokens=max_tokens,
+        provider_name=provider_name,
+    )
     
     logging.info("맵-리듀스 요약 완료")
     return final_summary
@@ -555,7 +572,12 @@ def main() -> None:
     parser.add_argument(
         "--model", 
         default=DEFAULT_MODEL,
-        help=f"사용할 Ollama 모델 (기본값: {DEFAULT_MODEL})"
+        help=f"사용할 모델 (기본값: {DEFAULT_MODEL})"
+    )
+    parser.add_argument(
+        "--provider",
+        default=None,
+        help="LLM provider 선택 (ollama|llamacpp). 미지정 시 LLM_PROVIDER 환경변수 또는 ollama",
     )
     parser.add_argument(
         "--output", "--out",
@@ -622,7 +644,7 @@ def main() -> None:
         
         # 모델 검증
         logging.info(f"모델 검증: {args.model}")
-        if not validate_model(args.model):
+        if not validate_model(args.model, provider_name=args.provider):
             logging.warning(f"모델 '{args.model}'을 확인할 수 없습니다. 계속 진행합니다.")
         
         # 입력 텍스트 검증
@@ -642,7 +664,8 @@ def main() -> None:
             chunk_size=args.chunk_size,
             max_tokens=args.max_tokens,
             temperature=args.temperature,
-            target_chunks=args.target_chunks
+            target_chunks=args.target_chunks,
+            provider_name=args.provider,
         )
         
         # 결과 저장
