@@ -54,6 +54,7 @@ GET
 
 POST
 - `/upload`, `/process`, `/cancel`, `/shutdown`
+- 파괴적 API 보호: `/shutdown`, `/delete`, `/delete_records`, `/reset`, `/reset_all_tasks`, `/reset_summary_embedding`는 기본 안전 모드(`RECORDROUTE_DESTRUCTIVE_API_SAFE_MODE=true`)에서 토큰(`RECORDROUTE_DESTRUCTIVE_API_TOKEN`) 또는 세션(`RECORDROUTE_DESTRUCTIVE_API_SESSION_ID` + `RECORDROUTE_DESTRUCTIVE_API_SESSION_TOKEN`) 필요
 - `/reset`, `/update_filename`, `/incremental_embedding`
 - `/check_existing_stt`, `/update_stt_text`
 - `/reset_summary_embedding`, `/reset_all_tasks`

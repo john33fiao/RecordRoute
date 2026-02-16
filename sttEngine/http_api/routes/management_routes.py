@@ -5,6 +5,7 @@ import json
 from ...search_cache import cleanup_expired_cache, get_cache_stats
 from ..embedding import run_incremental_embedding
 from ..records import reset_tasks_for_all_records, reset_upload_record
+from ..destructive_guard import check_destructive_api_access, reject_destructive_api_request
 from ..state import cancel_task
 
 
@@ -85,6 +86,11 @@ def handle_post(handler) -> bool:
             handler.end_headers()
             handler.wfile.write(b'Invalid JSON payload')
             return True
+        allowed, message = check_destructive_api_access(handler, payload)
+        if not allowed:
+            reject_destructive_api_request(handler, message or 'Forbidden')
+            return True
+
         record_id = payload.get('record_id')
         if not record_id:
             handler.send_response(400)
@@ -129,6 +135,11 @@ def handle_post(handler) -> bool:
             handler.send_header('Content-Type', 'application/json')
             handler.end_headers()
             handler.wfile.write(json.dumps({'success': False, 'error': 'Invalid JSON payload'}).encode())
+            return True
+
+        allowed, message = check_destructive_api_access(handler, payload)
+        if not allowed:
+            reject_destructive_api_request(handler, message or 'Forbidden')
             return True
 
         tasks = payload.get('tasks')
