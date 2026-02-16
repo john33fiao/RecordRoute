@@ -178,6 +178,17 @@ pytest
 pytest tests/http_api/test_workflow.py tests/http_api/test_search.py tests/server/test_queue.py tests/test_vocab_system.py
 ```
 
+그래프 성능 계측(100/500/1000 문서 기준선 자동 생성):
+```bash
+node frontend/scripts/benchmark-similarity-graph.mjs
+```
+결과물: `docs/perf/similarity-graph-baseline.json`, `docs/perf/similarity-graph-baseline.md`
+
+실서버 응답시간까지 함께 계측하려면:
+```bash
+node frontend/scripts/benchmark-similarity-graph.mjs --api-base-url=http://localhost:8080
+```
+
 ## Docker
 기본:
 ```bash
