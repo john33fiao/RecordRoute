@@ -331,6 +331,16 @@ export function SimilarityGraphPanel() {
           <Button type="button" variant="outline" onClick={resetView} className="gap-2"><Move className="size-4" /> 뷰 리셋</Button>
           <div className={`text-xs ml-auto ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
             {graph ? `nodes ${graph.nodes.length} / edges ${graph.edges.length}` : '그래프 없음'}
+            {graph?.meta && typeof graph.meta === 'object' && (graph.meta as { candidate_reduction?: { strategy?: string; reduction_ratio?: number; estimated_recall_at_k?: number } }).candidate_reduction ? (
+              <div>
+                {(() => {
+                  const candidate = (graph.meta as { candidate_reduction?: { strategy?: string; reduction_ratio?: number; estimated_recall_at_k?: number } }).candidate_reduction;
+                  const reduction = Number(candidate?.reduction_ratio ?? 0) * 100;
+                  const recall = Number(candidate?.estimated_recall_at_k ?? 1) * 100;
+                  return `candidate ${candidate?.strategy ?? 'exact'} · reduction ${reduction.toFixed(1)}% · recall@k ${recall.toFixed(1)}%`;
+                })()}
+              </div>
+            ) : null}
           </div>
         </div>
 

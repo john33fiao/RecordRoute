@@ -12,22 +12,48 @@ def _read_json_payload(handler):
     return json.loads(handler.rfile.read(length)) if length else {}
 
 
+def _bad_request(handler, message: str) -> None:
+    handler.send_response(400)
+    handler.send_header('Content-Type', 'application/json')
+    handler.end_headers()
+    handler.wfile.write(json.dumps({'error': message}, ensure_ascii=False).encode())
+
+
+def _parse_float(value: str, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_int(value: str, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def handle_get(handler) -> bool:
     if handler.path.startswith('/api/similarity-graph'):
         parsed = urlparse(handler.path)
         params = parse_qs(parsed.query)
-        min_similarity = float(params.get('min_similarity', params.get('threshold', ['0.65']))[0])
-        max_neighbors = int(params.get('max_neighbors', ['12'])[0])
-        max_nodes = int(params.get('max_nodes', ['150'])[0])
+        min_similarity = _parse_float(params.get('min_similarity', params.get('threshold', ['0.65']))[0], 0.65)
+        max_neighbors = _parse_int(params.get('max_neighbors', ['12'])[0], 12)
+        max_nodes = _parse_int(params.get('max_nodes', ['150'])[0], 150)
         sampling_strategy = (params.get('sampling', ['hybrid'])[0] or 'hybrid').lower()
         doc_id = (params.get('doc_id', [''])[0] or '').strip() or None
         refresh = params.get('refresh', ['false'])[0].lower() == 'true'
+        candidate_strategy = (params.get('candidate_strategy', ['auto'])[0] or 'auto').lower()
+        if candidate_strategy not in {'auto', 'exact', 'lsh'}:
+            _bad_request(handler, "Invalid candidate_strategy. Use one of: auto, exact, lsh")
+            return True
 
         payload = get_similarity_graph(
             min_similarity=min_similarity,
             max_neighbors=max_neighbors,
             max_nodes=max_nodes,
             sampling_strategy=sampling_strategy,
+            candidate_strategy=candidate_strategy,
             doc_id=doc_id,
             refresh=refresh,
         )

@@ -56,3 +56,31 @@ def test_incremental_similarity_matrix_recomputes_changed_docs(tmp_path):
     assert meta["changed_docs"] == 1
     assert meta["computed_pairs"] == 2
     assert meta["reused_pairs"] == 1
+
+
+def test_lsh_candidate_reduction_reports_meta():
+    docs = [{"id": f"doc-{idx}", "display_name": f"doc-{idx}", "file": f"DB/uploads/{idx}.txt", "record_id": None, "uploaded_at": None} for idx in range(64)]
+    vectors = []
+    rng = np.random.default_rng(0)
+    for _ in range(64):
+        vec = rng.normal(size=48)
+        vectors.append(vec)
+
+    edges, meta = similarity_matrix._build_edges_lsh(
+        docs=docs,
+        vectors=vectors,
+        min_similarity=0.2,
+        max_neighbors=8,
+    )
+
+    assert isinstance(edges, list)
+    assert meta["strategy"] == "lsh"
+    assert meta["candidate_pairs"] <= meta["total_pairs"]
+    assert 0.0 <= meta["reduction_ratio"] <= 1.0
+    assert 0.0 <= meta["estimated_recall_at_k"] <= 1.0
+
+
+def test_auto_candidate_strategy_switches_by_size():
+    assert similarity_matrix._resolve_candidate_strategy("auto", 100) == "exact"
+    assert similarity_matrix._resolve_candidate_strategy("auto", 1000) == "lsh"
+    assert similarity_matrix._resolve_candidate_strategy("exact", 1000) == "exact"

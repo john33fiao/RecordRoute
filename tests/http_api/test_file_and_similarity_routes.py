@@ -127,3 +127,60 @@ def test_find_similar_documents_deduplicates_record_ids(monkeypatch: pytest.Monk
     assert len(docs) == 1
     assert docs[0]["record_id"] == "r2"
     assert docs[0]["display_name"] == "doc1"
+
+
+def test_similarity_graph_route_forwards_candidate_strategy(monkeypatch: pytest.MonkeyPatch):
+    captured = {}
+
+    class DummyHandler:
+        def __init__(self):
+            self.path = '/api/similarity-graph?min_similarity=0.7&max_nodes=120&candidate_strategy=lsh'
+            self.headers = {}
+            self.wfile = io.BytesIO()
+            self.status = None
+            self.response_headers = {}
+
+        def send_response(self, code):
+            self.status = code
+
+        def send_header(self, key, value):
+            self.response_headers[key] = value
+
+        def end_headers(self):
+            return None
+
+    def fake_get_similarity_graph(**kwargs):
+        captured.update(kwargs)
+        return {'nodes': [], 'edges': [], 'meta': {'ok': True}}
+
+    monkeypatch.setattr(similarity_routes, 'get_similarity_graph', fake_get_similarity_graph)
+
+    handler = DummyHandler()
+    assert similarity_routes.handle_get(handler) is True
+    assert handler.status == 200
+    assert captured['candidate_strategy'] == 'lsh'
+
+
+def test_similarity_graph_route_rejects_invalid_candidate_strategy():
+    class DummyHandler:
+        def __init__(self):
+            self.path = '/api/similarity-graph?candidate_strategy=bogus'
+            self.headers = {}
+            self.wfile = io.BytesIO()
+            self.status = None
+            self.response_headers = {}
+
+        def send_response(self, code):
+            self.status = code
+
+        def send_header(self, key, value):
+            self.response_headers[key] = value
+
+        def end_headers(self):
+            return None
+
+    handler = DummyHandler()
+    assert similarity_routes.handle_get(handler) is True
+    assert handler.status == 400
+    payload = json.loads(handler.wfile.getvalue().decode('utf-8'))
+    assert 'Invalid candidate_strategy' in payload['error']
