@@ -128,6 +128,7 @@ export interface SimilarityGraphNode {
   id: string;
   label: string;
   file?: string;
+  file_type?: 'audio' | 'document' | 'other';
   record_id?: string | null;
   uploaded_at?: string | null;
 }
@@ -150,6 +151,10 @@ export interface SimilarityGraphRequest {
   max_nodes?: number;
   sampling?: 'recent' | 'random' | 'hybrid';
   doc_id?: string;
+  doc_types?: Array<'audio' | 'document' | 'other'>;
+  start_date?: string;
+  end_date?: string;
+  keyword?: string;
   refresh?: boolean;
 }
 

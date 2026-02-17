@@ -183,6 +183,10 @@ export async function getSimilarityGraph(request: SimilarityGraphRequest = {}): 
   if (request.max_nodes !== undefined) params.set('max_nodes', String(request.max_nodes));
   if (request.sampling) params.set('sampling', request.sampling);
   if (request.doc_id) params.set('doc_id', request.doc_id);
+  if (request.doc_types?.length) params.set('doc_types', request.doc_types.join(','));
+  if (request.start_date) params.set('start_date', request.start_date);
+  if (request.end_date) params.set('end_date', request.end_date);
+  if (request.keyword) params.set('keyword', request.keyword);
   if (request.refresh !== undefined) params.set('refresh', String(request.refresh));
   const query = params.toString();
   return apiRequest<SimilarityGraphResponse>(`/api/similarity-graph${query ? `?${query}` : ''}`);
