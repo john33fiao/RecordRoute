@@ -127,3 +127,93 @@ def test_find_similar_documents_deduplicates_record_ids(monkeypatch: pytest.Monk
     assert len(docs) == 1
     assert docs[0]["record_id"] == "r2"
     assert docs[0]["display_name"] == "doc1"
+
+
+def test_similarity_graph_route_forwards_candidate_strategy(monkeypatch: pytest.MonkeyPatch):
+    captured = {}
+
+    class DummyHandler:
+        def __init__(self):
+            self.path = '/api/similarity-graph?min_similarity=1.7&max_neighbors=0&max_nodes=-5&candidate_strategy=lsh&doc_types=audio,document&start=2026-01-01T00:00:00Z&end=2026-12-31T23:59:59Z&keyword=회의록'
+            self.headers = {}
+            self.wfile = io.BytesIO()
+            self.status = None
+            self.response_headers = {}
+
+        def send_response(self, code):
+            self.status = code
+
+        def send_header(self, key, value):
+            self.response_headers[key] = value
+
+        def end_headers(self):
+            return None
+
+    def fake_get_similarity_graph(**kwargs):
+        captured.update(kwargs)
+        return {'nodes': [], 'edges': [], 'meta': {'ok': True}}
+
+    monkeypatch.setattr(similarity_routes, 'get_similarity_graph', fake_get_similarity_graph)
+
+    handler = DummyHandler()
+    assert similarity_routes.handle_get(handler) is True
+    assert handler.status == 200
+    assert captured['candidate_strategy'] == 'lsh'
+    assert captured['min_similarity'] == 1.0
+    assert captured['max_neighbors'] == 1
+    assert captured['max_nodes'] == 1
+    assert captured['doc_types'] == ['audio', 'document']
+    assert captured['start_date'] == '2026-01-01T00:00:00Z'
+    assert captured['end_date'] == '2026-12-31T23:59:59Z'
+    assert captured['keyword'] == '회의록'
+
+
+def test_similarity_graph_route_rejects_invalid_candidate_strategy():
+    class DummyHandler:
+        def __init__(self):
+            self.path = '/api/similarity-graph?candidate_strategy=bogus'
+            self.headers = {}
+            self.wfile = io.BytesIO()
+            self.status = None
+            self.response_headers = {}
+
+        def send_response(self, code):
+            self.status = code
+
+        def send_header(self, key, value):
+            self.response_headers[key] = value
+
+        def end_headers(self):
+            return None
+
+    handler = DummyHandler()
+    assert similarity_routes.handle_get(handler) is True
+    assert handler.status == 400
+    payload = json.loads(handler.wfile.getvalue().decode('utf-8'))
+    assert 'Invalid candidate_strategy' in payload['error']
+
+
+def test_similarity_graph_filters_apply_in_backend(monkeypatch: pytest.MonkeyPatch):
+    docs = [
+        {'id': 'a', 'display_name': 'meeting audio', 'file': 'DB/uploads/a/audio.m4a', 'uploaded_at': '2026-01-10T00:00:00Z', 'vector_path': 'x.npy', 'record_id': None},
+        {'id': 'b', 'display_name': 'spec doc', 'file': 'DB/uploads/b/spec.md', 'uploaded_at': '2026-03-10T00:00:00Z', 'vector_path': 'y.npy', 'record_id': None},
+    ]
+
+    monkeypatch.setattr('sttEngine.similarity_matrix._build_doc_catalog', lambda: docs)
+    monkeypatch.setattr('sttEngine.similarity_matrix.np.load', lambda _p: [1.0, 0.0, 0.0])
+    monkeypatch.setattr('sttEngine.similarity_matrix._build_similarity_matrix', lambda **_k: (__import__('numpy').eye(1), {'reused_pairs': 0, 'computed_pairs': 0, 'added_docs': 0, 'removed_docs': 0, 'changed_docs': 0, 'strategy': 'incremental'}))
+
+    from sttEngine import similarity_matrix
+
+    payload = similarity_matrix.get_similarity_graph(
+        candidate_strategy='exact',
+        doc_types=['audio'],
+        start_date='2026-01-01T00:00:00Z',
+        end_date='2026-01-31T23:59:59Z',
+        keyword='meeting',
+    )
+
+    assert len(payload['nodes']) == 1
+    assert payload['nodes'][0]['id'] == 'a'
+    assert payload['nodes'][0]['file_type'] == 'audio'
+    assert payload['meta']['filters']['doc_types'] == ['audio']

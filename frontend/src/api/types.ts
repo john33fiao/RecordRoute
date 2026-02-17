@@ -149,6 +149,11 @@ export interface SimilarityGraphRequest {
   max_neighbors?: number;
   max_nodes?: number;
   sampling?: 'recent' | 'random' | 'hybrid';
+  candidate_strategy?: 'auto' | 'exact' | 'lsh';
+  doc_types?: Array<'audio' | 'document' | 'other'>;
+  start_date?: string;
+  end_date?: string;
+  keyword?: string;
   doc_id?: string;
   refresh?: boolean;
 }

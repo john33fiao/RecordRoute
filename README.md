@@ -112,7 +112,8 @@ venv\Scripts\python.exe -m sttEngine.server
 - `/history`, `/tasks`, `/progress/<task_id>` (진행률 %, ETA, 표준 오류 payload 포함)
 - `/search`, `/models`, `/cache/stats`, `/cache/cleanup`
 - `/api/similarity-graph`, `/api/documents/metadata`
-  - `/api/similarity-graph` 응답 `meta`에는 `sampling`과 `incremental(reused_pairs/computed_pairs/added_docs/removed_docs/changed_docs)` 진단 필드 포함
+  - `/api/similarity-graph`는 `min_similarity/max_neighbors/max_nodes/sampling` + 필터(`doc_types`, `start_date`, `end_date`, `keyword`) + `candidate_strategy(auto|exact|lsh)`를 지원
+  - `/api/similarity-graph` 응답 `meta`에는 `sampling`, `filters`, `incremental(reused_pairs/computed_pairs/added_docs/removed_docs/changed_docs)`, `candidate_reduction(strategy/total_pairs/candidate_pairs/reduction_ratio/estimated_recall_at_k)` 진단 필드 포함
 
 주요 POST:
 - `/upload`, `/process`, `/cancel`, `/shutdown`

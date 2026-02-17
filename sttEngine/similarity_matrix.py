@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 import random
 from typing import Any
@@ -15,7 +16,7 @@ from .http_api.paths import BASE_DIR, normalize_record_path
 from .http_api.registry import load_file_registry
 
 _CACHE_LOCK = threading.RLock()
-_GRAPH_CACHE: dict[tuple[float, int, int, str], dict[str, Any]] = {}
+_GRAPH_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _INCREMENTAL_STATE: dict[tuple[int, str], dict[str, Any]] = {}
 
 DEFAULT_MIN_SIMILARITY = 0.65
@@ -23,6 +24,16 @@ DEFAULT_MAX_NEIGHBORS = 12
 DEFAULT_MAX_NODES = 150
 DEFAULT_SAMPLING_STRATEGY = "hybrid"
 ALLOWED_SAMPLING_STRATEGIES = {"hybrid", "recent", "random"}
+DEFAULT_CANDIDATE_STRATEGY = "auto"
+ALLOWED_CANDIDATE_STRATEGIES = {"auto", "exact", "lsh"}
+LSH_AUTO_MIN_DOCS = 320
+LSH_NUM_TABLES = 6
+LSH_NUM_PLANES = 14
+LSH_RECALL_SAMPLE_LIMIT = 24
+LSH_MAX_BUCKET_SIZE = 80
+ALLOWED_DOC_TYPES = {"audio", "document", "other"}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".opus"}
+DOCUMENT_EXTENSIONS = {".txt", ".md", ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".hwp"}
 
 
 def _cosine_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
@@ -87,12 +98,103 @@ def _build_doc_catalog() -> list[dict[str, Any]]:
 
 
 def _safe_timestamp(value: Any) -> float:
-    try:
-        if value is None:
-            return 0.0
-        return float(value)
-    except Exception:
+    if value is None:
         return 0.0
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return 0.0
+        try:
+            return float(raw)
+        except ValueError:
+            parsed = _parse_datetime(raw)
+            return parsed if parsed is not None else 0.0
+
+    return 0.0
+
+
+def _resolve_doc_type(file_path: str | None) -> str:
+    if not file_path:
+        return "other"
+    suffix = Path(file_path).suffix.lower()
+    if suffix in AUDIO_EXTENSIONS:
+        return "audio"
+    if suffix in DOCUMENT_EXTENSIONS:
+        return "document"
+    return "other"
+
+
+def _parse_datetime(value: str | None) -> float | None:
+    if not value:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    return parsed.timestamp()
+
+
+def _filter_docs(
+    docs: list[dict[str, Any]],
+    *,
+    doc_types: set[str] | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    keyword: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    normalized_types = {item.lower() for item in (doc_types or set()) if item.lower() in ALLOWED_DOC_TYPES}
+    keyword_norm = (keyword or "").strip().lower()
+    start_ts = _parse_datetime(start_date)
+    end_ts = _parse_datetime(end_date)
+
+    filtered: list[dict[str, Any]] = []
+    for doc in docs:
+        current_type = _resolve_doc_type(doc.get("file"))
+        if normalized_types and current_type not in normalized_types:
+            continue
+
+        uploaded_ts = _safe_timestamp(doc.get("uploaded_at"))
+        if start_ts is not None and uploaded_ts < start_ts:
+            continue
+        if end_ts is not None and uploaded_ts > end_ts:
+            continue
+
+        if keyword_norm:
+            haystack = " ".join(
+                str(part or "")
+                for part in (doc.get("display_name"), doc.get("file"), doc.get("id"))
+            ).lower()
+            if keyword_norm not in haystack:
+                continue
+
+        filtered.append(doc)
+
+    return filtered, {
+        "doc_types": sorted(normalized_types),
+        "start_date": start_date,
+        "end_date": end_date,
+        "keyword": keyword_norm or None,
+        "total_before_filtering": len(docs),
+        "total_after_filtering": len(filtered),
+    }
 
 
 def _sample_docs(docs: list[dict[str, Any]], max_nodes: int, strategy: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -136,8 +238,20 @@ def _compute_graph(
     max_neighbors: int = DEFAULT_MAX_NEIGHBORS,
     max_nodes: int = DEFAULT_MAX_NODES,
     sampling_strategy: str = DEFAULT_SAMPLING_STRATEGY,
+    candidate_strategy: str = DEFAULT_CANDIDATE_STRATEGY,
+    doc_types: set[str] | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    keyword: str | None = None,
 ) -> dict[str, Any]:
     docs = _build_doc_catalog()
+    docs, filter_meta = _filter_docs(
+        docs,
+        doc_types=doc_types,
+        start_date=start_date,
+        end_date=end_date,
+        keyword=keyword,
+    )
     docs, sampling_meta = _sample_docs(docs, max_nodes=max_nodes, strategy=sampling_strategy)
 
     if not docs:
@@ -148,6 +262,7 @@ def _compute_graph(
                 "min_similarity": min_similarity,
                 "count": 0,
                 "generated_at": time.time(),
+                "filters": filter_meta,
                 "sampling": sampling_meta,
             },
         }
@@ -170,28 +285,107 @@ def _compute_graph(
                 "min_similarity": min_similarity,
                 "count": 0,
                 "generated_at": time.time(),
+                "filters": filter_meta,
                 "sampling": sampling_meta,
             },
         }
 
-    state_key = (max_nodes, sampling_strategy)
-    matrix, incremental_meta = _build_similarity_matrix(
-        state_key=state_key,
-        docs=valid_docs,
-        vectors=vectors,
-    )
+    effective_candidate_strategy = _resolve_candidate_strategy(candidate_strategy, node_count)
+    incremental_meta: dict[str, Any]
+    candidate_meta: dict[str, Any]
+    if effective_candidate_strategy == "exact":
+        state_key = (max_nodes, sampling_strategy)
+        matrix, incremental_meta = _build_similarity_matrix(
+            state_key=state_key,
+            docs=valid_docs,
+            vectors=vectors,
+        )
+        edges = _build_edges_from_matrix(
+            docs=valid_docs,
+            matrix=matrix,
+            min_similarity=min_similarity,
+            max_neighbors=max_neighbors,
+        )
+        total_pairs = (node_count * (node_count - 1)) // 2
+        candidate_meta = {
+            "strategy": "exact",
+            "total_pairs": total_pairs,
+            "candidate_pairs": total_pairs,
+            "reduction_ratio": 0.0,
+            "estimated_recall_at_k": 1.0,
+        }
+    else:
+        edges, ann_meta = _build_edges_lsh(
+            docs=valid_docs,
+            vectors=vectors,
+            min_similarity=min_similarity,
+            max_neighbors=max_neighbors,
+        )
+        incremental_meta = {
+            "reused_pairs": 0,
+            "computed_pairs": ann_meta["computed_pairs"],
+            "added_docs": node_count,
+            "removed_docs": 0,
+            "changed_docs": 0,
+            "strategy": "ann_lsh",
+        }
+        candidate_meta = {
+            "strategy": "lsh",
+            "total_pairs": ann_meta["total_pairs"],
+            "candidate_pairs": ann_meta["candidate_pairs"],
+            "computed_pairs": ann_meta["computed_pairs"],
+            "reduction_ratio": ann_meta["reduction_ratio"],
+            "estimated_recall_at_k": ann_meta["estimated_recall_at_k"],
+            "num_tables": ann_meta["num_tables"],
+            "num_planes": ann_meta["num_planes"],
+        }
 
     nodes = [
         {
             "id": doc["id"],
             "label": doc["display_name"],
             "file": doc["file"],
+            "file_type": _resolve_doc_type(doc.get("file")),
             "record_id": doc.get("record_id"),
             "uploaded_at": doc.get("uploaded_at"),
         }
         for doc in valid_docs
     ]
 
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "meta": {
+            "node_schema": {"id": "string", "label": "string", "record_id": "string|null", "file": "string", "file_type": "audio|document|other"},
+            "edge_schema": {"source": "string", "target": "string", "weight": "number"},
+            "min_similarity": min_similarity,
+            "count": node_count,
+            "max_neighbors": max_neighbors,
+            "max_nodes": max_nodes,
+            "filters": filter_meta,
+            "sampling": sampling_meta,
+            "incremental": incremental_meta,
+            "candidate_reduction": candidate_meta,
+            "generated_at": time.time(),
+        },
+    }
+
+
+def _resolve_candidate_strategy(strategy: str, node_count: int) -> str:
+    if strategy == "exact":
+        return "exact"
+    if strategy == "lsh":
+        return "lsh"
+    return "lsh" if node_count >= LSH_AUTO_MIN_DOCS else "exact"
+
+
+def _build_edges_from_matrix(
+    docs: list[dict[str, Any]],
+    matrix: np.ndarray,
+    min_similarity: float,
+    max_neighbors: int,
+) -> list[dict[str, Any]]:
+    node_count = len(docs)
     edges: list[dict[str, Any]] = []
     for i in range(node_count):
         row = matrix[i]
@@ -200,27 +394,142 @@ def _compute_graph(
             if i < j:
                 edges.append(
                     {
-                        "source": valid_docs[i]["id"],
-                        "target": valid_docs[j]["id"],
+                        "source": docs[i]["id"],
+                        "target": docs[j]["id"],
                         "weight": float(row[j]),
                     }
                 )
+    return edges
 
-    return {
-        "nodes": nodes,
-        "edges": edges,
-        "meta": {
-            "node_schema": {"id": "string", "label": "string", "record_id": "string|null", "file": "string"},
-            "edge_schema": {"source": "string", "target": "string", "weight": "number"},
-            "min_similarity": min_similarity,
-            "count": node_count,
-            "max_neighbors": max_neighbors,
-            "max_nodes": max_nodes,
-            "sampling": sampling_meta,
-            "incremental": incremental_meta,
-            "generated_at": time.time(),
-        },
+
+def _build_edges_lsh(
+    docs: list[dict[str, Any]],
+    vectors: list[np.ndarray],
+    min_similarity: float,
+    max_neighbors: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    node_count = len(docs)
+    normalized = np.vstack([_normalize_vector(vec) for vec in vectors])
+    candidate_pairs = _collect_lsh_candidate_pairs(normalized)
+
+    scores_by_node: list[dict[int, float]] = [dict() for _ in range(node_count)]
+    computed_pairs = 0
+    for i, j in candidate_pairs:
+        score = float(np.dot(normalized[i], normalized[j]))
+        computed_pairs += 1
+        if score < min_similarity:
+            continue
+        scores_by_node[i][j] = score
+        scores_by_node[j][i] = score
+
+    edges = _build_edges_from_candidates(docs, scores_by_node, max_neighbors)
+    total_pairs = (node_count * (node_count - 1)) // 2
+    recall = _estimate_lsh_recall(
+        normalized=normalized,
+        scores_by_node=scores_by_node,
+        max_neighbors=max_neighbors,
+    )
+    return edges, {
+        "strategy": "lsh",
+        "total_pairs": total_pairs,
+        "candidate_pairs": len(candidate_pairs),
+        "computed_pairs": computed_pairs,
+        "reduction_ratio": 0.0 if total_pairs == 0 else 1.0 - (len(candidate_pairs) / total_pairs),
+        "estimated_recall_at_k": recall,
+        "num_tables": LSH_NUM_TABLES,
+        "num_planes": LSH_NUM_PLANES,
     }
+
+
+def _normalize_vector(vector: np.ndarray) -> np.ndarray:
+    v = np.asarray(vector, dtype=float).reshape(-1)
+    norm = float(np.linalg.norm(v))
+    if norm == 0.0:
+        return np.zeros_like(v)
+    return v / norm
+
+
+def _collect_lsh_candidate_pairs(vectors: np.ndarray) -> set[tuple[int, int]]:
+    _, dim = vectors.shape
+    rng = np.random.default_rng(42)
+    pairs: set[tuple[int, int]] = set()
+
+    for _ in range(LSH_NUM_TABLES):
+        hyperplanes = rng.normal(size=(LSH_NUM_PLANES, dim))
+        projections = vectors @ hyperplanes.T
+        signatures = projections >= 0
+        buckets: dict[bytes, list[int]] = {}
+        for idx, signature in enumerate(signatures):
+            key = signature.tobytes()
+            buckets.setdefault(key, []).append(idx)
+        for bucket in buckets.values():
+            if len(bucket) < 2:
+                continue
+            if len(bucket) > LSH_MAX_BUCKET_SIZE:
+                continue
+            for i_pos in range(len(bucket)):
+                for j_pos in range(i_pos + 1, len(bucket)):
+                    i = bucket[i_pos]
+                    j = bucket[j_pos]
+                    pairs.add((i, j) if i < j else (j, i))
+
+    return pairs
+
+
+def _build_edges_from_candidates(
+    docs: list[dict[str, Any]],
+    scores_by_node: list[dict[int, float]],
+    max_neighbors: int,
+) -> list[dict[str, Any]]:
+    edges: list[dict[str, Any]] = []
+    for i, neighbors in enumerate(scores_by_node):
+        sorted_neighbors = sorted(neighbors.items(), key=lambda item: item[1], reverse=True)[:max_neighbors]
+        for j, score in sorted_neighbors:
+            if i < j:
+                edges.append(
+                    {
+                        "source": docs[i]["id"],
+                        "target": docs[j]["id"],
+                        "weight": float(score),
+                    }
+                )
+    return edges
+
+
+def _estimate_lsh_recall(
+    normalized: np.ndarray,
+    scores_by_node: list[dict[int, float]],
+    max_neighbors: int,
+) -> float:
+    node_count = normalized.shape[0]
+    if node_count <= 1 or max_neighbors <= 0:
+        return 1.0
+
+    sample_count = min(node_count, LSH_RECALL_SAMPLE_LIMIT)
+    rng = random.Random(42)
+    sampled_indices = list(range(node_count))
+    if sample_count < node_count:
+        sampled_indices = rng.sample(sampled_indices, sample_count)
+
+    recalls: list[float] = []
+    for idx in sampled_indices:
+        exact_scores = normalized @ normalized[idx]
+        exact_order = [
+            i for i in np.argsort(exact_scores)[::-1]
+            if i != idx
+        ]
+        exact_top = set(exact_order[:max_neighbors])
+        if not exact_top:
+            continue
+        approx_top = {
+            neighbor_idx
+            for neighbor_idx, _ in sorted(scores_by_node[idx].items(), key=lambda item: item[1], reverse=True)[:max_neighbors]
+        }
+        recalls.append(len(exact_top & approx_top) / len(exact_top))
+
+    if not recalls:
+        return 1.0
+    return float(sum(recalls) / len(recalls))
 
 
 def _vector_fingerprint(vector: np.ndarray) -> tuple[str, tuple[int, ...], str]:
@@ -327,11 +636,29 @@ def get_similarity_graph(
     max_neighbors: int = DEFAULT_MAX_NEIGHBORS,
     max_nodes: int = DEFAULT_MAX_NODES,
     sampling_strategy: str = DEFAULT_SAMPLING_STRATEGY,
+    candidate_strategy: str = DEFAULT_CANDIDATE_STRATEGY,
     doc_id: str | None = None,
+    doc_types: list[str] | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    keyword: str | None = None,
     refresh: bool = False,
 ) -> dict[str, Any]:
     strategy = sampling_strategy if sampling_strategy in ALLOWED_SAMPLING_STRATEGIES else DEFAULT_SAMPLING_STRATEGY
-    key = (round(float(min_similarity), 4), int(max_neighbors), int(max_nodes), strategy)
+    candidate = candidate_strategy if candidate_strategy in ALLOWED_CANDIDATE_STRATEGIES else DEFAULT_CANDIDATE_STRATEGY
+    normalized_doc_types = tuple(sorted({item.lower() for item in (doc_types or []) if item.lower() in ALLOWED_DOC_TYPES}))
+    normalized_keyword = (keyword or "").strip().lower()
+    key = (
+        round(float(min_similarity), 4),
+        int(max_neighbors),
+        int(max_nodes),
+        strategy,
+        candidate,
+        normalized_doc_types,
+        (start_date or "").strip(),
+        (end_date or "").strip(),
+        normalized_keyword,
+    )
     with _CACHE_LOCK:
         if not refresh and key in _GRAPH_CACHE:
             graph = _GRAPH_CACHE[key]
@@ -341,6 +668,11 @@ def get_similarity_graph(
                 max_neighbors=max_neighbors,
                 max_nodes=max_nodes,
                 sampling_strategy=strategy,
+                candidate_strategy=candidate,
+                doc_types=set(normalized_doc_types),
+                start_date=start_date,
+                end_date=end_date,
+                keyword=normalized_keyword or None,
             )
             _GRAPH_CACHE[key] = graph
 
@@ -388,6 +720,7 @@ def get_documents_metadata() -> dict[str, Any]:
                 "id": doc["id"],
                 "file": doc["file"],
                 "display_name": doc["display_name"],
+                "file_type": _resolve_doc_type(doc.get("file")),
                 "record_id": doc.get("record_id"),
                 "uploaded_at": doc.get("uploaded_at"),
             }

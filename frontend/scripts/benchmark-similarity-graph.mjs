@@ -15,6 +15,7 @@ function parseArgs(argv) {
     apiBaseUrl: null,
     minSimilarity: 0.65,
     sampling: 'hybrid',
+    candidateStrategy: 'auto',
     mockResponseDelayMs: 8,
   };
 
@@ -26,6 +27,10 @@ function parseArgs(argv) {
     } else if (arg.startsWith('--min-similarity=')) {
       const parsed = Number(arg.slice('--min-similarity='.length));
       if (!Number.isNaN(parsed)) options.minSimilarity = parsed;
+    } else if (arg.startsWith('--sampling=')) {
+      options.sampling = arg.slice('--sampling='.length) || 'hybrid';
+    } else if (arg.startsWith('--candidate-strategy=')) {
+      options.candidateStrategy = arg.slice('--candidate-strategy='.length) || 'auto';
     } else if (arg.startsWith('--mock-response-delay-ms=')) {
       const parsed = Number(arg.slice('--mock-response-delay-ms='.length));
       if (!Number.isNaN(parsed) && parsed >= 0) options.mockResponseDelayMs = parsed;
@@ -157,6 +162,7 @@ async function measureResponseTimeMs(size, options) {
   url.searchParams.set('min_similarity', String(options.minSimilarity));
   url.searchParams.set('max_nodes', String(size));
   url.searchParams.set('sampling', options.sampling);
+  url.searchParams.set('candidate_strategy', options.candidateStrategy);
 
   const start = performance.now();
   const response = await fetch(url);
@@ -226,6 +232,8 @@ function makeMarkdownReport(result) {
 - Response source: ${result.mode === 'real_api' ? `real API (${result.apiBaseUrl})` : `mock delay (${result.mockResponseDelayMs} ms)`}
 - Iterations per scenario: ${result.iterations}
 - Dataset sizes: ${result.scenarios.map((scenario) => scenario.nodeCount).join(', ')}
+- Sampling strategy: ${result.sampling}
+- Candidate strategy: ${result.candidateStrategy}
 
 ## Summary
 
@@ -256,6 +264,8 @@ async function run() {
     apiBaseUrl: options.apiBaseUrl,
     mockResponseDelayMs: options.mockResponseDelayMs,
     iterations: ITERATIONS,
+    sampling: options.sampling,
+    candidateStrategy: options.candidateStrategy,
     scenarios,
   };
 
