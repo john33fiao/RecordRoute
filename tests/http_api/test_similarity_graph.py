@@ -80,3 +80,12 @@ def test_similarity_graph_accepts_start_end_alias(server):
     assert payload["meta"]["ok"] is True
     assert captured["start_date"] == "2025-01-01"
     assert captured["end_date"] == "2025-12-31"
+
+
+def test_similarity_graph_accepts_neighbor_strategy(server):
+    base_url, captured = server
+    with urlopen(f"{base_url}/api/similarity-graph?neighbor_strategy=lsh") as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    assert payload["meta"]["ok"] is True
+    assert captured["neighbor_strategy"] == "lsh"

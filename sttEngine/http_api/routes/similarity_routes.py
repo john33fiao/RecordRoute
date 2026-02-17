@@ -57,6 +57,7 @@ def handle_get(handler) -> bool:
         max_neighbors = _parse_int(_first(params, 'max_neighbors', default='12'), 12, minimum=1)
         max_nodes = _parse_int(_first(params, 'max_nodes', default='150'), 150, minimum=1)
         sampling_strategy = (_first(params, 'sampling', default='hybrid') or 'hybrid').strip().lower()
+        neighbor_strategy = (_first(params, 'neighbor_strategy', 'neighbor_mode', default='auto') or 'auto').strip().lower()
         doc_id = (_first(params, 'doc_id', default='') or '').strip() or None
         refresh = _parse_bool(_first(params, 'refresh', default='false'))
         raw_doc_types = params.get('doc_types', params.get('file_type', []))
@@ -72,6 +73,7 @@ def handle_get(handler) -> bool:
             max_neighbors=max_neighbors,
             max_nodes=max_nodes,
             sampling_strategy=sampling_strategy,
+            neighbor_strategy=neighbor_strategy,
             doc_id=doc_id,
             doc_types=doc_types,
             start_date=start_date,

@@ -23,8 +23,13 @@ DEFAULT_MIN_SIMILARITY = 0.65
 DEFAULT_MAX_NEIGHBORS = 12
 DEFAULT_MAX_NODES = 150
 DEFAULT_SAMPLING_STRATEGY = "hybrid"
+DEFAULT_NEIGHBOR_STRATEGY = "auto"
 ALLOWED_SAMPLING_STRATEGIES = {"hybrid", "recent", "random"}
+ALLOWED_NEIGHBOR_STRATEGIES = {"auto", "exact", "lsh"}
 ALLOWED_DOC_TYPES = {"audio", "document", "other"}
+ANN_AUTO_MIN_NODES = 220
+LSH_TABLES = 6
+LSH_BITS = 14
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".opus"}
 DOCUMENT_EXTENSIONS = {".txt", ".md", ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".hwp"}
 
@@ -235,6 +240,7 @@ def _compute_graph(
     start_date: str | None = None,
     end_date: str | None = None,
     keyword: str | None = None,
+    neighbor_strategy: str = DEFAULT_NEIGHBOR_STRATEGY,
 ) -> dict[str, Any]:
     docs = _build_doc_catalog()
     docs, filter_meta = _filter_docs(
@@ -283,11 +289,7 @@ def _compute_graph(
         }
 
     state_key = (max_nodes, sampling_strategy)
-    matrix, incremental_meta = _build_similarity_matrix(
-        state_key=state_key,
-        docs=valid_docs,
-        vectors=vectors,
-    )
+    effective_strategy = _resolve_neighbor_strategy(neighbor_strategy, node_count)
 
     nodes = [
         {
@@ -301,19 +303,25 @@ def _compute_graph(
         for doc in valid_docs
     ]
 
-    edges: list[dict[str, Any]] = []
-    for i in range(node_count):
-        row = matrix[i]
-        candidate_idx = [j for j in np.argsort(row)[::-1] if j != i and row[j] >= min_similarity][:max_neighbors]
-        for j in candidate_idx:
-            if i < j:
-                edges.append(
-                    {
-                        "source": valid_docs[i]["id"],
-                        "target": valid_docs[j]["id"],
-                        "weight": float(row[j]),
-                    }
-                )
+    if effective_strategy == "lsh":
+        edges, incremental_meta = _build_similarity_edges_lsh(
+            docs=valid_docs,
+            vectors=vectors,
+            min_similarity=min_similarity,
+            max_neighbors=max_neighbors,
+        )
+    else:
+        matrix, incremental_meta = _build_similarity_matrix(
+            state_key=state_key,
+            docs=valid_docs,
+            vectors=vectors,
+        )
+        edges = _build_similarity_edges_from_matrix(
+            matrix=matrix,
+            docs=valid_docs,
+            min_similarity=min_similarity,
+            max_neighbors=max_neighbors,
+        )
 
     return {
         "nodes": nodes,
@@ -327,9 +335,141 @@ def _compute_graph(
             "max_nodes": max_nodes,
             "filters": filter_meta,
             "sampling": sampling_meta,
+            "neighbor_strategy": {
+                "requested": neighbor_strategy,
+                "effective": effective_strategy,
+            },
             "incremental": incremental_meta,
             "generated_at": time.time(),
         },
+    }
+
+
+def _resolve_neighbor_strategy(strategy: str, node_count: int) -> str:
+    normalized = (strategy or DEFAULT_NEIGHBOR_STRATEGY).strip().lower()
+    if normalized not in ALLOWED_NEIGHBOR_STRATEGIES:
+        normalized = DEFAULT_NEIGHBOR_STRATEGY
+    if normalized == "auto":
+        return "lsh" if node_count >= ANN_AUTO_MIN_NODES else "exact"
+    return normalized
+
+
+def _build_similarity_edges_from_matrix(
+    *,
+    matrix: np.ndarray,
+    docs: list[dict[str, Any]],
+    min_similarity: float,
+    max_neighbors: int,
+) -> list[dict[str, Any]]:
+    node_count = len(docs)
+    edges: list[dict[str, Any]] = []
+    for i in range(node_count):
+        row = matrix[i]
+        candidate_idx = [j for j in np.argsort(row)[::-1] if j != i and row[j] >= min_similarity][:max_neighbors]
+        for j in candidate_idx:
+            if i < j:
+                edges.append(
+                    {
+                        "source": docs[i]["id"],
+                        "target": docs[j]["id"],
+                        "weight": float(row[j]),
+                    }
+                )
+    return edges
+
+
+def _normalize_vectors(vectors: list[np.ndarray]) -> np.ndarray:
+    matrix = np.asarray(vectors, dtype=float)
+    if matrix.ndim == 1:
+        matrix = matrix.reshape(1, -1)
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    safe_norms = np.where(norms == 0.0, 1.0, norms)
+    return matrix / safe_norms
+
+
+def _build_similarity_edges_lsh(
+    *,
+    docs: list[dict[str, Any]],
+    vectors: list[np.ndarray],
+    min_similarity: float,
+    max_neighbors: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    node_count = len(docs)
+    full_pairs = node_count * (node_count - 1) // 2
+    if node_count <= 1:
+        return [], {
+            "strategy": "lsh",
+            "full_pairs": full_pairs,
+            "candidate_pairs": 0,
+            "computed_pairs": 0,
+            "pruned_pairs": 0,
+            "reused_pairs": 0,
+            "added_docs": 0,
+            "removed_docs": 0,
+            "changed_docs": 0,
+            "tables": LSH_TABLES,
+            "bits": LSH_BITS,
+        }
+
+    normalized = _normalize_vectors(vectors)
+    dimensions = normalized.shape[1]
+    candidate_sets: list[set[int]] = [set() for _ in range(node_count)]
+
+    rng = np.random.default_rng(42)
+    for _table_idx in range(LSH_TABLES):
+        hyperplanes = rng.standard_normal((LSH_BITS, dimensions))
+        projections = normalized @ hyperplanes.T
+        signatures = projections > 0
+        buckets: dict[tuple[bool, ...], list[int]] = {}
+        for idx in range(node_count):
+            key = tuple(bool(value) for value in signatures[idx])
+            buckets.setdefault(key, []).append(idx)
+        for members in buckets.values():
+            if len(members) <= 1:
+                continue
+            for i in members:
+                for j in members:
+                    if i != j:
+                        candidate_sets[i].add(j)
+
+    candidate_pairs = sum(len(item) for item in candidate_sets) // 2
+    edges: list[dict[str, Any]] = []
+
+    for i in range(node_count):
+        candidates = sorted(candidate_sets[i])
+        if not candidates:
+            continue
+
+        scored: list[tuple[int, float]] = []
+        row = normalized[i]
+        for j in candidates:
+            score = float(np.dot(row, normalized[j]))
+            if score >= min_similarity:
+                scored.append((j, score))
+
+        scored.sort(key=lambda item: item[1], reverse=True)
+        for j, score in scored[:max_neighbors]:
+            if i < j:
+                edges.append(
+                    {
+                        "source": docs[i]["id"],
+                        "target": docs[j]["id"],
+                        "weight": score,
+                    }
+                )
+
+    return edges, {
+        "strategy": "lsh",
+        "full_pairs": full_pairs,
+        "candidate_pairs": candidate_pairs,
+        "computed_pairs": candidate_pairs,
+        "pruned_pairs": max(0, full_pairs - candidate_pairs),
+        "reused_pairs": 0,
+        "added_docs": 0,
+        "removed_docs": 0,
+        "changed_docs": 0,
+        "tables": LSH_TABLES,
+        "bits": LSH_BITS,
     }
 
 
@@ -442,16 +582,21 @@ def get_similarity_graph(
     start_date: str | None = None,
     end_date: str | None = None,
     keyword: str | None = None,
+    neighbor_strategy: str = DEFAULT_NEIGHBOR_STRATEGY,
     refresh: bool = False,
 ) -> dict[str, Any]:
     strategy = sampling_strategy if sampling_strategy in ALLOWED_SAMPLING_STRATEGIES else DEFAULT_SAMPLING_STRATEGY
     normalized_doc_types = tuple(sorted({item.lower() for item in (doc_types or []) if item.lower() in ALLOWED_DOC_TYPES}))
     normalized_keyword = (keyword or "").strip().lower()
+    normalized_neighbor_strategy = (neighbor_strategy or DEFAULT_NEIGHBOR_STRATEGY).strip().lower()
+    if normalized_neighbor_strategy not in ALLOWED_NEIGHBOR_STRATEGIES:
+        normalized_neighbor_strategy = DEFAULT_NEIGHBOR_STRATEGY
     key = (
         round(float(min_similarity), 4),
         int(max_neighbors),
         int(max_nodes),
         strategy,
+        normalized_neighbor_strategy,
         normalized_doc_types,
         (start_date or "").strip(),
         (end_date or "").strip(),
@@ -470,6 +615,7 @@ def get_similarity_graph(
                 start_date=start_date,
                 end_date=end_date,
                 keyword=normalized_keyword or None,
+                neighbor_strategy=normalized_neighbor_strategy,
             )
             _GRAPH_CACHE[key] = graph
 
