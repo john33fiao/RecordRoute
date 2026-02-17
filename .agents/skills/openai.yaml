@@ -1,0 +1,6 @@
+interface:
+  display_name: "배포준비"
+  short_description: "계획→다중 검토→구현→회귀/보안/사이드이펙트→정리→배포준비→커밋/PR"
+  default_prompt: "RTD"
+policy:
+  allow_implicit_invocation: false

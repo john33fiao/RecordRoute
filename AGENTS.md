@@ -115,3 +115,9 @@ POST
 - 워크플로우 에러는 `map_workflow_exception()` 규약을 따라 `error_code/retryable/failed_step` 유지
 - 프론트는 `frontend/src`가 기준이며 `frontend/legacy`는 fallback 유지 목적
 - 런타임 영향이 있는 변경은 문서(`README.md`, `AGENTS.md`)에 즉시 반영
+
+## 9. 스킬 호출 키워드
+- 배포 준비 워크플로우 스킬 이름: `배포준비`
+- 호출 키워드(alias): `RTD`
+- 스킬 본문 경로: `.agents/skills/RTD.md`
+- 인터페이스/기본 프롬프트 설정: `.agents/skills/openai.yaml`
