@@ -51,6 +51,7 @@ GET
   - `/search` 파라미터 정규화: `sort_by(similarity|date, uploaded_at→date)`, `sort_order(asc|desc)`, `status(completed|pending, done/success/incomplete/todo 별칭 지원)`, `status_task(stt|summary|embedding)`
   - `min_score`는 0~1 범위만 유효, 응답은 항상 `contract_version: search-v2` 포함
 - `/api/similarity-graph`, `/api/documents/metadata`
+  - `/api/similarity-graph` 응답 `meta`는 `sampling` + `incremental(reused_pairs/computed_pairs/added_docs/removed_docs/changed_docs)` 진단 정보를 포함
 - `/similar/<uuid_or_path>`, `/models`
 - `/cache/stats`, `/cache/cleanup`
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import threading
 import time
 from pathlib import Path
@@ -13,8 +14,9 @@ from .http_api.history import get_active_history
 from .http_api.paths import BASE_DIR, normalize_record_path
 from .http_api.registry import load_file_registry
 
-_CACHE_LOCK = threading.Lock()
+_CACHE_LOCK = threading.RLock()
 _GRAPH_CACHE: dict[tuple[float, int, int, str], dict[str, Any]] = {}
+_INCREMENTAL_STATE: dict[tuple[int, str], dict[str, Any]] = {}
 
 DEFAULT_MIN_SIMILARITY = 0.65
 DEFAULT_MAX_NEIGHBORS = 12
@@ -172,13 +174,12 @@ def _compute_graph(
             },
         }
 
-    matrix = np.zeros((node_count, node_count), dtype=float)
-    for i in range(node_count):
-        matrix[i, i] = 1.0
-        for j in range(i + 1, node_count):
-            score = _cosine_similarity(vectors[i], vectors[j])
-            matrix[i, j] = score
-            matrix[j, i] = score
+    state_key = (max_nodes, sampling_strategy)
+    matrix, incremental_meta = _build_similarity_matrix(
+        state_key=state_key,
+        docs=valid_docs,
+        vectors=vectors,
+    )
 
     nodes = [
         {
@@ -216,14 +217,109 @@ def _compute_graph(
             "max_neighbors": max_neighbors,
             "max_nodes": max_nodes,
             "sampling": sampling_meta,
+            "incremental": incremental_meta,
             "generated_at": time.time(),
         },
+    }
+
+
+def _vector_fingerprint(vector: np.ndarray) -> tuple[str, tuple[int, ...], str]:
+    contiguous = np.ascontiguousarray(vector)
+    digest = hashlib.sha1(contiguous.view(np.uint8).tobytes()).hexdigest()
+    return digest, tuple(contiguous.shape), str(contiguous.dtype)
+
+
+def _build_similarity_matrix(
+    state_key: tuple[int, str],
+    docs: list[dict[str, Any]],
+    vectors: list[np.ndarray],
+) -> tuple[np.ndarray, dict[str, Any]]:
+    node_count = len(docs)
+    matrix = np.zeros((node_count, node_count), dtype=float)
+    if node_count == 0:
+        return matrix, {
+            "reused_pairs": 0,
+            "computed_pairs": 0,
+            "added_docs": 0,
+            "removed_docs": 0,
+            "changed_docs": 0,
+            "strategy": "incremental",
+        }
+
+    current_ids = [str(doc["id"]) for doc in docs]
+    current_fingerprints = {
+        doc_id: _vector_fingerprint(vector)
+        for doc_id, vector in zip(current_ids, vectors)
+    }
+
+    with _CACHE_LOCK:
+        prev_state = _INCREMENTAL_STATE.get(state_key)
+
+    previous_index: dict[str, int] = {}
+    previous_fingerprints: dict[str, tuple[str, tuple[int, ...], str]] = {}
+    previous_matrix: np.ndarray | None = None
+    if prev_state:
+        previous_index = prev_state.get("id_index", {})
+        previous_fingerprints = prev_state.get("fingerprints", {})
+        previous_matrix = prev_state.get("matrix")
+
+    unchanged_ids = {
+        doc_id
+        for doc_id in current_ids
+        if doc_id in previous_index and current_fingerprints.get(doc_id) == previous_fingerprints.get(doc_id)
+    }
+
+    computed_pairs = 0
+    reused_pairs = 0
+
+    for i in range(node_count):
+        matrix[i, i] = 1.0
+        for j in range(i + 1, node_count):
+            source_id = current_ids[i]
+            target_id = current_ids[j]
+            can_reuse = (
+                previous_matrix is not None
+                and source_id in unchanged_ids
+                and target_id in unchanged_ids
+            )
+            if can_reuse:
+                prev_i = previous_index[source_id]
+                prev_j = previous_index[target_id]
+                score = float(previous_matrix[prev_i, prev_j])
+                reused_pairs += 1
+            else:
+                score = _cosine_similarity(vectors[i], vectors[j])
+                computed_pairs += 1
+            matrix[i, j] = score
+            matrix[j, i] = score
+
+    with _CACHE_LOCK:
+        _INCREMENTAL_STATE[state_key] = {
+            "id_index": {doc_id: idx for idx, doc_id in enumerate(current_ids)},
+            "fingerprints": current_fingerprints,
+            "matrix": matrix,
+        }
+
+    previous_ids = set(previous_index.keys())
+    current_ids_set = set(current_ids)
+    added_docs = len(current_ids_set - previous_ids)
+    removed_docs = len(previous_ids - current_ids_set)
+    changed_docs = len(current_ids_set & previous_ids) - len(unchanged_ids)
+
+    return matrix, {
+        "reused_pairs": reused_pairs,
+        "computed_pairs": computed_pairs,
+        "added_docs": max(0, added_docs),
+        "removed_docs": max(0, removed_docs),
+        "changed_docs": max(0, changed_docs),
+        "strategy": "incremental",
     }
 
 
 def invalidate_similarity_cache() -> None:
     with _CACHE_LOCK:
         _GRAPH_CACHE.clear()
+        _INCREMENTAL_STATE.clear()
 
 
 def get_similarity_graph(

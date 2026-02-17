@@ -24,7 +24,7 @@
 | 엣지 범례 + 두께 스케일 표준화 | 완료 | - | - |
 | 노드 스타일(문서 타입/중심성 반영) | 완료 | - | - |
 | 필터 UI(threshold + 날짜/타입) | 미착수 | P1 | API 파라미터 정리 |
-| 증분 업데이트 전략(신규 문서 추가 시 부분 갱신) | 미착수 | P2 | 인덱스/캐시 구조 변경 |
+| 증분 업데이트 전략(신규 문서 추가 시 부분 갱신) | 부분완료 | P2 | 인덱스/캐시 구조 변경 |
 | 근사 최근접/샘플링 전략 검토 (대규모 데이터 대응) | 미착수 | P2 | 벤치 기준선/정확도 기준 |
 
 ## 3) 최근 완료 항목
@@ -33,8 +33,9 @@
 |---|---|
 | 성능 계측(문서 100/500/1000 응답시간) 자동화 | `frontend/scripts/benchmark-similarity-graph.mjs`, `docs/perf/similarity-graph-baseline.json`, `docs/perf/similarity-graph-baseline.md` |
 | 엣지 범례/스케일 표준화 + 노드 스타일 개선 | `frontend/src/components/SimilarityGraphPanel.tsx` |
+| 증분 유사도 행렬 재사용(변경 없는 문서 쌍 score 재계산 생략) | `sttEngine/similarity_matrix.py` (`_build_similarity_matrix`, `_INCREMENTAL_STATE`) |
 
 ## 4) 실행 순서
 
 1. **P1** 스타일/범례/필터 고도화
-2. **P2** 증분 계산 고도화
+2. **P2** 증분 계산 고도화 (기본 증분 재사용 구현 완료, 정확도/메모리 최적화 잔여)
