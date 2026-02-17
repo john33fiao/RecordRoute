@@ -104,6 +104,9 @@ venv\Scripts\python.exe -m sttEngine.server
 - `RECORDROUTE_DESTRUCTIVE_API_SAFE_MODE` (기본 `true`): 파괴적 API 안전 모드
 - `RECORDROUTE_DESTRUCTIVE_API_TOKEN`: 파괴적 API 공용 토큰
 - `RECORDROUTE_DESTRUCTIVE_API_SESSION_ID`, `RECORDROUTE_DESTRUCTIVE_API_SESSION_TOKEN`: 세션 기반 보호 값
+- `RECORDROUTE_SIMILARITY_GRAPH_CACHE_TTL_SECONDS` (기본 `300`): 그래프 응답 캐시 TTL(초)
+- `RECORDROUTE_SIMILARITY_INCREMENTAL_TTL_SECONDS` (기본 `900`): 증분 유사도 상태 TTL(초)
+- `RECORDROUTE_SIMILARITY_INCREMENTAL_MAX_ENTRIES` (기본 `6`): 샘플링/노드 조합별 증분 상태 최대 보관 수
 
 ## API 요약
 
@@ -112,7 +115,7 @@ venv\Scripts\python.exe -m sttEngine.server
 - `/history`, `/tasks`, `/progress/<task_id>` (진행률 %, ETA, 표준 오류 payload 포함)
 - `/search`, `/models`, `/cache/stats`, `/cache/cleanup`
 - `/api/similarity-graph`, `/api/documents/metadata`
-  - `/api/similarity-graph` 응답 `meta`에는 `sampling`과 `incremental(reused_pairs/computed_pairs/added_docs/removed_docs/changed_docs)` 진단 필드 포함
+  - `/api/similarity-graph` 응답 `meta`에는 `sampling`, `incremental(reused_pairs/computed_pairs/added_docs/removed_docs/changed_docs)`, `cache(hit/refresh/ttl/max_entries)` 진단 필드 포함
 
 주요 POST:
 - `/upload`, `/process`, `/cancel`, `/shutdown`

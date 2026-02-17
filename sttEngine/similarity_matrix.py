@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import threading
 import time
 from pathlib import Path
@@ -23,6 +24,60 @@ DEFAULT_MAX_NEIGHBORS = 12
 DEFAULT_MAX_NODES = 150
 DEFAULT_SAMPLING_STRATEGY = "hybrid"
 ALLOWED_SAMPLING_STRATEGIES = {"hybrid", "recent", "random"}
+
+
+def _read_env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except Exception:
+        return default
+
+
+def _read_env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except Exception:
+        return default
+
+
+GRAPH_CACHE_TTL_SECONDS = max(0.0, _read_env_float("RECORDROUTE_SIMILARITY_GRAPH_CACHE_TTL_SECONDS", 300.0))
+INCREMENTAL_STATE_TTL_SECONDS = max(0.0, _read_env_float("RECORDROUTE_SIMILARITY_INCREMENTAL_TTL_SECONDS", 900.0))
+INCREMENTAL_STATE_MAX_ENTRIES = max(1, _read_env_int("RECORDROUTE_SIMILARITY_INCREMENTAL_MAX_ENTRIES", 6))
+
+
+def _prune_caches_locked(now: float) -> None:
+    if GRAPH_CACHE_TTL_SECONDS > 0:
+        expired_graph_keys = [
+            key
+            for key, entry in _GRAPH_CACHE.items()
+            if now - float(entry.get("created_at", 0.0)) > GRAPH_CACHE_TTL_SECONDS
+        ]
+        for key in expired_graph_keys:
+            _GRAPH_CACHE.pop(key, None)
+
+    if INCREMENTAL_STATE_TTL_SECONDS > 0:
+        expired_state_keys = [
+            key
+            for key, entry in _INCREMENTAL_STATE.items()
+            if now - float(entry.get("updated_at", 0.0)) > INCREMENTAL_STATE_TTL_SECONDS
+        ]
+        for key in expired_state_keys:
+            _INCREMENTAL_STATE.pop(key, None)
+
+    overflow = len(_INCREMENTAL_STATE) - INCREMENTAL_STATE_MAX_ENTRIES
+    if overflow > 0:
+        ordered_keys = sorted(
+            _INCREMENTAL_STATE.keys(),
+            key=lambda key: float(_INCREMENTAL_STATE[key].get("updated_at", 0.0)),
+        )
+        for key in ordered_keys[:overflow]:
+            _INCREMENTAL_STATE.pop(key, None)
 
 
 def _cosine_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
@@ -253,6 +308,7 @@ def _build_similarity_matrix(
     }
 
     with _CACHE_LOCK:
+        _prune_caches_locked(time.time())
         prev_state = _INCREMENTAL_STATE.get(state_key)
 
     previous_index: dict[str, int] = {}
@@ -298,7 +354,9 @@ def _build_similarity_matrix(
             "id_index": {doc_id: idx for idx, doc_id in enumerate(current_ids)},
             "fingerprints": current_fingerprints,
             "matrix": matrix,
+            "updated_at": time.time(),
         }
+        _prune_caches_locked(time.time())
 
     previous_ids = set(previous_index.keys())
     current_ids_set = set(current_ids)
@@ -332,9 +390,14 @@ def get_similarity_graph(
 ) -> dict[str, Any]:
     strategy = sampling_strategy if sampling_strategy in ALLOWED_SAMPLING_STRATEGIES else DEFAULT_SAMPLING_STRATEGY
     key = (round(float(min_similarity), 4), int(max_neighbors), int(max_nodes), strategy)
+    cache_hit = False
     with _CACHE_LOCK:
-        if not refresh and key in _GRAPH_CACHE:
-            graph = _GRAPH_CACHE[key]
+        now = time.time()
+        _prune_caches_locked(now)
+        cached_entry = _GRAPH_CACHE.get(key)
+        if not refresh and cached_entry is not None:
+            graph = cached_entry["graph"]
+            cache_hit = True
         else:
             graph = _compute_graph(
                 min_similarity=min_similarity,
@@ -342,26 +405,51 @@ def get_similarity_graph(
                 max_nodes=max_nodes,
                 sampling_strategy=strategy,
             )
-            _GRAPH_CACHE[key] = graph
+            _GRAPH_CACHE[key] = {
+                "graph": graph,
+                "created_at": time.time(),
+            }
+
+    payload = {
+        "nodes": graph.get("nodes", []),
+        "edges": graph.get("edges", []),
+        "meta": dict(graph.get("meta", {})),
+    }
+    payload["meta"]["cache"] = {
+        "hit": cache_hit,
+        "refresh": bool(refresh),
+        "graph_cache_ttl_seconds": GRAPH_CACHE_TTL_SECONDS,
+        "incremental_state_ttl_seconds": INCREMENTAL_STATE_TTL_SECONDS,
+        "incremental_state_max_entries": INCREMENTAL_STATE_MAX_ENTRIES,
+    }
 
     if not doc_id:
-        return graph
+        return payload
 
-    node_ids = {node["id"] for node in graph["nodes"]}
+    node_ids = {node["id"] for node in payload["nodes"]}
     if doc_id not in node_ids:
-        return {"nodes": [], "edges": [], "meta": {"doc_id": doc_id, "found": False, "min_similarity": min_similarity}}
+        return {
+            "nodes": [],
+            "edges": [],
+            "meta": {
+                "doc_id": doc_id,
+                "found": False,
+                "min_similarity": min_similarity,
+                "cache": payload["meta"].get("cache"),
+            },
+        }
 
     kept_ids = {doc_id}
-    for edge in graph["edges"]:
+    for edge in payload["edges"]:
         if edge["source"] == doc_id:
             kept_ids.add(edge["target"])
         elif edge["target"] == doc_id:
             kept_ids.add(edge["source"])
 
-    sub_nodes = [node for node in graph["nodes"] if node["id"] in kept_ids]
+    sub_nodes = [node for node in payload["nodes"] if node["id"] in kept_ids]
     sub_edges = [
         edge
-        for edge in graph["edges"]
+        for edge in payload["edges"]
         if edge["source"] in kept_ids and edge["target"] in kept_ids
     ]
 
@@ -373,8 +461,9 @@ def get_similarity_graph(
             "found": True,
             "min_similarity": min_similarity,
             "count": len(sub_nodes),
-            "node_schema": graph["meta"].get("node_schema"),
-            "edge_schema": graph["meta"].get("edge_schema"),
+            "node_schema": payload["meta"].get("node_schema"),
+            "edge_schema": payload["meta"].get("edge_schema"),
+            "cache": payload["meta"].get("cache"),
         },
     }
     return payload
