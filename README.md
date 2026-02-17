@@ -104,6 +104,10 @@ venv\Scripts\python.exe -m sttEngine.server
 - `RECORDROUTE_DESTRUCTIVE_API_SAFE_MODE` (기본 `true`): 파괴적 API 안전 모드
 - `RECORDROUTE_DESTRUCTIVE_API_TOKEN`: 파괴적 API 공용 토큰
 - `RECORDROUTE_DESTRUCTIVE_API_SESSION_ID`, `RECORDROUTE_DESTRUCTIVE_API_SESSION_TOKEN`: 세션 기반 보호 값
+- `RECORDROUTE_SIMILARITY_GRAPH_CACHE_TTL_SECONDS`: 그래프 응답 캐시 TTL(초, 기본 300)
+- `RECORDROUTE_SIMILARITY_GRAPH_CACHE_MAX_ENTRIES`: 그래프 응답 캐시 최대 엔트리 수(기본 24)
+- `RECORDROUTE_SIMILARITY_INCREMENTAL_STATE_TTL_SECONDS`: 증분 유사도 상태 TTL(초, 기본 900)
+- `RECORDROUTE_SIMILARITY_INCREMENTAL_STATE_MAX_ENTRIES`: 증분 유사도 상태 최대 엔트리 수(기본 8)
 
 ## API 요약
 
@@ -180,9 +184,17 @@ pytest
 pytest tests/http_api/test_workflow.py tests/http_api/test_search.py tests/server/test_queue.py tests/test_vocab_system.py
 ```
 
-그래프 성능 계측(100/500/1000 문서 기준선 자동 생성):
+그래프 성능 계측(기본 100/500/1000 문서 기준선 자동 생성):
 ```bash
 node frontend/scripts/benchmark-similarity-graph.mjs
+```
+대용량 구간(2k/5k) 포함:
+```bash
+node frontend/scripts/benchmark-similarity-graph.mjs --include-large
+```
+사용자 정의 구간/반복:
+```bash
+node frontend/scripts/benchmark-similarity-graph.mjs --dataset-sizes=100,500,1000,2000,5000 --iterations=3
 ```
 결과물: `docs/perf/similarity-graph-baseline.json`, `docs/perf/similarity-graph-baseline.md`
 

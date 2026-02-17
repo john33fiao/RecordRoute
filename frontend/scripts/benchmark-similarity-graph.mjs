@@ -3,8 +3,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
-const DATASET_SIZES = [100, 500, 1000];
-const ITERATIONS = 10;
+const BASE_DATASET_SIZES = [100, 500, 1000];
+const LARGE_DATASET_SIZES = [2000, 5000];
+const DEFAULT_ITERATIONS = 10;
 const EDGE_LENGTH = 120;
 const REPULSION = 18000;
 const SPRING_K = 0.0018;
@@ -16,6 +17,9 @@ function parseArgs(argv) {
     minSimilarity: 0.65,
     sampling: 'hybrid',
     mockResponseDelayMs: 8,
+    includeLarge: false,
+    datasetSizes: [...BASE_DATASET_SIZES],
+    iterations: DEFAULT_ITERATIONS,
   };
 
   for (const arg of argv) {
@@ -29,7 +33,26 @@ function parseArgs(argv) {
     } else if (arg.startsWith('--mock-response-delay-ms=')) {
       const parsed = Number(arg.slice('--mock-response-delay-ms='.length));
       if (!Number.isNaN(parsed) && parsed >= 0) options.mockResponseDelayMs = parsed;
+    } else if (arg.startsWith('--iterations=')) {
+      const parsed = Number(arg.slice('--iterations='.length));
+      if (Number.isFinite(parsed) && parsed > 0) options.iterations = Math.trunc(parsed);
+    } else if (arg === '--include-large') {
+      options.includeLarge = true;
+    } else if (arg.startsWith('--dataset-sizes=')) {
+      const parsedSizes = arg
+        .slice('--dataset-sizes='.length)
+        .split(',')
+        .map((part) => Number(part.trim()))
+        .filter((value) => Number.isFinite(value) && value > 0)
+        .map((value) => Math.trunc(value));
+      if (parsedSizes.length > 0) {
+        options.datasetSizes = [...new Set(parsedSizes)].sort((a, b) => a - b);
+      }
     }
+  }
+
+  if (options.includeLarge && !argv.some((arg) => arg.startsWith('--dataset-sizes='))) {
+    options.datasetSizes = [...BASE_DATASET_SIZES, ...LARGE_DATASET_SIZES];
   }
 
   return options;
@@ -178,10 +201,11 @@ function percentile(values, targetPercentile) {
 }
 
 async function benchmarkSize(size, options) {
+  const iterations = Math.max(1, options.iterations || DEFAULT_ITERATIONS);
   const syntheticGraph = createSyntheticGraph(size);
   const samples = [];
 
-  for (let i = 0; i < ITERATIONS; i += 1) {
+  for (let i = 0; i < iterations; i += 1) {
     const responseTimeMs = await measureResponseTimeMs(size, options);
 
     const renderStart = performance.now();
@@ -245,7 +269,7 @@ async function run() {
   const options = parseArgs(process.argv.slice(2));
   const scenarios = [];
 
-  for (const size of DATASET_SIZES) {
+  for (const size of options.datasetSizes) {
     // eslint-disable-next-line no-await-in-loop
     scenarios.push(await benchmarkSize(size, options));
   }
@@ -255,7 +279,7 @@ async function run() {
     mode: options.apiBaseUrl ? 'real_api' : 'mock_api',
     apiBaseUrl: options.apiBaseUrl,
     mockResponseDelayMs: options.mockResponseDelayMs,
-    iterations: ITERATIONS,
+    iterations: options.iterations,
     scenarios,
   };
 
