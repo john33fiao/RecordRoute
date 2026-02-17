@@ -182,6 +182,7 @@ export async function getSimilarityGraph(request: SimilarityGraphRequest = {}): 
   if (request.max_neighbors !== undefined) params.set('max_neighbors', String(request.max_neighbors));
   if (request.max_nodes !== undefined) params.set('max_nodes', String(request.max_nodes));
   if (request.sampling) params.set('sampling', request.sampling);
+  if (request.neighbor_strategy) params.set('neighbor_strategy', request.neighbor_strategy);
   if (request.doc_id) params.set('doc_id', request.doc_id);
   if (request.doc_types?.length) params.set('doc_types', request.doc_types.join(','));
   if (request.start_date) params.set('start_date', request.start_date);
