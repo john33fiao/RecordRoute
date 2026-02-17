@@ -1,7 +1,7 @@
 # Graph 백로그 (문서 유사도 네트워크)
 
 - 마지막 점검일: 2026-02-17
-- 대조 기준 파일: `sttEngine/similarity_matrix.py`, `sttEngine/http_api/routes/similarity_routes.py`, `frontend/src/components/SimilarityGraphPanel.tsx`, `frontend/scripts/benchmark-similarity-graph.mjs`
+- 대조 기준 파일: `sttEngine/similarity_matrix.py`, `sttEngine/http_api/routes/similarity_routes.py`, `frontend/src/components/SimilarityGraphPanel.tsx`
 
 ## 1) 구현 현황 재평가
 
@@ -14,8 +14,8 @@
 | 기본 필터(min_similarity/max_nodes) | 완료 | - | - | 패널 제어값이 API 요청 파라미터로 연결 |
 | 성능 계측 자동화(100/500/1000 문서) | 완료 | - | - | `frontend/scripts/benchmark-similarity-graph.mjs` + `docs/perf/*` 산출물 |
 | 엣지 가중치 시각화 | 부분완료 | P1 | 범례/스케일 표준화 | opacity/두께 반영, 범례 미구현 |
-| 필터 확장(문서타입/기간/키워드) | 미착수 | P1 | metadata 확장 + UI 컨트롤 | 현재 similarity/max_nodes 중심 |
-| 대용량 성능 전략(O(n²) 대응) | 미착수 | P2 | 샘플링/근사 최근접/증분 계산 설계 | 증분 업데이트/근사 탐색 미구현 |
+| 필터(문서타입/기간/키워드) | 미착수 | P1 | metadata 확장 + UI 컨트롤 | 현재 similarity/max_nodes 중심 |
+| 대용량 성능 전략(O(n²) 대응) | 부분완료 | P0 | 샘플링/근사 최근접/증분 계산 설계 | `max_nodes` 샘플링(`recent/random/hybrid`) + 벤치 기준선은 존재하나, 근사 최근접/증분 계산은 미구현 |
 
 ## 2) 유효 백로그 (다음 스프린트)
 
@@ -27,7 +27,13 @@
 | 증분 업데이트 전략(신규 문서 추가 시 부분 갱신) | 미착수 | P2 | 인덱스/캐시 구조 변경 |
 | 근사 최근접/샘플링 전략 검토 (대규모 데이터 대응) | 미착수 | P2 | 벤치 기준선/정확도 기준 |
 
-## 3) 실행 순서
+## 3) 최근 완료 항목
+
+| 항목 | 완료 근거 |
+|---|---|
+| 성능 계측(문서 100/500/1000 응답시간) 자동화 | `frontend/scripts/benchmark-similarity-graph.mjs`, `docs/perf/similarity-graph-baseline.json`, `docs/perf/similarity-graph-baseline.md` |
+
+## 4) 실행 순서
 
 1. **P1** 스타일/범례/필터 고도화
-2. **P2** 증분 계산/근사 전략 고도화
+2. **P2** 증분 계산 고도화
