@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -19,6 +20,28 @@ _CACHE_LOCK = threading.RLock()
 _GRAPH_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _INCREMENTAL_STATE: dict[tuple[int, str], dict[str, Any]] = {}
 
+
+def _env_float(name: str, default: float, *, minimum: float | None = None) -> float:
+    raw = os.getenv(name)
+    try:
+        parsed = float(raw) if raw is not None else default
+    except (TypeError, ValueError):
+        parsed = default
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    return parsed
+
+
+def _env_int(name: str, default: int, *, minimum: int | None = None) -> int:
+    raw = os.getenv(name)
+    try:
+        parsed = int(raw) if raw is not None else default
+    except (TypeError, ValueError):
+        parsed = default
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    return parsed
+
 DEFAULT_MIN_SIMILARITY = 0.65
 DEFAULT_MAX_NEIGHBORS = 12
 DEFAULT_MAX_NODES = 150
@@ -32,6 +55,63 @@ LSH_TABLES = 6
 LSH_BITS = 14
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".opus"}
 DOCUMENT_EXTENSIONS = {".txt", ".md", ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".hwp"}
+GRAPH_CACHE_TTL_SECONDS = _env_float("RECORDROUTE_SIMILARITY_GRAPH_CACHE_TTL_SECONDS", 300.0, minimum=0.0)
+GRAPH_CACHE_MAX_ENTRIES = _env_int("RECORDROUTE_SIMILARITY_GRAPH_CACHE_MAX_ENTRIES", 24, minimum=1)
+INCREMENTAL_STATE_TTL_SECONDS = _env_float("RECORDROUTE_SIMILARITY_INCREMENTAL_STATE_TTL_SECONDS", 900.0, minimum=0.0)
+INCREMENTAL_STATE_MAX_ENTRIES = _env_int("RECORDROUTE_SIMILARITY_INCREMENTAL_STATE_MAX_ENTRIES", 8, minimum=1)
+
+
+def _prune_graph_cache(now: float | None = None) -> None:
+    now_ts = now if now is not None else time.time()
+    expired_keys = [
+        key
+        for key, payload in _GRAPH_CACHE.items()
+        if GRAPH_CACHE_TTL_SECONDS > 0 and (now_ts - float(payload.get("cached_at", now_ts))) > GRAPH_CACHE_TTL_SECONDS
+    ]
+    for key in expired_keys:
+        _GRAPH_CACHE.pop(key, None)
+
+    if len(_GRAPH_CACHE) <= GRAPH_CACHE_MAX_ENTRIES:
+        return
+
+    overflow = len(_GRAPH_CACHE) - GRAPH_CACHE_MAX_ENTRIES
+    ordered_keys = sorted(_GRAPH_CACHE.keys(), key=lambda key: float(_GRAPH_CACHE[key].get("cached_at", 0.0)))
+    for key in ordered_keys[:overflow]:
+        _GRAPH_CACHE.pop(key, None)
+
+
+def _prune_incremental_state(now: float | None = None) -> None:
+    now_ts = now if now is not None else time.time()
+    expired_keys = [
+        key
+        for key, payload in _INCREMENTAL_STATE.items()
+        if INCREMENTAL_STATE_TTL_SECONDS > 0 and (now_ts - float(payload.get("updated_at", now_ts))) > INCREMENTAL_STATE_TTL_SECONDS
+    ]
+    for key in expired_keys:
+        _INCREMENTAL_STATE.pop(key, None)
+
+    if len(_INCREMENTAL_STATE) <= INCREMENTAL_STATE_MAX_ENTRIES:
+        return
+
+    overflow = len(_INCREMENTAL_STATE) - INCREMENTAL_STATE_MAX_ENTRIES
+    ordered_keys = sorted(_INCREMENTAL_STATE.keys(), key=lambda key: float(_INCREMENTAL_STATE[key].get("updated_at", 0.0)))
+    for key in ordered_keys[:overflow]:
+        _INCREMENTAL_STATE.pop(key, None)
+
+
+def _cache_policy_meta() -> dict[str, Any]:
+    return {
+        "graph_cache": {
+            "ttl_seconds": GRAPH_CACHE_TTL_SECONDS,
+            "max_entries": GRAPH_CACHE_MAX_ENTRIES,
+            "entries": len(_GRAPH_CACHE),
+        },
+        "incremental_state": {
+            "ttl_seconds": INCREMENTAL_STATE_TTL_SECONDS,
+            "max_entries": INCREMENTAL_STATE_MAX_ENTRIES,
+            "entries": len(_INCREMENTAL_STATE),
+        },
+    }
 
 
 def _cosine_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
@@ -503,6 +583,7 @@ def _build_similarity_matrix(
     }
 
     with _CACHE_LOCK:
+        _prune_incremental_state()
         prev_state = _INCREMENTAL_STATE.get(state_key)
 
     previous_index: dict[str, int] = {}
@@ -548,7 +629,9 @@ def _build_similarity_matrix(
             "id_index": {doc_id: idx for idx, doc_id in enumerate(current_ids)},
             "fingerprints": current_fingerprints,
             "matrix": matrix,
+            "updated_at": time.time(),
         }
+        _prune_incremental_state()
 
     previous_ids = set(previous_index.keys())
     current_ids_set = set(current_ids)
@@ -603,8 +686,11 @@ def get_similarity_graph(
         normalized_keyword,
     )
     with _CACHE_LOCK:
-        if not refresh and key in _GRAPH_CACHE:
-            graph = _GRAPH_CACHE[key]
+        _prune_graph_cache()
+        cached_entry = _GRAPH_CACHE.get(key)
+        cache_hit = bool(not refresh and cached_entry is not None)
+        if cache_hit:
+            graph = cached_entry["graph"]
         else:
             graph = _compute_graph(
                 min_similarity=min_similarity,
@@ -617,7 +703,16 @@ def get_similarity_graph(
                 keyword=normalized_keyword or None,
                 neighbor_strategy=normalized_neighbor_strategy,
             )
-            _GRAPH_CACHE[key] = graph
+            _GRAPH_CACHE[key] = {"graph": graph, "cached_at": time.time()}
+            _prune_graph_cache()
+
+    graph_meta = graph.get("meta") if isinstance(graph, dict) else None
+    if isinstance(graph_meta, dict):
+        graph_meta["cache"] = {
+            "hit": cache_hit,
+            "refresh_requested": bool(refresh),
+            "policy": _cache_policy_meta(),
+        }
 
     if not doc_id:
         return graph

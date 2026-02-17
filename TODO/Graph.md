@@ -1,6 +1,6 @@
 # Graph 백로그 (문서 유사도 네트워크)
 
-- 마지막 점검일: 2026-02-17
+- 마지막 점검일: 2026-02-18
 - 점검 방법: 코드 기준 재검토(`similarity_matrix`, `similarity_routes`, `SimilarityGraphPanel`, 벤치 스크립트/산출물)
 - 대조 기준 파일: `sttEngine/similarity_matrix.py`, `sttEngine/http_api/routes/similarity_routes.py`, `frontend/src/components/SimilarityGraphPanel.tsx`, `frontend/scripts/benchmark-similarity-graph.mjs`, `docs/perf/similarity-graph-baseline.*`
 
@@ -25,9 +25,9 @@
 |---|---|---|---|
 | 필터 UI(threshold + 날짜/타입/키워드) | 미착수 | P1 | API 파라미터 + metadata 필드 확장 |
 | sampling 전략 선택 UI(recent/random/hybrid) 노출 | 미착수 | P1 | 프론트 컨트롤 + API 파라미터 동기화 |
-| 증분 업데이트 고도화(메모리/TTL/캐시 정책) | 부분완료 | P2 | 인덱스/캐시 구조 변경 |
+| 증분 업데이트 고도화(메모리/TTL/캐시 정책) | 완료 | - | - |
 | 근사 최근접(ANN) 또는 후보 축소 전략 PoC | 부분완료 | P0 | 정확도 허용오차 + 성능 목표 합의 |
-| 벤치마크 확장(실서버 + 대용량 구간 2k/5k) | 미착수 | P2 | 테스트 데이터셋/실서버 계측 환경 |
+| 벤치마크 확장(실서버 + 대용량 구간 2k/5k) | 완료 | - | - |
 
 ## 3) 최근 완료 항목
 
@@ -38,6 +38,8 @@
 | 증분 유사도 행렬 재사용(변경 없는 문서 쌍 score 재계산 생략) | `sttEngine/similarity_matrix.py` (`_build_similarity_matrix`, `_INCREMENTAL_STATE`) |
 | 그래프 응답 메타 진단 정보 확장(`sampling`, `incremental`) | `sttEngine/similarity_matrix.py`, `sttEngine/http_api/routes/similarity_routes.py` |
 | LSH 기반 후보 축소 전략(ANN PoC) + `neighbor_strategy` 메타 확장 | `sttEngine/similarity_matrix.py`, `sttEngine/http_api/routes/similarity_routes.py`, `frontend/src/api/*` |
+| 증분 캐시 정책(TTL/최대 엔트리) + 캐시 진단 메타 확장 | `sttEngine/similarity_matrix.py` (`RECORDROUTE_SIMILARITY_*` 환경변수, `meta.cache.policy`) |
+| 벤치마크 대용량 구간(2k/5k) 실행 옵션 추가 | `frontend/scripts/benchmark-similarity-graph.mjs` (`--include-large`, `--dataset-sizes`) |
 
 ## 4) 실행 순서
 

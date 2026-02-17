@@ -108,6 +108,8 @@ POST
 - `pytest tests/server/test_queue.py`
 - `pytest tests/test_vocab_system.py`
 - 그래프 성능 기준선 생성: `node frontend/scripts/benchmark-similarity-graph.mjs`
+  - 대용량 구간(2k/5k) 포함: `node frontend/scripts/benchmark-similarity-graph.mjs --include-large`
+  - 사용자 정의 구간/반복: `node frontend/scripts/benchmark-similarity-graph.mjs --dataset-sizes=100,500,1000,2000,5000 --iterations=3`
   - 출력: `docs/perf/similarity-graph-baseline.json`, `docs/perf/similarity-graph-baseline.md`
   - 실서버 응답 포함: `node frontend/scripts/benchmark-similarity-graph.mjs --api-base-url=http://localhost:8080`
 
