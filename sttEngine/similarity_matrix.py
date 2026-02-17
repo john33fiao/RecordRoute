@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 import random
 from typing import Any
@@ -15,7 +16,7 @@ from .http_api.paths import BASE_DIR, normalize_record_path
 from .http_api.registry import load_file_registry
 
 _CACHE_LOCK = threading.RLock()
-_GRAPH_CACHE: dict[tuple[float, int, int, str], dict[str, Any]] = {}
+_GRAPH_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _INCREMENTAL_STATE: dict[tuple[int, str], dict[str, Any]] = {}
 
 DEFAULT_MIN_SIMILARITY = 0.65
@@ -23,6 +24,9 @@ DEFAULT_MAX_NEIGHBORS = 12
 DEFAULT_MAX_NODES = 150
 DEFAULT_SAMPLING_STRATEGY = "hybrid"
 ALLOWED_SAMPLING_STRATEGIES = {"hybrid", "recent", "random"}
+ALLOWED_DOC_TYPES = {"audio", "document", "other"}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".opus"}
+DOCUMENT_EXTENSIONS = {".txt", ".md", ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".hwp"}
 
 
 def _cosine_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
@@ -87,12 +91,103 @@ def _build_doc_catalog() -> list[dict[str, Any]]:
 
 
 def _safe_timestamp(value: Any) -> float:
-    try:
-        if value is None:
-            return 0.0
-        return float(value)
-    except Exception:
+    if value is None:
         return 0.0
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return 0.0
+        try:
+            return float(raw)
+        except ValueError:
+            parsed = _parse_datetime(raw)
+            return parsed if parsed is not None else 0.0
+
+    return 0.0
+
+
+def _resolve_doc_type(file_path: str | None) -> str:
+    if not file_path:
+        return "other"
+    suffix = Path(file_path).suffix.lower()
+    if suffix in AUDIO_EXTENSIONS:
+        return "audio"
+    if suffix in DOCUMENT_EXTENSIONS:
+        return "document"
+    return "other"
+
+
+def _parse_datetime(value: str | None) -> float | None:
+    if not value:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    return parsed.timestamp()
+
+
+def _filter_docs(
+    docs: list[dict[str, Any]],
+    *,
+    doc_types: set[str] | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    keyword: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    normalized_types = {item.lower() for item in (doc_types or set()) if item.lower() in ALLOWED_DOC_TYPES}
+    keyword_norm = (keyword or "").strip().lower()
+    start_ts = _parse_datetime(start_date)
+    end_ts = _parse_datetime(end_date)
+
+    filtered: list[dict[str, Any]] = []
+    for doc in docs:
+        current_type = _resolve_doc_type(doc.get("file"))
+        if normalized_types and current_type not in normalized_types:
+            continue
+
+        uploaded_ts = _safe_timestamp(doc.get("uploaded_at"))
+        if start_ts is not None and uploaded_ts < start_ts:
+            continue
+        if end_ts is not None and uploaded_ts > end_ts:
+            continue
+
+        if keyword_norm:
+            haystack = " ".join(
+                str(part or "")
+                for part in (doc.get("display_name"), doc.get("file"), doc.get("id"))
+            ).lower()
+            if keyword_norm not in haystack:
+                continue
+
+        filtered.append(doc)
+
+    return filtered, {
+        "doc_types": sorted(normalized_types),
+        "start_date": start_date,
+        "end_date": end_date,
+        "keyword": keyword_norm or None,
+        "total_before_filtering": len(docs),
+        "total_after_filtering": len(filtered),
+    }
 
 
 def _sample_docs(docs: list[dict[str, Any]], max_nodes: int, strategy: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -136,8 +231,19 @@ def _compute_graph(
     max_neighbors: int = DEFAULT_MAX_NEIGHBORS,
     max_nodes: int = DEFAULT_MAX_NODES,
     sampling_strategy: str = DEFAULT_SAMPLING_STRATEGY,
+    doc_types: set[str] | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    keyword: str | None = None,
 ) -> dict[str, Any]:
     docs = _build_doc_catalog()
+    docs, filter_meta = _filter_docs(
+        docs,
+        doc_types=doc_types,
+        start_date=start_date,
+        end_date=end_date,
+        keyword=keyword,
+    )
     docs, sampling_meta = _sample_docs(docs, max_nodes=max_nodes, strategy=sampling_strategy)
 
     if not docs:
@@ -148,6 +254,7 @@ def _compute_graph(
                 "min_similarity": min_similarity,
                 "count": 0,
                 "generated_at": time.time(),
+                "filters": filter_meta,
                 "sampling": sampling_meta,
             },
         }
@@ -170,6 +277,7 @@ def _compute_graph(
                 "min_similarity": min_similarity,
                 "count": 0,
                 "generated_at": time.time(),
+                "filters": filter_meta,
                 "sampling": sampling_meta,
             },
         }
@@ -186,6 +294,7 @@ def _compute_graph(
             "id": doc["id"],
             "label": doc["display_name"],
             "file": doc["file"],
+            "file_type": _resolve_doc_type(doc.get("file")),
             "record_id": doc.get("record_id"),
             "uploaded_at": doc.get("uploaded_at"),
         }
@@ -210,12 +319,13 @@ def _compute_graph(
         "nodes": nodes,
         "edges": edges,
         "meta": {
-            "node_schema": {"id": "string", "label": "string", "record_id": "string|null", "file": "string"},
+            "node_schema": {"id": "string", "label": "string", "record_id": "string|null", "file": "string", "file_type": "audio|document|other"},
             "edge_schema": {"source": "string", "target": "string", "weight": "number"},
             "min_similarity": min_similarity,
             "count": node_count,
             "max_neighbors": max_neighbors,
             "max_nodes": max_nodes,
+            "filters": filter_meta,
             "sampling": sampling_meta,
             "incremental": incremental_meta,
             "generated_at": time.time(),
@@ -328,10 +438,25 @@ def get_similarity_graph(
     max_nodes: int = DEFAULT_MAX_NODES,
     sampling_strategy: str = DEFAULT_SAMPLING_STRATEGY,
     doc_id: str | None = None,
+    doc_types: list[str] | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    keyword: str | None = None,
     refresh: bool = False,
 ) -> dict[str, Any]:
     strategy = sampling_strategy if sampling_strategy in ALLOWED_SAMPLING_STRATEGIES else DEFAULT_SAMPLING_STRATEGY
-    key = (round(float(min_similarity), 4), int(max_neighbors), int(max_nodes), strategy)
+    normalized_doc_types = tuple(sorted({item.lower() for item in (doc_types or []) if item.lower() in ALLOWED_DOC_TYPES}))
+    normalized_keyword = (keyword or "").strip().lower()
+    key = (
+        round(float(min_similarity), 4),
+        int(max_neighbors),
+        int(max_nodes),
+        strategy,
+        normalized_doc_types,
+        (start_date or "").strip(),
+        (end_date or "").strip(),
+        normalized_keyword,
+    )
     with _CACHE_LOCK:
         if not refresh and key in _GRAPH_CACHE:
             graph = _GRAPH_CACHE[key]
@@ -341,6 +466,10 @@ def get_similarity_graph(
                 max_neighbors=max_neighbors,
                 max_nodes=max_nodes,
                 sampling_strategy=strategy,
+                doc_types=set(normalized_doc_types),
+                start_date=start_date,
+                end_date=end_date,
+                keyword=normalized_keyword or None,
             )
             _GRAPH_CACHE[key] = graph
 
@@ -388,6 +517,7 @@ def get_documents_metadata() -> dict[str, Any]:
                 "id": doc["id"],
                 "file": doc["file"],
                 "display_name": doc["display_name"],
+                "file_type": _resolve_doc_type(doc.get("file")),
                 "record_id": doc.get("record_id"),
                 "uploaded_at": doc.get("uploaded_at"),
             }

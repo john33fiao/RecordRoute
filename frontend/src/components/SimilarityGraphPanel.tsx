@@ -31,7 +31,8 @@ type DocType = 'audio' | 'document' | 'other';
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma', '.opus']);
 const DOCUMENT_EXTENSIONS = new Set(['.txt', '.md', '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.hwp']);
 
-const resolveDocType = (filePath?: string): DocType => {
+const resolveDocType = (filePath?: string, fileType?: string): DocType => {
+  if (fileType === 'audio' || fileType === 'document' || fileType === 'other') return fileType;
   if (!filePath) return 'other';
   const idx = filePath.lastIndexOf('.');
   const ext = idx >= 0 ? filePath.slice(idx).toLowerCase() : '';
@@ -47,6 +48,13 @@ export function SimilarityGraphPanel() {
 
   const [minSimilarity, setMinSimilarity] = useState(0.65);
   const [maxNodes, setMaxNodes] = useState(120);
+  const [sampling, setSampling] = useState<'hybrid' | 'recent' | 'random'>('hybrid');
+  const [keyword, setKeyword] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [docTypeAudio, setDocTypeAudio] = useState(true);
+  const [docTypeDocument, setDocTypeDocument] = useState(true);
+  const [docTypeOther, setDocTypeOther] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [graph, setGraph] = useState<SimilarityGraphResponse | null>(null);
@@ -126,10 +134,19 @@ export function SimilarityGraphPanel() {
     setLoading(true);
     setError(null);
     try {
+      const docTypes: Array<'audio' | 'document' | 'other'> = [];
+      if (docTypeAudio) docTypes.push('audio');
+      if (docTypeDocument) docTypes.push('document');
+      if (docTypeOther) docTypes.push('other');
+
       const payload = await api.getSimilarityGraph({
         min_similarity: minSimilarity,
         max_nodes: maxNodes,
-        sampling: 'hybrid',
+        sampling,
+        doc_types: docTypes.length ? docTypes : ['audio', 'document', 'other'],
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+        keyword: keyword.trim() || undefined,
       });
       setGraph(payload);
       initPositions(payload);
@@ -141,7 +158,7 @@ export function SimilarityGraphPanel() {
     } finally {
       setLoading(false);
     }
-  }, [initPositions, maxNodes, minSimilarity]);
+  }, [docTypeAudio, docTypeDocument, docTypeOther, endDate, initPositions, keyword, maxNodes, minSimilarity, sampling, startDate]);
 
   useEffect(() => {
     loadGraph();
@@ -240,7 +257,7 @@ export function SimilarityGraphPanel() {
   };
 
   const getNodeStyle = (node: SimNode) => {
-    const docType = resolveDocType(node.file);
+    const docType = resolveDocType(node.file, node.file_type);
     const degree = degreeMap.get(node.id) ?? 0;
     const centrality = degree / Math.max(1, maxDegree);
     const radius = 7 + centrality * 6;
@@ -322,6 +339,35 @@ export function SimilarityGraphPanel() {
             <label className="text-xs font-medium">max nodes</label>
             <Input type="number" min={20} max={180} step={10} value={maxNodes}
               onChange={(e) => setMaxNodes(Number(e.target.value || 120))} className="w-28" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium">sampling</label>
+            <select
+              value={sampling}
+              onChange={(e) => setSampling(e.target.value as 'hybrid' | 'recent' | 'random')}
+              className={`h-10 rounded-md border px-3 text-sm ${theme === 'dark' ? 'border-slate-700 bg-slate-900' : 'border-slate-300 bg-white'}`}
+            >
+              <option value="hybrid">hybrid</option>
+              <option value="recent">recent</option>
+              <option value="random">random</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium">keyword</label>
+            <Input type="text" value={keyword} onChange={(e) => setKeyword(e.target.value)} className="w-40" placeholder="파일명/경로" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium">start</label>
+            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-40" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium">end</label>
+            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-40" />
+          </div>
+          <div className="flex items-end gap-3 pb-1 text-xs">
+            <label className="inline-flex items-center gap-1"><input type="checkbox" checked={docTypeAudio} onChange={(e) => setDocTypeAudio(e.target.checked)} /> audio</label>
+            <label className="inline-flex items-center gap-1"><input type="checkbox" checked={docTypeDocument} onChange={(e) => setDocTypeDocument(e.target.checked)} /> document</label>
+            <label className="inline-flex items-center gap-1"><input type="checkbox" checked={docTypeOther} onChange={(e) => setDocTypeOther(e.target.checked)} /> other</label>
           </div>
           <Button onClick={() => void loadGraph()} disabled={loading} className="gap-2">
             <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} /> Reload

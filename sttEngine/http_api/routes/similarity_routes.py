@@ -12,16 +12,60 @@ def _read_json_payload(handler):
     return json.loads(handler.rfile.read(length)) if length else {}
 
 
+
+
+def _first(params, *names: str, default: str = "") -> str:
+    for name in names:
+        values = params.get(name)
+        if values:
+            return values[0]
+    return default
+
+
+def _parse_int(value: str, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
+def _parse_float(value: str, default: float, *, minimum: float | None = None, maximum: float | None = None) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
+def _parse_bool(value: str) -> bool:
+    return (value or '').strip().lower() in {'1', 'true', 't', 'yes', 'y', 'on'}
+
 def handle_get(handler) -> bool:
     if handler.path.startswith('/api/similarity-graph'):
         parsed = urlparse(handler.path)
         params = parse_qs(parsed.query)
-        min_similarity = float(params.get('min_similarity', params.get('threshold', ['0.65']))[0])
-        max_neighbors = int(params.get('max_neighbors', ['12'])[0])
-        max_nodes = int(params.get('max_nodes', ['150'])[0])
-        sampling_strategy = (params.get('sampling', ['hybrid'])[0] or 'hybrid').lower()
-        doc_id = (params.get('doc_id', [''])[0] or '').strip() or None
-        refresh = params.get('refresh', ['false'])[0].lower() == 'true'
+        min_similarity = _parse_float(_first(params, 'min_similarity', 'threshold', default='0.65'), 0.65, minimum=0.0, maximum=1.0)
+        max_neighbors = _parse_int(_first(params, 'max_neighbors', default='12'), 12, minimum=1)
+        max_nodes = _parse_int(_first(params, 'max_nodes', default='150'), 150, minimum=1)
+        sampling_strategy = (_first(params, 'sampling', default='hybrid') or 'hybrid').strip().lower()
+        doc_id = (_first(params, 'doc_id', default='') or '').strip() or None
+        refresh = _parse_bool(_first(params, 'refresh', default='false'))
+        raw_doc_types = params.get('doc_types', params.get('file_type', []))
+        doc_types: list[str] = []
+        for item in raw_doc_types:
+            doc_types.extend([part.strip().lower() for part in item.split(',') if part.strip()])
+        start_date = (_first(params, 'start_date', 'start', default='') or '').strip() or None
+        end_date = (_first(params, 'end_date', 'end', default='') or '').strip() or None
+        keyword = (params.get('keyword', [''])[0] or '').strip() or None
 
         payload = get_similarity_graph(
             min_similarity=min_similarity,
@@ -29,6 +73,10 @@ def handle_get(handler) -> bool:
             max_nodes=max_nodes,
             sampling_strategy=sampling_strategy,
             doc_id=doc_id,
+            doc_types=doc_types,
+            start_date=start_date,
+            end_date=end_date,
+            keyword=keyword,
             refresh=refresh,
         )
 
