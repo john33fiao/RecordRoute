@@ -26,6 +26,20 @@ const EDGE_LENGTH = 120;
 const REPULSION = 18000;
 const SPRING_K = 0.0018;
 
+type DocType = 'audio' | 'document' | 'other';
+
+const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma', '.opus']);
+const DOCUMENT_EXTENSIONS = new Set(['.txt', '.md', '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.hwp']);
+
+const resolveDocType = (filePath?: string): DocType => {
+  if (!filePath) return 'other';
+  const idx = filePath.lastIndexOf('.');
+  const ext = idx >= 0 ? filePath.slice(idx).toLowerCase() : '';
+  if (AUDIO_EXTENSIONS.has(ext)) return 'audio';
+  if (DOCUMENT_EXTENSIONS.has(ext)) return 'document';
+  return 'other';
+};
+
 export function SimilarityGraphPanel() {
   const { theme } = useTheme();
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -52,6 +66,30 @@ export function SimilarityGraphPanel() {
   const nodeMap = useMemo(() => {
     return new Map(nodes.map((node) => [node.id, node]));
   }, [nodes]);
+
+  const edgeStats = useMemo(() => {
+    const weights = graph?.edges?.map((edge) => edge.weight) ?? [];
+    const min = weights.length ? Math.min(...weights) : minSimilarity;
+    const max = weights.length ? Math.max(...weights) : minSimilarity;
+    return { min, max };
+  }, [graph?.edges, minSimilarity]);
+
+  const degreeMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const node of graph?.nodes ?? []) {
+      map.set(node.id, 0);
+    }
+    for (const edge of graph?.edges ?? []) {
+      map.set(edge.source, (map.get(edge.source) ?? 0) + 1);
+      map.set(edge.target, (map.get(edge.target) ?? 0) + 1);
+    }
+    return map;
+  }, [graph?.nodes, graph?.edges]);
+
+  const maxDegree = useMemo(() => {
+    if (degreeMap.size === 0) return 1;
+    return Math.max(...degreeMap.values(), 1);
+  }, [degreeMap]);
 
   const worldFromClient = useCallback((clientX: number, clientY: number) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -189,7 +227,28 @@ export function SimilarityGraphPanel() {
     return () => window.cancelAnimationFrame(rafId);
   }, [graph, nodes.length, size.height, size.width]);
 
-  const edgeWidth = (edge: SimilarityEdge) => 1 + Math.max(0, (edge.weight - minSimilarity) * 7);
+  const edgeWidth = (edge: SimilarityEdge) => {
+    const range = Math.max(0.0001, edgeStats.max - edgeStats.min);
+    const normalized = Math.max(0, Math.min(1, (edge.weight - edgeStats.min) / range));
+    return 1.2 + normalized * 3.2;
+  };
+
+  const edgeOpacity = (edge: SimilarityEdge) => {
+    const range = Math.max(0.0001, edgeStats.max - edgeStats.min);
+    const normalized = Math.max(0, Math.min(1, (edge.weight - edgeStats.min) / range));
+    return 0.2 + normalized * 0.7;
+  };
+
+  const getNodeStyle = (node: SimNode) => {
+    const docType = resolveDocType(node.file);
+    const degree = degreeMap.get(node.id) ?? 0;
+    const centrality = degree / Math.max(1, maxDegree);
+    const radius = 7 + centrality * 6;
+
+    if (docType === 'audio') return { radius, fill: '#38bdf8', stroke: '#bae6fd' };
+    if (docType === 'document') return { radius, fill: '#34d399', stroke: '#a7f3d0' };
+    return { radius, fill: '#a78bfa', stroke: '#ddd6fe' };
+  };
 
   const handlePointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
     const drag = dragStateRef.current;
@@ -275,8 +334,25 @@ export function SimilarityGraphPanel() {
           </div>
         </div>
 
-        <div className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
-          마우스 휠 줌, 배경 드래그 팬, 노드 드래그 이동, 노드 클릭 선택.
+        <div className={`grid gap-2 text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'} lg:grid-cols-[1fr_auto]`}>
+          <div>마우스 휠 줌, 배경 드래그 팬, 노드 드래그 이동, 노드 클릭 선택.</div>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="font-medium">노드 타입</span>
+              <span className="inline-flex items-center gap-1"><span className="size-2 rounded-full bg-sky-400" />audio</span>
+              <span className="inline-flex items-center gap-1"><span className="size-2 rounded-full bg-emerald-400" />document</span>
+              <span className="inline-flex items-center gap-1"><span className="size-2 rounded-full bg-violet-400" />other</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="font-medium">edge weight</span>
+              <svg width="90" height="18" viewBox="0 0 90 18" aria-label="edge weight legend">
+                <line x1="4" y1="9" x2="28" y2="9" stroke={theme === 'dark' ? '#64748b' : '#94a3b8'} strokeWidth={1.4} strokeOpacity={0.25} />
+                <line x1="33" y1="9" x2="57" y2="9" stroke={theme === 'dark' ? '#64748b' : '#94a3b8'} strokeWidth={2.8} strokeOpacity={0.55} />
+                <line x1="62" y1="9" x2="86" y2="9" stroke={theme === 'dark' ? '#64748b' : '#94a3b8'} strokeWidth={4.2} strokeOpacity={0.9} />
+              </svg>
+              <span>{edgeStats.min.toFixed(2)}~{edgeStats.max.toFixed(2)}</span>
+            </div>
+          </div>
         </div>
 
         {error && <div className="text-sm text-red-500">{error}</div>}
@@ -304,21 +380,22 @@ export function SimilarityGraphPanel() {
                     x2={target.x}
                     y2={target.y}
                     stroke={theme === 'dark' ? '#334155' : '#94a3b8'}
-                    strokeOpacity={Math.max(0.18, Math.min(0.95, edge.weight))}
+                    strokeOpacity={edgeOpacity(edge)}
                     strokeWidth={edgeWidth(edge)}
                   />
                 );
               })}
               {nodes.map((node) => {
                 const selected = node.id === selectedNodeId;
+                const style = getNodeStyle(node);
                 return (
                   <g key={node.id}>
                     <circle
                       cx={node.x}
                       cy={node.y}
-                      r={selected ? 11 : 8}
-                      fill={selected ? '#c084fc' : '#60a5fa'}
-                      stroke={selected ? '#f5d0fe' : '#bfdbfe'}
+                      r={selected ? style.radius + 2 : style.radius}
+                      fill={selected ? '#f59e0b' : style.fill}
+                      stroke={selected ? '#fde68a' : style.stroke}
                       strokeWidth={selected ? 2 : 1}
                       onPointerDown={(event) => startNodeDrag(event, node.id)}
                       onClick={(event) => {
