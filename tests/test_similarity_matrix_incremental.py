@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+import numpy as np
+
+from sttEngine import similarity_matrix
+
+
+def _doc(doc_id: str, vector_path):
+    return {"id": doc_id, "vector_path": vector_path}
+
+
+def test_incremental_similarity_matrix_reuses_unchanged_pairs(tmp_path):
+    similarity_matrix.invalidate_similarity_cache()
+
+    vec_a = tmp_path / "a.npy"
+    vec_b = tmp_path / "b.npy"
+    vec_c = tmp_path / "c.npy"
+    np.save(vec_a, np.array([1.0, 0.0, 0.0], dtype=float))
+    np.save(vec_b, np.array([0.0, 1.0, 0.0], dtype=float))
+    np.save(vec_c, np.array([0.0, 0.0, 1.0], dtype=float))
+
+    docs = [_doc("a", vec_a), _doc("b", vec_b), _doc("c", vec_c)]
+    vectors = [np.load(vec_a), np.load(vec_b), np.load(vec_c)]
+
+    _, meta_first = similarity_matrix._build_similarity_matrix((150, "hybrid"), docs, vectors)
+    assert meta_first["computed_pairs"] == 3
+    assert meta_first["reused_pairs"] == 0
+
+    _, meta_second = similarity_matrix._build_similarity_matrix((150, "hybrid"), docs, vectors)
+    assert meta_second["computed_pairs"] == 0
+    assert meta_second["reused_pairs"] == 3
+    assert meta_second["added_docs"] == 0
+    assert meta_second["removed_docs"] == 0
+    assert meta_second["changed_docs"] == 0
+
+
+def test_incremental_similarity_matrix_recomputes_changed_docs(tmp_path):
+    similarity_matrix.invalidate_similarity_cache()
+
+    vec_a = tmp_path / "a.npy"
+    vec_b = tmp_path / "b.npy"
+    vec_c = tmp_path / "c.npy"
+    np.save(vec_a, np.array([1.0, 0.0, 0.0], dtype=float))
+    np.save(vec_b, np.array([0.0, 1.0, 0.0], dtype=float))
+    np.save(vec_c, np.array([0.0, 0.0, 1.0], dtype=float))
+
+    docs = [_doc("a", vec_a), _doc("b", vec_b), _doc("c", vec_c)]
+    vectors = [np.load(vec_a), np.load(vec_b), np.load(vec_c)]
+
+    similarity_matrix._build_similarity_matrix((150, "hybrid"), docs, vectors)
+
+    np.save(vec_b, np.array([1.0, 1.0, 0.0], dtype=float))
+    updated_vectors = [np.load(vec_a), np.load(vec_b), np.load(vec_c)]
+
+    _, meta = similarity_matrix._build_similarity_matrix((150, "hybrid"), docs, updated_vectors)
+    assert meta["changed_docs"] == 1
+    assert meta["computed_pairs"] == 2
+    assert meta["reused_pairs"] == 1

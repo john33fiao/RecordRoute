@@ -112,6 +112,7 @@ venv\Scripts\python.exe -m sttEngine.server
 - `/history`, `/tasks`, `/progress/<task_id>` (진행률 %, ETA, 표준 오류 payload 포함)
 - `/search`, `/models`, `/cache/stats`, `/cache/cleanup`
 - `/api/similarity-graph`, `/api/documents/metadata`
+  - `/api/similarity-graph` 응답 `meta`에는 `sampling`과 `incremental(reused_pairs/computed_pairs/added_docs/removed_docs/changed_docs)` 진단 필드 포함
 
 주요 POST:
 - `/upload`, `/process`, `/cancel`, `/shutdown`
