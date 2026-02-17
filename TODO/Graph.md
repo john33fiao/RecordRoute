@@ -25,9 +25,9 @@
 |---|---|---|---|
 | 필터 UI(threshold + 날짜/타입/키워드) | 미착수 | P1 | API 파라미터 + metadata 필드 확장 |
 | sampling 전략 선택 UI(recent/random/hybrid) 노출 | 미착수 | P1 | 프론트 컨트롤 + API 파라미터 동기화 |
-| 증분 업데이트 고도화(메모리/TTL/캐시 정책) | 부분완료 | P2 | 인덱스/캐시 구조 변경 |
+| 증분 업데이트 고도화(메모리/TTL/캐시 정책) | 완료 | P2 | - |
 | 근사 최근접(ANN) 또는 후보 축소 전략 PoC | 미착수 | P0 | 정확도 허용오차 + 성능 목표 합의 |
-| 벤치마크 확장(실서버 + 대용량 구간 2k/5k) | 미착수 | P2 | 테스트 데이터셋/실서버 계측 환경 |
+| 벤치마크 확장(실서버 + 대용량 구간 2k/5k) | 부분완료 | P2 | 실서버 계측 환경 |
 
 ## 3) 최근 완료 항목
 
@@ -37,6 +37,8 @@
 | 엣지 범례/스케일 표준화 + 노드 스타일 개선 | `frontend/src/components/SimilarityGraphPanel.tsx` |
 | 증분 유사도 행렬 재사용(변경 없는 문서 쌍 score 재계산 생략) | `sttEngine/similarity_matrix.py` (`_build_similarity_matrix`, `_INCREMENTAL_STATE`) |
 | 그래프 응답 메타 진단 정보 확장(`sampling`, `incremental`) | `sttEngine/similarity_matrix.py`, `sttEngine/http_api/routes/similarity_routes.py` |
+| 증분 상태/그래프 캐시 정책(TTL + max entries) 및 진단 meta.cache 추가 | `sttEngine/similarity_matrix.py`, `.env.example`, `README.md` |
+| 벤치마크 스크립트 대용량 옵션(`--dataset-sizes=100,500,1000,2000,5000`) 추가 | `frontend/scripts/benchmark-similarity-graph.mjs` |
 
 ## 4) 실행 순서
 

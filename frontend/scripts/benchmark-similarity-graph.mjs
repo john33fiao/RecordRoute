@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
-const DATASET_SIZES = [100, 500, 1000];
+const DEFAULT_DATASET_SIZES = [100, 500, 1000];
 const ITERATIONS = 10;
 const EDGE_LENGTH = 120;
 const REPULSION = 18000;
@@ -16,6 +16,7 @@ function parseArgs(argv) {
     minSimilarity: 0.65,
     sampling: 'hybrid',
     mockResponseDelayMs: 8,
+    datasetSizes: [...DEFAULT_DATASET_SIZES],
   };
 
   for (const arg of argv) {
@@ -29,6 +30,16 @@ function parseArgs(argv) {
     } else if (arg.startsWith('--mock-response-delay-ms=')) {
       const parsed = Number(arg.slice('--mock-response-delay-ms='.length));
       if (!Number.isNaN(parsed) && parsed >= 0) options.mockResponseDelayMs = parsed;
+    } else if (arg.startsWith('--dataset-sizes=')) {
+      const parsed = arg
+        .slice('--dataset-sizes='.length)
+        .split(',')
+        .map((value) => Number(value.trim()))
+        .filter((value) => Number.isFinite(value) && value > 0)
+        .map((value) => Math.round(value));
+      if (parsed.length > 0) {
+        options.datasetSizes = Array.from(new Set(parsed)).sort((a, b) => a - b);
+      }
     }
   }
 
@@ -245,7 +256,7 @@ async function run() {
   const options = parseArgs(process.argv.slice(2));
   const scenarios = [];
 
-  for (const size of DATASET_SIZES) {
+  for (const size of options.datasetSizes) {
     // eslint-disable-next-line no-await-in-loop
     scenarios.push(await benchmarkSize(size, options));
   }
