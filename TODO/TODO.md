@@ -1,7 +1,7 @@
 # TODO Master (신규 백로그)
 
-- 마지막 점검일: 2026-02-16
-- 점검 기준: `README.md`, `CLAUDE.md`, `GEMINI.md`, `TODO/STATUS_REVIEW.md`, 주요 구현 파일(`sttEngine/http_api/handler.py`, `sttEngine/http_api/destructive_guard.py`, `frontend/scripts/benchmark-similarity-graph.mjs`, `frontend/src/*`)
+- 마지막 점검일: 2026-02-17
+- 점검 기준: `README.md`, `CLAUDE.md`, `GEMINI.md`, `TODO/STATUS_REVIEW.md`, 주요 구현 파일(`sttEngine/http_api/handler.py`, `sttEngine/http_api/routes/search_routes.py`, `frontend/scripts/benchmark-similarity-graph.mjs`, `frontend/src/*`)
 - 원칙: **완료 항목은 TODO에서 제거**하고, 실행이 필요한 항목만 유지
 
 ---
@@ -14,8 +14,8 @@
 
 ## 2) P1 (다음 스프린트)
 
-- [ ] 검색 고급 필터 UI + 하이라이트
-  - 의존: 검색 API 파라미터/응답 계약 문서화
+- [ ] 검색 고급 필터 UX 정리
+  - 범위: 현재 노출된 필터(기간/정렬/최소점수/상태/파일타입)의 초기값, 검증 메시지, 페이지네이션 UX 다듬기
 
 - [ ] 오버레이 접근성 강화
   - 범위: 오버레이별 ARIA 라벨 점검, 키보드 포커스 흐름 회귀 테스트

@@ -11,6 +11,8 @@
 | 그래프 API(`/api/similarity-graph`, `/api/documents/metadata`) | 완료 | - | - | GET 엔드포인트 동작 |
 | React 그래프 패널 메인 탭 통합 | 완료 | - | - | `App.tsx` `graph` 탭 + `SimilarityGraphPanel` 연동 |
 | 인터랙션(드래그/줌/팬) | 완료 | - | - | 패널에서 휠 줌/배경 팬/노드 드래그 지원 |
+| 기본 필터(min_similarity/max_nodes) | 완료 | - | - | 패널 제어값이 API 요청 파라미터로 연결 |
+| 성능 계측 자동화(100/500/1000 문서) | 완료 | - | - | `frontend/scripts/benchmark-similarity-graph.mjs` + `docs/perf/*` 산출물 |
 | 엣지 가중치 시각화 | 부분완료 | P1 | 범례/스케일 표준화 | opacity/두께 반영, 범례 미구현 |
 | 필터(문서타입/기간/키워드) | 미착수 | P1 | metadata 확장 + UI 컨트롤 | 현재 similarity/max_nodes 중심 |
 | 대용량 성능 전략(O(n²) 대응) | 부분완료 | P0 | 샘플링/근사 최근접/증분 계산 설계 | `max_nodes` 샘플링(`recent/random/hybrid`) + 벤치 기준선은 존재하나, 근사 최근접/증분 계산은 미구현 |
@@ -23,6 +25,7 @@
 | 노드 스타일(문서 타입/중심성 반영) | 미착수 | P1 | metadata 확장 |
 | 필터 UI(threshold + 날짜/타입) | 미착수 | P1 | API 파라미터 정리 |
 | 증분 업데이트 전략(신규 문서 추가 시 부분 갱신) | 미착수 | P2 | 인덱스/캐시 구조 변경 |
+| 근사 최근접/샘플링 전략 검토 (대규모 데이터 대응) | 미착수 | P2 | 벤치 기준선/정확도 기준 |
 
 ## 3) 최근 완료 항목
 

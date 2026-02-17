@@ -7,8 +7,8 @@
 
 ## 현재 상태 요약
 - 백엔드는 `sttEngine/server.py`에서 HTTP API와 WebSocket을 함께 제공한다.
-- 프론트는 `frontend/upload.html`, `frontend/upload.js`에서 `/process`, `/progress/<task_id>`, `/history` 등 백엔드 엔드포인트를 직접 호출한다.
-- 실행은 루트 `run.bat`, `run.command` 기반 단일 서버 중심 흐름이다.
+- 프론트는 주 코드베이스 `frontend/src/*`(React + Vite)에서 `frontend/src/api/client.ts`를 통해 백엔드 엔드포인트를 호출하며, `frontend/legacy/*`는 fallback로 유지된다.
+- 실행은 루트 `run.sh`/`run.bat` 기반 단일 서버 중심 흐름이며, Docker 실행 경로는 `docker-compose.yml`/`docker-compose.gpu.yml`가 제공된다.
 
 ## 아키텍처 방향
 
