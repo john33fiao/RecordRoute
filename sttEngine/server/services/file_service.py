@@ -7,6 +7,28 @@ from ...http_api.paths import normalize_record_path, resolve_record_path
 from .errors import ApiError
 
 
+def normalize_process_steps(raw_steps) -> list[str]:
+    """Normalize process step names while preserving order and compatibility."""
+    if not isinstance(raw_steps, list):
+        return []
+
+    step_aliases = {
+        "summarize": "summary",
+    }
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for step in raw_steps:
+        if not isinstance(step, str):
+            continue
+        normalized_step = step_aliases.get(step.strip().lower(), step.strip().lower())
+        if not normalized_step or normalized_step in seen:
+            continue
+        seen.add(normalized_step)
+        normalized.append(normalized_step)
+    return normalized
+
+
 def parse_process_payload(handler) -> dict:
     length = int(handler.headers.get("Content-Length", 0))
     try:
@@ -23,7 +45,7 @@ def parse_process_payload(handler) -> dict:
 
     return {
         "absolute_path": absolute_path,
-        "steps": payload.get("steps", []),
+        "steps": normalize_process_steps(payload.get("steps", [])),
         "record_id": payload.get("record_id"),
         "task_id": payload.get("task_id") or str(uuid.uuid4()),
         "model_settings": payload.get("model_settings", {}),

@@ -166,6 +166,12 @@ venv\Scripts\python.exe -m sttEngine.server
   - `diarization_timeout`
   - `diarization_invalid_audio`
 
+`/process` diarization 동작(초안):
+- `steps`에 `diarize` 포함 시 화자 분리 단계를 실행
+- 오디오 입력은 `results.diarize = { status, input_file_type, duration, segments[] }` 구조로 응답
+- 텍스트/PDF 등 비오디오 입력은 표준 실패 대신 `results.diarize = { status: "skipped", reason: "non_audio_input", input_file_type, segments: [] }`로 스킵 처리
+- `steps`는 서버에서 소문자/중복 제거 정규화 후 처리(예: `" STT "`, `"stt"` → `"stt"`)
+
 ## 검색 API 계약 (요약)
 - 엔드포인트: `GET /search`
 - 주요 파라미터:
