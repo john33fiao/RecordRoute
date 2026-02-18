@@ -4,6 +4,11 @@ import json
 from dataclasses import dataclass
 
 
+LEGACY_ERROR_CODE_ALIASES: dict[str, str] = {
+    "dependency_ollama": "dependency_llm_provider",
+}
+
+
 @dataclass
 class ApiError(Exception):
     message: str
@@ -44,19 +49,38 @@ def map_workflow_exception(error: Exception, default_step: str | None = None) ->
     message = str(error) or "Unknown workflow error"
     lower_message = message.lower()
 
+    if "ffmpeg" in lower_message or "ffprobe" in lower_message:
+        return DependencyError(message=message, code="dependency_ffmpeg", retryable=False, failed_step=default_step)
+
     if isinstance(error, (FileNotFoundError, ValueError)) or "missing" in lower_message or "invalid" in lower_message:
         return InputValidationError(message=message, code="input_error", retryable=False, failed_step=default_step)
 
-    if "ollama" in lower_message:
-        return DependencyError(message=message, code="dependency_ollama", retryable=True, failed_step=default_step)
-
-    if "ffmpeg" in lower_message or "ffprobe" in lower_message:
-        return DependencyError(message=message, code="dependency_ffmpeg", retryable=False, failed_step=default_step)
+    llm_provider_keywords = (
+        "ollama",
+        "llama",
+        "llm provider",
+        "provider",
+        "model server",
+        "openai-compatible",
+    )
+    if any(keyword in lower_message for keyword in llm_provider_keywords):
+        return DependencyError(
+            message=message,
+            code="dependency_llm_provider",
+            retryable=True,
+            failed_step=default_step,
+        )
 
     if "timeout" in lower_message or isinstance(error, TimeoutError):
         return TransientWorkflowError(message=message, code="transient_timeout", retryable=True, failed_step=default_step)
 
     return FatalWorkflowError(message=message, code="fatal_error", retryable=False, failed_step=default_step)
+
+
+def normalize_error_code(error_code: str | None) -> str:
+    if not error_code:
+        return "fatal_error"
+    return LEGACY_ERROR_CODE_ALIASES.get(error_code, error_code)
 
 
 def send_json(handler, status_code: int, payload: dict) -> None:
