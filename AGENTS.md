@@ -89,7 +89,11 @@ POST
     "device": "auto",
     "provider": "ollama",
     "correct": "gpt-oss:20b",
-    "summarize": "gpt-oss:20b"
+    "summarize": "gpt-oss:20b",
+    "diarization_provider": "pyannote",
+    "num_speakers": 2,
+    "min_speakers": 1,
+    "max_speakers": 4
   }
 }
 ```
@@ -99,6 +103,8 @@ POST
 - STT 모델 키는 `whisper`
 - `steps`는 서버에서 소문자/중복 제거 정규화 후 처리됨(순서 유지)
 - `model_settings.provider`(또는 `llm_provider`)로 교정/요약 LLM provider 선택 가능 (`ollama` 기본, `llamacpp` 지원)
+- `model_settings.diarization_provider` 기본값은 `pyannote`이며 미지정/빈 값이면 자동 적용됩니다.
+- `model_settings.num_speakers`, `min_speakers`, `max_speakers`는 정수(1~20)만 허용되며 `min_speakers <= max_speakers` 제약을 검증합니다.
 - 교정/요약 워크플로우 옵션은 provider 중립 키(`temperature`, `context_window`, `max_tokens`)를 우선 사용하고 provider별 키로 매핑
 - 실패 응답 필드: `error`, `error_code`, `retryable`, `failed_step`
 - diarization 초안 오류 코드(`failed_step == "diarize"`): `diarization_model_unavailable`, `diarization_timeout`, `diarization_invalid_audio`

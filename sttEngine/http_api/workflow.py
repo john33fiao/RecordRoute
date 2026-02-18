@@ -124,6 +124,43 @@ def find_existing_stt_file(original_file_path: Path) -> Path | None:
     return None
 
 
+
+
+def _parse_diarization_settings(model_settings: dict | None) -> dict:
+    """Parse and validate diarization-related model settings."""
+    settings = dict(model_settings or {})
+
+    provider = settings.get("diarization_provider")
+    if provider in (None, ""):
+        provider = "pyannote"
+    elif not isinstance(provider, str):
+        raise ValueError("model_settings.diarization_provider must be a string")
+
+    def _optional_int(name: str, min_value: int = 1, max_value: int = 20) -> int | None:
+        value = settings.get(name)
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"model_settings.{name} must be an integer")
+        if value < min_value or value > max_value:
+            raise ValueError(f"model_settings.{name} must be between {min_value} and {max_value}")
+        return value
+
+    num_speakers = _optional_int("num_speakers")
+    min_speakers = _optional_int("min_speakers")
+    max_speakers = _optional_int("max_speakers")
+
+    if min_speakers is not None and max_speakers is not None and min_speakers > max_speakers:
+        raise ValueError("model_settings.min_speakers must be <= model_settings.max_speakers")
+
+    return {
+        "diarization_provider": provider,
+        "num_speakers": num_speakers,
+        "min_speakers": min_speakers,
+        "max_speakers": max_speakers,
+    }
+
+
 def run_workflow(
     file_path: Path,
     steps,
@@ -297,6 +334,7 @@ def run_workflow(
                 update_task_progress(task_id, "화자 분리 시작", stage=TaskStage.TRANSFORM)
 
             try:
+                _parse_diarization_settings(model_settings)
                 diarize_source = file_path if file_type == "audio" else current_file
                 results["diarize"] = run_diarize_step(Path(diarize_source))
             except Exception as e:

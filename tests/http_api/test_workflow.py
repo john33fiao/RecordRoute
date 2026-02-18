@@ -145,3 +145,24 @@ def test_workflow_diarize_text_is_skipped_with_contract_payload(monkeypatch, tmp
         "input_file_type": "text",
         "segments": [],
     }
+
+
+def test_workflow_diarize_rejects_invalid_speaker_constraints(monkeypatch, tmp_path: Path, temp_workflow_dirs):
+    upload_dir = tmp_path / "uploads" / "task-diarize-invalid"
+    upload_dir.mkdir(parents=True)
+    source = upload_dir / "sample.wav"
+    source.write_bytes(b"RIFF")
+
+    monkeypatch.setattr("sttEngine.http_api.workflow.update_task_progress", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("sttEngine.http_api.workflow.clear_task_progress", lambda _id: None)
+    monkeypatch.setattr("sttEngine.http_api.workflow.is_task_cancelled", lambda _id: False)
+
+    result = run_workflow(
+        source,
+        ["diarize"],
+        task_id="task-diarize-invalid",
+        model_settings={"min_speakers": 5, "max_speakers": 3},
+    )
+
+    assert result["failed_step"] == "diarize"
+    assert result["error_code"] == "diarization_invalid_audio"

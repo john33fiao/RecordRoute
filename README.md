@@ -154,10 +154,20 @@ venv\Scripts\python.exe -m sttEngine.server
     "device": "auto",
     "provider": "ollama",
     "correct": "gpt-oss:20b",
-    "summarize": "gpt-oss:20b"
+    "summarize": "gpt-oss:20b",
+    "diarization_provider": "pyannote",
+    "num_speakers": 2,
+    "min_speakers": 1,
+    "max_speakers": 4
   }
 }
 ```
+
+
+`/process` model_settings diarization 필드:
+- `diarization_provider`: 화자 분리 provider 식별자. 미지정/빈 값이면 기본값 `"pyannote"`가 자동 적용됩니다.
+- `num_speakers`: 전체 화자 수를 고정할 때 사용(정수 1~20).
+- `min_speakers`, `max_speakers`: 화자 수 범위를 지정할 때 사용(각각 정수 1~20, `min_speakers <= max_speakers` 제약).
 
 `/process` 실패 응답 계약:
 - 필드: `error`, `error_code`, `retryable`, `failed_step`

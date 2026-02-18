@@ -240,4 +240,8 @@ export interface ModelSettings {
   language: string;
   provider?: 'ollama' | 'llamacpp';
   llm_provider?: 'ollama' | 'llamacpp';
+  diarization_provider?: string;
+  num_speakers?: number;
+  min_speakers?: number;
+  max_speakers?: number;
 }
