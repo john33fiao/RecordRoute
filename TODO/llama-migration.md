@@ -98,13 +98,13 @@
 
 ### 작업
 - [ ] `sttEngine/workflow/summarize.py`
-  - [ ] `call_ollama_with_timeout` → `call_llm_with_timeout`로 중립화
-  - [ ] `call_ollama_with_retry` → `call_llm_with_retry`로 중립화
-  - [ ] `check_ollama_model_available` 제거, provider `list_models()`/`healthcheck()`로 대체
+  - [x] `call_ollama_with_timeout` → `call_llm_with_timeout`로 중립화
+  - [x] `call_ollama_with_retry` → `call_llm_with_retry`로 중립화
+  - [x] `check_ollama_model_available` 제거, provider `list_models()`/`healthcheck()`로 대체
 - [ ] `sttEngine/workflow/correct.py`
-  - [ ] `ollama.chat` 직접 호출 제거
-  - [ ] provider `chat()` 사용
-- [ ] 옵션 사상 테이블 도입
+  - [x] `ollama.chat` 직접 호출 제거
+  - [x] provider `chat()` 사용
+- [x] 옵션 사상 테이블 도입
   - 공통 옵션: `temperature`, `max_tokens`, `context_window`
   - provider별 옵션 키 변환
 
@@ -113,8 +113,8 @@
 - 기존 프롬프트 품질 유지
 
 ### 검증
-- [ ] 요약 step 성공/실패/타임아웃 테스트
-- [ ] 교정 step 성공/실패 테스트
+- [x] 요약 step 성공/실패/타임아웃 테스트
+- [x] 교정 step 성공/실패 테스트
 
 ---
 

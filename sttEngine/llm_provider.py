@@ -58,8 +58,34 @@ def chat_completion(
     provider_name: Optional[str] = None,
     timeout: Optional[int] = None,
 ) -> Dict[str, Any]:
-    provider = get_llm_provider(provider_name)
+    resolved_provider = normalize_provider_name(provider_name)
+    provider = get_llm_provider(resolved_provider)
+    mapped_options = map_llm_options(options or {}, provider_name=resolved_provider)
     try:
-        return provider.chat(model=model, messages=messages, options=options or {}, timeout=timeout)
+        return provider.chat(model=model, messages=messages, options=mapped_options, timeout=timeout)
     except ProviderError as exc:
         raise LLMProviderError(str(exc)) from exc
+
+
+def map_llm_options(options: Dict[str, Any], *, provider_name: str) -> Dict[str, Any]:
+    """Map provider-neutral option keys to provider-specific option keys."""
+    provider = normalize_provider_name(provider_name)
+    mapped = dict(options)
+
+    option_mapping_table: Dict[str, Dict[str, str]] = {
+        "ollama": {
+            "context_window": "num_ctx",
+            "max_tokens": "num_predict",
+        },
+        "llamacpp": {
+            "context_window": "num_ctx",
+            "max_tokens": "num_predict",
+        },
+    }
+
+    for common_key, provider_key in option_mapping_table.get(provider, {}).items():
+        if common_key in mapped and provider_key not in mapped:
+            mapped[provider_key] = mapped[common_key]
+
+    # keep existing compatibility keys supported by older callers.
+    return mapped

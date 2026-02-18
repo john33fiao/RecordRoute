@@ -88,6 +88,7 @@ POST
 - 백엔드 기준 요약 step 키는 `summary`
 - STT 모델 키는 `whisper`
 - `model_settings.provider`(또는 `llm_provider`)로 교정/요약 LLM provider 선택 가능 (`ollama` 기본, `llamacpp` 지원)
+- 교정/요약 워크플로우 옵션은 provider 중립 키(`temperature`, `context_window`, `max_tokens`)를 우선 사용하고 provider별 키로 매핑
 - 실패 응답 필드: `error`, `error_code`, `retryable`, `failed_step`
 - 진행률 응답(`/progress/<task_id>`, WebSocket)은 `progress_percent`, `eta_seconds`, `error`(표준 오류 카드용 객체) 포함
 
