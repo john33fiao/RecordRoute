@@ -74,15 +74,15 @@
 ## Phase 1 — Provider 추상화 골격 구축
 
 ### 작업
-- [ ] `sttEngine/providers/` 패키지 추가
-  - [ ] `base.py`: 공통 예외/타입/인터페이스
-  - [ ] `llm_provider.py`: `chat()`, `generate()`, `list_models()`, `healthcheck()`
-  - [ ] `embedding_provider.py`: `embed(text)`, `embed_batch(texts)`, `healthcheck()`
-- [ ] `providers/ollama_provider.py` 생성
+- [x] `sttEngine/providers/` 패키지 추가
+  - [x] `base.py`: 공통 예외/타입/인터페이스
+  - [x] `llm_provider.py`: `chat()`, `generate()`, `list_models()`, `healthcheck()`
+  - [x] `embedding_provider.py`: `embed(text)`, `embed_batch(texts)`, `healthcheck()`
+- [x] `providers/ollama_provider.py` 생성
   - 기존 `ollama_utils.py`의 기능 단계적 이동
-- [ ] `providers/llama_cpp_provider.py` 생성
+- [x] `providers/llama_cpp_provider.py` 생성
   - OpenAI 호환 endpoint 또는 llama.cpp 서버 endpoint에 대한 어댑터
-- [ ] `providers/factory.py`
+- [x] `providers/factory.py`
   - 환경변수 기반 provider 인스턴스 반환
 
 ### 산출물
