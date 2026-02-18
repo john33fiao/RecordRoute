@@ -194,3 +194,27 @@
 
 ## [Step 18] 커밋/PR
 - 본 점검 결과를 커밋/PR로 기록.
+
+---
+
+# 화자 분리 Phase 0 진행 점검 (2026-02-18)
+
+대상: `TODO/화자분리_로드맵.md`의 **"Phase 0. 계약/지표 고정 (1주)"**
+
+## 점검 요약
+- **판정: 완료(PASS)**
+- 근거:
+  1. KPI 기준 문서가 존재하며 `DER`, 전환점 오차(F1), 요약 품질 A/B 영향 기준이 정의되어 있음.
+  2. 평가셋 매니페스트가 존재하며 1:1 / 3~5인 / 잡음환경 셋의 보관 위치 및 버전 식별자가 고정되어 있음.
+  3. 실패 정의(모델 불가/타임아웃/오디오 무효)와 diarization 에러코드 초안이 코드/테스트/README 계약에 반영되어 있음.
+
+## 근거 파일
+- `docs/diarization/kpi.md`
+- `docs/diarization/dataset-manifest.md`
+- `sttEngine/server/services/errors.py`
+- `tests/server/test_error_mapping.py`
+- `tests/http_api/test_workflow.py`
+- `README.md`
+
+## 동기화 조치
+- `TODO/화자분리_로드맵.md`의 Phase 0 TODO/DoD 체크박스를 실제 상태에 맞게 `[x]`로 갱신.
