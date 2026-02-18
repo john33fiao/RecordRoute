@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler
 
-from ..ollama_utils import ensure_ollama_server
+from ..providers.factory import get_llm_provider
 from ..vector_search import search as search_vectors
 from ..server.routes import history as history_route
 from ..server.routes import process as process_route
@@ -63,38 +64,51 @@ class UploadHandler(BaseHTTPRequestHandler):
 
 
 
-    def _serve_available_models(self):
+    def _serve_available_models(self, provider_name: str | None = None):
         try:
-            server_ok, server_msg = ensure_ollama_server()
-            if not server_ok:
-                raise Exception(f"Ollama 서버를 사용할 수 없습니다: {server_msg}")
+            provider_aliases = {
+                "llama.cpp": "llamacpp",
+                "llama_cpp": "llamacpp",
+                "llama-cpp": "llamacpp",
+            }
+            provider_models: dict[str, list[str]] = {"ollama": [], "llamacpp": []}
+            provider_status: dict[str, dict[str, str | bool]] = {
+                "ollama": {"ok": False, "message": "not_checked"},
+                "llamacpp": {"ok": False, "message": "not_checked"},
+            }
 
-            import subprocess
+            configured_provider = (os.getenv("LLM_PROVIDER") or "ollama").strip().lower()
+            active_provider = provider_aliases.get(configured_provider, configured_provider)
+            normalized_requested_provider = (provider_name or "").strip().lower()
+            requested_provider = provider_aliases.get(normalized_requested_provider, normalized_requested_provider or None)
+            if requested_provider not in {"ollama", "llamacpp"}:
+                requested_provider = active_provider if active_provider in {"ollama", "llamacpp"} else "ollama"
 
-            result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=10)
-            if result.returncode != 0:
-                raise Exception(f"Ollama list failed: {result.stderr}")
+            for resolved_provider in (requested_provider,):
+                try:
+                    provider = get_llm_provider(resolved_provider)
+                    ok, message = provider.healthcheck()
+                    models = provider.list_models() if ok else []
+                    provider_models[resolved_provider] = models
+                    provider_status[resolved_provider] = {"ok": ok, "message": message}
+                except Exception as provider_exc:
+                    provider_models[resolved_provider] = []
+                    provider_status[resolved_provider] = {"ok": False, "message": str(provider_exc)}
 
-            lines = result.stdout.strip().split("\n")
-            models = []
-
-            for line in lines[1:] if len(lines) > 1 else lines:
-                if line.strip():
-                    parts = line.split()
-                    if parts:
-                        model_name = parts[0]
-                        if "/" not in model_name and model_name not in ["mxbai-embed-large"]:
-                            models.append(model_name)
+            models = provider_models.get(requested_provider, [])
 
             from ..workflow.summarize import DEFAULT_MODEL
             from ..config import get_default_model
 
             response_data = {
                 "models": models,
+                "models_by_provider": provider_models,
+                "provider_status": provider_status,
                 "default": {
                     "whisper": "large-v3-turbo",
                     "summarize": DEFAULT_MODEL,
                     "embedding": get_default_model("EMBEDDING"),
+                    "provider": requested_provider,
                 },
             }
 
@@ -109,7 +123,7 @@ class UploadHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             error_response = {
-                "error": "모델 목록을 조회할 수 없습니다. Ollama가 실행 중인지 확인해주세요.",
+                "error": "모델 목록을 조회할 수 없습니다. LLM provider 설정을 확인해주세요.",
                 "details": str(e),
             }
             self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode())
@@ -144,4 +158,3 @@ class UploadHandler(BaseHTTPRequestHandler):
 
         self.send_response(404)
         self.end_headers()
-

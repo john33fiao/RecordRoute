@@ -144,23 +144,23 @@
 ## Phase 4 — 모델 조회 API & 프론트 계약 정비
 
 ### 작업
-- [ ] `sttEngine/http_api/handler.py` `/models`
-  - [ ] `ollama list` subprocess 제거
-  - [ ] provider `list_models()` 기반 응답
-- [ ] `frontend/src/api/types.ts`
-  - [ ] `ModelSettings` 키를 백엔드 계약과 일치시킴 (`whisper` 우선)
-  - [ ] 과도기 호환(`transcribe` 별칭) 처리 여부 결정
-- [ ] `frontend/src/hooks/useTaskQueue.ts`
-  - [ ] `/process`에 전달하는 `model_settings` 키를 계약과 동기화
-- [ ] `frontend/src/components/SettingsDialog.tsx`
-  - [ ] provider별 모델 목록 UX 반영
+- [x] `sttEngine/http_api/handler.py` `/models`
+  - [x] `ollama list` subprocess 제거
+  - [x] provider `list_models()` 기반 응답
+- [x] `frontend/src/api/types.ts`
+  - [x] `ModelSettings` 키를 백엔드 계약과 일치시킴 (`whisper` 우선)
+  - [x] 과도기 호환(`transcribe` 별칭) 처리 여부 결정
+- [x] `frontend/src/hooks/useTaskQueue.ts`
+  - [x] `/process`에 전달하는 `model_settings` 키를 계약과 동기화
+- [x] `frontend/src/components/SettingsDialog.tsx`
+  - [x] provider별 모델 목록 UX 반영
 
 ### 산출물
 - 모델 조회/선택 플로우 정합성 확보
 
 ### 검증
-- [ ] `/models` 응답 계약 테스트
-- [ ] 프론트 `npm run build` 성공
+- [x] `/models` 응답 계약 테스트
+- [x] 프론트 `npm run build` 성공
 
 ---
 

@@ -56,6 +56,8 @@ GET
   - `/api/similarity-graph`는 `min_similarity/max_neighbors/max_nodes/sampling/neighbor_strategy(auto|exact|lsh)` + 필터(`doc_types`, `start_date`, `end_date`, `keyword`)를 지원
   - 응답 `meta`는 `sampling`, `neighbor_strategy(requested/effective)`, `filters`, `incremental(...)` 진단 정보를 포함
 - `/similar/<uuid_or_path>`, `/models`
+  - `/models` 응답은 `models`(요청 provider 기준) + `models_by_provider` + `provider_status` + `default.provider`를 포함
+  - 선택 쿼리: `provider=ollama|llamacpp` (미지정 시 `LLM_PROVIDER` 기준)
 - `/cache/stats`, `/cache/cleanup`
 
 POST
