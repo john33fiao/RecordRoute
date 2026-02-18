@@ -1,5 +1,55 @@
 # 백엔드·프론트엔드 분리 배포 + OpenAPI 연동 계획
 
+## 구현 상태 점검 (코드베이스 기준, 2026-02-18)
+
+아래 항목은 현재 저장소 구현(`Dockerfile`, `docker-compose*.yml`, `sttEngine/http_api/*`, `frontend/src/*`, `README.md`)을 기준으로 대조한 결과입니다.
+
+### 전체 판정 요약
+- **서비스 분리 배포 목표:** 미완료
+  - 현재 `Dockerfile` + `docker-compose.yml`은 `recordroute` **단일 컨테이너**에서 백엔드와 프론트 정적 빌드/서빙을 함께 처리.
+- **OpenAPI 계약 기반 연동:** 미착수
+  - `openapi/openapi.yaml` 및 Swagger/ReDoc 노출 구성이 없음.
+- **컨테이너 운영 기반:** 부분 완료
+  - Docker/Compose 실행 경로, provider profile(`ollama`, `llamacpp`), 볼륨(`./DB:/data/DB`)은 이미 존재.
+
+### 산출물 체크리스트 (실구현 반영)
+- [ ] `openapi/openapi.yaml`
+- [ ] `Dockerfile.backend` (현재는 통합 `Dockerfile`만 존재)
+- [ ] `Dockerfile.frontend`
+- [x] `docker-compose.yml` (단, 백엔드/프론트 분리 구조는 아님)
+- [ ] 프론트 API/WS 환경변수화 (`VITE_API_BASE_URL`, `VITE_WS_URL` 등)
+- [ ] `/health` 엔드포인트
+- [ ] 배포/운영 문서(README 분리 아키텍처 기준 확장)
+
+## 작업 방향 TODO (우선순위 체크박스)
+
+### P0 — 계약/구조 분리 착수
+- [ ] `openapi/openapi.yaml` 초안 작성
+  - [ ] `POST /process`, `GET /progress/{task_id}`, `GET /history`, `GET /search`, `POST /delete_records`(현행 API 기준) 명세 반영
+  - [ ] 공통 에러 스키마(`error`, `error_code`, `retryable`, `failed_step`) 반영
+  - [ ] WebSocket(`ws://<host>:8765`)은 별도 섹션(또는 AsyncAPI 링크)으로 문서화
+- [ ] 백엔드/프론트 Dockerfile 분리
+  - [ ] `Dockerfile.backend`: Python 런타임 + `sttEngine` 실행 전용
+  - [ ] `Dockerfile.frontend`: Vite build 결과 정적 서빙 전용
+- [ ] Compose를 `backend` + `frontend` 2서비스 기준으로 재구성
+  - [ ] 기존 provider profile(`ollama`, `llamacpp`) 연동 유지
+  - [ ] `depends_on` + `healthcheck` 연결
+
+### P1 — 연동 안정화
+- [ ] 백엔드 `GET /health` 추가 (HTTP 200 + 최소 진단 정보)
+- [ ] 프론트 API Base URL 환경변수화
+  - [ ] `frontend/src/api/client.ts`의 상대경로 호출을 환경변수 기반으로 전환
+  - [ ] 개발/운영 기본값 및 fallback 정책 정의
+- [ ] 프론트 WebSocket URL 환경변수화
+  - [ ] `frontend/src/hooks/useWebSocket.ts`의 `:8765` 하드코딩 제거
+- [ ] Gateway/Nginx 경유 `/api`, `/ws` 프록시 전략 문서화
+
+### P2 — 계약 검증/운영 고도화
+- [ ] OpenAPI 기반 타입/클라이언트 생성 도입 여부 결정 및 PoC
+- [ ] Contract test 추가(스펙-실응답 불일치 탐지)
+- [ ] README Docker 섹션을 분리 배포 아키텍처 기준으로 재작성
+- [ ] 로그/메트릭/롤백 운영 절차를 컨테이너 배포 기준으로 문서화
+
 ## 목표
 - 기존 RecordRoute를 **백엔드 API 서버**와 **프론트엔드 웹 앱**으로 분리 배포한다.
 - 두 서비스를 각각 독립 Docker 이미지/컨테이너로 운영한다.
