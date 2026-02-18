@@ -43,6 +43,21 @@
 
 ---
 
+
+## 0-2. 코드베이스 재검토 결과 (2026-02-18)
+
+- 판정: **핵심 경로 완료 + 잔여 리스크 존재(완전 종료 아님)**
+- 확인 근거:
+  - 핵심 회귀(`workflow/search/queue/vocab`)는 통과하여 주요 사용자 플로우는 정상 동작.
+  - `tests/http_api/test_admin_models.py` 수집 단계에서 `sttEngine/one_line_summary.py`의 `import ollama`로 `ModuleNotFoundError: No module named 'ollama'` 재현.
+  - 즉, `requirements.txt`에서 Ollama를 optional로 분리한 상태에서 legacy direct import가 남아 **"Ollama 의존 제거 완료"는 100% 달성되지 않음**.
+- 액션 아이템(우선순위):
+  1. `sttEngine/one_line_summary.py`를 provider 인터페이스로 전환하거나, 모듈 import를 lazy/guard 처리해 optional dependency 환경에서도 테스트 수집이 가능하도록 정리
+  2. `tests/http_api/test_admin_models.py`가 ollama 미설치 환경에서도 독립 실행되도록 `one_line_summary` 결합부 의존 최소화
+  3. clean 환경 setup/run 실측 검증 및 결과를 본 문서 체크박스에 반영
+
+---
+
 ## 1. 현재 상태 진단 요약
 
 ### 1-1. Ollama 결합 지점 (2026-02-18 기준)

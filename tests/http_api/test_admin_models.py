@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from io import BytesIO
 
-from sttEngine.http_api.handler import UploadHandler
+from sttEngine.http_api.routes import admin_routes
 
 
 class _DummyModelsHandler:
@@ -44,9 +44,9 @@ def test_models_endpoint_uses_provider_contract(monkeypatch):
     }
 
     monkeypatch.setenv("LLM_PROVIDER", "llama_cpp")
-    monkeypatch.setattr("sttEngine.http_api.handler.get_llm_provider", lambda name: providers[name])
+    monkeypatch.setattr("sttEngine.http_api.routes.admin_routes.get_llm_provider", lambda name: providers[name])
 
-    UploadHandler._serve_available_models(handler)
+    admin_routes._serve_available_models(handler)
 
     assert handler.status_code == 200
     payload = json.loads(handler.wfile.getvalue().decode("utf-8"))
@@ -66,9 +66,9 @@ def test_models_endpoint_respects_explicit_provider_query(monkeypatch):
     }
 
     monkeypatch.setenv("LLM_PROVIDER", "llama_cpp")
-    monkeypatch.setattr("sttEngine.http_api.handler.get_llm_provider", lambda name: providers[name])
+    monkeypatch.setattr("sttEngine.http_api.routes.admin_routes.get_llm_provider", lambda name: providers[name])
 
-    UploadHandler._serve_available_models(handler, provider_name="ollama")
+    admin_routes._serve_available_models(handler, provider_name="ollama")
 
     assert handler.status_code == 200
     payload = json.loads(handler.wfile.getvalue().decode("utf-8"))
