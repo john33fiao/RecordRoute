@@ -12,11 +12,11 @@ from sttEngine.http_api.handler import UploadHandler
 
 @pytest.fixture
 def search_server(monkeypatch: pytest.MonkeyPatch):
-    from sttEngine.http_api import handler
+    from sttEngine.http_api.routes import search_routes
 
-    monkeypatch.setattr(handler, "collect_searchable_documents", lambda: ([], {}))
-    monkeypatch.setattr(handler, "get_active_history", lambda: [])
-    monkeypatch.setattr(handler, "collect_keyword_matches", lambda *args, **kwargs: [])
+    monkeypatch.setattr(search_routes, "collect_searchable_documents", lambda: ([], {}))
+    monkeypatch.setattr(search_routes, "get_active_history", lambda: [])
+    monkeypatch.setattr(search_routes, "collect_keyword_matches", lambda *args, **kwargs: [])
 
     payloads = {
         "cache-hit": {
@@ -39,7 +39,7 @@ def search_server(monkeypatch: pytest.MonkeyPatch):
             return payloads["cache-miss"]
         return payloads["default"]
 
-    monkeypatch.setattr(handler, "search_vectors", fake_search)
+    monkeypatch.setattr(search_routes, "search_vectors", fake_search)
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), UploadHandler)
     worker = threading.Thread(target=httpd.serve_forever, daemon=True)

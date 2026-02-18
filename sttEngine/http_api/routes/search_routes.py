@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -33,11 +32,6 @@ _STATUS_ALIASES = {
 _ALLOWED_STATUS_TASK = {'stt', 'summary', 'embedding'}
 
 
-def _resolve(name: str, default):
-    handler_module = importlib.import_module("sttEngine.http_api.handler")
-    return getattr(handler_module, name, default)
-
-
 def handle_get(handler) -> bool:
     if handler.path.startswith('/file_search'):
         parsed = urlparse(handler.path)
@@ -46,7 +40,7 @@ def handle_get(handler) -> bool:
 
         results = []
         if query:
-            history = _resolve("get_active_history", get_active_history)()
+            history = get_active_history()
             for record in history:
                 filename = record.get('filename', '')
                 tags = record.get('tags', [])
@@ -146,8 +140,8 @@ def handle_get(handler) -> bool:
         }
 
         if query:
-            documents, path_index = _resolve("collect_searchable_documents", collect_searchable_documents)()
-            history = _resolve("get_active_history", get_active_history)()
+            documents, path_index = collect_searchable_documents()
+            history = get_active_history()
             history_map = {record.get('id'): record for record in history}
 
             def _record_passes(record: dict) -> bool:
@@ -165,13 +159,13 @@ def handle_get(handler) -> bool:
                 doc for doc in documents if _record_passes(history_map.get(doc['info'].get('record_id'), {}))
             ]
 
-            keyword_matches = _resolve("collect_keyword_matches", collect_keyword_matches)(query, filtered_documents, history_map, limit=limit)
+            keyword_matches = collect_keyword_matches(query, filtered_documents, history_map, limit=limit)
             response_data['keywordMatches'] = keyword_matches
 
             keyword_paths = {item['file'] for item in keyword_matches}
             keyword_uuids = {item['file_uuid'] for item in keyword_matches}
 
-            search_payload = _resolve("search_vectors", search_vectors)(
+            search_payload = search_vectors(
                 query,
                 BASE_DIR,
                 top_k=limit,
