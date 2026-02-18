@@ -103,3 +103,45 @@ def test_workflow_diarization_failure_contract_returns_standard_error_fields(mon
     assert progress_payloads[-1]["error_code"] == "diarization_model_unavailable"
     assert progress_payloads[-1]["retryable"] is True
     assert progress_payloads[-1]["failed_step"] == "diarize"
+
+
+def test_workflow_diarize_audio_returns_normalized_result(monkeypatch, tmp_path: Path, temp_workflow_dirs):
+    upload_dir = tmp_path / "uploads" / "task-diarize-audio"
+    upload_dir.mkdir(parents=True)
+    source = upload_dir / "sample.wav"
+    source.write_bytes(b"RIFF")
+
+    monkeypatch.setattr("sttEngine.http_api.workflow.get_audio_duration", lambda _path: "00:10")
+    monkeypatch.setattr("sttEngine.http_api.workflow.update_task_progress", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("sttEngine.http_api.workflow.clear_task_progress", lambda _id: None)
+    monkeypatch.setattr("sttEngine.http_api.workflow.is_task_cancelled", lambda _id: False)
+
+    result = run_workflow(source, ["diarize"], task_id="task-diarize-audio")
+
+    assert "diarize" in result
+    assert result["diarize"]["status"] == "completed"
+    assert result["diarize"]["input_file_type"] == "audio"
+    assert result["diarize"]["segments"][0]["speaker"] == "SPEAKER_00"
+    assert result["diarize"]["segments"][0]["start"] == 0.0
+    assert result["diarize"]["segments"][0]["end"] == 10.0
+
+
+def test_workflow_diarize_text_is_skipped_with_contract_payload(monkeypatch, tmp_path: Path, temp_workflow_dirs):
+    upload_dir = tmp_path / "uploads" / "task-diarize-text"
+    upload_dir.mkdir(parents=True)
+    source = upload_dir / "note.txt"
+    source.write_text("테스트 텍스트", encoding="utf-8")
+
+    monkeypatch.setattr("sttEngine.http_api.workflow.update_task_progress", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("sttEngine.http_api.workflow.clear_task_progress", lambda _id: None)
+    monkeypatch.setattr("sttEngine.http_api.workflow.is_task_cancelled", lambda _id: False)
+
+    result = run_workflow(source, ["diarize"], task_id="task-diarize-text")
+
+    assert "diarize" in result
+    assert result["diarize"] == {
+        "status": "skipped",
+        "reason": "non_audio_input",
+        "input_file_type": "text",
+        "segments": [],
+    }

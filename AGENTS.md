@@ -97,10 +97,12 @@ POST
 주의:
 - 백엔드 기준 요약 step 키는 `summary`
 - STT 모델 키는 `whisper`
+- `steps`는 서버에서 소문자/중복 제거 정규화 후 처리됨(순서 유지)
 - `model_settings.provider`(또는 `llm_provider`)로 교정/요약 LLM provider 선택 가능 (`ollama` 기본, `llamacpp` 지원)
 - 교정/요약 워크플로우 옵션은 provider 중립 키(`temperature`, `context_window`, `max_tokens`)를 우선 사용하고 provider별 키로 매핑
 - 실패 응답 필드: `error`, `error_code`, `retryable`, `failed_step`
 - diarization 초안 오류 코드(`failed_step == "diarize"`): `diarization_model_unavailable`, `diarization_timeout`, `diarization_invalid_audio`
+- diarization 결과 payload는 `results["diarize"] = {status, input_file_type, duration?, segments[]}`를 기준으로 유지하며, 비오디오 입력은 `status: "skipped"`, `reason: "non_audio_input"`으로 처리
 - 진행률 응답(`/progress/<task_id>`, WebSocket)은 `progress_percent`, `eta_seconds`, `error`(표준 오류 카드용 객체) 포함
 
 ## 6. 수정 시 우선 확인할 파일

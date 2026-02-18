@@ -142,6 +142,43 @@ def run_workflow(
     individual_output_dir = OUTPUT_DIR / upload_folder_name
     individual_output_dir.mkdir(exist_ok=True)
 
+    def run_diarize_step(source_file: Path) -> dict:
+        """Run diarization for audio inputs and return a normalized result payload."""
+        if file_type != "audio":
+            return {
+                "status": "skipped",
+                "reason": "non_audio_input",
+                "input_file_type": file_type,
+                "segments": [],
+            }
+
+        duration = get_audio_duration(source_file)
+        duration_seconds: float | None = None
+        if duration:
+            minutes, seconds = duration.split(":")
+            duration_seconds = float(int(minutes) * 60 + int(seconds))
+
+        # NOTE:
+        # - This is a lightweight baseline diarization payload for contract stability.
+        # - Future diarization backends should preserve this top-level schema.
+        segments = []
+        if duration_seconds and duration_seconds > 0:
+            segments.append(
+                {
+                    "speaker": "SPEAKER_00",
+                    "start": 0.0,
+                    "end": duration_seconds,
+                    "confidence": 1.0,
+                }
+            )
+
+        return {
+            "status": "completed",
+            "input_file_type": file_type,
+            "duration": duration,
+            "segments": segments,
+        }
+
     try:
         # For text files, skip STT step and copy to output directory
         if file_type == "text":
@@ -251,6 +288,26 @@ def run_workflow(
             if record_id:
                 file_path_str = to_record_path(stt_file)
                 update_task_completion(record_id, "stt", file_path_str)
+
+        if "diarize" in steps:
+            if task_id and is_task_cancelled(task_id):
+                return {"error": "Task was cancelled"}
+
+            if task_id:
+                update_task_progress(task_id, "화자 분리 시작", stage=TaskStage.TRANSFORM)
+
+            try:
+                diarize_source = file_path if file_type == "audio" else current_file
+                results["diarize"] = run_diarize_step(Path(diarize_source))
+            except Exception as e:
+                return _workflow_error_result(task_id, e, "diarize")
+
+            if task_id:
+                status = results["diarize"].get("status")
+                if status == "skipped":
+                    update_task_progress(task_id, "화자 분리 스킵(비오디오 입력)", stage=TaskStage.TRANSFORM)
+                else:
+                    update_task_progress(task_id, "화자 분리 완료", stage=TaskStage.TRANSFORM)
 
         if "embedding" in steps and current_file:
             if task_id and is_task_cancelled(task_id):

@@ -43,3 +43,20 @@ def test_run_process_task_maps_workflow_error(monkeypatch):
         "retryable": True,
         "failed_step": "workflow",
     }
+
+
+def test_run_process_task_supports_diarize_step(monkeypatch):
+    expected = {"diarize": {"status": "completed", "segments": []}}
+    monkeypatch.setattr("sttEngine.server.tasks.queue.run_workflow", lambda *_args, **_kwargs: expected)
+
+    result = run_process_task(
+        {
+            "absolute_path": "/tmp/file.wav",
+            "steps": ["diarize", "summary"],
+            "record_id": "r1",
+            "task_id": "t3",
+            "model_settings": {},
+        }
+    )
+
+    assert result["diarize"]["status"] == "completed"
