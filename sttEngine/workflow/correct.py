@@ -150,7 +150,7 @@ def chat_once(model: str, system: str, user: str, temperature: float = 0.0,
                 messages=messages,
                 options={
                     "temperature": temperature,
-                    "num_ctx": num_ctx,
+                    "context_window": num_ctx,
                 },
                 provider_name=provider,
             )

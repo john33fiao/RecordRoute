@@ -6,11 +6,11 @@ import platform
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 import time
 
 from sttEngine.config import get_model_for_task, get_default_model, get_config_value
-from sttEngine.llm_provider import chat_completion, check_model_available, normalize_provider_name
+from sttEngine.llm_provider import chat_completion, normalize_provider_name
 from sttEngine.obsidian_mcp import send_summary_to_obsidian_sync
 from sttEngine.server.services.errors import map_workflow_exception
 from sttEngine.workflow.cli_utils import (
@@ -35,7 +35,7 @@ DEFAULT_TEMPERATURE = get_config_value("DEFAULT_TEMPERATURE_SUMMARY", 0.2, float
 DEFAULT_NUM_CTX = get_config_value("DEFAULT_NUM_CTX", 8192, int)
 MAX_RETRIES = get_config_value("MAX_RETRIES", 3, int)
 RETRY_DELAY = get_config_value("RETRY_DELAY", 2, int)
-OLLAMA_TIMEOUT = get_config_value("OLLAMA_TIMEOUT", 300, int)  # 5분 타임아웃
+LLM_TIMEOUT = get_config_value("LLM_TIMEOUT", get_config_value("OLLAMA_TIMEOUT", 300, int), int)  # 5분 타임아웃
 
 # 프롬프트 템플릿
 BASE_PROMPT = """당신은 전문 요약가입니다. 다음 텍스트를 간결하고 구조화된 한국어 요약으로 작성합니다.
@@ -72,12 +72,30 @@ class SummarizationError(Exception):
     pass
 
 def validate_model(model: str, provider_name: Optional[str] = None) -> bool:
-    """모델 존재 여부 확인"""
+    """provider healthcheck/list_models 기반 모델 존재 여부 확인"""
     try:
-        model_ok, model_msg = check_model_available(model, provider_name=provider_name)
-        if not model_ok:
-            logging.warning(f"모델 확인 오류: {model_msg}")
-        return model_ok
+        from sttEngine.providers.factory import get_llm_provider
+
+        provider = get_llm_provider(normalize_provider_name(provider_name))
+        ok, msg = provider.healthcheck()
+        if not ok:
+            logging.warning(f"provider 상태 확인 실패: {msg}")
+            return False
+
+        model_list = provider.list_models()
+        if not model_list:
+            logging.info("provider 모델 목록이 비어 있어 모델 검증을 건너뜁니다.")
+            return True
+
+        if model in model_list:
+            return True
+
+        provider_alias = normalize_provider_name(provider_name)
+        if provider_alias == "llamacpp" and model and ("/" in model or "\\" in model or model.endswith(".gguf")):
+            return True
+
+        logging.warning(f"모델 확인 오류: 모델을 찾을 수 없습니다: {model}")
+        return False
     except Exception as e:
         logging.warning(f"모델 목록 조회 실패: {e}")
         return True  # 검증 실패 시 진행 허용
@@ -239,13 +257,13 @@ def chunk_text(text: str, max_bytes: int, target_chunks: Optional[int] = None) -
     
     return final_chunks
 
-def call_ollama_with_timeout(
+def call_llm_with_timeout(
     model: str,
     prompt: str,
     options: dict,
-    timeout: int = OLLAMA_TIMEOUT,
+    timeout: int = LLM_TIMEOUT,
     provider_name: Optional[str] = None,
-) -> str:
+) -> Dict[str, Any]:
     """타임아웃을 적용한 모델 호출"""
     try:
         return chat_completion(
@@ -258,7 +276,7 @@ def call_ollama_with_timeout(
     except Exception as exc:
         raise map_workflow_exception(SummarizationError(str(exc)), "summary")
 
-def call_ollama_with_retry(
+def call_llm_with_retry(
     model: str, 
     prompt: str, 
     temperature: float = DEFAULT_TEMPERATURE,
@@ -269,21 +287,21 @@ def call_ollama_with_retry(
     """재시도 로직과 타임아웃을 포함한 모델 호출"""
     options = {
         "temperature": temperature,
-        "num_ctx": num_ctx,
+        "context_window": num_ctx,
     }
-    
+
     if max_tokens:
-        options["num_predict"] = max_tokens
+        options["max_tokens"] = max_tokens
     
     for attempt in range(MAX_RETRIES):
         try:
             logging.debug(f"모델 호출 시도 {attempt + 1}/{MAX_RETRIES}")
             
-            response = call_ollama_with_timeout(
+            response = call_llm_with_timeout(
                 model,
                 prompt,
                 options,
-                OLLAMA_TIMEOUT,
+                LLM_TIMEOUT,
                 provider_name=provider_name,
             )
 
@@ -347,7 +365,7 @@ def summarize_text_mapreduce(
     if len(chunks) == 1:
         logging.info("단일 청크 요약 수행")
         prompt = CHUNK_PROMPT.format(chunk=chunks[0])
-        return call_ollama_with_retry(
+        return call_llm_with_retry(
             model,
             prompt,
             temperature,
@@ -379,7 +397,7 @@ def summarize_text_mapreduce(
             prompt_chars = len(prompt)
             print(f"[DEBUG] 청크 {i} 프롬프트 크기: {prompt_chars:,} 문자, {prompt_bytes:,} bytes")
             print(f"[DEBUG] 청크 {i} 내용 첫 200자: {repr(chunk[:200])}")
-            summary = call_ollama_with_retry(
+            summary = call_llm_with_retry(
                 model,
                 prompt,
                 temperature,
@@ -423,7 +441,7 @@ def summarize_text_mapreduce(
             
             batch_combined = '\n\n---청크 요약 구분선---\n\n'.join(batch_chunk_summaries)
             batch_prompt = REDUCE_PROMPT.format(summaries=batch_combined)
-            batch_summary = call_ollama_with_retry(
+            batch_summary = call_llm_with_retry(
                 model,
                 batch_prompt,
                 temperature,
@@ -457,7 +475,7 @@ def summarize_text_mapreduce(
                     if progress_callback:
                         progress_callback(progress_msg)
                     group_prompt = REDUCE_PROMPT.format(summaries=summary_chunk)
-                    group_summary = call_ollama_with_retry(
+                    group_summary = call_llm_with_retry(
                         model,
                         group_prompt,
                         temperature,
@@ -473,7 +491,7 @@ def summarize_text_mapreduce(
         else:
             reduce_prompt = REDUCE_PROMPT.format(summaries=combined_summaries)
     
-    final_summary = call_ollama_with_retry(
+    final_summary = call_llm_with_retry(
         model,
         reduce_prompt,
         temperature,

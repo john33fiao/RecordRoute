@@ -8,7 +8,7 @@ RecordRoute는 음성/문서 입력을 STT, 교정, 요약, 임베딩 검색으�
 
 ## 주요 기능
 - 음성→텍스트 변환: OpenAI Whisper 기반 STT
-- 텍스트 교정: Ollama 모델 기반 교정
+- 텍스트 교정: provider(ollama/llamacpp) 기반 교정
 - 구조화 요약: 6개 섹션 형식 회의록 요약
 - 임베딩/검색: 벡터 검색 + 키워드 검색 + 유사 문서 추천
 - 작업 상태 추적: HTTP progress + WebSocket 실시간 업데이트
@@ -94,10 +94,12 @@ venv\Scripts\python.exe -m sttEngine.server
 주요 변수:
 - `DB_FOLDER_PATH`: 데이터 저장 루트 (미설정 시 프로젝트의 `DB/`)
 - `LLM_PROVIDER`: 교정/요약 LLM provider 선택 (`ollama` 기본, `llamacpp` 지원)
+- 교정/요약 워크플로우는 provider 중립 옵션(`temperature`, `context_window`, `max_tokens`)을 사용하며 내부에서 provider별 키로 매핑됩니다.
 - `EMBEDDING_PROVIDER`: 임베딩 provider 선택 (미지정 시 `LLM_PROVIDER` 상속)
 - `LLAMA_CPP_COMMAND`: llama.cpp 실행 커맨드 (기본 `llama-cli`)
 - `LLAMA_CPP_MODEL_PATH`: llama.cpp 기본 모델 경로 (`.gguf`)
 - `LLAMA_CPP_TIMEOUT`: llama.cpp 호출 타임아웃(초, 기본 300)
+- `LLM_TIMEOUT`: 교정/요약 LLM 호출 공통 타임아웃(초, 기본 300, 미설정 시 `OLLAMA_TIMEOUT` fallback)
 - `TRANSCRIBE_MODEL_WINDOWS`, `TRANSCRIBE_MODEL_UNIX`
 - `SUMMARY_MODEL_WINDOWS`, `SUMMARY_MODEL_UNIX`
 - `EMBEDDING_MODEL_WINDOWS`, `EMBEDDING_MODEL_UNIX`
