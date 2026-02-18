@@ -25,6 +25,20 @@ fi
 echo "Detected OS: $OS_NAME"
 echo
 
+# Provider 설정 정규화(.env가 있으면 반영)
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
+fi
+LLM_PROVIDER_VALUE="${LLM_PROVIDER:-ollama}"
+EMBEDDING_PROVIDER_VALUE="${EMBEDDING_PROVIDER:-$LLM_PROVIDER_VALUE}"
+LLM_PROVIDER_VALUE="$(printf '%s' "$LLM_PROVIDER_VALUE" | tr '[:upper:]' '[:lower:]')"
+EMBEDDING_PROVIDER_VALUE="$(printf '%s' "$EMBEDDING_PROVIDER_VALUE" | tr '[:upper:]' '[:lower:]')"
+NEED_OLLAMA="false"
+if [ "$LLM_PROVIDER_VALUE" = "ollama" ] || [ "$EMBEDDING_PROVIDER_VALUE" = "ollama" ]; then
+    NEED_OLLAMA="true"
+fi
+
+
 # 1. Check Python
 echo "Step 0: Checking Python installation..."
 if command -v python3 &>/dev/null; then
@@ -106,6 +120,14 @@ fi
 
 echo
 
+# Optional Ollama requirements
+if [ "$NEED_OLLAMA" = "true" ] && [ -f "requirements-ollama.txt" ]; then
+    echo "Installing optional Ollama provider dependencies..."
+    if ! "$VENV_PYTHON" -m pip install -r requirements-ollama.txt; then
+        echo "Warning: Optional Ollama dependencies failed to install."
+    fi
+fi
+
 # 3.5 PyTorch Verification
 echo "Step 2.5: Verifying PyTorch..."
 if [[ "$OS_NAME" == "Linux" ]]; then
@@ -122,25 +144,29 @@ echo
 
 # 4. Ollama Check
 echo "Step 3: Checking Ollama..."
-if command -v ollama &>/dev/null; then
-    echo "Ollama is installed."
-    echo "Checking models..."
-    OLLAMA_MODEL="gemma3:4b-it-qat"
-    if ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -q .; then
-        echo "Existing Ollama model detected. Skipping pull step."
+if [ "$NEED_OLLAMA" = "true" ]; then
+    if command -v ollama &>/dev/null; then
+        echo "Ollama is installed."
+        echo "Checking models..."
+        OLLAMA_MODEL="gemma3:4b-it-qat"
+        if ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -q .; then
+            echo "Existing Ollama model detected. Skipping pull step."
+        else
+            echo "No Ollama models found. Pulling default model '$OLLAMA_MODEL'..."
+            ollama pull "$OLLAMA_MODEL"
+        fi
     else
-        echo "No Ollama models found. Pulling default model '$OLLAMA_MODEL'..."
-        ollama pull "$OLLAMA_MODEL"
+        echo "Ollama is NOT installed."
+        if [[ "$OS_NAME" == "macOS" ]]; then
+            echo "Please download from https://ollama.ai or run: brew install ollama"
+        elif [[ "$OS_NAME" == "Linux" ]]; then
+            echo "Please download from https://ollama.ai"
+            echo "Or run: curl -fsSL https://ollama.ai/install.sh | sh"
+        fi
+        echo "After installation, run: ollama pull gemma3:4b-it-qat"
     fi
 else
-    echo "Ollama is NOT installed."
-    if [[ "$OS_NAME" == "macOS" ]]; then
-        echo "Please download from https://ollama.ai or run: brew install ollama"
-    elif [[ "$OS_NAME" == "Linux" ]]; then
-        echo "Please download from https://ollama.ai"
-        echo "Or run: curl -fsSL https://ollama.ai/install.sh | sh"
-    fi
-    echo "After installation, run: ollama pull gemma3:4b-it-qat"
+    echo "LLM/Embedding provider가 ollama가 아니므로 Ollama 점검을 건너뜁니다."
 fi
 echo
 

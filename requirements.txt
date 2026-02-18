@@ -9,7 +9,6 @@ torchvision
 
 # 나머지 의존성
 openai-whisper>=20231117
-ollama>=0.1.0
 multipart
 python-dotenv
 sentence-transformers
@@ -18,3 +17,7 @@ websockets>=10.0
 
 # Obsidian MCP 통합
 mcp>=0.1.0
+
+# Optional provider dependencies
+# - Ollama provider를 사용하려면 아래 파일을 추가 설치하세요.
+#   pip install -r requirements-ollama.txt

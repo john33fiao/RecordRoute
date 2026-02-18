@@ -32,7 +32,14 @@
 
 개별 실행:
 - 백엔드: `venv/bin/python -m sttEngine.server` (Windows: `venv\\Scripts\\python.exe -m sttEngine.server`)
+- Ollama provider 사용 시 추가 의존성: `pip install -r requirements-ollama.txt`
+- `.env`의 `LLM_PROVIDER`/`EMBEDDING_PROVIDER`가 `ollama`가 아니면 setup/run 스크립트의 Ollama 점검 단계는 자동 skip
 - 프론트 빌드: `cd frontend && npm install && npm run build`
+
+Docker Compose provider profile:
+- 앱 단독: `docker compose up -d --build`
+- Ollama 포함: `docker compose --profile ollama up -d --build`
+- llama.cpp 포함: `docker compose --profile llamacpp up -d --build`
 
 ## 3. 데이터/경로 규칙
 - DB 루트는 `DB_FOLDER_PATH` 환경변수 우선, 없으면 프로젝트 루트의 `DB/`

@@ -183,19 +183,19 @@
 ## Phase 6 — 배포/의존성/문서 동기화
 
 ### 작업
-- [ ] `requirements.txt`
-  - [ ] Ollama SDK 필수 의존 제거 또는 optional 분리
-- [ ] `.env.example`
-  - [ ] 신규 변수 추가
+- [x] `requirements.txt`
+  - [x] Ollama SDK 필수 의존 제거 또는 optional 분리
+- [x] `.env.example`
+  - [x] 신규 변수 추가
     - `LLM_PROVIDER`, `EMBEDDING_PROVIDER`
     - `LLM_BASE_URL`, `EMBEDDING_BASE_URL`
     - `LLM_MODEL_*`, `EMBEDDING_MODEL_*`
-  - [ ] Ollama 전용 변수 deprecate 명시
-- [ ] `docker-compose.yml`
-  - [ ] llama.cpp 서버 서비스 추가 또는 provider profile 분리
-- [ ] 문서 동기화
-  - [ ] `README.md` 런타임/트러블슈팅 갱신
-  - [ ] `AGENTS.md` 실행/구조/API 기준 갱신
+  - [x] Ollama 전용 변수 deprecate 명시
+- [x] `docker-compose.yml`
+  - [x] llama.cpp 서버 서비스 추가 또는 provider profile 분리
+- [x] 문서 동기화
+  - [x] `README.md` 런타임/트러블슈팅 갱신
+  - [x] `AGENTS.md` 실행/구조/API 기준 갱신
 
 ### 산출물
 - 실행 가능한 배포 시나리오 + 최신 문서

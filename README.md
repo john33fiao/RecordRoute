@@ -38,6 +38,7 @@ RecordRoute/
 ├── setup.sh
 ├── setup.bat
 ├── requirements.txt
+├── requirements-ollama.txt
 ├── frontend/
 │   ├── src/
 │   ├── legacy/
@@ -70,17 +71,23 @@ macOS/Linux:
 ./run.sh
 ```
 
+> 참고: `.env`에서 `LLM_PROVIDER`/`EMBEDDING_PROVIDER`를 `ollama`가 아닌 값으로 설정하면 setup/run 스크립트의 Ollama 점검/자동시작 단계는 자동으로 건너뜁니다.
+
 ### 2) 수동 실행
 ```bash
 python -m venv venv
 ./venv/bin/python -m pip install -r sttEngine/requirements.txt
 ./venv/bin/python -m pip install -r requirements.txt
+# Ollama provider 사용 시에만 추가 설치
+./venv/bin/python -m pip install -r requirements-ollama.txt
 ./venv/bin/python -m sttEngine.server
 ```
 Windows PowerShell:
 ```powershell
 venv\Scripts\python.exe -m pip install -r sttEngine\requirements.txt
 venv\Scripts\python.exe -m pip install -r requirements.txt
+# Ollama provider 사용 시에만 추가 설치
+venv\Scripts\python.exe -m pip install -r requirements-ollama.txt
 venv\Scripts\python.exe -m sttEngine.server
 ```
 
@@ -93,9 +100,10 @@ venv\Scripts\python.exe -m sttEngine.server
 
 주요 변수:
 - `DB_FOLDER_PATH`: 데이터 저장 루트 (미설정 시 프로젝트의 `DB/`)
-- `LLM_PROVIDER`: 교정/요약 LLM provider 선택 (`ollama` 기본, `llamacpp` 지원)
+- `LLM_PROVIDER`: 교정/요약 LLM provider 선택 (`ollama` 기본, `llamacpp`/`llama_cpp` 지원)
 - 교정/요약 워크플로우는 provider 중립 옵션(`temperature`, `context_window`, `max_tokens`)을 사용하며 내부에서 provider별 키로 매핑됩니다.
 - `EMBEDDING_PROVIDER`: 임베딩 provider 선택 (미지정 시 `LLM_PROVIDER` 상속)
+- `LLM_BASE_URL`: llama.cpp(OpenAI 호환) LLM endpoint 기본 URL (기본 `http://localhost:8081`)
 - `EMBEDDING_BASE_URL`: llama.cpp(OpenAI 호환) 임베딩 endpoint 기본 URL (기본 `http://localhost:8081`)
 - `EMBEDDING_TIMEOUT`: 임베딩 provider 호출 타임아웃(초, 기본 `LLAMA_CPP_TIMEOUT` 또는 300)
 - `LLAMA_CPP_COMMAND`: llama.cpp 실행 커맨드 (기본 `llama-cli`)
@@ -212,9 +220,19 @@ node frontend/scripts/benchmark-similarity-graph.mjs --api-base-url=http://local
 ```
 
 ## Docker
-기본:
+기본(앱만 실행):
 ```bash
 docker compose up -d --build
+```
+
+Ollama provider 포함 실행:
+```bash
+docker compose --profile ollama up -d --build
+```
+
+llama.cpp provider 포함 실행:
+```bash
+docker compose --profile llamacpp up -d --build
 ```
 
 NVIDIA GPU:
@@ -224,9 +242,11 @@ docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 
 기본 포트:
 - 앱: `8080`
-- Ollama: `11434`
+- Ollama(profile `ollama`): `11434`
+- llama.cpp(profile `llamacpp`): `8081`
 
 ## 트러블슈팅
+- Provider 연결 오류: `LLM_PROVIDER`/`EMBEDDING_PROVIDER`, `LLM_BASE_URL`/`EMBEDDING_BASE_URL` 설정을 확인
 - Ollama 연결 오류: `ollama serve` 상태 및 모델 설치 확인
 - FFmpeg 오류: 시스템 PATH 확인
 - GPU 미사용: PyTorch/CUDA 설치 상태 확인
