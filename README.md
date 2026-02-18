@@ -159,6 +159,13 @@ venv\Scripts\python.exe -m sttEngine.server
 }
 ```
 
+`/process` 실패 응답 계약:
+- 필드: `error`, `error_code`, `retryable`, `failed_step`
+- diarization 초안 오류 코드(`failed_step == "diarize"`):
+  - `diarization_model_unavailable`
+  - `diarization_timeout`
+  - `diarization_invalid_audio`
+
 ## 검색 API 계약 (요약)
 - 엔드포인트: `GET /search`
 - 주요 파라미터:

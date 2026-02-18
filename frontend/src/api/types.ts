@@ -50,6 +50,19 @@ export interface HistoryRecord {
   info?: Record<string, unknown>;
 }
 
+
+export type WorkflowErrorCode =
+  | 'dependency_ffmpeg'
+  | 'dependency_llm_provider'
+  | 'transient_timeout'
+  | 'input_error'
+  | 'fatal_error'
+  // Draft diarization-specific codes (`failed_step === 'diarize'`).
+  | 'diarization_model_unavailable'
+  | 'diarization_timeout'
+  | 'diarization_invalid_audio'
+  | (string & {});
+
 export interface ProcessResult {
   accepted?: boolean;
   task_id?: string;
@@ -59,7 +72,7 @@ export interface ProcessResult {
   summary?: string;
   correct?: string;
   error?: string;
-  error_code?: string;
+  error_code?: WorkflowErrorCode;
   retryable?: boolean;
   failed_step?: string;
 }
@@ -191,7 +204,7 @@ export interface TaskProgress {
   stage?: TaskStage;
   progress_percent?: number;
   eta_seconds?: number | null;
-  error_code?: string;
+  error_code?: WorkflowErrorCode;
   retryable?: boolean;
   failed_step?: string;
   error?: StandardErrorPayload | null;

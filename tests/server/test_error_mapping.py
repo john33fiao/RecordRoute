@@ -44,3 +44,27 @@ def test_map_workflow_exception_preserves_existing_workflow_error_code() -> None
 
     assert mapped.code == "dependency_ollama"
     assert mapped.failed_step == "workflow"
+
+
+def test_map_workflow_exception_maps_diarization_model_unavailable() -> None:
+    mapped = map_workflow_exception(RuntimeError("diarization model unavailable on server"), "diarize")
+
+    assert mapped.code == "diarization_model_unavailable"
+    assert mapped.retryable is True
+    assert mapped.failed_step == "diarize"
+
+
+def test_map_workflow_exception_maps_diarization_timeout() -> None:
+    mapped = map_workflow_exception(TimeoutError("diarization timeout after 30s"), "diarize")
+
+    assert mapped.code == "diarization_timeout"
+    assert mapped.retryable is True
+    assert mapped.failed_step == "diarize"
+
+
+def test_map_workflow_exception_maps_diarization_invalid_audio() -> None:
+    mapped = map_workflow_exception(ValueError("invalid audio format for diarization"), "diarize")
+
+    assert mapped.code == "diarization_invalid_audio"
+    assert mapped.retryable is False
+    assert mapped.failed_step == "diarize"

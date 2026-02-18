@@ -8,6 +8,11 @@ LEGACY_ERROR_CODE_ALIASES: dict[str, str] = {
     "dependency_ollama": "dependency_llm_provider",
 }
 
+# Diarization step (`failed_step == "diarize"`) draft error codes.
+DIARIZATION_MODEL_UNAVAILABLE = "diarization_model_unavailable"
+DIARIZATION_TIMEOUT = "diarization_timeout"
+DIARIZATION_INVALID_AUDIO = "diarization_invalid_audio"
+
 
 @dataclass
 class ApiError(Exception):
@@ -48,6 +53,35 @@ def map_workflow_exception(error: Exception, default_step: str | None = None) ->
 
     message = str(error) or "Unknown workflow error"
     lower_message = message.lower()
+
+    if default_step == "diarize":
+        if "timeout" in lower_message or isinstance(error, TimeoutError):
+            return TransientWorkflowError(
+                message=message,
+                code=DIARIZATION_TIMEOUT,
+                retryable=True,
+                failed_step=default_step,
+            )
+
+        if (
+            "model unavailable" in lower_message
+            or "model not found" in lower_message
+            or "failed to load model" in lower_message
+        ):
+            return DependencyError(
+                message=message,
+                code=DIARIZATION_MODEL_UNAVAILABLE,
+                retryable=True,
+                failed_step=default_step,
+            )
+
+        if isinstance(error, ValueError) or "invalid" in lower_message or "unsupported audio" in lower_message:
+            return InputValidationError(
+                message=message,
+                code=DIARIZATION_INVALID_AUDIO,
+                retryable=False,
+                failed_step=default_step,
+            )
 
     if "ffmpeg" in lower_message or "ffprobe" in lower_message:
         return DependencyError(message=message, code="dependency_ffmpeg", retryable=False, failed_step=default_step)

@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import sys
+import types
 from pathlib import Path
 
-from sttEngine.http_api.workflow import run_workflow
+# Optional dependency guard for test environments without ollama installed.
+sys.modules.setdefault("ollama", types.SimpleNamespace())
+
+from sttEngine.http_api.workflow import _workflow_error_result, run_workflow
 
 
 def test_workflow_correct_step_success_updates_progress(monkeypatch, tmp_path: Path, temp_workflow_dirs):
@@ -79,3 +84,22 @@ def test_workflow_passes_provider_to_correct_and_summary(monkeypatch, tmp_path: 
     assert result["summary"].endswith("note.corrected.summary.md")
     assert called["correct"]["provider_name"] == "llamacpp"
     assert called["summary"]["provider_name"] == "llamacpp"
+
+
+def test_workflow_diarization_failure_contract_returns_standard_error_fields(monkeypatch):
+    progress_payloads: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        "sttEngine.http_api.workflow.update_task_progress",
+        lambda _task_id, _message, **kwargs: progress_payloads.append(kwargs),
+    )
+
+    result = _workflow_error_result("task-diarize", RuntimeError("model unavailable for diarization"), "diarize")
+
+    assert result["error"] == "model unavailable for diarization"
+    assert result["error_code"] == "diarization_model_unavailable"
+    assert result["retryable"] is True
+    assert result["failed_step"] == "diarize"
+    assert progress_payloads[-1]["error_code"] == "diarization_model_unavailable"
+    assert progress_payloads[-1]["retryable"] is True
+    assert progress_payloads[-1]["failed_step"] == "diarize"

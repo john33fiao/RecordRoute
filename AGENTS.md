@@ -100,6 +100,7 @@ POST
 - `model_settings.provider`(또는 `llm_provider`)로 교정/요약 LLM provider 선택 가능 (`ollama` 기본, `llamacpp` 지원)
 - 교정/요약 워크플로우 옵션은 provider 중립 키(`temperature`, `context_window`, `max_tokens`)를 우선 사용하고 provider별 키로 매핑
 - 실패 응답 필드: `error`, `error_code`, `retryable`, `failed_step`
+- diarization 초안 오류 코드(`failed_step == "diarize"`): `diarization_model_unavailable`, `diarization_timeout`, `diarization_invalid_audio`
 - 진행률 응답(`/progress/<task_id>`, WebSocket)은 `progress_percent`, `eta_seconds`, `error`(표준 오류 카드용 객체) 포함
 
 ## 6. 수정 시 우선 확인할 파일
