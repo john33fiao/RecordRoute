@@ -8,6 +8,25 @@ REM Set directory to where the script is
 cd /d "%~dp0" || exit /b 1
 set SCRIPT_DIR=%cd%
 
+REM Provider 설정 정규화(.env 기준)
+if exist "%SCRIPT_DIR%\.env" (
+    for /f "usebackq tokens=*" %%a in ("%SCRIPT_DIR%\.env") do (
+        set "line=%%a"
+        if not "!line:~0,1!"=="#" if not "!line!"=="" set "%%a"
+    )
+)
+set "LLM_PROVIDER_VALUE=!LLM_PROVIDER!"
+if "!LLM_PROVIDER_VALUE!"=="" set "LLM_PROVIDER_VALUE=ollama"
+set "EMBEDDING_PROVIDER_VALUE=!EMBEDDING_PROVIDER!"
+if "!EMBEDDING_PROVIDER_VALUE!"=="" set "EMBEDDING_PROVIDER_VALUE=!LLM_PROVIDER_VALUE!"
+if /i "!LLM_PROVIDER_VALUE!"=="ollama" (
+    set "NEED_OLLAMA=true"
+) else if /i "!EMBEDDING_PROVIDER_VALUE!"=="ollama" (
+    set "NEED_OLLAMA=true"
+) else (
+    set "NEED_OLLAMA=false"
+)
+
 echo.
 echo ================================
 echo    RecordRoute Setup
@@ -116,6 +135,14 @@ if exist "%SCRIPT_DIR%\requirements.txt" (
 
 echo.
 
+if /i "!NEED_OLLAMA!"=="true" if exist "%SCRIPT_DIR%\requirements-ollama.txt" (
+    echo Ollama 선택 의존성을 설치하고 있습니다...
+    "!VENV_PYTHON!" -m pip install -r requirements-ollama.txt
+    if !errorlevel! neq 0 (
+        echo [경고] 일부 Ollama 선택 의존성 설치에 실패했습니다.
+    )
+)
+
 REM 3.5 PyTorch Verification
 echo Step 2.5: Verifying PyTorch...
 
@@ -140,27 +167,31 @@ echo.
 REM 4. Ollama Check
 echo Step 3: Checking Ollama...
 
-where ollama >nul 2>&1
-if !errorlevel! equ 0 (
-    echo Ollama가 설치되어 있습니다.
-    echo 모델을 확인하고 있습니다...
-    
-    set OLLAMA_MODEL=gemma3:4b-it-qat
-    ollama list 2>nul | more +1 | findstr /r /c:"." >nul
+if /i "!NEED_OLLAMA!"=="true" (
+    where ollama >nul 2>&1
     if !errorlevel! equ 0 (
-        echo 기존 Ollama 모델이 감지되었습니다. pull 단계를 건너뜁니다.
+        echo Ollama가 설치되어 있습니다.
+        echo 모델을 확인하고 있습니다...
+        
+        set OLLAMA_MODEL=gemma3:4b-it-qat
+        ollama list 2>nul | more +1 | findstr /r /c:"." >nul
+        if !errorlevel! equ 0 (
+            echo 기존 Ollama 모델이 감지되었습니다. pull 단계를 건너뜁니다.
+        ) else (
+            echo 설치된 Ollama 모델이 없습니다. 기본 모델 '!OLLAMA_MODEL!'을(를) 설치합니다...
+            echo (이 과정은 시간이 걸릴 수 있습니다)
+            ollama pull !OLLAMA_MODEL!
+        )
     ) else (
-        echo 설치된 Ollama 모델이 없습니다. 기본 모델 '!OLLAMA_MODEL!'을(를) 설치합니다...
-        echo (이 과정은 시간이 걸릴 수 있습니다)
-        ollama pull !OLLAMA_MODEL!
+        echo Ollama가 설치되어 있지 않습니다.
+        echo 다음 링크에서 다운로드하세요: https://ollama.ai
+        echo 또는 Scoop, Chocolatey 등의 패키지 관리자를 사용하세요.
+        echo.
+        echo 설치 후 다음 명령어를 실행하세요:
+        echo   ollama pull gemma3:4b-it-qat
     )
 ) else (
-    echo Ollama가 설치되어 있지 않습니다.
-    echo 다음 링크에서 다운로드하세요: https://ollama.ai
-    echo 또는 Scoop, Chocolatey 등의 패키지 관리자를 사용하세요.
-    echo.
-    echo 설치 후 다음 명령어를 실행하세요:
-    echo   ollama pull gemma3:4b-it-qat
+    echo LLM/Embedding provider가 ollama가 아니므로 Ollama 점검을 건너뜁니다.
 )
 echo.
 

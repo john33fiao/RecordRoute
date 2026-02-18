@@ -12,6 +12,16 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
     echo "[DEBUG] PYANNOTE_TOKEN이 로드되었습니다."
 fi
 
+# Provider 설정 정규화
+LLM_PROVIDER_VALUE="${LLM_PROVIDER:-ollama}"
+EMBEDDING_PROVIDER_VALUE="${EMBEDDING_PROVIDER:-$LLM_PROVIDER_VALUE}"
+LLM_PROVIDER_VALUE="$(printf '%s' "$LLM_PROVIDER_VALUE" | tr '[:upper:]' '[:lower:]')"
+EMBEDDING_PROVIDER_VALUE="$(printf '%s' "$EMBEDDING_PROVIDER_VALUE" | tr '[:upper:]' '[:lower:]')"
+NEED_OLLAMA="false"
+if [ "$LLM_PROVIDER_VALUE" = "ollama" ] || [ "$EMBEDDING_PROVIDER_VALUE" = "ollama" ]; then
+    NEED_OLLAMA="true"
+fi
+
 # 가상환경의 Python 실행 파일 경로
 VENV_PYTHON="$SCRIPT_DIR/venv/bin/python"
 
@@ -62,6 +72,17 @@ if [ -f "$ROOT_REQ_FILE" ]; then
     fi
 fi
 
+# Ollama optional requirements 설치
+OLLAMA_REQ_FILE="$SCRIPT_DIR/requirements-ollama.txt"
+if [ "$NEED_OLLAMA" = "true" ] && [ -f "$OLLAMA_REQ_FILE" ]; then
+    echo "Ollama provider가 활성화되어 선택 의존성을 확인합니다..."
+    if "$VENV_PYTHON" -m pip install -r "$OLLAMA_REQ_FILE" > /dev/null 2>&1; then
+        echo "Ollama 선택 의존성 확인 완료."
+    else
+        echo "경고: Ollama 선택 의존성 설치 중 오류가 발생했습니다."
+    fi
+fi
+
 # PyTorch CUDA 버전 확인 및 설치 (선택적)
 echo "PyTorch 상태를 확인합니다..."
 TORCH_VER_FILE="$SCRIPT_DIR/venv/lib/python*/site-packages/torch/version.py"
@@ -86,32 +107,33 @@ fi
 echo "PyTorch 상태 확인:"
 "$VENV_PYTHON" -c "import torch; print('Torch:', torch.__version__); print('CUDA available:', torch.cuda.is_available())" 2>/dev/null || echo "(PyTorch 정보를 가져올 수 없습니다)"
 
-# Ollama 서버 상태 확인 및 시작
-echo "Ollama 서버 상태를 확인합니다..."
-if ! curl -s http://localhost:11434/api/version > /dev/null 2>&1; then
-    echo "Ollama 서버가 실행되지 않았습니다. 자동으로 시작합니다..."
-    if command -v ollama > /dev/null 2>&1; then
-        # 백그라운드에서 ollama serve 실행
-        nohup ollama serve > /dev/null 2>&1 &
-        OLLAMA_PID=$!
-        echo "Ollama 서버를 시작했습니다. (PID: $OLLAMA_PID)"
-        
-        # 서버 시작을 위해 잠시 대기
-        echo "서버 시작을 기다리는 중..."
-        sleep 3
-        
-        # 서버 시작 확인
-        if curl -s http://localhost:11434/api/version > /dev/null 2>&1; then
-            echo "Ollama 서버가 성공적으로 시작되었습니다."
+# Ollama 서버 상태 확인 및 시작 (provider가 ollama인 경우에만)
+if [ "$NEED_OLLAMA" = "true" ]; then
+    OLLAMA_BASE_URL_VALUE="${OLLAMA_BASE_URL:-http://localhost:11434}"
+    OLLAMA_VERSION_URL="${OLLAMA_BASE_URL_VALUE%/}/api/version"
+    echo "Ollama provider가 활성화되어 서버 상태를 확인합니다..."
+    if ! curl -s "$OLLAMA_VERSION_URL" > /dev/null 2>&1; then
+        echo "Ollama 서버가 실행되지 않았습니다. 자동으로 시작합니다..."
+        if command -v ollama > /dev/null 2>&1; then
+            nohup ollama serve > /dev/null 2>&1 &
+            OLLAMA_PID=$!
+            echo "Ollama 서버를 시작했습니다. (PID: $OLLAMA_PID)"
+            echo "서버 시작을 기다리는 중..."
+            sleep 3
+            if curl -s "$OLLAMA_VERSION_URL" > /dev/null 2>&1; then
+                echo "Ollama 서버가 성공적으로 시작되었습니다."
+            else
+                echo "경고: Ollama 서버 시작을 확인할 수 없습니다. 수동으로 'ollama serve'를 실행해주세요."
+            fi
         else
-            echo "경고: Ollama 서버 시작을 확인할 수 없습니다. 수동으로 'ollama serve'를 실행해주세요."
+            echo "경고: ollama 명령어를 찾을 수 없습니다. Ollama가 설치되어 있는지 확인하세요."
+            echo "수동으로 'ollama serve' 명령어를 실행한 후 이 스크립트를 다시 실행하세요."
         fi
     else
-        echo "경고: ollama 명령어를 찾을 수 없습니다. Ollama가 설치되어 있는지 확인하세요."
-        echo "수동으로 'ollama serve' 명령어를 실행한 후 이 스크립트를 다시 실행하세요."
+        echo "Ollama 서버가 이미 실행 중입니다."
     fi
 else
-    echo "Ollama 서버가 이미 실행 중입니다."
+    echo "Ollama provider가 비활성화되어 서버 자동 시작을 건너뜁니다."
 fi
 
 # Cloudflare Tunnel 상태 확인 및 시작

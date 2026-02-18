@@ -2,10 +2,13 @@
 # PyTorch (CUDA build) is installed explicitly in setup/run scripts to avoid CPU-only wheels.
 
 openai-whisper>=20231117
-ollama>=0.1.0
 multipart
 python-dotenv
 sentence-transformers
 pypdf>=3.0.0
 websockets>=10.0
 filelock>=3.0.0
+
+# Optional provider dependencies
+# - Ollama provider를 사용하려면 아래 파일을 추가 설치하세요.
+#   pip install -r requirements-ollama.txt

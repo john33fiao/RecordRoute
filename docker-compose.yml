@@ -11,20 +11,40 @@ services:
       HOST: 0.0.0.0
       PORT: 8080
       WORKFLOW_DEVICE: auto
-      OLLAMA_BASE_URL: http://ollama:11434
       DB_FOLDER_PATH: /data/DB
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-ollama}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://llamacpp:8081}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-http://llamacpp:8081}
     volumes:
       - ./DB:/data/DB
-    depends_on:
-      - ollama
 
   ollama:
     image: ollama/ollama:latest
     container_name: recordroute-ollama
+    profiles: ["ollama"]
     ports:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+
+  llamacpp:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    container_name: recordroute-llamacpp
+    profiles: ["llamacpp"]
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8081"
+      - --model
+      - /models/model.gguf
+      - --embeddings
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./models:/models
 
 volumes:
   ollama_data:
