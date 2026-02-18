@@ -200,6 +200,8 @@ pytest
 pytest tests/http_api/test_workflow.py tests/http_api/test_search.py tests/server/test_queue.py tests/test_vocab_system.py
 ```
 
+화자 분리 KPI 문서: [`docs/diarization/kpi.md`](docs/diarization/kpi.md)
+
 그래프 성능 계측(기본 100/500/1000 문서 기준선 자동 생성):
 ```bash
 node frontend/scripts/benchmark-similarity-graph.mjs
