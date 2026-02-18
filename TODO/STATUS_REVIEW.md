@@ -122,3 +122,75 @@
 ## 테스트 증거
 - `pytest tests/providers/test_provider_factory.py`
 - `pytest tests/providers/test_llama_cpp_embedding_provider.py`
+
+---
+
+# llama 마이그레이션 진행 점검 (2026-02-18, RTD 재검토)
+
+요청: "llama 마이그레이션 작업이 잘 진행됐는지"를 현재 코드/문서/테스트 기준으로 재검토.
+
+## [Step 1] 계획 수립 — PASS
+- 범위(In): provider 추상화, `/models` 계약, `/process model_settings` 정합성, 핵심 회귀 테스트.
+- 범위(Out): 실제 clean 환경 배포(run/setup) 실측, 대규모 성능 벤치.
+- 검증 방식: 코드 근거 확인 + 핵심/공급자 테스트 실행.
+
+## [Step 2] 계획 검토 — PASS
+- 문서 체크리스트와 실제 코드 간 드리프트 가능성을 핵심 위험으로 포함.
+
+## [Step 3] 검토 재검토 — PASS
+- DoD를 "코드에서 llama provider 경로가 실제 동작 가능한가"로 한정.
+- 가정: 테스트가 현재 계약의 최소 보증선 역할을 한다.
+
+## [Step 4] 과도성 검토 — PASS
+- 기능 변경 없이 상태 진단만 수행.
+
+## [Step 5] 구현(점검 수행) — PASS
+- `sttEngine/providers/factory.py`에서 `ollama|llamacpp` 선택 + alias(`llama.cpp`, `llama_cpp`, `llama-cpp`) 처리 확인.
+- `sttEngine/http_api/handler.py`의 `_serve_available_models()`가 provider 단위 상태/모델 목록(`models_by_provider`, `provider_status`)을 반환함을 확인.
+- `sttEngine/http_api/workflow.py`에서 `model_settings.provider` 또는 `model_settings.llm_provider`를 교정/요약 경로로 전달함을 확인.
+- `frontend/src/hooks/useTaskQueue.ts`, `frontend/src/api/types.ts`에서 `whisper/summarize/correct/embedding/llm_provider` 계약이 반영됨을 확인.
+
+## [Step 6] 목적 적합성 검토 — PASS
+- llama provider 전환의 핵심 골격(백엔드 provider 팩토리 + API 계약 + 프론트 전달)은 동작 가능한 상태.
+
+## [Step 7] 잠재 이슈/보안 검토 — PASS(주의사항 있음)
+- 고위험 보안 이슈는 미발견.
+- 단, `sttEngine/one_line_summary.py`는 여전히 `ollama` 직접 import/call을 사용해 provider 중립화 범위 밖 잔존 경로로 확인.
+
+## [Step 8] 회귀 검토 — PASS
+- 아래 테스트 통과:
+  - `pytest -q tests/providers/test_provider_factory.py tests/providers/test_llama_cpp_embedding_provider.py tests/http_api/test_workflow.py tests/http_api/test_search.py tests/server/test_queue.py tests/test_vocab_system.py`
+
+## [Step 9] 대형 함수/파일 분리 검토 — PASS
+- 이번 점검에서는 구조 변경 없이 상태 확인만 수행.
+
+## [Step 10] 재사용/통합성 검토 — PASS
+- 공통 provider 경로가 `sttEngine/llm_provider.py` + `sttEngine/providers/*`로 통합되어 있음.
+
+## [Step 11] 사이드 이펙트 검토 — PASS
+- 코드 실행 경로 변경 없음(문서 점검 기록만 갱신).
+
+## [Step 12] 전체 변경사항 리뷰 — PASS
+- 변경은 상태 점검 기록 추가 1건.
+
+## [Step 13] 불필요 코드 정리 — PASS
+- 임시 코드/스크립트 없음.
+
+## [Step 14] 품질 기준 검토 — PASS
+- 관련 회귀 테스트 통과.
+
+## [Step 15] 사용자 흐름 검토 — PASS
+- 사용자 흐름 관점에서 provider 선택 + 모델 목록 조회 + 워크플로우 전달이 이어지는 경로 확인.
+
+## [Step 16] 이슈 추적 재검토 — PASS(개선 필요)
+- 문서 드리프트: `TODO/llama-migration.md` 상단/하단 체크리스트에는 미완료([ ])가 다수 남아 있으나, 실제 구현은 상당수 완료([x]) 상태와 혼재.
+- 후속 조치: 체크리스트를 현재 코드 기준으로 재정렬 필요.
+
+## [Step 17] 배포 준비 판정 — 조건부 PASS
+- **결론:** "llama 마이그레이션은 핵심 경로 기준으로 잘 진행됨".
+- 단, 아래 2건이 남아 **완전 종료 READY는 아님**:
+  1. `one_line_summary.py`의 provider 중립화 여부 결정.
+  2. clean 환경 `setup/run` 실측 검증.
+
+## [Step 18] 커밋/PR
+- 본 점검 결과를 커밋/PR로 기록.
