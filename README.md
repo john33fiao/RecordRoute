@@ -19,6 +19,7 @@ RecordRoute는 음성/문서 입력을 STT, 교정, 요약, 임베딩 검색으�
 - HTTP 서버 엔트리: `sttEngine/http_api/app.py`
 - 핸들러/라우팅: `sttEngine/http_api/handler.py`, `sttEngine/http_api/routes/*`
 - 워크플로우 실행: `sttEngine/http_api/workflow.py`
+- LLM/Embedding provider 추상화: `sttEngine/providers/*`, 호환 래퍼 `sttEngine/llm_provider.py`
 - WebSocket 서버: `sttEngine/http_api/ws.py` (`ws://localhost:8765`)
 - 서버 실행 래퍼: `sttEngine/server.py` (`python -m sttEngine.server`)
 - 프론트엔드: React + Vite (`frontend/src`)
@@ -93,6 +94,7 @@ venv\Scripts\python.exe -m sttEngine.server
 주요 변수:
 - `DB_FOLDER_PATH`: 데이터 저장 루트 (미설정 시 프로젝트의 `DB/`)
 - `LLM_PROVIDER`: 교정/요약 LLM provider 선택 (`ollama` 기본, `llamacpp` 지원)
+- `EMBEDDING_PROVIDER`: 임베딩 provider 선택 (미지정 시 `LLM_PROVIDER` 상속)
 - `LLAMA_CPP_COMMAND`: llama.cpp 실행 커맨드 (기본 `llama-cli`)
 - `LLAMA_CPP_MODEL_PATH`: llama.cpp 기본 모델 경로 (`.gguf`)
 - `LLAMA_CPP_TIMEOUT`: llama.cpp 호출 타임아웃(초, 기본 300)
