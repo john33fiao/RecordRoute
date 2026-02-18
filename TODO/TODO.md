@@ -29,6 +29,9 @@
 - [ ] API 버전 관리/OpenAPI 초안
   - 범위: 버전 전략, `/process`/`/search`/`/progress` 계약서 초안
 
+- [ ] 화자 분리(Speaker Diarization) 도입 설계/구현
+  - 범위: 실행 로드맵(`TODO/화자분리_로드맵.md`) 기준으로 Phase 0~4 순차 적용
+
 - [ ] 훅/컴포넌트 테스트 보강
   - 범위: `useTaskQueue`, `SearchPanel`, `TextOverlay`, `SimilarityGraphPanel`
 
