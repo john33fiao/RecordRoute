@@ -167,16 +167,16 @@
 ## Phase 5 — 에러 체계/운영 가시성 정리
 
 ### 작업
-- [ ] `sttEngine/server/services/errors.py`
-  - [ ] `dependency_ollama`를 범용 코드(예: `dependency_llm_provider`)로 확장
-  - [ ] 하위호환 alias 전략 결정
-- [ ] 워크플로우 에러 매핑에서 공급자 구체 메시지 의존 최소화
+- [x] `sttEngine/server/services/errors.py`
+  - [x] `dependency_ollama`를 범용 코드(예: `dependency_llm_provider`)로 확장
+  - [x] 하위호환 alias 전략 결정
+- [x] 워크플로우 에러 매핑에서 공급자 구체 메시지 의존 최소화
 
 ### 산출물
 - 공급자 전환 친화적 에러 모델
 
 ### 검증
-- [ ] queue/error 회귀 테스트 업데이트
+- [x] queue/error 회귀 테스트 업데이트
 
 ---
 
