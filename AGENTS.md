@@ -20,6 +20,7 @@
   - 파일/정적 서빙: `sttEngine/http_api/routes/file_routes.py`
   - 유사문서 응답 조합: `sttEngine/http_api/routes/similar_documents.py`
 - 워크플로우 실행: `sttEngine/http_api/workflow.py`
+- Provider 추상화: `sttEngine/providers/*` + 호환 래퍼 `sttEngine/llm_provider.py`
 - 프론트엔드: React + Vite (`frontend/src/*`)
 - 레거시 UI: `frontend/legacy/*` (프론트 빌드 실패 시 fallback)
 
@@ -93,6 +94,7 @@ POST
 ## 6. 수정 시 우선 확인할 파일
 - 라우트/핸들러: `sttEngine/http_api/handler.py`, `sttEngine/http_api/routes/file_routes.py`
 - 워크플로우: `sttEngine/http_api/workflow.py`
+- Provider: `sttEngine/providers/*`, `sttEngine/llm_provider.py`
 - 에러 매핑: `sttEngine/server/services/errors.py`
 - 히스토리/레지스트리: `sttEngine/http_api/history.py`, `sttEngine/http_api/registry.py`, `sttEngine/http_api/records.py`
 - 검색/캐시: `sttEngine/http_api/search.py`, `sttEngine/vector_search.py`, `sttEngine/search_cache.py`
