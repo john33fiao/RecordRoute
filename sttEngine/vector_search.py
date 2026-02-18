@@ -9,9 +9,18 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from .config import get_default_model, get_model_for_task, normalize_db_record_path
-from .embedding_pipeline import INDEX_FILE, VECTOR_DIR, embed_text_ollama, load_index, resolve_index_path
+from .embedding_pipeline import INDEX_FILE, VECTOR_DIR, embed_text, load_index, resolve_index_path
 from .search_cache import cache_search_result, get_cached_search_result
 from .similarity_matrix import invalidate_similarity_cache
+
+
+def _resolve_vector_dimension(meta: Dict[str, Any], doc_vec: np.ndarray) -> int:
+    configured = meta.get("vector_dimension") if isinstance(meta, dict) else None
+    if isinstance(configured, int) and configured > 0:
+        return configured
+    if getattr(doc_vec, "ndim", 0) == 1:
+        return int(doc_vec.shape[0])
+    return 0
 
 
 def _build_index_signature() -> str:
@@ -87,7 +96,7 @@ def search(query: str, base_dir: Path, top_k: int = 10,
 
     try:
         embedding_start = time.perf_counter()
-        query_vec = embed_text_ollama(query, model_name)
+        query_vec = embed_text(query, model_name)
         timing["embedding_ms"] = (time.perf_counter() - embedding_start) * 1000
 
         index_load_start = time.perf_counter()
@@ -119,6 +128,14 @@ def search(query: str, base_dir: Path, top_k: int = 10,
             if not vec_file.exists():
                 continue
             doc_vec = np.load(vec_file)
+            expected_dim = _resolve_vector_dimension(meta, doc_vec)
+            query_dim = int(query_vec.shape[0]) if getattr(query_vec, "ndim", 0) == 1 else 0
+            if expected_dim and query_dim and expected_dim != query_dim:
+                print(
+                    "벡터 차원 불일치 감지 "
+                    f"(file={path_str}, expected={expected_dim}, query={query_dim}, model={meta.get('embedding_model')})"
+                )
+                continue
             denom = (np.linalg.norm(query_vec) * np.linalg.norm(doc_vec))
             if denom == 0:
                 continue

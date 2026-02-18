@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ..embedding_pipeline import embed_text_ollama, load_index, save_index
+from ..embedding_pipeline import build_index_entry, embed_text, index_key_for_path, load_index, save_index
 from ..vector_search import refresh_similarity_data
 from .paths import OUTPUT_DIR, VECTOR_DIR, to_record_path
 from .registry import update_task_completion
@@ -48,7 +48,7 @@ def run_incremental_embedding(base_dir: Path | None = None) -> int:
 
             # Check if already processed and up-to-date
             checksum = file_hash(md_file)
-            key = str(md_file.resolve())
+            key = index_key_for_path(md_file)
             if index.get(key, {}).get("sha256") == checksum:
                 continue  # Already up-to-date
 
@@ -57,7 +57,7 @@ def run_incremental_embedding(base_dir: Path | None = None) -> int:
                 text = md_file.read_text(encoding="utf-8")
 
                 # Generate embedding
-                vector = embed_text_ollama(text, model_name)
+                vector = embed_text(text, model_name)
 
                 # Create vector directory if not exists
                 VECTOR_DIR.mkdir(parents=True, exist_ok=True)
@@ -67,13 +67,19 @@ def run_incremental_embedding(base_dir: Path | None = None) -> int:
                 np.save(vector_file, vector)
 
                 # Update index
-                index[key] = {
-                    "sha256": checksum,
-                    "vector": vector_file.name,
+                entry = build_index_entry(
+                    path=md_file,
+                    checksum=checksum,
+                    vector_file=vector_file,
+                    vector=vector,
+                    model_name=model_name,
+                )
+                entry.update({
                     "deleted": False,
                     "deleted_path": None,
                     "vector_deleted_path": None,
-                }
+                })
+                index[key] = entry
 
                 processed_count += 1
                 print(f"임베딩 생성 완료: {md_file.name}")
@@ -109,7 +115,7 @@ def generate_embedding(file_path: Path, record_id: str | None = None) -> bool:
         text = file_path.read_text(encoding="utf-8")
 
         # Generate embedding
-        vector = embed_text_ollama(text, model_name)
+        vector = embed_text(text, model_name)
 
         # Create vector directory if not exists
         VECTOR_DIR.mkdir(parents=True, exist_ok=True)
@@ -122,13 +128,20 @@ def generate_embedding(file_path: Path, record_id: str | None = None) -> bool:
         index = load_index()
         checksum = file_hash(file_path)
 
-        index[str(file_path.resolve())] = {
-            "sha256": checksum,
-            "vector": vector_file.name,
+        key = index_key_for_path(file_path)
+        entry = build_index_entry(
+            path=file_path,
+            checksum=checksum,
+            vector_file=vector_file,
+            vector=vector,
+            model_name=model_name,
+        )
+        entry.update({
             "deleted": False,
             "deleted_path": None,
             "vector_deleted_path": None,
-        }
+        })
+        index[key] = entry
         save_index(index)
         refresh_similarity_data()
 

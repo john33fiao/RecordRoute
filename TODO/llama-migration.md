@@ -122,13 +122,13 @@
 
 ### 작업
 - [ ] `sttEngine/embedding_pipeline.py`
-  - [ ] `embed_text_ollama`를 중립 함수(`embed_text`)로 교체
-  - [ ] 응답 파싱을 provider별 adapter로 분리
+  - [x] `embed_text_ollama`를 중립 함수(`embed_text`)로 교체
+  - [x] 응답 파싱을 provider별 adapter로 분리
 - [ ] `sttEngine/vector_search.py`
-  - [ ] 쿼리 임베딩 호출을 provider 중립 함수로 전환
+  - [x] 쿼리 임베딩 호출을 provider 중립 함수로 전환
 - [ ] `sttEngine/http_api/embedding.py`
-  - [ ] 임베딩 생성 경로 provider 연동
-- [ ] 벡터 차원 검증 추가
+  - [x] 임베딩 생성 경로 provider 연동
+- [x] 벡터 차원 검증 추가
   - 모델 교체 시 차원 mismatch 탐지 및 명시적 오류 반환
 
 ### 산출물
