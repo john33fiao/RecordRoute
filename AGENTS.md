@@ -51,6 +51,7 @@ GET
 - `/file_search`, `/search`
   - `/search` 파라미터 정규화: `sort_by(similarity|date, uploaded_at→date)`, `sort_order(asc|desc)`, `status(completed|pending, done/success/incomplete/todo 별칭 지원)`, `status_task(stt|summary|embedding)`
   - `min_score`는 0~1 범위만 유효, 응답은 항상 `contract_version: search-v2` 포함
+- 검색 시 쿼리 임베딩과 문서 임베딩의 벡터 차원이 다르면 해당 문서는 자동 제외되며 로그에 차원 불일치가 기록됩니다.
 - `/api/similarity-graph`, `/api/documents/metadata`
   - `/api/similarity-graph`는 `min_similarity/max_neighbors/max_nodes/sampling/neighbor_strategy(auto|exact|lsh)` + 필터(`doc_types`, `start_date`, `end_date`, `keyword`)를 지원
   - 응답 `meta`는 `sampling`, `neighbor_strategy(requested/effective)`, `filters`, `incremental(...)` 진단 정보를 포함

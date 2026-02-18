@@ -5,6 +5,7 @@ import subprocess
 from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
+import requests
 
 from .base import ProviderConfigurationError, ProviderRequestError
 from .embedding_provider import BaseEmbeddingProvider
@@ -100,13 +101,78 @@ class LlamaCppLLMProvider(BaseLLMProvider):
 
 
 class LlamaCppEmbeddingProvider(BaseEmbeddingProvider):
+    def _resolve_base_url(self) -> str:
+        return (
+            os.getenv("EMBEDDING_BASE_URL")
+            or os.getenv("LLM_BASE_URL")
+            or "http://localhost:8081"
+        ).rstrip("/")
+
+    def _resolve_timeout_seconds(self) -> int:
+        return int(os.getenv("EMBEDDING_TIMEOUT", os.getenv("LLAMA_CPP_TIMEOUT", "300")))
+
     def embed(self, text: str, *, model: str) -> np.ndarray:
-        _ = text
-        _ = model
-        raise ProviderRequestError("llama.cpp embedding provider는 아직 구현되지 않았습니다. (Phase 1 skeleton)")
+        prompt = (text or "").strip()
+        if not prompt:
+            raise ProviderRequestError("llama.cpp embedding 호출용 텍스트가 비어 있습니다.")
+
+        model_name = (model or "").strip() or os.getenv("EMBEDDING_MODEL", "")
+        if not model_name:
+            raise ProviderConfigurationError("llama.cpp embedding provider는 model 이름이 필요합니다.")
+
+        base_url = self._resolve_base_url()
+        timeout_seconds = self._resolve_timeout_seconds()
+
+        try:
+            response = requests.post(
+                f"{base_url}/v1/embeddings",
+                json={"model": model_name, "input": prompt},
+                timeout=timeout_seconds,
+            )
+        except requests.RequestException as exc:
+            raise ProviderRequestError(f"llama.cpp embedding 요청 실패: {exc}") from exc
+
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            detail = response.text.strip()
+            raise ProviderRequestError(
+                f"llama.cpp embedding 응답 오류 {response.status_code}: {detail or 'no details'}"
+            ) from exc
+
+        payload = response.json() if response.content else {}
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, list) or not data:
+            raise ProviderRequestError("llama.cpp embedding 응답(data)이 비어 있습니다.")
+
+        first = data[0] if isinstance(data[0], dict) else {}
+        embedding = first.get("embedding") if isinstance(first, dict) else None
+        if not isinstance(embedding, list) or not embedding:
+            raise ProviderRequestError("llama.cpp embedding 벡터가 비어 있습니다.")
+        return np.array(embedding, dtype=np.float32)
 
     def embed_batch(self, texts: Sequence[str], *, model: str) -> list[np.ndarray]:
         return [self.embed(text, model=model) for text in texts]
 
     def healthcheck(self) -> tuple[bool, str]:
-        return LlamaCppLLMProvider().healthcheck()
+        base_url = self._resolve_base_url()
+        timeout_seconds = self._resolve_timeout_seconds()
+        try:
+            response = requests.get(f"{base_url}/health", timeout=min(timeout_seconds, 5))
+            if response.status_code < 500:
+                return True, f"llama.cpp embedding endpoint 확인 완료: {base_url}"
+        except requests.RequestException:
+            pass
+
+        # /health 미구현 서버를 위해 embeddings endpoint에 probe
+        try:
+            response = requests.post(
+                f"{base_url}/v1/embeddings",
+                json={"model": os.getenv("EMBEDDING_MODEL", "__healthcheck__"), "input": "ping"},
+                timeout=min(timeout_seconds, 8),
+            )
+            if response.status_code in {200, 400, 404, 422}:
+                return True, f"llama.cpp embedding endpoint 확인 완료: {base_url}"
+            return False, f"llama.cpp embedding endpoint 응답 이상({response.status_code}): {base_url}"
+        except requests.RequestException as exc:
+            return False, f"llama.cpp embedding endpoint 접근 실패: {base_url} ({exc})"

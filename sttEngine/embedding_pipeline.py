@@ -12,14 +12,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import sys
 from pathlib import Path
 from typing import Dict
 import os
 from datetime import datetime
 
 import numpy as np
-import requests
 
 from .config import (
     DB_ALIAS,
@@ -29,7 +27,8 @@ from .config import (
     resolve_db_path,
     to_db_record_path,
 )
-from .ollama_utils import ensure_ollama_server
+from .providers import get_embedding_provider
+from .providers.base import ProviderError
 from .vocabulary_manager import VocabularyManager
 
 DB_BASE_PATH = get_db_base_path()
@@ -64,6 +63,38 @@ def _index_key_for_path(path: Path) -> str:
     if record_path.startswith(f"{DB_ALIAS}/"):
         record_path = record_path[len(DB_ALIAS) + 1 :]
     return record_path.replace("/", os.sep)
+
+
+def index_key_for_path(path: Path) -> str:
+    """Public helper for canonical index-key generation."""
+    return _index_key_for_path(path)
+
+
+def _resolve_index_base(path: Path) -> str | None:
+    resolved = path.resolve()
+    for label, base_path in (("whisper_output", WHISPER_OUTPUT_DIR), ("db", DB_BASE_PATH)):
+        try:
+            resolved.relative_to(base_path)
+            return label
+        except ValueError:
+            continue
+    return None
+
+
+def build_index_entry(*, path: Path, checksum: str, vector_file: Path, vector: np.ndarray, model_name: str) -> Dict[str, str]:
+    """Build normalized index metadata payload for a vectorized document."""
+    entry: Dict[str, str] = {
+        "sha256": checksum,
+        "vector": vector_file.name,
+        "timestamp": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+        "vector_dimension": int(vector.shape[0]) if getattr(vector, "ndim", 0) == 1 else None,
+        "embedding_model": model_name,
+        "embedding_provider": os.getenv("EMBEDDING_PROVIDER", os.getenv("LLM_PROVIDER", "ollama")),
+    }
+    base = _resolve_index_base(path)
+    if base:
+        entry["base"] = base
+    return entry
 
 
 def _normalize_index_key(key: str) -> str:
@@ -248,58 +279,32 @@ def _chunk_text(text: str, max_chars: int = DEFAULT_MAX_CHARS) -> list[str]:
     return chunks or [text]
 
 
-def _request_embedding(model_name: str, prompt: str) -> np.ndarray:
-    response = requests.post(
-        "http://localhost:11434/api/embeddings",
-        json={
-            "model": model_name,
-            "prompt": prompt
-        },
-        timeout=30
-    )
+def embed_text(text: str, model_name: str, provider_name: str | None = None) -> np.ndarray:
+    """Provider 중립 임베딩 함수.
 
-    try:
-        response.raise_for_status()
-    except requests.HTTPError as exc:
-        detail = response.text.strip()
-        message = f"Ollama 응답 오류 {response.status_code}: {detail or 'no details'}"
-        raise requests.HTTPError(message) from exc
-
-    result = response.json()
-    embedding = result.get("embedding", [])
-    if not embedding:
-        raise ValueError("Empty embedding received from Ollama")
-    return np.array(embedding, dtype=np.float32)
-
-
-def embed_text_ollama(text: str, model_name: str) -> np.ndarray:
-    """Ollama API를 사용하여 텍스트를 임베딩.
-
-    Ollama가 긴 입력에서 500 오류를 반환하는 문제를 피하기 위해 입력을 여러 조각으로
-    나누어 호출한 뒤 평균 임베딩을 사용한다.
+    긴 입력은 조각으로 나누어 임베딩한 뒤 평균 벡터를 반환한다.
     """
 
+    text = text.strip()
+    if not text:
+        raise ValueError("임베딩할 텍스트가 비어 있습니다.")
+
+    provider = get_embedding_provider(provider_name)
+    server_ok, server_msg = provider.healthcheck()
+    if not server_ok:
+        raise RuntimeError(f"임베딩 provider를 사용할 수 없습니다: {server_msg}")
+
     try:
-        server_ok, server_msg = ensure_ollama_server()
-        if not server_ok:
-            raise Exception(f"Ollama 서버를 사용할 수 없습니다: {server_msg}")
-
-        text = text.strip()
-        if not text:
-            raise ValueError("임베딩할 텍스트가 비어 있습니다.")
-
         chunks = _chunk_text(text)
-        vectors = []
-        for chunk in chunks:
-            vectors.append(_request_embedding(model_name, chunk))
+        vectors = [provider.embed(chunk, model=model_name) for chunk in chunks]
 
         if len(vectors) == 1:
             return vectors[0]
 
         stacked = np.vstack(vectors)
         return np.mean(stacked, axis=0)
-    except Exception as e:
-        print(f"Ollama 임베딩 실패: {e}")
+    except ProviderError as exc:
+        print(f"임베딩 provider 호출 실패: {exc}")
         raise
 
 
@@ -323,23 +328,17 @@ def process_file(model_name: str, path: Path, index: Dict[str, Dict[str, str]]) 
     if already_indexed:
         return  # already up-to-date, vocab updated above
 
-    vector = embed_text_ollama(text, model_name)
+    vector = embed_text(text, model_name)
     out_file = VECTOR_DIR / f"{path.stem}.npy"
     np.save(out_file, vector)
 
-    entry = {
-        "sha256": checksum,
-        "vector": out_file.name,
-        "timestamp": datetime.fromtimestamp(path.stat().st_mtime).isoformat()
-    }
-
-    for label, base_path in (("whisper_output", WHISPER_OUTPUT_DIR), ("db", DB_BASE_PATH)):
-        try:
-            path.resolve().relative_to(base_path)
-            entry["base"] = label
-            break
-        except ValueError:
-            continue
+    entry = build_index_entry(
+        path=path,
+        checksum=checksum,
+        vector_file=out_file,
+        vector=vector,
+        model_name=model_name,
+    )
 
     index[key] = entry
 
@@ -348,7 +347,7 @@ def main(src_dir: str) -> None:
     """Scan for summary files under ``src_dir`` and embed newly added ones."""
     try:
         model_name = get_model_for_task("EMBEDDING", get_default_model("EMBEDDING"))
-    except:
+    except Exception:
         # 환경변수 설정이 없을 때 기본 모델 사용
         model_name = os.environ.get("EMBEDDING_MODEL", "bge-m3:latest")
     

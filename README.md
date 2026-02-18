@@ -96,6 +96,8 @@ venv\Scripts\python.exe -m sttEngine.server
 - `LLM_PROVIDER`: 교정/요약 LLM provider 선택 (`ollama` 기본, `llamacpp` 지원)
 - 교정/요약 워크플로우는 provider 중립 옵션(`temperature`, `context_window`, `max_tokens`)을 사용하며 내부에서 provider별 키로 매핑됩니다.
 - `EMBEDDING_PROVIDER`: 임베딩 provider 선택 (미지정 시 `LLM_PROVIDER` 상속)
+- `EMBEDDING_BASE_URL`: llama.cpp(OpenAI 호환) 임베딩 endpoint 기본 URL (기본 `http://localhost:8081`)
+- `EMBEDDING_TIMEOUT`: 임베딩 provider 호출 타임아웃(초, 기본 `LLAMA_CPP_TIMEOUT` 또는 300)
 - `LLAMA_CPP_COMMAND`: llama.cpp 실행 커맨드 (기본 `llama-cli`)
 - `LLAMA_CPP_MODEL_PATH`: llama.cpp 기본 모델 경로 (`.gguf`)
 - `LLAMA_CPP_TIMEOUT`: llama.cpp 호출 타임아웃(초, 기본 300)
