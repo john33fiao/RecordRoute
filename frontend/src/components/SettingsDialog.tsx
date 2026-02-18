@@ -20,18 +20,20 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [localSettings, setLocalSettings] = useState(modelSettings);
   const [darkMode, setDarkMode] = useState(theme === 'dark');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [defaults, setDefaults] = useState<{ whisper: string; summarize: string; embedding: string } | null>(null);
+  const [defaults, setDefaults] = useState<{ whisper: string; summarize: string; embedding: string; provider?: 'ollama' | 'llamacpp' } | null>(null);
+
+  const selectedProvider = (localSettings?.provider || localSettings?.llm_provider || defaults?.provider || 'ollama') as 'ollama' | 'llamacpp';
 
   useEffect(() => {
     if (open) {
       setLocalSettings(modelSettings);
       setDarkMode(theme === 'dark');
-      api.getModels().then(data => {
+      api.getModels(selectedProvider).then(data => {
         setAvailableModels(data.models || []);
         setDefaults(data.default);
       }).catch(() => { });
     }
-  }, [open, modelSettings, theme]);
+  }, [open, modelSettings, theme, selectedProvider]);
 
   const handleSave = () => {
     setTheme(darkMode ? 'dark' : 'light');
@@ -60,7 +62,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         <div className="space-y-6 py-4">
           <div className="space-y-2">
             <Label className={theme === 'dark' ? 'text-slate-200' : 'text-slate-700'}>Whisper 모델 (STT):</Label>
-            <Select value={localSettings.transcribe} onValueChange={(v: string) => setLocalSettings(s => ({ ...s, transcribe: v }))}>
+            <Select value={localSettings.whisper} onValueChange={(v: string) => setLocalSettings(s => ({ ...s, whisper: v }))}>
               <SelectTrigger className={theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-300'}>
                 <SelectValue />
               </SelectTrigger>
@@ -84,6 +86,20 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 <SelectItem value="en">English</SelectItem>
                 <SelectItem value="ja">日本語</SelectItem>
                 <SelectItem value="zh">中文</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+
+          <div className="space-y-2">
+            <Label className={theme === 'dark' ? 'text-slate-200' : 'text-slate-700'}>LLM Provider:</Label>
+            <Select value={selectedProvider} onValueChange={(v: 'ollama' | 'llamacpp') => setLocalSettings(s => ({ ...s, provider: v, llm_provider: v }))}>
+              <SelectTrigger className={theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-300'}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className={theme === 'dark' ? 'bg-slate-800 border-slate-700' : ''}>
+                <SelectItem value="ollama">ollama</SelectItem>
+                <SelectItem value="llamacpp">llamacpp</SelectItem>
               </SelectContent>
             </Select>
           </div>

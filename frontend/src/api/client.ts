@@ -219,7 +219,10 @@ export async function deleteFile(fileIdentifier: string, fileType: ViewerFileTyp
 
 export const getDownloadUrl = (fileIdentifier: string): string => `/download/${encodeURIComponent(fileIdentifier)}`;
 
-export const getModels = () => apiRequest<ModelsResponse>('/models');
+export const getModels = (provider?: 'ollama' | 'llamacpp') => {
+  const query = provider ? `?provider=${encodeURIComponent(provider)}` : '';
+  return apiRequest<ModelsResponse>(`/models${query}`);
+};
 
 export async function shutdown(auth?: DestructiveApiAuth): Promise<void> {
   const authOptions = buildDestructiveApiAuthOptions(auth);

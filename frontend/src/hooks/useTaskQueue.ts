@@ -148,9 +148,12 @@ export function useTaskQueue(modelSettings: ModelSettings, onTaskComplete?: () =
         task.recordId,
         processingTask.taskId,
         {
-          transcribe: ms.transcribe,
+          whisper: ms.whisper,
           summarize: ms.summarize,
+          embedding: ms.embedding,
           language: ms.language,
+          provider: ms.provider,
+          llm_provider: ms.llm_provider,
         },
         abortController.signal,
         'new_task',

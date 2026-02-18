@@ -121,6 +121,8 @@ venv\Scripts\python.exe -m sttEngine.server
 - `/`, `/assets/*`, `/download/<uuid_or_path>`
 - `/history`, `/tasks`, `/progress/<task_id>` (진행률 %, ETA, 표준 오류 payload 포함)
 - `/search`, `/models`, `/cache/stats`, `/cache/cleanup`
+  - `/models` 응답은 `models`(요청 provider 기준) + `models_by_provider` + `provider_status` + `default.provider`를 포함
+  - 선택 쿼리: `provider=ollama|llamacpp` (미지정 시 `LLM_PROVIDER` 기준)
 - `/api/similarity-graph`, `/api/documents/metadata`
   - `/api/similarity-graph`는 `min_similarity/max_neighbors/max_nodes/sampling/neighbor_strategy(auto|exact|lsh)` + 필터(`doc_types`, `start_date`, `end_date`, `keyword`)를 지원
   - 응답 `meta`에는 `sampling`, `neighbor_strategy(requested/effective)`, `filters`, `incremental(...)` 진단 필드 포함

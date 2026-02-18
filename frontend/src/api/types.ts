@@ -165,7 +165,10 @@ export interface ModelsResponse {
     whisper: string;
     summarize: string;
     embedding: string;
+    provider?: 'ollama' | 'llamacpp';
   };
+  models_by_provider?: Partial<Record<'ollama' | 'llamacpp', string[]>>;
+  provider_status?: Partial<Record<'ollama' | 'llamacpp', { ok: boolean; message: string }>>;
 }
 
 export interface RunningTask {
@@ -218,7 +221,7 @@ export interface QueueTask {
 }
 
 export interface ModelSettings {
-  transcribe: string;
+  whisper: string;
   summarize: string;
   embedding: string;
   language: string;

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import parse_qs, urlparse
 
 from ..destructive_guard import check_destructive_api_access, reject_destructive_api_request
 
 
 def handle_get(handler) -> bool:
-    if handler.path == '/models':
-        handler._serve_available_models()
+    parsed = urlparse(handler.path)
+    if parsed.path == '/models':
+        query = parse_qs(parsed.query)
+        provider_name = query.get('provider', [None])[0]
+        handler._serve_available_models(provider_name=provider_name)
         return True
     return False
 

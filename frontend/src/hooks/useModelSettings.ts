@@ -4,7 +4,7 @@ import type { ModelSettings } from '../api/types';
 const STORAGE_KEY = 'modelSettings';
 
 const defaultSettings: ModelSettings = {
-  transcribe: 'large-v3-turbo',
+  whisper: 'large-v3-turbo',
   summarize: '',
   embedding: '',
   language: 'ko',
@@ -15,7 +15,11 @@ export function useModelSettings() {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        return { ...defaultSettings, ...JSON.parse(stored) };
+        const parsed = JSON.parse(stored);
+        const migrated = parsed?.transcribe && !parsed?.whisper
+          ? { ...parsed, whisper: parsed.transcribe }
+          : parsed;
+        return { ...defaultSettings, ...migrated };
       }
     } catch {}
     return defaultSettings;
