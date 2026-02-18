@@ -14,9 +14,22 @@ def _read_json_payload(handler):
     return json.loads(handler.rfile.read(length)) if length else {}
 
 
+def _serve_running_tasks(handler) -> None:
+    try:
+        tasks = get_running_tasks()
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'application/json')
+        handler.end_headers()
+        handler.wfile.write(json.dumps(tasks, ensure_ascii=False).encode())
+    except Exception as e:
+        handler.send_response(500)
+        handler.end_headers()
+        handler.wfile.write(f'Error getting running tasks: {str(e)}'.encode())
+
+
 def handle_get(handler) -> bool:
     if handler.path == '/tasks':
-        handler._serve_running_tasks()
+        _serve_running_tasks(handler)
         return True
 
     if handler.path == '/cache/stats':
