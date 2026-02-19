@@ -199,3 +199,43 @@ def test_workflow_exposes_stt_segments_with_speaker_after_diarize(monkeypatch, t
     assert "stt_segments" in result
     assert result["stt_segments"][0]["speaker"] == "SPEAKER_00"
     assert result["diarize"]["segments"][0]["speaker"] == "SPEAKER_00"
+
+
+def test_workflow_diarization_failure_fallback_keeps_stt_and_disables_speaker(monkeypatch, tmp_path: Path, temp_workflow_dirs):
+    upload_dir = tmp_path / "uploads" / "task-stt-diarize-fallback"
+    upload_dir.mkdir(parents=True)
+    source = upload_dir / "sample.wav"
+    source.write_bytes(b"RIFF")
+
+    def fake_transcribe_audio_files(**kwargs):
+        import json
+
+        output_dir = Path(kwargs["output_dir"])
+        output_dir.mkdir(parents=True, exist_ok=True)
+        markdown_file = output_dir / "sample.md"
+        markdown_file.write_text("# sample\n\n[00:00:00 - 00:00:02] hello", encoding="utf-8")
+        segments_payload = {
+            "segments": [
+                {"start": 0.0, "end": 2.0, "text": "hello", "speaker": "SPEAKER_00"}
+            ]
+        }
+        markdown_file.with_suffix(".segments.json").write_text(json.dumps(segments_payload), encoding="utf-8")
+
+    progress_messages: list[str] = []
+
+    monkeypatch.setattr("sttEngine.http_api.workflow.transcribe_audio_files", fake_transcribe_audio_files)
+    monkeypatch.setattr("sttEngine.http_api.workflow.get_audio_duration", lambda _path: (_ for _ in ()).throw(TimeoutError("diarization timeout after 30s")))
+    monkeypatch.setattr("sttEngine.http_api.workflow.update_task_progress", lambda _task_id, message, **_kwargs: progress_messages.append(message))
+    monkeypatch.setattr("sttEngine.http_api.workflow.clear_task_progress", lambda _id: None)
+    monkeypatch.setattr("sttEngine.http_api.workflow.is_task_cancelled", lambda _id: False)
+
+    result = run_workflow(source, ["stt", "diarize"], task_id="task-stt-diarize-fallback")
+
+    assert "stt" in result
+    assert result["diarize"]["status"] == "failed"
+    assert result["diarize"]["error_code"] == "diarization_timeout"
+    assert result["failed_step"] == "diarize"
+    assert result["error_code"] == "diarization_timeout"
+    assert result["stt_segments"][0]["speaker"] is None
+    assert "화자 분리 실패(화자 라벨 비활성화)" in progress_messages
+    assert "화자 분리 완료" not in progress_messages

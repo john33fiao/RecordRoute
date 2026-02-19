@@ -181,6 +181,7 @@ venv\Scripts\python.exe -m sttEngine.server
 - 오디오 입력은 `results.diarize = { status, input_file_type, duration, segments[] }` 구조로 응답
 - STT 출력은 `*.segments.json` 사이드카 파일로 `segments[].{start,end,text,speaker}`를 저장하며, `/process` 응답에 `stt_segments`로 노출됩니다. diarization 실행 시 overlap 기준으로 화자 라벨을 align하고 미할당 구간은 기본 `SPEAKER_00`을 사용합니다.
 - 텍스트/PDF 등 비오디오 입력은 표준 실패 대신 `results.diarize = { status: "skipped", reason: "non_audio_input", input_file_type, segments: [] }`로 스킵 처리
+- diarization이 STT 이후 실패하면 워크플로우는 STT 텍스트를 유지하고, `results.diarize = { status: "failed", input_file_type, segments: [], error, error_code, retryable, failed_step }`를 반환하며 `stt_segments[].speaker`는 `null`로 비활성화됩니다.
 - `steps`는 서버에서 소문자/중복 제거 정규화 후 처리(예: `" STT "`, `"stt"` → `"stt"`)
 
 ## 검색 API 계약 (요약)
