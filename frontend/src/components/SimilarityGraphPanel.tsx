@@ -83,15 +83,51 @@ export function SimilarityGraphPanel() {
     () => nodes.find((node) => node.id === selectedNodeId) ?? null,
     [nodes, selectedNodeId],
   );
+  const resolveGraphNodeKeys = useCallback((node: Pick<SimNode, 'id' | 'record_id' | 'file'>) => {
+    const keys = new Set<string>();
+    const candidates = [node.id, node.record_id, node.file];
+    for (const raw of candidates) {
+      if (!raw) continue;
+      const value = String(raw).trim();
+      if (!value) continue;
+      keys.add(value);
+      keys.add(encodeURIComponent(value));
+      try {
+        const decoded = decodeURIComponent(value);
+        keys.add(decoded);
+        keys.add(encodeURIComponent(decoded));
+      } catch {
+        // noop: keep original/encoded values only.
+      }
+    }
+    return keys;
+  }, []);
+  const graphNodeIdByEndpoint = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const node of nodes) {
+      const keys = resolveGraphNodeKeys(node);
+      for (const key of keys) map.set(key, node.id);
+    }
+    return map;
+  }, [nodes, resolveGraphNodeKeys]);
+  const selectedGraphKeys = useMemo(() => {
+    if (!selectedNode) return new Set<string>();
+    return resolveGraphNodeKeys(selectedNode);
+  }, [resolveGraphNodeKeys, selectedNode]);
   const adjacentNodeIds = useMemo(() => {
-    if (!selectedNodeId) return new Set<string>();
+    if (!selectedNodeId || selectedGraphKeys.size === 0) return new Set<string>();
     const neighbors = new Set<string>();
     for (const edge of graph?.edges ?? []) {
-      if (edge.source === selectedNodeId) neighbors.add(edge.target);
-      if (edge.target === selectedNodeId) neighbors.add(edge.source);
+      const sourceNodeId = graphNodeIdByEndpoint.get(edge.source) ?? edge.source;
+      const targetNodeId = graphNodeIdByEndpoint.get(edge.target) ?? edge.target;
+      const sourceMatched = selectedGraphKeys.has(edge.source) || sourceNodeId === selectedNodeId;
+      const targetMatched = selectedGraphKeys.has(edge.target) || targetNodeId === selectedNodeId;
+      if (sourceMatched) neighbors.add(targetNodeId);
+      if (targetMatched) neighbors.add(sourceNodeId);
     }
+    neighbors.delete(selectedNodeId);
     return neighbors;
-  }, [graph?.edges, selectedNodeId]);
+  }, [graph?.edges, graphNodeIdByEndpoint, selectedGraphKeys, selectedNodeId]);
   const selectedInfoTextColor = theme === 'dark' ? '#e2e8f0' : '#0f172a';
   const selectedInfoLabelClass = theme === 'dark' ? 'font-medium text-slate-200' : 'font-medium text-slate-700';
   const selectedInfoValueClass = theme === 'dark' ? 'text-slate-100' : 'text-slate-900';
@@ -489,8 +525,16 @@ export function SimilarityGraphPanel() {
                 const source = nodeMap.get(edge.source);
                 const target = nodeMap.get(edge.target);
                 if (!source || !target) return null;
+                const sourceNodeId = graphNodeIdByEndpoint.get(edge.source) ?? edge.source;
+                const targetNodeId = graphNodeIdByEndpoint.get(edge.target) ?? edge.target;
                 const isAdjacentEdge = Boolean(
-                  selectedNodeId && (edge.source === selectedNodeId || edge.target === selectedNodeId),
+                  selectedNodeId
+                  && (
+                    selectedGraphKeys.has(edge.source)
+                    || selectedGraphKeys.has(edge.target)
+                    || sourceNodeId === selectedNodeId
+                    || targetNodeId === selectedNodeId
+                  ),
                 );
                 return (
                   <line
