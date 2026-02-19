@@ -109,6 +109,7 @@ POST
 - 실패 응답 필드: `error`, `error_code`, `retryable`, `failed_step`
 - diarization 초안 오류 코드(`failed_step == "diarize"`): `diarization_model_unavailable`, `diarization_timeout`, `diarization_invalid_audio`
 - diarization 결과 payload는 `results["diarize"] = {status, input_file_type, duration?, segments[]}`를 기준으로 유지하며, 비오디오 입력은 `status: "skipped"`, `reason: "non_audio_input"`으로 처리
+- STT 세그먼트는 dict 구조(`start/end/text/speaker`)를 기준으로 저장하며 `*.segments.json` 및 `/process`의 `stt_segments`에서 동일 스키마를 사용합니다.
 - 진행률 응답(`/progress/<task_id>`, WebSocket)은 `progress_percent`, `eta_seconds`, `error`(표준 오류 카드용 객체) 포함
 
 ## 6. 수정 시 우선 확인할 파일

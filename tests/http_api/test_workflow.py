@@ -166,3 +166,36 @@ def test_workflow_diarize_rejects_invalid_speaker_constraints(monkeypatch, tmp_p
 
     assert result["failed_step"] == "diarize"
     assert result["error_code"] == "diarization_invalid_audio"
+
+
+def test_workflow_exposes_stt_segments_with_speaker_after_diarize(monkeypatch, tmp_path: Path, temp_workflow_dirs):
+    upload_dir = tmp_path / "uploads" / "task-stt-diarize"
+    upload_dir.mkdir(parents=True)
+    source = upload_dir / "sample.wav"
+    source.write_bytes(b"RIFF")
+
+    def fake_transcribe_audio_files(**kwargs):
+        import json
+
+        output_dir = Path(kwargs["output_dir"])
+        output_dir.mkdir(parents=True, exist_ok=True)
+        markdown_file = output_dir / "sample.md"
+        markdown_file.write_text("# sample\n\n[00:00:00 - 00:00:02] hello", encoding="utf-8")
+        segments_payload = {
+            "segments": [
+                {"start": 0.0, "end": 2.0, "text": "hello", "speaker": "SPEAKER_00"}
+            ]
+        }
+        markdown_file.with_suffix(".segments.json").write_text(json.dumps(segments_payload), encoding="utf-8")
+
+    monkeypatch.setattr("sttEngine.http_api.workflow.transcribe_audio_files", fake_transcribe_audio_files)
+    monkeypatch.setattr("sttEngine.http_api.workflow.get_audio_duration", lambda _path: "00:02")
+    monkeypatch.setattr("sttEngine.http_api.workflow.update_task_progress", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("sttEngine.http_api.workflow.clear_task_progress", lambda _id: None)
+    monkeypatch.setattr("sttEngine.http_api.workflow.is_task_cancelled", lambda _id: False)
+
+    result = run_workflow(source, ["stt", "diarize"], task_id="task-stt-diarize")
+
+    assert "stt_segments" in result
+    assert result["stt_segments"][0]["speaker"] == "SPEAKER_00"
+    assert result["diarize"]["segments"][0]["speaker"] == "SPEAKER_00"

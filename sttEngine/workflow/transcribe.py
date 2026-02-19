@@ -3,6 +3,7 @@
 import whisper
 import os
 import argparse
+import json
 import logging
 import traceback
 import platform
@@ -28,6 +29,7 @@ from sttEngine.vocabulary_manager import VocabularyManager
 from sttEngine.obsidian_mcp import send_stt_to_obsidian_sync
 from sttEngine.workflow.cli_utils import add_verbose_argument, configure_cli_logging
 from sttEngine.server.services.errors import map_workflow_exception
+from sttEngine.workflow.speaker_utils import normalize_speaker_label
 
 DB_BASE_PATH = get_db_base_path()
 DEFAULT_OUTPUT_DIR = DB_BASE_PATH / "whisper_output"
@@ -54,6 +56,12 @@ def write_atomic(path: Path, data: str):
     with open(tmp_path, "w", encoding="utf-8") as f:
         f.write(data)
     tmp_path.replace(path)
+
+
+def write_segments_sidecar(markdown_path: Path, segments: list[dict]) -> None:
+    """Write STT segments to sidecar JSON file for downstream consumers."""
+    sidecar_path = markdown_path.with_suffix(".segments.json")
+    write_atomic(sidecar_path, json.dumps({"segments": segments}, ensure_ascii=False, indent=2))
 
 def remove_word_repetitions(text: str) -> str:
     """한 줄 내에서 반복되는 단어 제거 (첫 번째만 유지)"""
@@ -153,9 +161,10 @@ def merge_segments(segments, max_gap: float = 0.2):
     for segment in safe_segments[1:]:
         current = merged[-1]
         same_text = segment["text"].strip() == current["text"].strip()
+        same_speaker = segment.get("speaker") == current.get("speaker")
         time_continuous = segment["start"] <= current["end"] + max_gap
-        
-        if same_text and time_continuous:
+
+        if same_text and same_speaker and time_continuous:
             # 병합: 종료 시간을 더 늦은 것으로 업데이트
             current["end"] = max(current["end"], segment["end"])
         else:
@@ -476,26 +485,32 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
         segments = merge_segments(segments, max_gap=0.2)
 
         # 필터링 및 정규화
-        processed_segments = []
+        processed_segments: list[dict] = []
         for segment in segments:
             text = segment.get("text", "").strip()
             if not should_keep_segment(text, filter_fillers, min_seg_length):
                 continue
             text = normalize_text(text, normalize_punct or True)  # 반복 단어 제거는 항상 활성화
             processed_segments.append(
-                (
-                    segment.get("start", 0.0),
-                    segment.get("end", 0.0),
-                    text,
-                )
+                {
+                    "start": float(segment.get("start", 0.0) or 0.0),
+                    "end": float(segment.get("end", 0.0) or 0.0),
+                    "text": text,
+                    "speaker": normalize_speaker_label(segment.get("speaker"), default_index=0),
+                }
             )
 
         # 마크다운 생성 (원본 파일명 기준)
         markdown_content = f"# {file_path.stem}\n\n"
         if processed_segments:
             lines = []
-            for start, end, text in processed_segments:
+            for segment in processed_segments:
+                start = segment.get("start", 0.0)
+                end = segment.get("end", 0.0)
+                text = segment.get("text", "")
                 ts = f"{format_timestamp(start)} - {format_timestamp(end)}"
+                # NOTE: markdown 본문은 기존 포맷을 유지하고,
+                # 화자 정보는 *.segments.json 사이드카/API(stt_segments)로 제공합니다.
                 lines.append(f"[{ts}] {text}")
             markdown_content += "\n".join(lines)
         else:
@@ -513,6 +528,7 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
             progress_callback(f"'{file_path.name}' 파일 저장 중...")
 
         write_atomic(output_file_path, markdown_content)
+        write_segments_sidecar(output_file_path, processed_segments)
 
         # Obsidian MCP 자동 전송
         try:
@@ -525,7 +541,7 @@ def transcribe_single_file(file_path: Path, output_dir: Path, model,
             created_at = datetime.now()
 
             # STT 텍스트 추출 (타임스탬프 제거한 순수 텍스트)
-            stt_text_only = "\n".join([text for _, _, text in processed_segments]) if processed_segments else result.get("text", "").strip()
+            stt_text_only = "\n".join([segment["text"] for segment in processed_segments]) if processed_segments else result.get("text", "").strip()
 
             if progress_callback:
                 progress_callback(f"'{file_path.name}' Obsidian 전송 중...")

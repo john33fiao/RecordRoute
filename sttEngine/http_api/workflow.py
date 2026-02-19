@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ..obsidian_mcp import send_summary_to_obsidian_sync
 from ..workflow.transcribe import transcribe_audio_files
+from ..workflow.speaker_utils import align_diarization_to_stt_segments, format_speaker_label
 from ..workflow.correct import correct_text_file
 from ..workflow.summarize import (
     DEFAULT_CHUNK_SIZE,
@@ -179,6 +180,51 @@ def run_workflow(
     individual_output_dir = OUTPUT_DIR / upload_folder_name
     individual_output_dir.mkdir(exist_ok=True)
 
+
+    def load_stt_segments(stt_markdown_file: Path) -> list[dict]:
+        sidecar = stt_markdown_file.with_suffix(".segments.json")
+        if not sidecar.exists():
+            return []
+        try:
+            import json
+
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+            segments = payload.get("segments", [])
+            return segments if isinstance(segments, list) else []
+        except Exception:
+            return []
+
+
+    def apply_diarization_alignment_if_available(stt_markdown_file: Path) -> list[dict]:
+        stt_segments = load_stt_segments(stt_markdown_file)
+        if not stt_segments:
+            return []
+
+        diarize_payload = results.get("diarize") if isinstance(results.get("diarize"), dict) else None
+        diarization_segments = diarize_payload.get("segments", []) if diarize_payload else []
+
+        aligned_segments = align_diarization_to_stt_segments(
+            stt_segments,
+            diarization_segments if isinstance(diarization_segments, list) else [],
+            default_speaker=format_speaker_label(0),
+            allow_null_speaker=False,
+        )
+
+        results["stt_segments"] = aligned_segments
+
+        if aligned_segments:
+            try:
+                import json
+
+                stt_markdown_file.with_suffix(".segments.json").write_text(
+                    json.dumps({"segments": aligned_segments}, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
+
+        return aligned_segments
+
     def run_diarize_step(source_file: Path) -> dict:
         """Run diarization for audio inputs and return a normalized result payload."""
         if file_type != "audio":
@@ -202,7 +248,7 @@ def run_workflow(
         if duration_seconds and duration_seconds > 0:
             segments.append(
                 {
-                    "speaker": "SPEAKER_00",
+                    "speaker": format_speaker_label(0),
                     "start": 0.0,
                     "end": duration_seconds,
                     "confidence": 1.0,
@@ -232,6 +278,7 @@ def run_workflow(
                 download_url = f"/download/{upload_folder_name}/{text_file.name}"
                 results["stt"] = download_url
                 current_file = text_file
+                apply_diarization_alignment_if_available(current_file)
 
                 if record_id:
                     file_path_str = to_record_path(text_file)
@@ -242,6 +289,7 @@ def run_workflow(
 
                 shutil.copy2(file_path, text_file)
                 current_file = text_file
+                apply_diarization_alignment_if_available(current_file)
 
         # For PDF files, extract text and treat as markdown
         elif file_type == "pdf":
@@ -268,6 +316,7 @@ def run_workflow(
                     update_task_completion(record_id, "stt", file_path_str)
 
             current_file = text_file
+            apply_diarization_alignment_if_available(current_file)
 
         # For audio files, run STT step
         elif file_type == "audio" and "stt" in steps:
@@ -321,6 +370,7 @@ def run_workflow(
             download_url = f"/download/{upload_folder_name}/{stt_file.name}"
             results["stt"] = download_url
             current_file = stt_file
+            apply_diarization_alignment_if_available(current_file)
 
             if record_id:
                 file_path_str = to_record_path(stt_file)
@@ -337,6 +387,8 @@ def run_workflow(
                 _parse_diarization_settings(model_settings)
                 diarize_source = file_path if file_type == "audio" else current_file
                 results["diarize"] = run_diarize_step(Path(diarize_source))
+                if current_file and Path(current_file).suffix.lower() == ".md":
+                    apply_diarization_alignment_if_available(Path(current_file))
             except Exception as e:
                 return _workflow_error_result(task_id, e, "diarize")
 
@@ -358,6 +410,7 @@ def run_workflow(
                     if task_id:
                         update_task_progress(task_id, f"기존 STT 결과 발견: {existing_stt.name}", stage=TaskStage.TRANSFORM)
                     current_file = existing_stt
+                    apply_diarization_alignment_if_available(current_file)
                     download_url = f"/download/{upload_folder_name}/{existing_stt.name}"
                     results["stt"] = download_url
 
@@ -413,6 +466,7 @@ def run_workflow(
                     download_url = f"/download/{upload_folder_name}/{stt_file.name}"
                     results["stt"] = download_url
                     current_file = stt_file
+                    apply_diarization_alignment_if_available(current_file)
 
                     if record_id:
                         file_path_str = to_record_path(current_file)
@@ -463,6 +517,7 @@ def run_workflow(
                     if task_id:
                         update_task_progress(task_id, f"기존 STT 결과 발견: {existing_stt.name}", stage=TaskStage.TRANSFORM)
                     current_file = existing_stt
+                    apply_diarization_alignment_if_available(current_file)
                     download_url = f"/download/{upload_folder_name}/{existing_stt.name}"
                     results["stt"] = download_url
 
@@ -518,6 +573,7 @@ def run_workflow(
                     download_url = f"/download/{upload_folder_name}/{stt_file.name}"
                     results["stt"] = download_url
                     current_file = stt_file
+                    apply_diarization_alignment_if_available(current_file)
 
                     if record_id:
                         file_path_str = to_record_path(current_file)

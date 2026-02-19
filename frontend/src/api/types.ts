@@ -63,6 +63,22 @@ export type WorkflowErrorCode =
   | 'diarization_invalid_audio'
   | (string & {});
 
+
+export interface SegmentItem {
+  start: number;
+  end: number;
+  text?: string;
+  speaker: string | null;
+}
+
+export interface DiarizeResult {
+  status: 'completed' | 'skipped';
+  reason?: string;
+  input_file_type?: string;
+  duration?: string;
+  segments: SegmentItem[];
+}
+
 export interface ProcessResult {
   accepted?: boolean;
   task_id?: string;
@@ -71,6 +87,8 @@ export interface ProcessResult {
   stt?: string;
   summary?: string;
   correct?: string;
+  diarize?: DiarizeResult;
+  stt_segments?: SegmentItem[];
   error?: string;
   error_code?: WorkflowErrorCode;
   retryable?: boolean;
