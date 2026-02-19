@@ -255,8 +255,18 @@ if not exist "%SCRIPT_DIR%\frontend\dist" (
 
 REM 웹서버 실행
 echo 가상환경의 파이썬으로 웹서버를 실행합니다...
-echo 서버 URL: http://localhost:8080
-echo ^(웹브라우저에서 http://localhost:8080 에 접속하세요^)
+set "SERVER_HOST=!HOST!"
+if "!SERVER_HOST!"=="" set "SERVER_HOST=127.0.0.1"
+set "SERVER_PORT=!PORT!"
+if "!SERVER_PORT!"=="" set "SERVER_PORT=8080"
+
+set "SERVER_URL=http://localhost:!SERVER_PORT!"
+if /i not "!SERVER_HOST!"=="0.0.0.0" if /i not "!SERVER_HOST!"=="::" (
+    set "SERVER_URL=http://!SERVER_HOST!:!SERVER_PORT!"
+)
+
+echo 서버 URL: !SERVER_URL!
+echo ^(웹브라우저에서 !SERVER_URL! 에 접속하세요^)
 echo.
 
 cd /d "%SCRIPT_DIR%"
