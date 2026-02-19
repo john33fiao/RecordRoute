@@ -25,6 +25,13 @@ const MAX_SCALE = 3;
 const EDGE_LENGTH = 120;
 const REPULSION = 18000;
 const SPRING_K = 0.0018;
+const CENTER_GRAVITY = 0.0015;
+const DAMPING = 0.88;
+const MAX_SPEED = 5.5;
+const INITIAL_ALPHA = 1;
+const ALPHA_DECAY = 0.985;
+const MIN_ALPHA = 0.03;
+const DRAG_CLICK_THRESHOLD = 4;
 
 type DocType = 'audio' | 'document' | 'other';
 
@@ -62,9 +69,10 @@ export function SimilarityGraphPanel() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const [viewport, setViewport] = useState<Viewport>({ scale: 1, x: 0, y: 0 });
-  const dragStateRef = useRef<{ mode: 'none' | 'pan' | 'node'; id?: string; sx: number; sy: number }>(
-    { mode: 'none', sx: 0, sy: 0 },
+  const dragStateRef = useRef<{ mode: 'none' | 'pan' | 'node'; id?: string; sx: number; sy: number; moved: boolean }>(
+    { mode: 'none', sx: 0, sy: 0, moved: false },
   );
+  const simulationAlphaRef = useRef(0);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) ?? null,
@@ -128,6 +136,7 @@ export function SimilarityGraphPanel() {
     setNodes(seededNodes);
     setSelectedNodeId(seededNodes[0]?.id ?? null);
     setViewport({ scale: 1, x: 0, y: 0 });
+    simulationAlphaRef.current = INITIAL_ALPHA;
   }, [size.height, size.width]);
 
   const loadGraph = useCallback(async () => {
@@ -180,11 +189,21 @@ export function SimilarityGraphPanel() {
     if (!graph || nodes.length === 0) return;
     let rafId = 0;
     const edgeList = graph.edges;
+    const centerX = size.width / 2;
+    const centerY = size.height / 2;
 
     const tick = () => {
+      if (simulationAlphaRef.current <= MIN_ALPHA) {
+        rafId = 0;
+        return;
+      }
+
       setNodes((prev) => {
         if (prev.length <= 1) return prev;
         const next = prev.map((node) => ({ ...node }));
+        const alpha = simulationAlphaRef.current;
+        let maxNodeSpeed = 0;
+        const indexById = new Map(next.map((node, idx) => [node.id, idx]));
 
         for (let i = 0; i < next.length; i += 1) {
           for (let j = i + 1; j < next.length; j += 1) {
@@ -193,7 +212,7 @@ export function SimilarityGraphPanel() {
             const dx = b.x - a.x;
             const dy = b.y - a.y;
             const dist2 = Math.max(25, dx * dx + dy * dy);
-            const force = REPULSION / dist2;
+            const force = (REPULSION * alpha) / dist2;
             const fx = (force * dx) / Math.sqrt(dist2);
             const fy = (force * dy) / Math.sqrt(dist2);
             a.vx -= fx;
@@ -204,14 +223,16 @@ export function SimilarityGraphPanel() {
         }
 
         for (const edge of edgeList) {
-          const source = next.find((node) => node.id === edge.source);
-          const target = next.find((node) => node.id === edge.target);
-          if (!source || !target) continue;
+          const sourceIndex = indexById.get(edge.source);
+          const targetIndex = indexById.get(edge.target);
+          if (sourceIndex == null || targetIndex == null) continue;
+          const source = next[sourceIndex];
+          const target = next[targetIndex];
           const dx = target.x - source.x;
           const dy = target.y - source.y;
           const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
           const displacement = dist - EDGE_LENGTH;
-          const force = SPRING_K * displacement;
+          const force = SPRING_K * displacement * alpha;
           const fx = (force * dx) / dist;
           const fy = (force * dy) / dist;
           source.vx += fx;
@@ -226,23 +247,50 @@ export function SimilarityGraphPanel() {
             node.vy = 0;
             continue;
           }
-          node.vx *= 0.86;
-          node.vy *= 0.86;
+
+          node.vx += (centerX - node.x) * CENTER_GRAVITY * alpha;
+          node.vy += (centerY - node.y) * CENTER_GRAVITY * alpha;
+
+
+          node.vx *= DAMPING;
+          node.vy *= DAMPING;
+
+          const speed = Math.hypot(node.vx, node.vy);
+          if (speed > MAX_SPEED) {
+            const ratio = MAX_SPEED / speed;
+            node.vx *= ratio;
+            node.vy *= ratio;
+          }
+
+          maxNodeSpeed = Math.max(maxNodeSpeed, Math.hypot(node.vx, node.vy));
           node.x += node.vx;
           node.y += node.vy;
-          node.x = Math.max(-200, Math.min(size.width + 200, node.x));
-          node.y = Math.max(-200, Math.min(size.height + 200, node.y));
+        }
+
+        simulationAlphaRef.current *= ALPHA_DECAY;
+        if (maxNodeSpeed < 0.08) {
+          simulationAlphaRef.current = Math.min(simulationAlphaRef.current, MIN_ALPHA / 2);
         }
 
         return next;
       });
 
-      rafId = window.requestAnimationFrame(tick);
+      if (simulationAlphaRef.current > MIN_ALPHA) {
+        rafId = window.requestAnimationFrame(tick);
+      }
     };
 
     rafId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(rafId);
   }, [graph, nodes.length, size.height, size.width]);
+
+  const focusNode = useCallback((node: SimNode) => {
+    setViewport((prev) => ({
+      ...prev,
+      x: size.width / 2 - node.x * prev.scale,
+      y: size.height / 2 - node.y * prev.scale,
+    }));
+  }, [size.height, size.width]);
 
   const edgeWidth = (edge: SimilarityEdge) => {
     const range = Math.max(0.0001, edgeStats.max - edgeStats.min);
@@ -271,30 +319,34 @@ export function SimilarityGraphPanel() {
     const drag = dragStateRef.current;
     if (drag.mode === 'none') return;
 
+    const moved = drag.moved || Math.hypot(event.clientX - drag.sx, event.clientY - drag.sy) >= DRAG_CLICK_THRESHOLD;
+
     if (drag.mode === 'pan') {
       setViewport((prev) => ({ ...prev, x: prev.x + (event.clientX - drag.sx), y: prev.y + (event.clientY - drag.sy) }));
-      dragStateRef.current = { ...drag, sx: event.clientX, sy: event.clientY };
+      dragStateRef.current = { ...drag, sx: event.clientX, sy: event.clientY, moved };
       return;
     }
 
     if (drag.mode === 'node' && drag.id) {
       const world = worldFromClient(event.clientX, event.clientY);
       setNodes((prev) => prev.map((node) => (node.id === drag.id ? { ...node, x: world.x, y: world.y, vx: 0, vy: 0 } : node)));
+      dragStateRef.current = { ...drag, sx: event.clientX, sy: event.clientY, moved };
+      simulationAlphaRef.current = Math.max(simulationAlphaRef.current, 0.25);
     }
   };
 
   const handlePointerUp = () => {
-    dragStateRef.current = { mode: 'none', sx: 0, sy: 0 };
+    simulationAlphaRef.current = Math.max(simulationAlphaRef.current, 0.15);
+    dragStateRef.current = { mode: 'none', sx: 0, sy: 0, moved: false };
   };
 
   const startPan = (event: ReactPointerEvent<SVGSVGElement>) => {
-    if (event.target !== svgRef.current) return;
-    dragStateRef.current = { mode: 'pan', sx: event.clientX, sy: event.clientY };
+    dragStateRef.current = { mode: 'pan', sx: event.clientX, sy: event.clientY, moved: false };
   };
 
   const startNodeDrag = (event: ReactPointerEvent<SVGCircleElement>, nodeId: string) => {
     event.stopPropagation();
-    dragStateRef.current = { mode: 'node', id: nodeId, sx: event.clientX, sy: event.clientY };
+    dragStateRef.current = { mode: 'node', id: nodeId, sx: event.clientX, sy: event.clientY, moved: false };
   };
 
   const handleWheel = (event: ReactWheelEvent<SVGSVGElement>) => {
@@ -446,8 +498,15 @@ export function SimilarityGraphPanel() {
                       onPointerDown={(event) => startNodeDrag(event, node.id)}
                       onClick={(event) => {
                         event.stopPropagation();
+                        if (dragStateRef.current.moved) return;
                         setSelectedNodeId(node.id);
+                        focusNode(node);
                       }}
+                      onDoubleClick={(event) => {
+                        event.stopPropagation();
+                        window.open(api.getDownloadUrl(node.id), '_blank', 'noopener,noreferrer');
+                      }}
+                      className="cursor-pointer"
                     />
                     <text
                       x={node.x + 12}
