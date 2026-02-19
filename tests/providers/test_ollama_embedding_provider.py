@@ -6,7 +6,6 @@ import pytest
 from sttEngine.providers.base import ProviderRequestError
 from sttEngine.providers.ollama_provider import OllamaEmbeddingProvider
 
-
 class _FakeOllamaWithEmbed:
     @staticmethod
     def embed(*, model: str, input: str) -> dict:
@@ -14,14 +13,12 @@ class _FakeOllamaWithEmbed:
         assert input == "hello"
         return {"embeddings": [[0.11, 0.22, 0.33]]}
 
-
 class _FakeOllamaLegacy:
     @staticmethod
     def embeddings(*, model: str, prompt: str) -> dict:
         assert model == "bge-m3"
         assert prompt == "hello"
         return {"embedding": [0.4, 0.5, 0.6]}
-
 
 def test_ollama_embedding_provider_supports_embed_api(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = OllamaEmbeddingProvider()
@@ -37,7 +34,6 @@ def test_ollama_embedding_provider_supports_embed_api(monkeypatch: pytest.Monkey
     assert isinstance(vector, np.ndarray)
     assert vector.tolist() == pytest.approx([0.11, 0.22, 0.33])
 
-
 def test_ollama_embedding_provider_falls_back_to_legacy_embeddings_api(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = OllamaEmbeddingProvider()
 
@@ -51,9 +47,6 @@ def test_ollama_embedding_provider_falls_back_to_legacy_embeddings_api(monkeypat
 
     assert isinstance(vector, np.ndarray)
     assert vector.tolist() == pytest.approx([0.4, 0.5, 0.6])
-
-
-
 
 def test_ollama_embedding_provider_supports_flat_embeddings_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = OllamaEmbeddingProvider()
@@ -74,6 +67,28 @@ def test_ollama_embedding_provider_supports_flat_embeddings_shape(monkeypatch: p
     assert isinstance(vector, np.ndarray)
     assert vector.tolist() == pytest.approx([0.7, 0.8, 0.9])
 
+def test_ollama_embedding_provider_supports_pydantic_like_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = OllamaEmbeddingProvider()
+
+    class _FakeResponse:
+        def model_dump(self) -> dict:
+            return {"embeddings": [[1.0, 2.0, 3.0]]}
+
+    class _FakeOllamaPydanticLike:
+        @staticmethod
+        def embed(*, model: str, input: str) -> _FakeResponse:
+            return _FakeResponse()
+
+    monkeypatch.setattr(provider, "_load_ollama", lambda: _FakeOllamaPydanticLike)
+    monkeypatch.setattr(
+        "sttEngine.providers.ollama_provider.safe_ollama_call",
+        lambda func, *args, **kwargs: func(*args, **kwargs),
+    )
+
+    vector = provider.embed("hello", model="bge-m3")
+
+    assert isinstance(vector, np.ndarray)
+    assert vector.tolist() == pytest.approx([1.0, 2.0, 3.0])
 
 def test_ollama_embedding_provider_raises_when_embedding_api_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = OllamaEmbeddingProvider()

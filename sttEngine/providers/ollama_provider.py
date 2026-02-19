@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
@@ -97,14 +98,27 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
 
     @staticmethod
     def _extract_embedding(response: Any) -> list[float] | None:
-        if not isinstance(response, dict):
+        payload: Any = response
+        if hasattr(response, "model_dump"):
+            payload = response.model_dump()
+
+        if isinstance(payload, Mapping):
+            payload = dict(payload)
+        elif not isinstance(payload, dict):
+            payload = {
+                key: getattr(payload, key)
+                for key in ("embedding", "embeddings", "data")
+                if hasattr(payload, key)
+            }
+
+        if not payload:
             return None
 
-        direct = response.get("embedding")
+        direct = payload.get("embedding")
         if isinstance(direct, list) and direct:
             return direct
 
-        many = response.get("embeddings")
+        many = payload.get("embeddings")
         if isinstance(many, list) and many:
             first = many[0]
             if isinstance(first, list) and first:
@@ -112,7 +126,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             if isinstance(first, (int, float)):
                 return many
 
-        data = response.get("data")
+        data = payload.get("data")
         if isinstance(data, list) and data:
             first = data[0]
             if isinstance(first, dict):
