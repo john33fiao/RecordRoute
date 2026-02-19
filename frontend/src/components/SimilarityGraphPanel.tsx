@@ -523,7 +523,9 @@ export function SimilarityGraphPanel() {
           </svg>
 
           {selectedNode && (
-            <aside className={`rounded-xl border p-4 text-sm ${theme === 'dark' ? 'border-slate-800 bg-slate-900/70' : 'border-slate-200 bg-white'}`}>
+            <aside
+              className={`rounded-xl border p-4 text-sm ${theme === 'dark' ? 'border-slate-800 bg-slate-900/70 text-slate-100' : 'border-slate-200 bg-white text-slate-900'}`}
+            >
               <h3 className="font-semibold mb-2">선택 문서</h3>
               <div className="space-y-2 break-all">
                 <div><span className="font-medium">이름:</span> {selectedNode.label || selectedNode.id}</div>
