@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from urllib.parse import unquote
 
 from ..destructive_guard import check_destructive_api_access, reject_destructive_api_request
 from ..paths import normalize_record_path, resolve_record_path, to_record_path
 from ..records import delete_file, delete_records, reset_summary_and_embedding, update_stt_text
-from ..registry import update_filename
+from ..registry import resolve_file_identifier, update_filename
 from ..workflow import find_existing_stt_file
 
 
@@ -197,3 +199,59 @@ def handle_post(handler) -> bool:
         return True
 
     return False
+
+
+def _read_stt_segments(segments_file: Path) -> list[dict]:
+    if not segments_file.exists():
+        return []
+    try:
+        payload = json.loads(segments_file.read_text(encoding='utf-8'))
+    except Exception:
+        return []
+
+    segments = payload.get('segments', []) if isinstance(payload, dict) else []
+    if not isinstance(segments, list):
+        return []
+
+    normalized_segments = []
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        normalized_segments.append({
+            'start': segment.get('start', 0),
+            'end': segment.get('end', 0),
+            'text': segment.get('text', ''),
+            'speaker': segment.get('speaker'),
+        })
+    return normalized_segments
+
+
+def handle_get(handler) -> bool:
+    if not handler.path.startswith('/segments/'):
+        return False
+
+    file_identifier = unquote(handler.path[len('/segments/'):])
+    if not file_identifier:
+        handler.send_response(400)
+        handler.send_header('Content-Type', 'application/json')
+        handler.end_headers()
+        handler.wfile.write(json.dumps({'error': 'Missing file_identifier'}).encode())
+        return True
+
+    full_path, _, _, _ = resolve_file_identifier(file_identifier)
+    if not full_path:
+        handler.send_response(404)
+        handler.send_header('Content-Type', 'application/json')
+        handler.end_headers()
+        handler.wfile.write(json.dumps([]).encode())
+        return True
+
+    segments_file = Path(full_path).with_suffix('.segments.json')
+    segments = _read_stt_segments(segments_file)
+
+    handler.send_response(200)
+    handler.send_header('Content-Type', 'application/json')
+    handler.end_headers()
+    handler.wfile.write(json.dumps(segments, ensure_ascii=False).encode())
+    return True
+

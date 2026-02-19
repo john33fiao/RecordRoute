@@ -71,6 +71,7 @@ export interface SegmentItem {
   speaker: string | null;
 }
 
+
 export interface DiarizeResult {
   status: 'completed' | 'skipped' | 'failed';
   reason?: string;

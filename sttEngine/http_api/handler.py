@@ -24,6 +24,8 @@ class UploadHandler(BaseHTTPRequestHandler):
             progress_route.handle(self, task_id)
         elif management_routes.handle_get(self):
             return
+        elif records_routes.handle_get(self):
+            return
         elif search_routes.handle_get(self):
             return
         elif similarity_routes.handle_get(self):

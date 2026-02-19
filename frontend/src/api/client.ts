@@ -14,6 +14,7 @@ import type {
   SimilarityGraphRequest,
   SimilarityGraphResponse,
   DestructiveApiAuth,
+  SegmentItem,
 } from './types';
 
 interface ApiRequestOptions extends RequestInit {
@@ -87,6 +88,12 @@ export async function processTask(
     }),
     signal,
   });
+}
+
+
+
+export async function getSttSegments(fileIdentifier: string): Promise<SegmentItem[]> {
+  return apiRequest<SegmentItem[]>(`/segments/${encodeURIComponent(fileIdentifier)}`);
 }
 
 export async function cancelTask(taskId: string): Promise<void> {

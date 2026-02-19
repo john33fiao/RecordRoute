@@ -55,6 +55,7 @@ Docker Compose provider profile:
 GET
 - `/`, `/assets/*`, `/download/<uuid_or_path>`
 - `/history`, `/tasks`, `/progress/<task_id>` (진행률 %, ETA, 표준 오류 payload 포함)
+- `/segments/<file_identifier>` (STT 세그먼트 sidecar를 읽어 `[{start,end,text,speaker}]` 반환, 없으면 빈 배열)
 - `/file_search`, `/search`
   - `/search` 파라미터 정규화: `sort_by(similarity|date, uploaded_at→date)`, `sort_order(asc|desc)`, `status(completed|pending, done/success/incomplete/todo 별칭 지원)`, `status_task(stt|summary|embedding)`
   - `min_score`는 0~1 범위만 유효, 응답은 항상 `contract_version: search-v2` 포함

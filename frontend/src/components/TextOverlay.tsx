@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
+import { Badge } from './ui/badge';
 import { Copy, Download, Edit, Trash2, X, Save } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import * as api from '../api/client';
+import type { SegmentItem } from '../api/types';
 
 interface TextOverlayProps {
   open: boolean;
@@ -24,23 +26,66 @@ export function TextOverlay({ open, onOpenChange, fileIdentifier, fileType, file
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
+  const [speakerFilter, setSpeakerFilter] = useState<string>('all');
+  const [groupBySpeaker, setGroupBySpeaker] = useState(false);
+  const [segments, setSegments] = useState<SegmentItem[]>([]);
 
   useEffect(() => {
     if (open && fileIdentifier) {
       setLoading(true);
       setEditing(false);
-      api.downloadFileAsText(fileIdentifier)
-        .then(text => { setContent(text); setEditContent(text); })
-        .catch(() => setContent('파일을 불러올 수 없습니다.'))
+      setSpeakerFilter('all');
+      setGroupBySpeaker(false);
+      Promise.all([
+        api.downloadFileAsText(fileIdentifier),
+        fileType === 'stt' ? api.getSttSegments(fileIdentifier) : Promise.resolve([]),
+      ])
+        .then(([text, loadedSegments]) => {
+          setContent(text);
+          setEditContent(text);
+          setSegments(loadedSegments);
+        })
+        .catch(() => {
+          setContent('파일을 불러올 수 없습니다.');
+          setEditContent('파일을 불러올 수 없습니다.');
+          setSegments([]);
+        })
         .finally(() => setLoading(false));
     }
-  }, [open, fileIdentifier]);
+  }, [open, fileIdentifier, fileType]);
+
+  const speakerOptions = useMemo(() => {
+    const unique = new Set<string>();
+    segments.forEach((segment) => {
+      if (segment.speaker) unique.add(segment.speaker);
+    });
+    return Array.from(unique).sort();
+  }, [segments]);
+
+  const visibleSegments = useMemo(() => {
+    if (speakerFilter === 'all') return segments;
+    if (speakerFilter === 'unlabeled') return segments.filter((segment) => !segment.speaker);
+    return segments.filter((segment) => segment.speaker === speakerFilter);
+  }, [segments, speakerFilter]);
+
+  const groupedSegments = useMemo(() => {
+    if (!groupBySpeaker) return [] as Array<{ speaker: string | null; items: SegmentItem[] }>;
+    const groups: Array<{ speaker: string | null; items: SegmentItem[] }> = [];
+    visibleSegments.forEach((segment) => {
+      const last = groups[groups.length - 1];
+      if (!last || last.speaker !== segment.speaker) {
+        groups.push({ speaker: segment.speaker, items: [segment] });
+      } else {
+        last.items.push(segment);
+      }
+    });
+    return groups;
+  }, [visibleSegments, groupBySpeaker]);
 
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(editing ? editContent : content);
     } catch {
-      // fallback
       const ta = document.createElement('textarea');
       ta.value = editing ? editContent : content;
       document.body.appendChild(ta);
@@ -85,6 +130,10 @@ export function TextOverlay({ open, onOpenChange, fileIdentifier, fileType, file
     }
   }, [fileIdentifier, editContent, recordId, onSttEdited]);
 
+  const speakerBadgeClass = (speaker: string | null) => (speaker
+    ? 'bg-violet-500/20 border-violet-500/40 text-violet-300'
+    : 'bg-slate-500/20 border-slate-500/40 text-slate-300');
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={`max-w-4xl max-h-[85vh] ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
@@ -121,6 +170,23 @@ export function TextOverlay({ open, onOpenChange, fileIdentifier, fileType, file
               </Button>
             </>
           )}
+          {fileType === 'stt' && !editing && (
+            <>
+              <select
+                value={speakerFilter}
+                onChange={(e) => setSpeakerFilter(e.target.value)}
+                className={`text-xs rounded-md border px-2 py-1 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'}`}
+              >
+                <option value="all">전체 화자</option>
+                {speakerOptions.map((speaker) => <option key={speaker} value={speaker}>{speaker}</option>)}
+                <option value="unlabeled">화자 미지정</option>
+              </select>
+              <Button size="sm" variant="outline" onClick={() => setGroupBySpeaker((prev) => !prev)}
+                className={groupBySpeaker ? 'border-violet-500/50 text-violet-300 bg-violet-500/10' : ''}>
+                {groupBySpeaker ? '묶음 보기 ON' : '묶음 보기 OFF'}
+              </Button>
+            </>
+          )}
           <Button size="sm" variant="outline" onClick={handleDownload}
             className={theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700' : ''}>
             <Download className="size-4 mr-2" /> 다운로드
@@ -142,6 +208,30 @@ export function TextOverlay({ open, onOpenChange, fileIdentifier, fileType, file
               className={`w-full h-full min-h-[450px] bg-transparent resize-none font-mono text-sm outline-none ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'
                 }`}
             />
+          ) : fileType === 'stt' && segments.length > 0 ? (
+            <div className="space-y-3">
+              {groupBySpeaker
+                ? groupedSegments.map((group, idx) => (
+                  <div key={`${group.speaker ?? 'unknown'}-${idx}`} className="space-y-2">
+                    <Badge variant="outline" className={speakerBadgeClass(group.speaker)}>{group.speaker ?? '미지정'}</Badge>
+                    <div className="space-y-2 pl-3 border-l border-slate-700/50">
+                      {group.items.map((segment, segIdx) => (
+                        <div key={`${idx}-${segIdx}`} className="text-sm leading-relaxed">
+                          {segment.text || ''}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+                : visibleSegments.map((segment, idx) => (
+                  <div key={idx} className="flex gap-3 items-start">
+                    <Badge variant="outline" className={`${speakerBadgeClass(segment.speaker)} min-w-[100px] justify-center`}>
+                      {segment.speaker ?? '미지정'}
+                    </Badge>
+                    <p className={`font-mono text-sm leading-relaxed ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'}`}>{segment.text || ''}</p>
+                  </div>
+                ))}
+            </div>
           ) : (
             <pre className={`whitespace-pre-wrap font-mono text-sm leading-relaxed ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'
               }`}>{content}</pre>
