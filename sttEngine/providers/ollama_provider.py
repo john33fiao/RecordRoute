@@ -80,11 +80,46 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
 
     def embed(self, text: str, *, model: str) -> np.ndarray:
         ollama = self._load_ollama()
-        response = safe_ollama_call(ollama.embeddings, model=model, prompt=text)
-        embedding = response.get("embedding") if isinstance(response, dict) else None
+        response = self._request_embedding(ollama, text=text, model=model)
+        embedding = self._extract_embedding(response)
         if not embedding:
-            raise ProviderRequestError("Ollama 임베딩 응답이 비어 있습니다.")
+            raise ProviderRequestError(
+                f"Ollama 임베딩 응답이 비어 있습니다. 모델 '{model}'이 임베딩을 지원하는지 확인하세요."
+            )
         return np.array(embedding, dtype=np.float32)
+
+    def _request_embedding(self, ollama: Any, *, text: str, model: str) -> Any:
+        if hasattr(ollama, "embed"):
+            return safe_ollama_call(ollama.embed, model=model, input=text)
+        if hasattr(ollama, "embeddings"):
+            return safe_ollama_call(ollama.embeddings, model=model, prompt=text)
+        raise ProviderRequestError("현재 ollama 클라이언트에서 임베딩 API를 찾을 수 없습니다.")
+
+    @staticmethod
+    def _extract_embedding(response: Any) -> list[float] | None:
+        if not isinstance(response, dict):
+            return None
+
+        direct = response.get("embedding")
+        if isinstance(direct, list) and direct:
+            return direct
+
+        many = response.get("embeddings")
+        if isinstance(many, list) and many:
+            first = many[0]
+            if isinstance(first, list) and first:
+                return first
+            if isinstance(first, (int, float)):
+                return many
+
+        data = response.get("data")
+        if isinstance(data, list) and data:
+            first = data[0]
+            if isinstance(first, dict):
+                vec = first.get("embedding")
+                if isinstance(vec, list) and vec:
+                    return vec
+        return None
 
     def embed_batch(self, texts: Sequence[str], *, model: str) -> list[np.ndarray]:
         return [self.embed(text, model=model) for text in texts]
