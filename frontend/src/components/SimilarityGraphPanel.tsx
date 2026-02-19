@@ -382,8 +382,8 @@ export function SimilarityGraphPanel() {
   const resetView = () => setViewport({ scale: 1, x: 0, y: 0 });
 
   return (
-    <Card className={`backdrop-blur-sm ${theme === 'dark' ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-white/70'}`}>
-      <div className="p-6 space-y-4">
+    <Card className={`backdrop-blur-sm ${theme === 'dark' ? 'border-slate-800 bg-slate-900/50 text-slate-100' : 'border-slate-200 bg-white/70 text-slate-900'}`}>
+      <div className="space-y-4 p-6">
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
             <label className="text-xs font-medium">min similarity</label>
@@ -400,7 +400,7 @@ export function SimilarityGraphPanel() {
             <select
               value={sampling}
               onChange={(e) => setSampling(e.target.value as 'hybrid' | 'recent' | 'random')}
-              className={`h-10 rounded-md border px-3 text-sm ${theme === 'dark' ? 'border-slate-700 bg-slate-900' : 'border-slate-300 bg-white'}`}
+              className={`h-10 rounded-md border px-3 text-sm ${theme === 'dark' ? 'border-slate-700 bg-slate-900 text-slate-100' : 'border-slate-300 bg-white text-slate-900'}`}
             >
               <option value="hybrid">hybrid</option>
               <option value="recent">recent</option>
