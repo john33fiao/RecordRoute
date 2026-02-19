@@ -58,6 +58,7 @@ venv\Scripts\python.exe -m sttEngine.server
 기본 접속 주소:
 - HTTP: `http://localhost:8080`
 - WebSocket: `ws://localhost:8765`
+- Windows `run.bat` 실행 시 `8080` 바인딩이 불가하면 자동으로 `18080`으로 대체됩니다.
 
 ## 3) 모델/Provider 설정 방법
 

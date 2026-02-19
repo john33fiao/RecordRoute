@@ -255,15 +255,25 @@ if not exist "%SCRIPT_DIR%\frontend\dist" (
 
 REM 웹서버 실행
 echo 가상환경의 파이썬으로 웹서버를 실행합니다...
-set "SERVER_HOST=!HOST!"
-if "!SERVER_HOST!"=="" set "SERVER_HOST=127.0.0.1"
-set "SERVER_PORT=!PORT!"
-if "!SERVER_PORT!"=="" set "SERVER_PORT=8080"
+REM HOST/PORT는 실행 안정성을 위해 안전 기본값으로 고정
+set "HOST=127.0.0.1"
+set "PORT=8080"
 
-set "SERVER_URL=http://localhost:!SERVER_PORT!"
-if /i not "!SERVER_HOST!"=="0.0.0.0" if /i not "!SERVER_HOST!"=="::" (
-    set "SERVER_URL=http://!SERVER_HOST!:!SERVER_PORT!"
+REM 기본 포트 사용 가능 여부 확인 (권한/예약/점유 충돌 시 18080으로 대체)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$port=8080; $listener=[System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse('127.0.0.1'),$port); try { $listener.Start(); $listener.Stop(); exit 0 } catch { exit 1 }" > nul 2>&1
+if !ERRORLEVEL! neq 0 (
+    echo 경고: 포트 8080을 사용할 수 없어 포트 18080으로 대체합니다.
+    set "PORT=18080"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$port=18080; $listener=[System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse('127.0.0.1'),$port); try { $listener.Start(); $listener.Stop(); exit 0 } catch { exit 1 }" > nul 2>&1
+    if !ERRORLEVEL! neq 0 (
+        echo 오류: 포트 8080과 18080 모두 사용할 수 없습니다.
+        echo 사용 가능한 포트를 확인한 뒤 다시 실행하세요.
+        pause
+        exit /b 1
+    )
 )
+
+set "SERVER_URL=http://localhost:!PORT!"
 
 echo 서버 URL: !SERVER_URL!
 echo ^(웹브라우저에서 !SERVER_URL! 에 접속하세요^)

@@ -29,6 +29,7 @@
 - macOS/Linux 실행: `./run.sh`
 - Windows 설정: `setup.bat`
 - Windows 실행: `run.bat`
+  - `run.bat`는 포트 `8080` 바인딩이 불가한 환경에서 자동으로 `18080` fallback을 시도
 
 개별 실행:
 - 백엔드: `venv/bin/python -m sttEngine.server` (Windows: `venv\\Scripts\\python.exe -m sttEngine.server`)
