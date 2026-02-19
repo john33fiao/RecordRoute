@@ -40,6 +40,7 @@ export interface UploadResult {
 export interface HistoryRecord {
   id: string;
   filename: string;
+  title_summary: string;
   file_type: FileType;
   timestamp: string;
   file_hash: string;
