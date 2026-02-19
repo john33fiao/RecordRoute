@@ -195,7 +195,11 @@ def run_workflow(
             return []
 
 
-    def apply_diarization_alignment_if_available(stt_markdown_file: Path) -> list[dict]:
+    def apply_diarization_alignment_if_available(
+        stt_markdown_file: Path,
+        *,
+        allow_null_speaker: bool = False,
+    ) -> list[dict]:
         stt_segments = load_stt_segments(stt_markdown_file)
         if not stt_segments:
             return []
@@ -207,7 +211,7 @@ def run_workflow(
             stt_segments,
             diarization_segments if isinstance(diarization_segments, list) else [],
             default_speaker=format_speaker_label(0),
-            allow_null_speaker=False,
+            allow_null_speaker=allow_null_speaker,
         )
 
         results["stt_segments"] = aligned_segments
@@ -390,12 +394,29 @@ def run_workflow(
                 if current_file and Path(current_file).suffix.lower() == ".md":
                     apply_diarization_alignment_if_available(Path(current_file))
             except Exception as e:
-                return _workflow_error_result(task_id, e, "diarize")
+                mapped_error = _workflow_error_result(task_id, e, "diarize")
+                has_stt_result = "stt" in results and current_file and Path(current_file).suffix.lower() == ".md"
+                if has_stt_result:
+                    results["diarize"] = {
+                        "status": "failed",
+                        "input_file_type": file_type,
+                        "segments": [],
+                        "error": mapped_error["error"],
+                        "error_code": mapped_error["error_code"],
+                        "retryable": mapped_error["retryable"],
+                        "failed_step": mapped_error["failed_step"],
+                    }
+                    results.update(mapped_error)
+                    apply_diarization_alignment_if_available(Path(current_file), allow_null_speaker=True)
+                else:
+                    return mapped_error
 
             if task_id:
                 status = results["diarize"].get("status")
                 if status == "skipped":
                     update_task_progress(task_id, "화자 분리 스킵(비오디오 입력)", stage=TaskStage.TRANSFORM)
+                elif status == "failed":
+                    update_task_progress(task_id, "화자 분리 실패(화자 라벨 비활성화)", stage=TaskStage.TRANSFORM)
                 else:
                     update_task_progress(task_id, "화자 분리 완료", stage=TaskStage.TRANSFORM)
 

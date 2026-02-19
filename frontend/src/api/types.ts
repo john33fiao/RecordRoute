@@ -72,10 +72,14 @@ export interface SegmentItem {
 }
 
 export interface DiarizeResult {
-  status: 'completed' | 'skipped';
+  status: 'completed' | 'skipped' | 'failed';
   reason?: string;
   input_file_type?: string;
   duration?: string;
+  error?: string;
+  error_code?: WorkflowErrorCode;
+  retryable?: boolean;
+  failed_step?: string;
   segments: SegmentItem[];
 }
 
