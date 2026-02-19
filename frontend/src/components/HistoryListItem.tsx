@@ -75,9 +75,19 @@ function HistoryListItemComponent({
               <button onClick={onCancelEditing} className="text-red-400 hover:text-red-300"><X className="size-4" /></button>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
-              <p className={`font-medium truncate ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'}`}>{item.filename.normalize('NFC')}</p>
-              <button onClick={() => onStartEditing(item.id, item.filename)} className="opacity-0 group-hover:opacity-100 transition-opacity"><Pencil className={`size-3 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`} /></button>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <p className={`font-medium truncate ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'}`}>{item.filename.normalize('NFC')}</p>
+                <button onClick={() => onStartEditing(item.id, item.filename)} className="opacity-0 group-hover:opacity-100 transition-opacity"><Pencil className={`size-3 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`} /></button>
+              </div>
+              {item.title_summary.trim() ? (
+                <p
+                  title={item.title_summary}
+                  className={`text-xs truncate ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}
+                >
+                  {item.title_summary}
+                </p>
+              ) : null}
             </div>
           )}
         </div>
