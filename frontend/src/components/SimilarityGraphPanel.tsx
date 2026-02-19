@@ -78,6 +78,9 @@ export function SimilarityGraphPanel() {
     () => nodes.find((node) => node.id === selectedNodeId) ?? null,
     [nodes, selectedNodeId],
   );
+  const selectedInfoTextColor = theme === 'dark' ? '#e2e8f0' : '#0f172a';
+  const selectedInfoLabelClass = theme === 'dark' ? 'font-medium text-slate-200' : 'font-medium text-slate-700';
+  const selectedInfoValueClass = theme === 'dark' ? 'text-slate-100' : 'text-slate-900';
 
   const nodeMap = useMemo(() => {
     return new Map(nodes.map((node) => [node.id, node]));
@@ -523,13 +526,16 @@ export function SimilarityGraphPanel() {
           </svg>
 
           {selectedNode && (
-            <aside className={`rounded-xl border p-4 text-sm ${theme === 'dark' ? 'border-slate-800 bg-slate-900/70' : 'border-slate-200 bg-white'}`}>
-              <h3 className="font-semibold mb-2">선택 문서</h3>
+            <aside
+              className={`rounded-xl border p-4 text-sm ${theme === 'dark' ? 'border-slate-800 bg-slate-900/70 text-slate-100' : 'border-slate-200 bg-white text-slate-900'}`}
+              style={{ color: selectedInfoTextColor }}
+            >
+              <h3 className={`mb-2 font-semibold ${theme === 'dark' ? 'text-slate-100' : 'text-slate-900'}`}>선택 문서</h3>
               <div className="space-y-2 break-all">
-                <div><span className="font-medium">이름:</span> {selectedNode.label || selectedNode.id}</div>
-                <div><span className="font-medium">id:</span> {selectedNode.id}</div>
-                <div><span className="font-medium">record:</span> {selectedNode.record_id || '-'}</div>
-                <div><span className="font-medium">업로드:</span> {selectedNode.uploaded_at || '-'}</div>
+                <div className={selectedInfoValueClass}><span className={selectedInfoLabelClass}>이름:</span> {selectedNode.label || selectedNode.id}</div>
+                <div className={selectedInfoValueClass}><span className={selectedInfoLabelClass}>id:</span> {selectedNode.id}</div>
+                <div className={selectedInfoValueClass}><span className={selectedInfoLabelClass}>record:</span> {selectedNode.record_id || '-'}</div>
+                <div className={selectedInfoValueClass}><span className={selectedInfoLabelClass}>업로드:</span> {selectedNode.uploaded_at || '-'}</div>
               </div>
               <Button
                 className="mt-4 w-full gap-2"
