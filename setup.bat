@@ -37,13 +37,18 @@ REM 1. Check Python
 echo Step 0: Checking Python installation...
 
 set PY_CMD=
-where python >nul 2>&1
+where py >nul 2>&1
 if !errorlevel! equ 0 (
-    set PY_CMD=python
+    set "PY_CMD=py -3"
 ) else (
-    where python3 >nul 2>&1
+    where python >nul 2>&1
     if !errorlevel! equ 0 (
-        set PY_CMD=python3
+        set PY_CMD=python
+    ) else (
+        where python3 >nul 2>&1
+        if !errorlevel! equ 0 (
+            set PY_CMD=python3
+        )
     )
 )
 
@@ -74,15 +79,48 @@ if exist "%SCRIPT_DIR%\venv" (
     if /i "!response!"=="y" (
         echo 기존 venv를 삭제하고 있습니다...
         rmdir /s /q "%SCRIPT_DIR%\venv"
+
+        if exist "%SCRIPT_DIR%\venv" (
+            echo venv 사용 중인 Python 프로세스를 종료한 뒤 삭제를 재시도합니다...
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "$venv=(Resolve-Path '%SCRIPT_DIR%\venv').Path; Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($venv, [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+            timeout /t 1 /nobreak >nul
+            rmdir /s /q "%SCRIPT_DIR%\venv"
+        )
+
+        if exist "%SCRIPT_DIR%\venv" (
+            echo.
+            echo [오류] 기존 venv 삭제에 실패했습니다. 아래 명령을 관리자 CMD에서 실행한 뒤 다시 시도하세요.
+            echo   taskkill /f /im python.exe
+            echo   rmdir /s /q "%SCRIPT_DIR%\venv"
+            echo.
+            pause
+            exit /b 1
+        )
         
         echo 새로운 venv를 생성하고 있습니다...
         !PY_CMD! -m venv venv
+
+        if !errorlevel! neq 0 (
+            echo.
+            echo [오류] 가상환경 생성 명령이 실패했습니다.
+            echo.
+            pause
+            exit /b 1
+        )
     ) else (
         echo 기존 venv를 사용합니다.
     )
 ) else (
     echo 새로운 venv를 생성하고 있습니다...
     !PY_CMD! -m venv venv
+
+    if !errorlevel! neq 0 (
+        echo.
+        echo [오류] 가상환경 생성 명령이 실패했습니다.
+        echo.
+        pause
+        exit /b 1
+    )
 )
 
 if not exist "%SCRIPT_DIR%\venv" (
@@ -97,6 +135,14 @@ REM Verify venv was created successfully
 if not exist "%SCRIPT_DIR%\venv\Scripts\python.exe" (
     echo.
     echo [오류] 가상환경 Python 실행 파일을 찾을 수 없습니다.
+    echo.
+    pause
+    exit /b 1
+)
+
+if not exist "%SCRIPT_DIR%\venv\pyvenv.cfg" (
+    echo.
+    echo [오류] pyvenv.cfg를 찾을 수 없습니다. 가상환경이 손상되었을 수 있습니다.
     echo.
     pause
     exit /b 1
@@ -178,8 +224,8 @@ if /i "!NEED_OLLAMA!"=="true" (
         if !errorlevel! equ 0 (
             echo 기존 Ollama 모델이 감지되었습니다. pull 단계를 건너뜁니다.
         ) else (
-            echo 설치된 Ollama 모델이 없습니다. 기본 모델 '!OLLAMA_MODEL!'을(를) 설치합니다...
-            echo (이 과정은 시간이 걸릴 수 있습니다)
+            echo 설치된 Ollama 모델이 없습니다. 기본 모델 '!OLLAMA_MODEL!'을^(를^) 설치합니다...
+            echo ^(이 과정은 시간이 걸릴 수 있습니다^)
             ollama pull !OLLAMA_MODEL!
         )
     ) else (
