@@ -6,7 +6,8 @@ from ...search_cache import cleanup_expired_cache, get_cache_stats
 from ..embedding import run_incremental_embedding
 from ..records import reset_tasks_for_all_records, reset_upload_record
 from ..destructive_guard import check_destructive_api_access, reject_destructive_api_request
-from ..state import cancel_task
+from ..state import cancel_task, get_running_tasks
+from ..monitoring import get_workflow_metrics_snapshot
 
 
 def _read_json_payload(handler):
@@ -63,6 +64,19 @@ def handle_get(handler) -> bool:
             handler.wfile.write(
                 json.dumps({'success': False, 'error': f'캐시 정리 중 오류: {str(e)}'}, ensure_ascii=False).encode()
             )
+        return True
+
+    if handler.path == '/metrics/workflow':
+        try:
+            metrics = get_workflow_metrics_snapshot()
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps(metrics, ensure_ascii=False).encode())
+        except Exception as e:
+            handler.send_response(500)
+            handler.end_headers()
+            handler.wfile.write(json.dumps({'error': f'메트릭 조회 중 오류: {str(e)}'}, ensure_ascii=False).encode())
         return True
 
     return False

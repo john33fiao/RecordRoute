@@ -129,7 +129,7 @@ venv\Scripts\python.exe -m sttEngine.server
 - `/`, `/assets/*`, `/download/<uuid_or_path>`
 - `/history`, `/tasks`, `/progress/<task_id>` (진행률 %, ETA, 표준 오류 payload 포함)
 - `/segments/<file_identifier>` (STT 세그먼트 sidecar를 읽어 `[{start,end,text,speaker}]` 반환, 없으면 빈 배열)
-- `/search`, `/models`, `/cache/stats`, `/cache/cleanup`
+- `/search`, `/models`, `/cache/stats`, `/cache/cleanup`, `/metrics/workflow`
   - `/models` 응답은 `models`(요청 provider 기준) + `models_by_provider` + `provider_status` + `default.provider`를 포함
   - 선택 쿼리: `provider=ollama|llamacpp` (미지정 시 `LLM_PROVIDER` 기준)
 - `/api/similarity-graph`, `/api/documents/metadata`

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from .state import (
     update_task_progress,
     TaskStage,
 )
+from .monitoring import record_workflow_step_metric
 
 
 
@@ -180,6 +182,16 @@ def run_workflow(
     individual_output_dir = OUTPUT_DIR / upload_folder_name
     individual_output_dir.mkdir(exist_ok=True)
 
+    def record_step_metric(step: str, status: str, started_at: float, error_code: str | None = None) -> None:
+        record_workflow_step_metric(
+            step=step,
+            status=status,
+            duration_seconds=time.perf_counter() - started_at,
+            task_id=task_id,
+            record_id=record_id,
+            error_code=error_code,
+        )
+
 
     def load_stt_segments(stt_markdown_file: Path) -> list[dict]:
         sidecar = stt_markdown_file.with_suffix(".segments.json")
@@ -244,6 +256,11 @@ def run_workflow(
         if duration:
             minutes, seconds = duration.split(":")
             duration_seconds = float(int(minutes) * 60 + int(seconds))
+            if duration_seconds >= 3600:
+                print(
+                    f"[POLICY] long_audio_detected task_id={task_id} duration_seconds={duration_seconds:.0f} "
+                    "queue_policy=single_worker timeout_policy=diarization_timeout"
+                )
 
         # NOTE:
         # - This is a lightweight baseline diarization payload for contract stability.
@@ -270,6 +287,7 @@ def run_workflow(
         # For text files, skip STT step and copy to output directory
         if file_type == "text":
             if "stt" in steps:
+                stt_started_at = time.perf_counter()
                 # Check if task was cancelled
                 if task_id and is_task_cancelled(task_id):
                     return {"error": "Task was cancelled"}
@@ -287,6 +305,7 @@ def run_workflow(
                 if record_id:
                     file_path_str = to_record_path(text_file)
                     update_task_completion(record_id, "stt", file_path_str)
+                record_step_metric("stt", "completed", stt_started_at)
             else:
                 text_file = individual_output_dir / f"{file_path.stem}.md"
                 import shutil
@@ -297,6 +316,7 @@ def run_workflow(
 
         # For PDF files, extract text and treat as markdown
         elif file_type == "pdf":
+            stt_started_at = time.perf_counter()
             if task_id and is_task_cancelled(task_id):
                 return {"error": "Task was cancelled"}
 
@@ -307,6 +327,7 @@ def run_workflow(
                 pdf_text = "\n".join(page.extract_text() or "" for page in reader.pages)
             except Exception as e:
                 print(f"PDF text extraction failed: {e}")
+                record_step_metric("stt", "failed", stt_started_at)
                 return _workflow_error_result(task_id, e, "stt")
 
             text_file = individual_output_dir / f"{file_path.stem}.md"
@@ -318,12 +339,14 @@ def run_workflow(
                 if record_id:
                     file_path_str = to_record_path(text_file)
                     update_task_completion(record_id, "stt", file_path_str)
+                record_step_metric("stt", "completed", stt_started_at)
 
             current_file = text_file
             apply_diarization_alignment_if_available(current_file)
 
         # For audio files, run STT step
         elif file_type == "audio" and "stt" in steps:
+            stt_started_at = time.perf_counter()
             if task_id and is_task_cancelled(task_id):
                 return {"error": "Task was cancelled"}
 
@@ -368,6 +391,7 @@ def run_workflow(
                 print(f"STT process failed: {e}")
                 if task_id:
                     update_task_progress(task_id, f"STT 실패: {e}", stage=TaskStage.TRANSFORM)
+                record_step_metric("stt", "failed", stt_started_at)
                 return _workflow_error_result(task_id, e, "stt")
 
             stt_file = individual_output_dir / f"{file_path.stem}.md"
@@ -379,8 +403,11 @@ def run_workflow(
             if record_id:
                 file_path_str = to_record_path(stt_file)
                 update_task_completion(record_id, "stt", file_path_str)
+            record_step_metric("stt", "completed", stt_started_at)
 
         if "diarize" in steps:
+            diarize_started_at = time.perf_counter()
+            diarize_metric_recorded = False
             if task_id and is_task_cancelled(task_id):
                 return {"error": "Task was cancelled"}
 
@@ -408,8 +435,18 @@ def run_workflow(
                     }
                     results.update(mapped_error)
                     apply_diarization_alignment_if_available(Path(current_file), allow_null_speaker=True)
+                    record_step_metric("diarize", "failed", diarize_started_at, mapped_error.get("error_code"))
+                    diarize_metric_recorded = True
                 else:
+                    record_step_metric("diarize", "failed", diarize_started_at, mapped_error.get("error_code"))
                     return mapped_error
+
+            if not diarize_metric_recorded:
+                status = results.get("diarize", {}).get("status") if isinstance(results.get("diarize"), dict) else None
+                if status == "failed":
+                    record_step_metric("diarize", "failed", diarize_started_at, results.get("diarize", {}).get("error_code"))
+                else:
+                    record_step_metric("diarize", "completed", diarize_started_at)
 
             if task_id:
                 status = results["diarize"].get("status")
@@ -441,6 +478,7 @@ def run_workflow(
                 else:
                     if task_id:
                         update_task_progress(task_id, "STT 자동 실행 시작", stage=TaskStage.TRANSFORM)
+                    stt_started_at = time.perf_counter()
                     try:
 
                         def progress_callback(message):
@@ -504,6 +542,7 @@ def run_workflow(
                     update_task_progress(task_id, "임베딩 생성 실패", stage=TaskStage.TRANSFORM)
 
         if "correct" in steps and current_file:
+            correct_started_at = time.perf_counter()
             if task_id and is_task_cancelled(task_id):
                 return {"error": "Task was cancelled"}
 
@@ -521,13 +560,17 @@ def run_workflow(
                 if not ok:
                     raise RuntimeError("교정 처리 결과가 실패로 반환되었습니다")
             except Exception as e:
+                mapped_error = map_workflow_exception(e, "correct")
+                record_step_metric("correct", "failed", correct_started_at, mapped_error.code)
                 return _workflow_error_result(task_id, e, "correct")
 
             current_file = corrected_file
             results["correct"] = f"/download/{upload_folder_name}/{corrected_file.name}"
+            record_step_metric("correct", "completed", correct_started_at)
 
 
         if "summary" in steps:
+            summary_started_at = time.perf_counter()
             if task_id and is_task_cancelled(task_id):
                 return {"error": "Task was cancelled"}
 
@@ -588,6 +631,7 @@ def run_workflow(
                         print(f"STT process failed: {e}")
                         if task_id:
                             update_task_progress(task_id, f"STT 실패: {e}", stage=TaskStage.TRANSFORM)
+                        record_step_metric("stt", "failed", stt_started_at)
                         return _workflow_error_result(task_id, e, "stt")
 
                     stt_file = individual_output_dir / f"{file_path.stem}.md"
@@ -599,6 +643,7 @@ def run_workflow(
                     if record_id:
                         file_path_str = to_record_path(current_file)
                         update_task_completion(record_id, "stt", file_path_str)
+                    record_step_metric("stt", "completed", stt_started_at)
 
             source_text_path = Path(current_file) if current_file else None
 
@@ -678,6 +723,8 @@ def run_workflow(
                 print(f"Summary process failed: {e}")
                 if task_id:
                     update_task_progress(task_id, f"요약 생성 실패: {e}", stage=TaskStage.SUMMARY)
+                mapped_error = map_workflow_exception(e, "summary")
+                record_step_metric("summary", "failed", summary_started_at, mapped_error.code)
                 return _workflow_error_result(task_id, e, "summary")
 
             summary_file = current_file.with_name(f"{current_file.stem}.summary.md")
@@ -690,6 +737,7 @@ def run_workflow(
                 update_task_completion(record_id, "summary", file_path_str)
                 if source_text_path:
                     generate_and_store_title_summary(record_id, source_text_path, summarize_model)
+            record_step_metric("summary", "completed", summary_started_at)
 
     except Exception as exc:  # pragma: no cover
         if task_id:

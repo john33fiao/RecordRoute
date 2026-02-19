@@ -66,7 +66,7 @@ GET
 - `/similar/<uuid_or_path>`, `/models`
   - `/models` 응답은 `models`(요청 provider 기준) + `models_by_provider` + `provider_status` + `default.provider`를 포함
   - 선택 쿼리: `provider=ollama|llamacpp` (미지정 시 `LLM_PROVIDER` 기준)
-- `/cache/stats`, `/cache/cleanup`
+- `/cache/stats`, `/cache/cleanup`, `/metrics/workflow`
 
 POST
 - `/upload`, `/process`, `/cancel`, `/shutdown`
