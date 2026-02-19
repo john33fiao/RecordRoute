@@ -32,6 +32,11 @@ const INITIAL_ALPHA = 1;
 const ALPHA_DECAY = 0.985;
 const MIN_ALPHA = 0.03;
 const DRAG_CLICK_THRESHOLD = 4;
+const SELECTED_NODE_FILL = '#f59e0b';
+const SELECTED_NODE_STROKE = '#fde68a';
+const ADJACENT_NODE_FILL = '#fb923c';
+const ADJACENT_NODE_STROKE = '#ffedd5';
+const ADJACENT_EDGE_STROKE = '#f97316';
 
 type DocType = 'audio' | 'document' | 'other';
 
@@ -78,6 +83,15 @@ export function SimilarityGraphPanel() {
     () => nodes.find((node) => node.id === selectedNodeId) ?? null,
     [nodes, selectedNodeId],
   );
+  const adjacentNodeIds = useMemo(() => {
+    if (!selectedNodeId) return new Set<string>();
+    const neighbors = new Set<string>();
+    for (const edge of graph?.edges ?? []) {
+      if (edge.source === selectedNodeId) neighbors.add(edge.target);
+      if (edge.target === selectedNodeId) neighbors.add(edge.source);
+    }
+    return neighbors;
+  }, [graph?.edges, selectedNodeId]);
   const selectedInfoTextColor = theme === 'dark' ? '#e2e8f0' : '#0f172a';
   const selectedInfoLabelClass = theme === 'dark' ? 'font-medium text-slate-200' : 'font-medium text-slate-700';
   const selectedInfoValueClass = theme === 'dark' ? 'text-slate-100' : 'text-slate-900';
@@ -443,6 +457,8 @@ export function SimilarityGraphPanel() {
               <span className="inline-flex items-center gap-1"><span className="size-2 rounded-full bg-sky-400" />audio</span>
               <span className="inline-flex items-center gap-1"><span className="size-2 rounded-full bg-emerald-400" />document</span>
               <span className="inline-flex items-center gap-1"><span className="size-2 rounded-full bg-violet-400" />other</span>
+              <span className="inline-flex items-center gap-1"><span className="size-2 rounded-full" style={{ backgroundColor: SELECTED_NODE_FILL }} />selected</span>
+              <span className="inline-flex items-center gap-1"><span className="size-2 rounded-full" style={{ backgroundColor: ADJACENT_NODE_FILL }} />adjacent</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="font-medium">edge weight</span>
@@ -473,6 +489,9 @@ export function SimilarityGraphPanel() {
                 const source = nodeMap.get(edge.source);
                 const target = nodeMap.get(edge.target);
                 if (!source || !target) return null;
+                const isAdjacentEdge = Boolean(
+                  selectedNodeId && (edge.source === selectedNodeId || edge.target === selectedNodeId),
+                );
                 return (
                   <line
                     key={`${edge.source}-${edge.target}`}
@@ -480,24 +499,25 @@ export function SimilarityGraphPanel() {
                     y1={source.y}
                     x2={target.x}
                     y2={target.y}
-                    stroke={theme === 'dark' ? '#334155' : '#94a3b8'}
-                    strokeOpacity={edgeOpacity(edge)}
-                    strokeWidth={edgeWidth(edge)}
+                    stroke={isAdjacentEdge ? ADJACENT_EDGE_STROKE : theme === 'dark' ? '#334155' : '#94a3b8'}
+                    strokeOpacity={isAdjacentEdge ? 0.95 : edgeOpacity(edge)}
+                    strokeWidth={isAdjacentEdge ? edgeWidth(edge) + 1.6 : edgeWidth(edge)}
                   />
                 );
               })}
               {nodes.map((node) => {
                 const selected = node.id === selectedNodeId;
+                const adjacent = adjacentNodeIds.has(node.id);
                 const style = getNodeStyle(node);
                 return (
                   <g key={node.id}>
                     <circle
                       cx={node.x}
                       cy={node.y}
-                      r={selected ? style.radius + 2 : style.radius}
-                      fill={selected ? '#f59e0b' : style.fill}
-                      stroke={selected ? '#fde68a' : style.stroke}
-                      strokeWidth={selected ? 2 : 1}
+                      r={selected ? style.radius + 2 : adjacent ? style.radius + 1.2 : style.radius}
+                      fill={selected ? SELECTED_NODE_FILL : adjacent ? ADJACENT_NODE_FILL : style.fill}
+                      stroke={selected ? SELECTED_NODE_STROKE : adjacent ? ADJACENT_NODE_STROKE : style.stroke}
+                      strokeWidth={selected ? 2 : adjacent ? 1.8 : 1}
                       onPointerDown={(event) => startNodeDrag(event, node.id)}
                       onClick={(event) => {
                         event.stopPropagation();
