@@ -1,12 +1,20 @@
 # TODO Master (신규 백로그)
 
-- 마지막 점검일: 2026-02-18
+- 마지막 점검일: 2026-02-20
 - 점검 기준: `README.md`, `CLAUDE.md`, `GEMINI.md`, `TODO/STATUS_REVIEW.md`, 주요 구현 파일(`sttEngine/http_api/handler.py`, `sttEngine/http_api/routes/search_routes.py`, `frontend/scripts/benchmark-similarity-graph.mjs`, `frontend/src/*`)
 - 원칙: **완료 항목은 TODO에서 제거**하고, 실행이 필요한 항목만 유지
 
 ---
 
 ## 1) P0 (즉시 착수)
+
+- [ ] 화자 분리 실제 provider(pyannote) 추론 파이프라인 연결
+  - 출처: 화자분리 로드맵(삭제됨, 2026-02-20) 미완료 항목 이관
+  - 범위: `run_diarize_step()` baseline payload 대체, timeout/리소스 해제/오류코드(`diarization_*`) 일관성 유지
+
+- [ ] 화자 분리 KPI 자동 검증 경로 구축(DER/F1)
+  - 출처: 화자분리 로드맵(삭제됨, 2026-02-20) 미완료 항목 이관
+  - 범위: `docs/diarization/kpi.md`, `docs/diarization/dataset-manifest.md` 기준으로 CI 또는 배치 리포트 자동 생성
 
 - [ ] `handler.py` 책임 분리 (라우트 단위 모듈화 마무리)
   - 점검 결과: `sttEngine/http_api/routes/*` 분리는 진행됐지만, `UploadHandler` 내부에 업로드 파싱/저장/응답 조합 로직이 크게 남아 있음
@@ -33,8 +41,17 @@
 - [ ] API 버전 관리/OpenAPI 초안
   - 범위: 버전 전략, `/process`/`/search`/`/progress` 계약서 초안
 
-- [ ] 화자 분리(Speaker Diarization) 도입 설계/구현
-  - 범위: 실행 로드맵(`TODO/화자분리_로드맵.md`) 기준으로 Phase 0~4 순차 적용
+- [ ] 화자 정보 기반 요약 템플릿 연계(선택)
+  - 출처: 화자분리 로드맵(삭제됨, 2026-02-20) 미완료 항목 이관
+  - 범위: 화자 라벨 기반 요약 템플릿 + 불확실성 문구 정책
+
+- [ ] 화자 분리 운영 토글(`DIARIZATION_ENABLED`) 코드 레벨 명문화
+  - 출처: 화자분리 로드맵(삭제됨, 2026-02-20) 미완료 항목 이관
+  - 범위: 환경변수 on/off 분기, 롤백 절차 문서와 동기화
+
+- [ ] 화자 UI 혼재 데이터 회귀 테스트 보강
+  - 출처: 화자분리 로드맵(삭제됨, 2026-02-20) 미완료 항목 이관
+  - 범위: 화자 있음/없음 혼재 시나리오 컴포넌트 또는 E2E 자동화
 
 - [ ] 훅/컴포넌트 테스트 보강
   - 범위: `useTaskQueue`, `SearchPanel`, `TextOverlay`, `SimilarityGraphPanel`
