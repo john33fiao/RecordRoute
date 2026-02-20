@@ -79,14 +79,14 @@
 ### RTD 기준 미완료 작업 요약 (즉시 실행 큐)
 
 #### P0 (즉시)
-- [ ] `openapi/openapi.yaml` 신규 작성 및 핵심 5개 API 명세 반영
-- [ ] `Dockerfile.backend` + `Dockerfile.frontend` 분리
-- [ ] `docker-compose.yml`을 `backend`/`frontend` 2서비스 구조로 전환
+- [x] `openapi/openapi.yaml` 신규 작성 및 핵심 5개 API 명세 반영
+- [x] `Dockerfile.backend` + `Dockerfile.frontend` 분리
+- [x] `docker-compose.yml`을 `backend`/`frontend` 2서비스 구조로 전환
 
 #### P1 (안정화)
-- [ ] `GET /health` 구현 및 compose healthcheck 연결
-- [ ] `frontend/src/api/client.ts`에 `VITE_API_BASE_URL` 적용
-- [ ] `frontend/src/hooks/useWebSocket.ts`에 `VITE_WS_URL` 적용
+- [x] `GET /health` 구현 및 compose healthcheck 연결
+- [x] `frontend/src/api/client.ts`에 `VITE_API_BASE_URL` 적용
+- [x] `frontend/src/hooks/useWebSocket.ts`에 `VITE_WS_URL` 적용
 
 #### P2 (운영 고도화)
 - [ ] OpenAPI 기반 타입 생성/Contract Test 도입 검토
@@ -105,7 +105,7 @@
   - Docker/Compose 실행 경로, provider profile(`ollama`, `llamacpp`), 볼륨(`./DB:/data/DB`)은 이미 존재.
 
 ### 산출물 체크리스트 (실구현 반영)
-- [ ] `openapi/openapi.yaml`
+- [x] `openapi/openapi.yaml`
 - [ ] `Dockerfile.backend` (현재는 통합 `Dockerfile`만 존재)
 - [ ] `Dockerfile.frontend`
 - [x] `docker-compose.yml` (단, 백엔드/프론트 분리 구조는 아님)
@@ -116,7 +116,7 @@
 ## 작업 방향 TODO (우선순위 체크박스)
 
 ### P0 — 계약/구조 분리 착수
-- [ ] `openapi/openapi.yaml` 초안 작성
+- [x] `openapi/openapi.yaml` 초안 작성
   - [ ] `POST /process`, `GET /progress/{task_id}`, `GET /history`, `GET /search`, `POST /delete_records`(현행 API 기준) 명세 반영
   - [ ] 공통 에러 스키마(`error`, `error_code`, `retryable`, `failed_step`) 반영
   - [ ] WebSocket(`ws://<host>:8765`)은 별도 섹션(또는 AsyncAPI 링크)으로 문서화
@@ -262,7 +262,7 @@
 ## 작업 방향 TODO (우선순위 체크박스)
 
 ### P0 — 계약 고정 + 서비스 분리 골격
-- [ ] `openapi/openapi.yaml` 초안 작성
+- [x] `openapi/openapi.yaml` 초안 작성
   - [ ] `POST /process`, `GET /progress/{task_id}`, `GET /history`, `GET /search`, `POST /delete_records` 명세
   - [ ] 공통 오류 필드(`error`, `error_code`, `retryable`, `failed_step`) 반영
   - [ ] WS(8765) 별도 문서(또는 AsyncAPI) 링크 추가
@@ -277,7 +277,7 @@
   - [ ] `frontend/src/api/client.ts` 상대 경로 호출 정리
 - [ ] 프론트 WS URL 환경변수화
   - [ ] `frontend/src/hooks/useWebSocket.ts`의 `:8765` 하드코딩 제거
-- [ ] Reverse proxy(`/api`, `/ws`) 운영 템플릿(Nginx 등) 문서화
+- [x] Reverse proxy(`/api`, `/ws`) 운영 템플릿(Nginx 등) 문서화
 
 ### P2 — 계약 검증/운영 고도화
 - [ ] OpenAPI 기반 타입/클라이언트 생성 도입 여부 결정 + PoC
@@ -298,7 +298,7 @@
   - 대응: CI에서 스펙 검증 + 샘플 응답 검증 추가
 
 ## 산출물 체크리스트 (최신 상태 반영)
-- [ ] `openapi/openapi.yaml`
+- [x] `openapi/openapi.yaml`
 - [ ] `Dockerfile.backend`
 - [ ] `Dockerfile.frontend`
 - [x] `docker-compose.yml` (현재는 단일 앱 서비스 구조)

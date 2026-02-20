@@ -22,6 +22,14 @@ interface ApiRequestOptions extends RequestInit {
 }
 
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim().replace(/\/$/, '') ?? '';
+
+function withApiBase(path: string): string {
+  if (!path.startsWith('/')) return path;
+  return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
+}
+
+
 function buildDestructiveApiAuthOptions(auth?: DestructiveApiAuth): { headers?: Record<string, string>; body?: Record<string, string> } {
   if (!auth) return {};
 
@@ -49,7 +57,8 @@ function buildDestructiveApiAuthOptions(auth?: DestructiveApiAuth): { headers?: 
 
 async function apiRequest<T>(input: RequestInfo | URL, init: ApiRequestOptions = {}): Promise<T> {
   const { skipJson, ...requestInit } = init;
-  const res = await fetch(input, requestInit);
+  const requestInput = typeof input === 'string' ? withApiBase(input) : input;
+  const res = await fetch(requestInput, requestInit);
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(body || `API request failed (${res.status})`);
@@ -224,7 +233,7 @@ export async function deleteFile(fileIdentifier: string, fileType: ViewerFileTyp
   });
 }
 
-export const getDownloadUrl = (fileIdentifier: string): string => `/download/${encodeURIComponent(fileIdentifier)}`;
+export const getDownloadUrl = (fileIdentifier: string): string => withApiBase(`/download/${encodeURIComponent(fileIdentifier)}`);
 
 export const getModels = (provider?: 'ollama' | 'llamacpp') => {
   const query = provider ? `?provider=${encodeURIComponent(provider)}` : '';

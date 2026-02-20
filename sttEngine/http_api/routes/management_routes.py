@@ -29,6 +29,13 @@ def _serve_running_tasks(handler) -> None:
 
 
 def handle_get(handler) -> bool:
+    if handler.path == '/health':
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'application/json')
+        handler.end_headers()
+        handler.wfile.write(json.dumps({'status': 'ok'}).encode())
+        return True
+
     if handler.path == '/tasks':
         _serve_running_tasks(handler)
         return True
