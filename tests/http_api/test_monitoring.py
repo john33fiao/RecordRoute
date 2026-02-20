@@ -65,3 +65,14 @@ def test_workflow_metrics_route_returns_snapshot(dummy_handler_factory, monkeypa
     assert handled is True
     assert handler.status_code == 200
     assert _body(handler)["steps"]["stt"]["runs"] == 3
+
+
+def test_health_route_returns_ok(dummy_handler_factory):
+    handler = dummy_handler_factory({})
+    handler.path = '/health'
+
+    handled = management_routes.handle_get(handler)
+
+    assert handled is True
+    assert handler.status_code == 200
+    assert _body(handler) == {'status': 'ok'}

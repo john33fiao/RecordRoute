@@ -1,12 +1,13 @@
 services:
-  recordroute:
+  backend:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: recordroute:latest
-    container_name: recordroute
+      dockerfile: Dockerfile.backend
+    image: recordroute-backend:latest
+    container_name: recordroute-backend
     ports:
       - "8080:8080"
+      - "8765:8765"
     environment:
       HOST: 0.0.0.0
       PORT: 8080
@@ -19,6 +20,27 @@ services:
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-http://llamacpp:8081}
     volumes:
       - ./DB:/data/DB
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        VITE_WS_URL: ${VITE_WS_URL:-}
+    image: recordroute-frontend:latest
+    container_name: recordroute-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
 
   ollama:
     image: ollama/ollama:latest

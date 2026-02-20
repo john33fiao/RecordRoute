@@ -16,6 +16,9 @@
   - `ThreadingHTTPServer` + `UploadHandler`
   - WebSocket 서버는 별도 스레드에서 실행 (`sttEngine/http_api/ws.py`, 포트 `8765`)
 - 런처 래퍼: `sttEngine/server.py` (`python -m sttEngine.server`)
+- Docker 분리 이미지:
+  - 백엔드: `Dockerfile.backend`
+  - 프론트엔드: `Dockerfile.frontend`
 - 핵심 HTTP 라우팅: `sttEngine/http_api/handler.py` + 라우트 모듈(`sttEngine/http_api/routes/*`)
   - 파일/정적 서빙: `sttEngine/http_api/routes/file_routes.py`
   - 유사문서 응답 조합: `sttEngine/http_api/routes/similar_documents.py`
@@ -37,10 +40,12 @@
 - `.env`의 `LLM_PROVIDER`/`EMBEDDING_PROVIDER`가 `ollama`가 아니면 setup/run 스크립트의 Ollama 점검 단계는 자동 skip
 - 프론트 빌드: `cd frontend && npm install && npm run build`
 
-Docker Compose provider profile:
-- 앱 단독: `docker compose up -d --build`
+Docker Compose provider profile(분리 배포):
+- 기본(backend + frontend): `docker compose up -d --build`
 - Ollama 포함: `docker compose --profile ollama up -d --build`
 - llama.cpp 포함: `docker compose --profile llamacpp up -d --build`
+- 프론트 접속: `http://localhost:3000`, 백엔드 API: `http://localhost:8080`, WebSocket: `ws://localhost:8765`
+- 프론트 컨테이너(Nginx)는 `/api` -> backend(8080), `/ws` -> backend WebSocket(8765) 프록시를 기본 제공
 
 ## 3. 데이터/경로 규칙
 - DB 루트는 `DB_FOLDER_PATH` 환경변수 우선, 없으면 프로젝트 루트의 `DB/`
@@ -54,7 +59,7 @@ Docker Compose provider profile:
 ## 4. API 계약 (현재 코드 기준)
 
 GET
-- `/`, `/assets/*`, `/download/<uuid_or_path>`
+- `/`, `/assets/*`, `/download/<uuid_or_path>`, `/health`
 - `/history`, `/tasks`, `/progress/<task_id>` (진행률 %, ETA, 표준 오류 payload 포함)
 - `/segments/<file_identifier>` (STT 세그먼트 sidecar를 읽어 `[{start,end,text,speaker}]` 반환, 없으면 빈 배열)
 - `/file_search`, `/search`

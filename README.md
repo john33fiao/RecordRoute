@@ -25,6 +25,38 @@ run.bat
 
 ## 2) 수동 설치
 
+## 2-A) Docker 분리 배포 (backend + frontend)
+
+```bash
+docker compose up -d --build
+```
+
+프로필 사용:
+```bash
+# Ollama 포함
+docker compose --profile ollama up -d --build
+
+# llama.cpp 포함
+docker compose --profile llamacpp up -d --build
+```
+
+기본 포트:
+- 프론트엔드: `http://localhost:3000`
+- 백엔드 API: `http://localhost:8080`
+- WebSocket: `ws://localhost:8765`
+
+프론트 빌드 변수(Compose build args):
+- `VITE_API_BASE_URL` (기본 `/api`, 프론트 Nginx가 backend:8080으로 프록시)
+- `VITE_WS_URL` (기본 비움. 비어 있으면 브라우저 origin 기준 `/ws` 사용)
+
+백엔드 헬스체크:
+- `GET /health` → `{ "status": "ok" }`
+
+프론트 Nginx 프록시 경로:
+- `/api/*` -> `backend:8080/*`
+- `/ws` -> `backend:8765` (WebSocket 업그레이드)
+
+
 ### Python 가상환경 + 의존성 설치
 macOS/Linux:
 ```bash
@@ -56,8 +88,9 @@ venv\Scripts\python.exe -m sttEngine.server
 ```
 
 기본 접속 주소:
-- HTTP: `http://localhost:8080`
+- HTTP(API): `http://localhost:8080`
 - WebSocket: `ws://localhost:8765`
+- (Docker 분리 배포) Frontend: `http://localhost:3000`
 - Windows `run.bat` 실행 시 `8080` 바인딩이 불가하면 자동으로 `18080`으로 대체됩니다.
 
 ## 3) 모델/Provider 설정 방법
