@@ -1,5 +1,97 @@
 # 백엔드·프론트엔드 분리 배포 + OpenAPI 연동 계획
 
+## RTD 정밀 점검 (2026-02-20)
+
+> 기준: `AGENTS.md`의 배포준비(RTD) 1~18단계 중, **문서 점검 작업에 해당하는 1~17단계**를 코드베이스 실측으로 수행.
+
+### [Step 1] 계획 수립 — PASS
+- 목표: 본 문서의 TODO가 실제 코드 상태와 일치하는지 검증하고, 미완료 작업을 우선순위별로 확정한다.
+- 범위(In): Docker 분리 배포, OpenAPI, 프론트 API/WS 설정, health endpoint, 운영 문서 반영 여부.
+- 범위(Out): 실제 기능 구현(코드 수정), 인프라 배포.
+- 검증 방법: 파일 실측(`docker-compose*.yml`, `Dockerfile*`, `frontend/src/*`, `sttEngine/http_api/routes/*`, `README.md`).
+
+### [Step 2] 계획 검토 — PASS
+- 누락 가능 항목(헬스체크, provider profile 유지, 문서 동기화)을 점검 항목에 포함했다.
+- OpenAPI 파일 존재 여부뿐 아니라 Swagger/ReDoc 노출 여부도 점검 항목으로 명시했다.
+
+### [Step 3] 검토의 재검토 — PASS
+- 가정 1: 분리 Dockerfile이 있으면 `Dockerfile.backend`/`Dockerfile.frontend` 이름으로 존재한다.
+- 가정 2: health endpoint는 `GET /health` 문자열 혹은 라우팅 등록으로 탐지 가능하다.
+- 가정 3: 프론트 API/WS 환경변수화는 `import.meta.env` 또는 동등한 런타임 설정 사용으로 판단한다.
+
+### [Step 4] 과도성 검토 — PASS
+- 계획 범위를 "문서 점검 및 미완료 항목 확정"으로 제한했다.
+- 구현 제안은 최소 수준(즉시 착수 가능한 TODO)만 남겼다.
+
+### [Step 5] 구현(점검 수행) — PASS
+- 실측 결과:
+  - `openapi/openapi.yaml` 없음.
+  - `Dockerfile.backend`, `Dockerfile.frontend` 없음(통합 `Dockerfile`만 존재).
+  - `docker-compose.yml`은 `recordroute` 단일 서비스 구조.
+  - `frontend/src/api/client.ts`는 상대경로(`/process` 등) 직접 호출.
+  - `frontend/src/hooks/useWebSocket.ts`는 `:8765` 하드코딩.
+  - 백엔드 `GET /health` 라우트 미존재(`provider.healthcheck()` 내부 호출만 존재).
+
+### [Step 6] 목적 적합성 검토 — PASS
+- 본 문서의 핵심 질문("미완료 작업 존재 여부")에 대해 항목별 상태 판정을 제공했다.
+
+### [Step 7] 잠재 이슈/보안 점검 — PASS
+- 구조 미분리 상태에서 프론트/백엔드 동시 장애 전파 가능성 유지.
+- health endpoint 부재로 orchestration 환경의 자동 복구/가시성 저하 위험.
+
+### [Step 8] 회귀 검토 — PASS
+- 문서만 갱신했으며 런타임 코드/설정 변경이 없어 기능 회귀 영향은 없다.
+
+### [Step 9] 과대 파일/함수 분할 검토 — PASS
+- 본 문서는 기존 중복 섹션이 일부 있으나, 이번 점검 범위에서는 우선 "최신 RTD 결과"를 상단에 고정해 해석 충돌을 줄였다.
+
+### [Step 10] 재사용/통합 검토 — PASS
+- 점검 기준은 기존 운영 문서(`README.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`)와 코드 실측 근거를 재사용했다.
+
+### [Step 11] 사이드 이펙트 점검 — PASS
+- 문서 변경만 수행했으므로 빌드/배포/런타임 사이드 이펙트 없음.
+
+### [Step 12] 전체 변경 재검토 — PASS
+- 점검 결과와 기존 TODO 방향(P0/P1/P2)이 일관됨을 확인했다.
+
+### [Step 13] 불필요 잔재 정리 — PASS
+- "점검 결과"와 "실행 TODO"가 바로 연결되도록 미완료 기준을 명시했다.
+
+### [Step 14] 품질 게이트 검토 — PASS
+- 문서 무결성 확인(`markdownlint`는 미실행, 파일 내용/링크 수동 확인).
+
+### [Step 15] 사용자 흐름 점검 — PASS
+- 사용자 관점에서 필요한 결론(무엇이 미완료인지, 무엇부터 해야 하는지)을 우선순위로 읽을 수 있게 정리했다.
+
+### [Step 16] 발견 이슈 심화 점검 — PASS
+- 핵심 블로커 3가지 확정:
+  1. OpenAPI 산출물 부재
+  2. 분리 배포용 Docker 아티팩트 부재
+  3. 프론트 API/WS endpoint 하드코딩
+
+### [Step 17] 배포 준비도 최종 판정 — NOT READY
+- DoD(분리 배포 + OpenAPI 계약 연동) 기준으로 아직 배포 준비 상태가 아님.
+- 블로커 해소 우선순위:
+  1. `openapi/openapi.yaml` 작성 및 핵심 엔드포인트 계약 고정
+  2. `Dockerfile.backend`/`Dockerfile.frontend` 분리 + compose 2서비스화
+  3. `VITE_API_BASE_URL`, `VITE_WS_URL` 도입 + `/health` 추가
+
+### RTD 기준 미완료 작업 요약 (즉시 실행 큐)
+
+#### P0 (즉시)
+- [ ] `openapi/openapi.yaml` 신규 작성 및 핵심 5개 API 명세 반영
+- [ ] `Dockerfile.backend` + `Dockerfile.frontend` 분리
+- [ ] `docker-compose.yml`을 `backend`/`frontend` 2서비스 구조로 전환
+
+#### P1 (안정화)
+- [ ] `GET /health` 구현 및 compose healthcheck 연결
+- [ ] `frontend/src/api/client.ts`에 `VITE_API_BASE_URL` 적용
+- [ ] `frontend/src/hooks/useWebSocket.ts`에 `VITE_WS_URL` 적용
+
+#### P2 (운영 고도화)
+- [ ] OpenAPI 기반 타입 생성/Contract Test 도입 검토
+- [ ] README Docker 섹션을 분리 배포 기준으로 개편
+
 ## 구현 상태 점검 (코드베이스 기준, 2026-02-18)
 
 아래 항목은 현재 저장소 구현(`Dockerfile`, `docker-compose*.yml`, `sttEngine/http_api/*`, `frontend/src/*`, `README.md`)을 기준으로 대조한 결과입니다.
