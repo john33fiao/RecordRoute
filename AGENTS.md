@@ -10,6 +10,13 @@
 문서 동기화 규칙:
 - API, 경로, 실행 방식이 바뀌면 `README.md`와 `AGENTS.md`를 함께 갱신
 - 세부 구현 변경(파일 이동, 모듈 분리) 시 `AGENTS.md`를 먼저 갱신
+- 에이전트 안내 문서(`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`)를 수정할 때는 세 파일을 같은 커밋에서 함께 동기화
+
+문서 점검 기준(에이전트 작업 시작 전):
+- 사용자/운영 관점: `README.md`
+- 에이전트 규칙 원본: `AGENTS.md`
+- 모델별 요약 문서: `CLAUDE.md`, `GEMINI.md`
+- 실행 백로그: `TODO/TODO.md`, `TODO/GUI.md`, `TODO/llama-migration.md`, `TODO/rust-migration.md`, `TODO/DOCKER_OPENAPI_DEPLOY_PLAN.md`
 
 ## 1. 현재 구조 요약
 - 백엔드 엔트리포인트: `sttEngine/http_api/app.py`
@@ -156,3 +163,8 @@ POST
 - 호출 키워드(alias): `RTD`
 - 스킬 본문 경로: `.agents/skills/RTD.md`
 - 인터페이스/기본 프롬프트 설정: `.agents/skills/openai.yaml`
+
+## 10. 문서 최신화 체크리스트
+- `TODO/STATUS_REVIEW.md`는 현재 저장소 기준 파일이 아니므로 참조하지 않습니다.
+- 백로그/상태 확인은 `TODO/TODO.md`를 기준으로 하고, 트랙별 상세는 각 TODO 문서에서 확인합니다.
+- 문서 간 중복 기술은 최소화하고, 상세 기준은 항상 `AGENTS.md`에 일원화합니다.

@@ -5,14 +5,20 @@
 ## 사용 순서
 
 1. 먼저 `AGENTS.md`를 읽고 현재 구조/엔드포인트/실행 명령을 따릅니다.
-2. 이후 변경 범위에 따라 다음 파일을 우선 확인합니다.
+2. 사용자/운영 동작 확인이 필요하면 `README.md`를 함께 확인합니다.
+3. 작업 착수 전 백로그를 확인합니다.
+   - 공통: `TODO/TODO.md`
+   - 트랙별: `TODO/GUI.md`, `TODO/llama-migration.md`, `TODO/rust-migration.md`, `TODO/DOCKER_OPENAPI_DEPLOY_PLAN.md`
+4. 이후 변경 범위에 따라 다음 파일을 우선 확인합니다.
    - 백엔드 라우팅: `sttEngine/http_api/handler.py`
    - 워크플로우: `sttEngine/http_api/workflow.py`
    - 프론트 API 연동: `frontend/src/api/client.ts`, `frontend/src/api/types.ts`
 
 ## 문서 점검
 
-- 백로그는 `TODO/TODO.md`(실행 항목만 유지), 최신 점검 결과는 `TODO/STATUS_REVIEW.md`를 우선 참고합니다.
+- 에이전트 원본 규칙은 `AGENTS.md`를 기준으로 유지합니다.
+- `TODO/STATUS_REVIEW.md`는 현재 저장소 기준 파일이 아니므로 참조하지 않습니다.
+- 에이전트 문서(`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`)를 수정할 때는 세 파일을 함께 동기화합니다.
 
 ## 최소 검증
 

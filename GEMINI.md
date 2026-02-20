@@ -5,12 +5,16 @@
 ## 우선 참고
 
 - 구조/실행/API/테스트 기준: `AGENTS.md`
+- 사용자/운영 문서: `README.md`
+- 작업 백로그: `TODO/TODO.md`, `TODO/GUI.md`, `TODO/llama-migration.md`, `TODO/rust-migration.md`, `TODO/DOCKER_OPENAPI_DEPLOY_PLAN.md`
 - 백엔드 핵심: `sttEngine/http_api/handler.py`, `sttEngine/http_api/workflow.py`
 - 프론트 핵심: `frontend/src/*`
 
 ## 문서 점검
 
-- 백로그는 `TODO/TODO.md`(실행 항목만 유지), 최신 점검 결과는 `TODO/STATUS_REVIEW.md`를 우선 참고합니다.
+- 원본 기준은 `AGENTS.md`이며, 이 파일은 요약만 유지합니다.
+- `TODO/STATUS_REVIEW.md`는 현재 저장소 기준 파일이 아니므로 참조하지 않습니다.
+- 에이전트 문서(`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`)를 수정할 때는 세 파일을 함께 동기화합니다.
 
 ## 작업 체크리스트
 
