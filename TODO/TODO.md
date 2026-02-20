@@ -26,6 +26,22 @@
 
 ## 2) P1 (다음 스프린트)
 
+- [ ] 임베딩 인덱스 생성/갱신 테스트 보강
+  - 출처: `TODO/llama-migration.md` 잔여 항목 이관(원본 문서 삭제, 2026-02-20)
+  - 범위: 임베딩 파이프라인 인덱스 생성/증분 갱신/재색인 경로 회귀 테스트 추가
+
+- [ ] Ollama legacy 경로 정리(삭제/선택적 유지 결정)
+  - 출처: `TODO/llama-migration.md` 잔여 항목 이관(원본 문서 삭제, 2026-02-20)
+  - 범위: `sttEngine/ollama_utils.py` 및 호환 alias 유지 정책 확정 + 문서 동기화
+
+- [ ] llama 마이그레이션 마감 검증 (clean 환경 setup/run 실측)
+  - 출처: `TODO/llama-migration.md` 잔여 항목 이관(원본 문서 삭제, 2026-02-20)
+  - 범위: `./setup.sh`/`./run.sh` 및 Windows `setup.bat`/`run.bat` 흐름의 provider별(ollama/llamacpp) smoke check
+
+- [ ] provider contract 테스트 확장
+  - 출처: `TODO/llama-migration.md` 잔여 항목 이관(원본 문서 삭제, 2026-02-20)
+  - 범위: `chat/embed/list_models` + timeout/retry/backoff + 미설치/미응답/차원 불일치 시나리오
+
 - [ ] 검색 고급 필터 UX 정리
   - 범위: 현재 노출된 필터(기간/정렬/최소점수/상태/파일타입)의 초기값, 검증 메시지, 페이지네이션 UX 다듬기
 

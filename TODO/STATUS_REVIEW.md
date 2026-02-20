@@ -54,7 +54,7 @@
 
 # llama 마이그레이션 Phase 1 상태 점검 (2026-02-18)
 
-대상: `TODO/llama-migration.md`의 **"Phase 1 — Provider 추상화 골격 구축"**
+대상: `TODO/llama-migration.md`(삭제됨, 2026-02-20) 기준 **"Phase 1 — Provider 추상화 골격 구축"**
 
 ## [Step 1] 계획 수립 — PASS
 - 목표: Phase 1 체크리스트(인터페이스/구현/팩토리/테스트 초안) 실제 코드 반영 여부 확인.
@@ -79,7 +79,7 @@
 - `ollama_provider.py`, `llama_cpp_provider.py` 구현체 존재 및 factory 연결 확인.
 
 ## [Step 6] 목적 적합성 검토 — PASS
-- `TODO/llama-migration.md` Phase 1 체크리스트의 [x] 항목과 실제 코드 구조가 일치.
+- (삭제 전 문서 기준) `TODO/llama-migration.md` Phase 1 체크리스트의 [x] 항목과 실제 코드 구조가 일치.
 
 ## [Step 7] 잠재 이슈/보안 검토 — PASS
 - 고위험 보안 이슈는 미발견.
@@ -183,7 +183,7 @@
 - 사용자 흐름 관점에서 provider 선택 + 모델 목록 조회 + 워크플로우 전달이 이어지는 경로 확인.
 
 ## [Step 16] 이슈 추적 재검토 — PASS(개선 필요)
-- 문서 드리프트: `TODO/llama-migration.md` 상단/하단 체크리스트에는 미완료([ ])가 다수 남아 있으나, 실제 구현은 상당수 완료([x]) 상태와 혼재.
+- 문서 드리프트(삭제 전): `TODO/llama-migration.md` 상단/하단 체크리스트에는 미완료([ ])가 다수 남아 있으나, 실제 구현은 상당수 완료([x]) 상태와 혼재.
 - 후속 조치: 체크리스트를 현재 코드 기준으로 재정렬 필요.
 
 ## [Step 17] 배포 준비 판정 — 조건부 PASS
