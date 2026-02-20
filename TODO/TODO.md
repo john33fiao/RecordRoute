@@ -56,6 +56,27 @@
 - [ ] 훅/컴포넌트 테스트 보강
   - 범위: `useTaskQueue`, `SearchPanel`, `TextOverlay`, `SimilarityGraphPanel`
 
+
+## 2-1) LLM Provider/llama 마이그레이션 잔여 (llama-migration.md 이관)
+
+- [ ] `sttEngine/one_line_summary.py` direct Ollama 의존 제거 또는 legacy 경로로 명시
+  - 범위: `import ollama`/`ollama.generate` 직접 호출 정리, optional dependency 환경에서도 import/test 수집 가능하게 가드 처리
+
+- [ ] `tests/http_api/test_admin_models.py`의 ollama 미설치 환경 독립성 확보
+  - 범위: `one_line_summary` 결합 의존 최소화, 미설치 환경에서 테스트 수집/실행 보장
+
+- [ ] provider contract 테스트 확장
+  - 범위: `chat/embed/list_models` 공통 계약 + `timeout/retry/backoff` + `미설치/미응답` 시나리오
+
+- [ ] 임베딩 인덱스 생성/갱신 회귀 테스트 보강
+  - 범위: provider 전환 이후 인덱스 생성/업데이트 경로 검증 자동화
+
+- [ ] clean 환경 `setup/run` 실측 검증
+  - 범위: 신규 환경에서 설정/실행 절차 재검증 후 README/운영 문서 체크리스트 반영
+
+- [ ] Ollama legacy 경로 정리(삭제 또는 선택적 유지 정책 확정)
+  - 범위: 과도기 호환 범위 문서화 + 제거 시 롤백 경로 명시
+
 ## 3) P2 (중기 개선)
 
 - [ ] 컨텍스트 리렌더 최적화
