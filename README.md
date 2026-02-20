@@ -4,6 +4,7 @@ RecordRoute는 음성/문서 입력을 STT, 교정, 요약, 임베딩 검색으�
 ## 문서 안내
 - 설치/모델 설정/사용 방법: 이 문서(`README.md`)
 - 현재 코드베이스 구조/개발 참고: `docs/current-codebase-overview.md`
+- llama.cpp 실사용 가이드: `docs/llama-guide.md`
 - 코딩 에이전트 기준 문서: `AGENTS.md`
 - 에이전트 요약 문서: `CLAUDE.md`, `GEMINI.md`
 
