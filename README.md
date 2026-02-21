@@ -107,12 +107,11 @@ venv\Scripts\python.exe -m sttEngine.server
 2. 사용할 모델 pull (예: `gpt-oss:20b`)
 3. 필요 시 `.env`에 Ollama 주소/타임아웃 설정
 
-### 3-3. llama.cpp(OpenAI 호환 API) 사용 시
-- `LLM_BASE_URL` (기본 `http://localhost:8081`)
-- `EMBEDDING_BASE_URL` (기본 `http://localhost:8081`)
-- `LLAMA_CPP_MODEL_PATH` (`.gguf` 모델 경로)
-- `LLAMA_CPP_COMMAND` (기본 `llama-cli`)
-- `LLAMA_CPP_TIMEOUT`, `LLM_TIMEOUT`, `EMBEDDING_TIMEOUT`
+### 3-3. llama.cpp(In-process / `llama-cpp-python`) 사용 시
+- `pip install -r requirements.txt`로 `llama-cpp-python`을 함께 설치합니다.
+- `LLAMA_CPP_MODEL_PATH` (`.gguf` 모델 경로, 기본값 `./models/default_model.gguf`)
+- 선택 성능 튜닝: `LLAMA_CPP_N_CTX`, `LLAMA_CPP_N_THREADS`, `LLAMA_CPP_N_BATCH`, `LLAMA_CPP_N_GPU_LAYERS`, `LLAMA_CPP_CHAT_FORMAT`
+- 하위 호환용으로 `LLM_BASE_URL`, `EMBEDDING_BASE_URL`, `LLAMA_CPP_COMMAND`를 남겨둘 수 있으나, in-process 모드에서는 무시되며 warning 로그가 남습니다.
 
 ### 3-4. 워크플로우 모델 키(`model_settings`)
 `/process` 요청 시 주로 아래 키를 사용합니다.

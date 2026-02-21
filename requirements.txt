@@ -21,3 +21,5 @@ mcp>=0.1.0
 # Optional provider dependencies
 # - Ollama provider를 사용하려면 아래 파일을 추가 설치하세요.
 #   pip install -r requirements-ollama.txt
+
+llama-cpp-python
