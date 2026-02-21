@@ -45,6 +45,8 @@
 - 백엔드: `venv/bin/python -m sttEngine.server` (Windows: `venv\\Scripts\\python.exe -m sttEngine.server`)
 - Ollama provider 사용 시 추가 의존성: `pip install -r requirements-ollama.txt`
 - llama.cpp provider는 `llama-cpp-python` in-process 모드를 사용하며, `LLAMA_CPP_MODEL_PATH` 기본값은 `./models/default_model.gguf`
+- 로컬 GGUF 파일이 없으면 `HF_MODEL_REPO_ID`/`HF_MODEL_FILENAME`(선택 `HF_MODEL_REVISION`) 기반으로 Hugging Face 자동 다운로드를 시도하며, `HF_TOKEN`이 필요
+- Hugging Face 캐시 경로는 `LLAMA_CPP_MODEL_CACHE_DIR`(기본 `./models`)로 제어
 - Whisper 모델 경로는 `WHISPER_MODEL_DIR` 환경변수로 오버라이드할 수 있으며, 미지정 시 프로젝트 루트 `./models`를 기본 사용
 - `LLM_BASE_URL`/`EMBEDDING_BASE_URL`/`LLAMA_CPP_COMMAND`는 하위 호환용으로 남아 있으나 in-process 모드에서 무시됨
 - `.env`의 `LLM_PROVIDER`/`EMBEDDING_PROVIDER`가 `ollama`가 아니면 setup/run 스크립트의 Ollama 점검 단계는 자동 skip

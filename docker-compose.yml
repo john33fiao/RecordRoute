@@ -18,8 +18,14 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://llamacpp:8081}
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-http://llamacpp:8081}
+      LLAMA_CPP_MODEL_CACHE_DIR: ${LLAMA_CPP_MODEL_CACHE_DIR:-./models}
+      HF_MODEL_REPO_ID: ${HF_MODEL_REPO_ID:-}
+      HF_MODEL_FILENAME: ${HF_MODEL_FILENAME:-}
+      HF_MODEL_REVISION: ${HF_MODEL_REVISION:-}
+      HF_TOKEN: ${HF_TOKEN:-}
     volumes:
       - ./DB:/data/DB
+      - ./models:/app/models
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
