@@ -23,3 +23,4 @@ mcp>=0.1.0
 #   pip install -r requirements-ollama.txt
 
 llama-cpp-python
+huggingface_hub>=0.24.0,<1.0.0

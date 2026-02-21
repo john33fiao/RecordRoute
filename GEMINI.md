@@ -29,4 +29,6 @@
 
 - llama.cpp provider는 `llama-cpp-python` in-process 모드를 기본으로 사용합니다.
 - `LLAMA_CPP_MODEL_PATH` 기본값은 `./models/default_model.gguf`이며, 기존 HTTP/CLI 관련 환경 변수는 하위 호환용으로 유지됩니다.
+- 로컬 GGUF 파일이 없으면 `HF_MODEL_REPO_ID`/`HF_MODEL_FILENAME`(선택 `HF_MODEL_REVISION`) 기반으로 Hugging Face 자동 다운로드를 시도하며 `HF_TOKEN`이 필요합니다.
+- Hugging Face 캐시 경로는 `LLAMA_CPP_MODEL_CACHE_DIR`(기본 `./models`)로 제어합니다.
 - Whisper 모델 경로는 `WHISPER_MODEL_DIR`로 오버라이드할 수 있고, 기본값은 프로젝트 루트 `./models`입니다.
