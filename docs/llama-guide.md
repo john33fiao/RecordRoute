@@ -1,32 +1,33 @@
-# RecordRoute + llama.cpp 초간단 따라하기
+# RecordRoute + llama.cpp 모델 세팅 가이드 (In-process)
 
-> 목표: **"처음 하는 사람도 그대로 복붙해서"** llama.cpp로 RecordRoute를 실행하도록 안내합니다.
+> 목표: RecordRoute에서 `llama-cpp-python` 기반 **in-process llama.cpp**를 안정적으로 설정하고 검증합니다.
 
 이 가이드는 **로컬 실행(비 Docker)** 기준입니다.
-Docker로 하고 싶으면 맨 아래 "부록"만 보면 됩니다.
 
 ---
 
-## 0) 먼저 알아둘 것 (30초)
+## 0) 핵심 요약
 
-RecordRoute에서 llama.cpp는 보통 2가지를 씁니다.
+RecordRoute의 `llamacpp` provider는 외부 `llama-cli`/`llama-server` 호출이 아니라,
+백엔드 프로세스 내부에서 `llama_cpp.Llama`를 직접 호출합니다.
 
-- **교정/요약 LLM**
-- **임베딩(검색용)**
-
-둘 다 안정적으로 쓰려면, 가장 단순하게 아래처럼 맞추면 됩니다.
+필수 포인트:
 
 - `LLM_PROVIDER=llamacpp`
 - `EMBEDDING_PROVIDER=llamacpp`
-- llama.cpp 서버(`llama-server`)를 `8081`로 실행하고 `--embeddings` 옵션 켜기
+- `LLAMA_CPP_MODEL_PATH` 설정 (미설정 시 기본값 `./models/default_model.gguf`)
+- `pip install -r requirements.txt`로 `llama-cpp-python` 설치
+
+하위 호환용 환경 변수(`LLM_BASE_URL`, `EMBEDDING_BASE_URL`, `LLAMA_CPP_COMMAND`)는
+남겨둘 수 있지만 in-process 모드에서 실제 호출에는 사용되지 않으며 warning 로그만 출력됩니다.
 
 ---
 
 ## 1) 준비물
 
 - RecordRoute 프로젝트
-- `.gguf` 모델 파일 1개
-- `llama-cli`, `llama-server` 실행 가능 환경
+- `.gguf` 모델 파일
+- Python 가상환경 (`venv`) + `requirements.txt` 설치
 
 ### 1-1. 모델 파일 준비
 
@@ -38,25 +39,17 @@ mkdir -p models
 
 `models/` 안에 `.gguf` 파일을 넣으세요. 예:
 
-- `models/model.gguf`
+- `models/default_model.gguf`
 
 ---
 
-## 2) llama.cpp 서버 먼저 실행
-
-아래 명령에서 경로만 본인 환경으로 바꿔서 실행하세요.
+## 2) 의존성 설치
 
 ```bash
-llama-server --host 0.0.0.0 --port 8081 --model /절대경로/models/model.gguf --embeddings
+./venv/bin/python -m pip install -r requirements.txt
 ```
 
-정상 실행되면 다음 체크:
-
-```bash
-curl -s http://localhost:8081/health
-```
-
-응답이 나오면 OK입니다.
+> `llama-cpp-python` 빌드에 시간이 걸릴 수 있습니다.
 
 ---
 
@@ -68,20 +61,25 @@ curl -s http://localhost:8081/health
 LLM_PROVIDER=llamacpp
 EMBEDDING_PROVIDER=llamacpp
 
-LLAMA_CPP_COMMAND=llama-cli
-LLAMA_CPP_MODEL_PATH=/절대경로/models/model.gguf
-LLAMA_CPP_TIMEOUT=300
+# 미설정 시 기본값: ./models/default_model.gguf
+LLAMA_CPP_MODEL_PATH=./models/default_model.gguf
 
-LLM_BASE_URL=http://localhost:8081
-EMBEDDING_BASE_URL=http://localhost:8081
-EMBEDDING_TIMEOUT=300
+# 선택 튜닝
+# LLAMA_CPP_N_CTX=8192
+# LLAMA_CPP_N_THREADS=8
+# LLAMA_CPP_N_BATCH=512
+# LLAMA_CPP_N_GPU_LAYERS=35
+# LLAMA_CPP_CHAT_FORMAT=chatml
 ```
 
-핵심은 3개입니다.
+legacy 변수는 선택적으로 남겨둘 수 있으나 in-process 모드에서는 무시됩니다.
 
-1. provider 둘 다 `llamacpp`
-2. 모델 경로는 **절대경로**
-3. base url 둘 다 `http://localhost:8081`
+```env
+# 아래 값들은 하위 호환용(무시됨)
+# LLM_BASE_URL=http://localhost:8081
+# EMBEDDING_BASE_URL=http://localhost:8081
+# LLAMA_CPP_COMMAND=llama-cli
+```
 
 ---
 
@@ -91,19 +89,17 @@ EMBEDDING_TIMEOUT=300
 ./venv/bin/python -m sttEngine.server
 ```
 
-서버가 떴다면 모델 상태 확인:
+서버가 올라오면 모델 상태 확인:
 
 ```bash
 curl -s http://localhost:8080/models | jq
 ```
 
-여기서 `default.provider`가 `llamacpp`면 1차 성공입니다.
+`default.provider`가 `llamacpp`면 1차 설정 성공입니다.
 
 ---
 
 ## 5) 실제 처리 요청 (`/process`)
-
-아래 JSON을 기준으로 요청하세요.
 
 ```json
 {
@@ -112,8 +108,8 @@ curl -s http://localhost:8080/models | jq
   "model_settings": {
     "provider": "llamacpp",
     "whisper": "large-v3-turbo",
-    "correct": "/절대경로/models/model.gguf",
-    "summarize": "/절대경로/models/model.gguf",
+    "correct": "./models/default_model.gguf",
+    "summarize": "./models/default_model.gguf",
     "temperature": 0.2,
     "context_window": 8192,
     "max_tokens": 1024
@@ -121,7 +117,7 @@ curl -s http://localhost:8080/models | jq
 }
 ```
 
-진행률은:
+진행률 확인:
 
 ```bash
 curl -s http://localhost:8080/progress/<task_id> | jq
@@ -129,53 +125,46 @@ curl -s http://localhost:8080/progress/<task_id> | jq
 
 ---
 
-## 6) 막히는 지점 빠른 해결
+## 6) 트러블슈팅
 
-### A. "llama.cpp 실행 파일을 찾을 수 없습니다"
+### A. `llama-cpp-python` import 실패
 
-```bash
-command -v llama-cli
-command -v llama-server
-```
+- `./venv/bin/python -m pip install -r requirements.txt` 재실행
+- Python/컴파일러 환경 확인
 
-둘 중 하나라도 비어 있으면 설치/경로 문제입니다.
+### B. `llama.cpp 모델 파일을 찾을 수 없습니다`
 
-### B. "모델 경로가 필요합니다"
+- `LLAMA_CPP_MODEL_PATH` 값 확인
+- 상대경로 기준은 **프로젝트 루트**
 
-- `LLAMA_CPP_MODEL_PATH` 확인
-- `/process`의 `correct`, `summarize`에 `.gguf` 절대경로 넣었는지 확인
+### C. 응답이 느림 / 메모리 사용량 큼
 
-### C. "임베딩 실패"
+- 큰 모델일수록 첫 로딩이 오래 걸립니다(이후는 캐시 재사용)
+- `LLAMA_CPP_N_THREADS`, `LLAMA_CPP_N_GPU_LAYERS`, `LLAMA_CPP_N_BATCH` 튜닝
 
-- `EMBEDDING_BASE_URL=http://localhost:8081` 확인
-- `llama-server` 실행 시 `--embeddings` 넣었는지 확인
+### D. 임베딩/검색 결과가 비정상
 
-### D. `/search` 결과가 이상함
-
-- 임베딩 차원 불일치가 있으면 문서가 제외될 수 있습니다(로그 확인)
+- 임베딩 차원 불일치 문서는 검색에서 제외될 수 있음(서버 로그 확인)
 
 ---
 
-## 7) 진짜 최소 체크리스트 (이것만 하면 됨)
+## 7) 최소 체크리스트
 
-1. `.gguf` 파일 준비
-2. `llama-server ... --embeddings` 실행
-3. `.env`에서 provider 2개를 `llamacpp`로 설정
-4. RecordRoute 실행
-5. `GET /models`에서 `default.provider=llamacpp` 확인
-6. `/process` 1건 실행 후 `/progress/<task_id>` 확인
-
-여기까지 되면 **사용 가능한 상태**입니다.
+1. `.gguf` 파일 준비 (`models/default_model.gguf`)
+2. `.env`에서 provider 2개를 `llamacpp`로 설정
+3. `LLAMA_CPP_MODEL_PATH` 확인
+4. 서버 실행 후 `GET /models` 확인
+5. `/process` 1건 실행 + `/progress/<task_id>` 확인
 
 ---
 
-## 부록) Docker로 하고 싶다면
+## 부록) Docker
 
 ```bash
 docker compose --profile llamacpp up -d --build
 ```
 
-- llama.cpp 서버: `http://localhost:8081`
+- 프론트: `http://localhost:3000`
 - 백엔드 API: `http://localhost:8080`
 
-주의: Docker로 띄워도 `.env`에서 provider를 `llamacpp`로 바꿔야 실제로 llama.cpp를 사용합니다.
+주의: Docker 환경에서도 `.env`에서 provider를 `llamacpp`로 설정해야 llama.cpp 경로가 사용됩니다.

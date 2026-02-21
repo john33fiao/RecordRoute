@@ -30,3 +30,6 @@
 - 서버 엔트리는 `sttEngine/http_api/app.py`이며, `sttEngine/server.py`는 래퍼입니다.
 - 프론트 주 코드베이스는 `frontend/src`입니다. `frontend/legacy`는 fallback 용도입니다.
 - API/스키마 변경 시 `AGENTS.md`도 함께 갱신해 문서와 코드 드리프트를 막습니다.
+
+- llama.cpp provider는 `llama-cpp-python` in-process 모드가 기본입니다.
+- `LLAMA_CPP_MODEL_PATH` 기본값은 `./models/default_model.gguf`이며, `LLM_BASE_URL`/`EMBEDDING_BASE_URL`/`LLAMA_CPP_COMMAND`는 하위 호환용으로만 유지됩니다.
