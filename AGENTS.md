@@ -44,6 +44,8 @@
 개별 실행:
 - 백엔드: `venv/bin/python -m sttEngine.server` (Windows: `venv\\Scripts\\python.exe -m sttEngine.server`)
 - Ollama provider 사용 시 추가 의존성: `pip install -r requirements-ollama.txt`
+- llama.cpp provider는 `llama-cpp-python` in-process 모드를 사용하며, `LLAMA_CPP_MODEL_PATH` 기본값은 `./models/default_model.gguf`
+- `LLM_BASE_URL`/`EMBEDDING_BASE_URL`/`LLAMA_CPP_COMMAND`는 하위 호환용으로 남아 있으나 in-process 모드에서 무시됨
 - `.env`의 `LLM_PROVIDER`/`EMBEDDING_PROVIDER`가 `ollama`가 아니면 setup/run 스크립트의 Ollama 점검 단계는 자동 skip
 - 프론트 빌드: `cd frontend && npm install && npm run build`
 

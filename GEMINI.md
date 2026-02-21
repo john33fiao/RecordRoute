@@ -26,3 +26,6 @@
 
 - `pytest tests/http_api/test_workflow.py tests/http_api/test_search.py tests/server/test_queue.py tests/test_vocab_system.py`
 - UI 변경 시: `cd frontend && npm run build`
+
+- llama.cpp provider는 `llama-cpp-python` in-process 모드를 기본으로 사용합니다.
+- `LLAMA_CPP_MODEL_PATH` 기본값은 `./models/default_model.gguf`이며, 기존 HTTP/CLI 관련 환경 변수는 하위 호환용으로 유지됩니다.
