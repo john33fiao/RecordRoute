@@ -6,7 +6,6 @@ import argparse
 import json
 import logging
 import traceback
-import platform
 import subprocess
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,7 +22,12 @@ except ImportError:
     pass
 
 # 설정 모듈 임포트
-from sttEngine.config import get_db_base_path, get_default_model, get_model_for_task
+from sttEngine.config import (
+    get_db_base_path,
+    get_default_model,
+    get_model_for_task,
+    get_project_root,
+)
 from sttEngine.logger import setup_logging
 from sttEngine.vocabulary_manager import VocabularyManager
 from sttEngine.obsidian_mcp import send_stt_to_obsidian_sync
@@ -259,6 +263,18 @@ def get_unique_output_path(base_path: Path) -> Path:
         if not new_path.exists():
             return new_path
         counter += 1
+
+
+def get_whisper_model_download_root() -> Path:
+    """Whisper 모델 다운로드/로드 루트 경로를 반환합니다."""
+    configured_dir = os.getenv("WHISPER_MODEL_DIR")
+    download_root = (
+        Path(configured_dir).expanduser()
+        if configured_dir
+        else get_project_root() / "models"
+    )
+    download_root.mkdir(parents=True, exist_ok=True)
+    return download_root
 
 
 
@@ -655,13 +671,20 @@ def transcribe_audio_files(input_dir: str, output_dir: str, model_identifier: st
     if device_message:
         logging.info(device_message)
 
+    model_download_root = get_whisper_model_download_root()
+    logging.info("Whisper 모델 다운로드 경로: %s", model_download_root)
+
     # Whisper 모델 로드
     if progress_callback:
         progress_callback(f"Whisper 모델 ({os.path.basename(model_identifier)}) 로드 중...")
 
     logging.info("'%s' 모델을 로드하는 중...", os.path.basename(model_identifier))
     try:
-        model = whisper.load_model(model_identifier, device=device)
+        model = whisper.load_model(
+            model_identifier,
+            device=device,
+            download_root=str(model_download_root),
+        )
         logging.info("모델 로드 완료.")
         if progress_callback:
             progress_callback("모델 로드 완료")
@@ -841,23 +864,17 @@ def main():
 
     configure_cli_logging(args.verbose)
 
-    # 모델 경로 결정 (플랫폼별 캐시 경로 지원)
+    # 모델 경로 결정 (프로젝트 로컬 모델 경로 또는 환경변수 오버라이드)
     model_to_use = args.model_size
     if args.model_size == 'large-v3-turbo':
-        # 플랫폼별 캐시 경로 결정
-        if platform.system() == "Windows":
-            # Windows: %USERPROFILE%\.cache\whisper\
-            cache_dir = Path(os.environ.get("USERPROFILE", Path.home())) / ".cache" / "whisper"
-        else:
-            # macOS/Linux: ~/.cache/whisper/
-            cache_dir = Path.home() / ".cache" / "whisper"
-        
+        model_root = get_whisper_model_download_root()
+
         # turbo 모델 파일 검색 (다양한 파일명 패턴 지원)
         model_path = None
         turbo_patterns = ["large-v3-turbo.pt", "whisper-turbo.pt", "turbo.pt"]
-        
+
         for pattern in turbo_patterns:
-            candidate_path = cache_dir / pattern
+            candidate_path = model_root / pattern
             if candidate_path.exists():
                 model_path = candidate_path
                 break
@@ -866,10 +883,9 @@ def main():
             model_to_use = str(model_path)
             logging.info("turbo 모델 파일을 찾았습니다: %s", model_path)
         else:
-            logging.warning("turbo 모델 파일을 찾을 수 없습니다. 검색 경로: %s", cache_dir)
+            logging.warning("turbo 모델 파일을 찾을 수 없습니다. 검색 경로: %s", model_root)
             logging.warning("검색한 파일명: %s", ', '.join(turbo_patterns))
-            logging.warning("자동으로 'large' 모델을 사용합니다.")
-            model_to_use = "large"
+            logging.info("Whisper가 지정된 다운로드 경로에 모델을 자동 다운로드합니다.")
 
     # 입력 경로 검증
     input_path = Path(args.input_dir)

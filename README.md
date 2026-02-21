@@ -110,6 +110,7 @@ venv\Scripts\python.exe -m sttEngine.server
 ### 3-3. llama.cpp(In-process / `llama-cpp-python`) 사용 시
 - `pip install -r requirements.txt`로 `llama-cpp-python`을 함께 설치합니다.
 - `LLAMA_CPP_MODEL_PATH` (`.gguf` 모델 경로, 기본값 `./models/default_model.gguf`)
+- Whisper 모델 다운로드 경로: `WHISPER_MODEL_DIR` (미지정 시 프로젝트 루트 `./models` 사용)
 - 선택 성능 튜닝: `LLAMA_CPP_N_CTX`, `LLAMA_CPP_N_THREADS`, `LLAMA_CPP_N_BATCH`, `LLAMA_CPP_N_GPU_LAYERS`, `LLAMA_CPP_CHAT_FORMAT`
 - 하위 호환용으로 `LLM_BASE_URL`, `EMBEDDING_BASE_URL`, `LLAMA_CPP_COMMAND`를 남겨둘 수 있으나, in-process 모드에서는 무시되며 warning 로그가 남습니다.
 

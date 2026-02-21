@@ -29,3 +29,4 @@
 
 - llama.cpp provider는 `llama-cpp-python` in-process 모드를 기본으로 사용합니다.
 - `LLAMA_CPP_MODEL_PATH` 기본값은 `./models/default_model.gguf`이며, 기존 HTTP/CLI 관련 환경 변수는 하위 호환용으로 유지됩니다.
+- Whisper 모델 경로는 `WHISPER_MODEL_DIR`로 오버라이드할 수 있고, 기본값은 프로젝트 루트 `./models`입니다.
