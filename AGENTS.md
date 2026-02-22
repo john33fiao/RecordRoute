@@ -21,6 +21,7 @@
 - 오디오 전처리: `ffmpeg` 외부 프로세스 대신 Rust `symphonia` 크레이트 기반 변환을 기본값으로 사용
 
 세부 정책은 `docs/rust-cpp-backend-rewrite-plan.md`를 단일 기준으로 따릅니다.
+실행 단위/의존성 추적은 `docs/rust-migration-wbs.md`를 함께 참조합니다.
 
 ## 3) 문서 동기화 규칙
 

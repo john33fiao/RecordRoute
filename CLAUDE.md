@@ -7,7 +7,8 @@
 1. `AGENTS.md`
 2. `README.md`
 3. `docs/rust-cpp-backend-rewrite-plan.md`
-4. (레거시 작업 시) `deprecated/AGENTS.md`
+4. `docs/rust-migration-wbs.md`
+5. (레거시 작업 시) `deprecated/AGENTS.md`
 
 ## 현재 프로젝트 전제
 
