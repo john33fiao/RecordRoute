@@ -2,6 +2,9 @@
 
 최신 원본 기준은 `AGENTS.md`입니다. 이 문서는 실행 요약만 제공합니다.
 
+
+> 문서 동기화: 2026-02-22 기준 `TODO/TODO.md`, `docs/rust-cpp-backend-rewrite-plan.md` 상태와 정렬됨.
+
 ## 핵심 컨텍스트
 
 - 저장소는 Rust 전환 진행 중이며, 레거시 Python 코드는 현 저장소에 포함되어 있지 않습니다.
