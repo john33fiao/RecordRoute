@@ -8,13 +8,14 @@
 2. `README.md`
 3. `docs/architecture.md`
 4. `docs/rust-cpp-backend-rewrite-plan.md`
-5. `TODO/TODO.md`
-6. (레거시 작업 시) `deprecated/AGENTS.md`
+5. `docs/deployment-asset-policy.md`
+6. `TODO/TODO.md`
+7. 레거시는 별도 보관소/브랜치에서만 취급 (현 저장소 `deprecated/` 없음)
 
 ## 현재 프로젝트 전제
 
-- Rust 백엔드는 전환 계획 단계이며 루트에 `Cargo.toml`이 아직 없습니다.
-- 운영 중 코드 기준은 `frontend/`(현행) + `deprecated/`(레거시 참조)입니다.
+- 루트에 Rust 실행 코드(`Cargo.toml`)가 존재하며, 백엔드 전환 구현이 진행 중입니다.
+- 운영 중 코드 기준은 `frontend/`(현행) + 루트 Rust 코드입니다.
 - 오디오 변환 기본 전략은 외부 `ffmpeg` 호출이 아니라 Rust `symphonia` 크레이트 사용입니다.
 
 ## 작업 체크리스트

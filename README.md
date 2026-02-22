@@ -4,8 +4,8 @@ RecordRoute는 음성/문서 처리 파이프라인을 **Rust 중심 아키텍�
 
 현재 저장소는 아래 두 영역으로 나뉩니다.
 
-- `deprecated/`: 기존 Python 기반 백엔드/워크플로우(레거시 기준선)
 - `frontend/`: 현재 유지 중인 웹 프론트엔드
+- `docs/`: Rust 전환/설계 문서
 
 Rust 백엔드는 아직 본 저장소에 구현되지 않았고, 설계 및 전환 계획을 기준으로 단계적으로 이전합니다.
 
@@ -17,13 +17,13 @@ Rust 백엔드는 아직 본 저장소에 구현되지 않았고, 설계 및 전
 2. 사용자/운영 개요: `README.md` (이 문서)
 3. 아키텍처 기준선: `docs/architecture.md`
 4. 전환 설계: `docs/rust-cpp-backend-rewrite-plan.md`
-5. 전환 실행 WBS: `TODO/TODO.md`
-6. 레거시 코드 참고: `deprecated/current-codebase-overview.md`
+5. 배포/자산 정책: `docs/deployment-asset-policy.md`
+6. 전환 실행 WBS: `TODO/TODO.md`
 7. 에이전트 요약: `CLAUDE.md`, `GEMINI.md`
 
 ## 현재 상태 (2026-02 기준)
 
-- Python 기반 구 구현은 `deprecated/`로 이동되어 유지보수 기준선으로 사용합니다.
+- Python 기반 구 구현은 현재 저장소에 포함되어 있지 않으며, 필요 시 별도 레거시 보관소를 참조합니다.
 - Rust 오케스트레이터 + C++(llama.cpp/whisper.cpp) 엔진 분리 아키텍처를 목표로 합니다.
 - 프론트엔드는 유지하되, 향후 Rust API 계약에 맞춰 점진적으로 연결합니다.
 
@@ -54,10 +54,10 @@ npm run build
 
 ## 레거시 코드 다룰 때
 
-- `deprecated/` 내부 문서(`deprecated/AGENTS.md`, `deprecated/CLAUDE.md`, `deprecated/GEMINI.md`)는 레거시 코드 수정 시에만 적용합니다.
-- 루트 문서와 레거시 문서가 충돌하면, 수정 대상 디렉터리의 문서 스코프를 우선합니다.
+- 현재 저장소에는 `deprecated/` 디렉터리가 없으므로 레거시 코드는 기본 작업 범위가 아닙니다.
+- 레거시 이슈 재현이 필요하면 별도 레거시 보관소/브랜치에서 수행하고, 결과만 본 저장소 문서에 반영합니다.
 
 ## 주의
 
-- 이 저장소 루트에는 아직 Rust 실행 코드(`Cargo.toml`)가 없습니다.
-- 따라서 현재 CI/로컬 검증은 프론트엔드 중심이며, 백엔드 검증은 레거시(`deprecated/`) 또는 별도 Rust 저장소/브랜치에서 수행해야 합니다.
+- 이 저장소 루트에는 Rust 실행 코드(`Cargo.toml`)가 존재합니다.
+- 따라서 Rust 코드 변경 시 `cargo test`, `cargo clippy`를 포함한 검증을 수행해야 합니다.

@@ -7,6 +7,11 @@
   - `docs/rust-cpp-backend-rewrite-plan.md`에 기준 문서 링크 추가
   - 다음 우선 작업: WBS 1.2.x ~ 2.2.x 산출물(배포/자산 정책) 구체화
 
+- 2026-02-22: WBS 1.2.x ~ 2.2.x 구체화 문서 초안 추가
+  - `docs/deployment-asset-policy.md` 신규 작성 (배포 단위/API-Swagger 분리, 모델/벤더 자산 정책, 완료 판정 체크포인트)
+  - `docs/rust-cpp-backend-rewrite-plan.md`에 보조 정책 문서 링크 추가
+  - 다음 우선 작업: `.gitignore` 정책 초안 및 manifest 템플릿 정의
+
 ## WBS 1.0 전략/기반 정합성
 
 ### 1.1 아키텍처 기준 수립
