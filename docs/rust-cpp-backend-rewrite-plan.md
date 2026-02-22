@@ -15,7 +15,7 @@ WBS 추적은 `TODO/TODO.md`를 사용합니다.
 
 ### 아직 미구현/부분 구현
 - 잡 API 스켈레톤 (`POST /jobs`, `GET /jobs/{id}`)
-  - 현재: 인메모리 `queued` 상태 저장/조회까지만 구현
+  - 현재: 인메모리 `queued` 상태 저장/조회 + `engine`별 수용량 기반 배압(`429`) 스켈레톤까지 구현
 - 엔진 프로세스 관리/헬스체크/재시작
 - 엔진별 큐/동시성 제어 (`stt/summarize/embed`)
 - Rust `symphonia` 오디오 전처리
@@ -23,7 +23,12 @@ WBS 추적은 `TODO/TODO.md`를 사용합니다.
 
 > 본 계획의 목적은 "목표 상태"를 유지하되, 문서/구현 간 간극을 단계별로 닫는 것입니다.
 
-### 방금 반영된 단계 (Phase A+)
+### 방금 반영된 단계 (Phase B-1)
+- `POST /jobs?engine=<stt|summarize|embed>` 엔진 라우팅 스켈레톤 추가 (기본값 `stt`)
+- 엔진별 인메모리 bounded capacity 확인 후 포화 시 `429(queue_full)` 반환
+- 엔진별 큐 포화가 다른 큐 접수에 영향 주지 않는 단위 테스트 추가
+
+### 직전 반영 단계 (Phase A+)
 - `POST /jobs` → `202` + `job_id` 동작 스켈레톤 추가
 - `GET /jobs/{id}` → 인메모리 저장소 조회 스켈레톤 추가
 - 잡 생성 시 초기 상태는 `queued`로 고정
