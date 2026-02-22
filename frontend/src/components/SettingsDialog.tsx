@@ -23,17 +23,32 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [defaults, setDefaults] = useState<{ whisper: string; summarize: string; embedding: string; provider?: 'ollama' | 'llamacpp' } | null>(null);
 
   const selectedProvider = (localSettings?.provider || localSettings?.llm_provider || defaults?.provider || 'ollama') as 'ollama' | 'llamacpp';
+  const requestedProvider = (localSettings?.provider || localSettings?.llm_provider) as 'ollama' | 'llamacpp' | undefined;
 
   useEffect(() => {
     if (open) {
       setLocalSettings(modelSettings);
       setDarkMode(theme === 'dark');
-      api.getModels(selectedProvider).then(data => {
-        setAvailableModels(data.models || []);
-        setDefaults(data.default);
+      api.getModels(requestedProvider).then(data => {
+        const models = data.models || [];
+        const fetchedDefaults = data.default;
+        setAvailableModels(models);
+        setDefaults(fetchedDefaults);
+        setLocalSettings(prev => {
+          if (!prev) {
+            return prev;
+          }
+          return {
+            ...prev,
+            provider: prev.provider || prev.llm_provider || fetchedDefaults?.provider,
+            llm_provider: prev.llm_provider || prev.provider || fetchedDefaults?.provider,
+            summarize: prev.summarize || fetchedDefaults?.summarize || models[0] || '',
+            embedding: prev.embedding || fetchedDefaults?.embedding || models[0] || '',
+          };
+        });
       }).catch(() => { });
     }
-  }, [open, modelSettings, theme, selectedProvider]);
+  }, [open, modelSettings, theme, requestedProvider]);
 
   const handleSave = () => {
     setTheme(darkMode ? 'dark' : 'light');
