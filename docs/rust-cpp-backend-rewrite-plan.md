@@ -13,14 +13,20 @@ WBS 추적은 `TODO/TODO.md`를 사용합니다.
 - 헬스 엔드포인트 (`GET /healthz`, `GET /readyz`)
 - 환경변수 기반 최소 설정 로더 (`RECORDROUTE_API_HOST`, `RECORDROUTE_API_PORT`)
 
-### 아직 미구현
-- 잡 API (`POST /jobs`, `GET /jobs/{id}`)
+### 아직 미구현/부분 구현
+- 잡 API 스켈레톤 (`POST /jobs`, `GET /jobs/{id}`)
+  - 현재: 인메모리 `queued` 상태 저장/조회까지만 구현
 - 엔진 프로세스 관리/헬스체크/재시작
 - 엔진별 큐/동시성 제어 (`stt/summarize/embed`)
 - Rust `symphonia` 오디오 전처리
 - Swagger 분리 프로세스 (`:14000`)
 
 > 본 계획의 목적은 "목표 상태"를 유지하되, 문서/구현 간 간극을 단계별로 닫는 것입니다.
+
+### 방금 반영된 단계 (Phase A+)
+- `POST /jobs` → `202` + `job_id` 동작 스켈레톤 추가
+- `GET /jobs/{id}` → 인메모리 저장소 조회 스켈레톤 추가
+- 잡 생성 시 초기 상태는 `queued`로 고정
 
 ## 1) 목표 아키텍처 (고정)
 
