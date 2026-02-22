@@ -33,7 +33,7 @@
 - [x] API 서버 바인딩 (`:18000`)
 - [x] 작업 API (`POST /jobs`, `GET /jobs/{id}`)
 - [x] 헬스 엔드포인트 (`/healthz`, `/readyz`)
-- [ ] 엔진별 큐 (`stt/summarize/embed`)
+- [x] 엔진별 큐 (`stt/summarize/embed`) 수용량/배압 스켈레톤
 - [ ] 엔진 프로세스 슈퍼비전 (spawn/health/restart/shutdown)
 - [ ] Rust `symphonia` 전처리 파이프라인
 - [ ] Swagger 분리 배포 (`:14000`)
@@ -56,7 +56,7 @@
 ## 3.0 엔진 통합 기반
 
 - [ ] 3.1 엔진별 클라이언트/포트 설정 (`18101`, `18102`, `18103`)
-- [ ] 3.2 엔진별 bounded queue + semaphore (in-memory capacity 스켈레톤 반영, semaphore 미구현)
+- [ ] 3.2 엔진별 bounded queue + semaphore (bounded queue 스켈레톤 반영 완료, semaphore 미구현)
 - [ ] 3.3 큐 포화/엔진 포화 `429` 규약 및 메트릭 라벨 분리
 
 ## 4.0 잡 모델/오류 계약
