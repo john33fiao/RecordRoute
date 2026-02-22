@@ -1,185 +1,57 @@
 # RecordRoute
-RecordRoute는 음성/문서 입력을 STT, 교정, 요약, 임베딩 검색으로 처리하는 워크플로우 서비스입니다.
 
-## 문서 안내
-- 설치/모델 설정/사용 방법: 이 문서(`README.md`)
-- 현재 코드베이스 구조/개발 참고: `docs/current-codebase-overview.md`
-- llama.cpp 실사용 가이드: `docs/llama-guide.md`
-- Rust/C++ 백엔드 재작성 계획: `docs/rust-cpp-backend-rewrite-plan.md`
-- 코딩 에이전트 기준 문서: `AGENTS.md`
-- 에이전트 요약 문서: `CLAUDE.md`, `GEMINI.md`
+RecordRoute는 음성/문서 처리 파이프라인을 **Rust 중심 아키텍처**로 전환 중인 프로젝트입니다.
 
-## 1) 빠른 설치 및 실행
+현재 저장소는 아래 두 영역으로 나뉩니다.
 
-### macOS/Linux (권장)
-```bash
-./setup.sh
-./run.sh
-```
+- `deprecated/`: 기존 Python 기반 백엔드/워크플로우(레거시 기준선)
+- `frontend/`: 현재 유지 중인 웹 프론트엔드
 
-### Windows (권장)
-```bat
-setup.bat
-run.bat
-```
+Rust 백엔드는 아직 본 저장소에 구현되지 않았고, 설계 및 전환 계획을 기준으로 단계적으로 이전합니다.
 
-> `.env`에서 `LLM_PROVIDER`/`EMBEDDING_PROVIDER`를 `ollama`가 아닌 값으로 설정하면 setup/run 스크립트의 Ollama 점검/자동시작 단계는 자동으로 건너뜁니다.
+## 문서 우선순위
 
-## 2) 수동 설치
+1. 아키텍처/작업 규칙: `AGENTS.md`
+2. 사용자/운영 개요: `README.md` (이 문서)
+3. 전환 설계: `docs/rust-cpp-backend-rewrite-plan.md`
+4. 레거시 코드 참고: `deprecated/current-codebase-overview.md`
+5. 에이전트 요약: `CLAUDE.md`, `GEMINI.md`
 
-## 2-A) Docker 분리 배포 (backend + frontend)
+## 현재 상태 (2026-02 기준)
 
-```bash
-docker compose up -d --build
-```
+- Python 기반 구 구현은 `deprecated/`로 이동되어 유지보수 기준선으로 사용합니다.
+- Rust 오케스트레이터 + C++(llama.cpp/whisper.cpp) 엔진 분리 아키텍처를 목표로 합니다.
+- 프론트엔드는 유지하되, 향후 Rust API 계약에 맞춰 점진적으로 연결합니다.
 
-프로필 사용:
-```bash
-# Ollama 포함
-docker compose --profile ollama up -d --build
+## 개발 시작
 
-# llama.cpp 포함
-docker compose --profile llamacpp up -d --build
-```
+### 프론트엔드 실행
 
-기본 포트:
-- 프론트엔드: `http://localhost:3000`
-- 백엔드 API: `http://localhost:8080`
-- WebSocket: `ws://localhost:8765`
-
-프론트 빌드 변수(Compose build args):
-- `VITE_API_BASE_URL` (기본 `/api`, 프론트 Nginx가 backend:8080으로 프록시)
-- `VITE_WS_URL` (기본 비움. 비어 있으면 브라우저 origin 기준 `/ws` 사용)
-
-백엔드 헬스체크:
-- `GET /health` → `{ "status": "ok" }`
-
-프론트 Nginx 프록시 경로:
-- `/api/*` -> `backend:8080/*`
-- `/ws` -> `backend:8765` (WebSocket 업그레이드)
-
-
-### Python 가상환경 + 의존성 설치
-macOS/Linux:
-```bash
-python -m venv venv
-./venv/bin/python -m pip install -r sttEngine/requirements.txt
-./venv/bin/python -m pip install -r requirements.txt
-# Ollama provider를 사용할 때만 추가 설치
-./venv/bin/python -m pip install -r requirements-ollama.txt
-```
-
-Windows PowerShell:
-```powershell
-python -m venv venv
-venv\Scripts\python.exe -m pip install -r sttEngine\requirements.txt
-venv\Scripts\python.exe -m pip install -r requirements.txt
-# Ollama provider를 사용할 때만 추가 설치
-venv\Scripts\python.exe -m pip install -r requirements-ollama.txt
-```
-
-### 서버 실행
-macOS/Linux:
-```bash
-./venv/bin/python -m sttEngine.server
-```
-
-Windows PowerShell:
-```powershell
-venv\Scripts\python.exe -m sttEngine.server
-```
-
-기본 접속 주소:
-- HTTP(API): `http://localhost:8080`
-- WebSocket: `ws://localhost:8765`
-- (Docker 분리 배포) Frontend: `http://localhost:3000`
-- Windows `run.bat` 실행 시 `8080` 바인딩이 불가하면 자동으로 `18080`으로 대체됩니다.
-
-## 3) 모델/Provider 설정 방법
-
-모델 설정은 `.env` 파일에서 관리합니다(`.env.example` 참고).
-
-### 3-1. LLM/Embedding Provider 선택
-- `LLM_PROVIDER`: 교정/요약 provider (`ollama` 기본, `llamacpp`/`llama_cpp` 지원)
-- `EMBEDDING_PROVIDER`: 임베딩 provider (미지정 시 `LLM_PROVIDER` 상속)
-
-### 3-2. Ollama 사용 시
-1. Ollama 서버 실행
-2. 사용할 모델 pull (예: `gpt-oss:20b`)
-3. 필요 시 `.env`에 Ollama 주소/타임아웃 설정
-
-### 3-3. llama.cpp(In-process / `llama-cpp-python`) 사용 시
-- `pip install -r requirements.txt`로 `llama-cpp-python`을 함께 설치합니다.
-- `LLAMA_CPP_MODEL_PATH` (`.gguf` 모델 경로, 기본값 `./models/default_model.gguf`)
-- 로컬 모델 파일이 없을 때는 `HF_MODEL_REPO_ID` + `HF_MODEL_FILENAME`(선택 `HF_MODEL_REVISION`)를 사용해 Hugging Face에서 자동 다운로드합니다(`HF_TOKEN` 필요).
-- Hugging Face 다운로드 캐시 경로는 `LLAMA_CPP_MODEL_CACHE_DIR`(기본 `./models`)로 지정할 수 있습니다. Docker 사용 시 해당 경로를 볼륨으로 마운트해 영속화하세요.
-- Whisper 모델 다운로드 경로: `WHISPER_MODEL_DIR` (미지정 시 프로젝트 루트 `./models` 사용)
-- 선택 성능 튜닝: `LLAMA_CPP_N_CTX`, `LLAMA_CPP_N_THREADS`, `LLAMA_CPP_N_BATCH`, `LLAMA_CPP_N_GPU_LAYERS`, `LLAMA_CPP_CHAT_FORMAT`
-- 하위 호환용으로 `LLM_BASE_URL`, `EMBEDDING_BASE_URL`, `LLAMA_CPP_COMMAND`를 남겨둘 수 있으나, in-process 모드에서는 무시되며 warning 로그가 남습니다.
-
-### 3-4. 워크플로우 모델 키(`model_settings`)
-`/process` 요청 시 주로 아래 키를 사용합니다.
-- STT: `whisper`
-- 교정: `correct`
-- 요약: `summarize`
-- 공통: `provider`(또는 `llm_provider`), `temperature`, `context_window`, `max_tokens`
-- 화자 분리: `diarization_provider`, `num_speakers`, `min_speakers`, `max_speakers`
-
-## 4) 사용 방법
-
-## 4-1. 파일 업로드
-- 웹 UI에서 업로드하거나 `/upload` API를 사용합니다.
-- 업로드 후 레코드 경로(`DB/uploads/...`) 또는 `record_id`를 기준으로 처리합니다.
-
-## 4-2. 워크플로우 실행(`/process`)
-요청 예시:
-```json
-{
-  "file_path": "DB/uploads/<uuid>/sample.m4a",
-  "steps": ["stt", "correct", "summary"],
-  "record_id": "...",
-  "task_id": "...",
-  "model_settings": {
-    "whisper": "large-v3-turbo",
-    "language": "ko",
-    "device": "auto",
-    "provider": "ollama",
-    "correct": "gpt-oss:20b",
-    "summarize": "gpt-oss:20b"
-  }
-}
-```
-
-실행 상태 확인:
-- `GET /progress/<task_id>`
-- WebSocket 실시간 이벤트 (`ws://localhost:8765`)
-
-## 4-3. 결과 조회
-- 히스토리: `GET /history`
-- 검색: `GET /search`
-- 유사 문서: `GET /similar/<uuid_or_path>` 또는 `POST /similar`
-- 다운로드: `GET /download/<uuid_or_path>`
-
-## 5) 자주 쓰는 운영 명령
-
-### 테스트
-```bash
-pytest
-```
-
-핵심 회귀 테스트:
-```bash
-pytest tests/http_api/test_workflow.py tests/http_api/test_search.py tests/server/test_queue.py tests/test_vocab_system.py
-```
-
-### 프론트 빌드
 ```bash
 cd frontend
 npm install
+npm run dev
+```
+
+### 프론트엔드 빌드
+
+```bash
+cd frontend
 npm run build
 ```
 
-## 6) 문제 해결 체크포인트
-- 모델 호출 실패 시: provider 실행 상태와 `.env`의 base URL/timeout을 먼저 확인
-- Ollama 미사용 구성인데 setup/run에서 Ollama 확인이 필요해 보이면: `.env`의 `LLM_PROVIDER`, `EMBEDDING_PROVIDER` 값 점검
-- 파괴적 API 호출 실패 시: 안전 모드 토큰/세션 환경변수 설정 여부 확인
+## Rust 전환 가이드
+
+- 상세 목표/포트/큐/타임아웃/슈퍼비전 정책은 `docs/rust-cpp-backend-rewrite-plan.md`를 단일 기준으로 따릅니다.
+- 전환 우선순위는 **read-heavy API 및 검색 경로 최적화**를 먼저 수행하고, `/process` 전체 전환은 Go/No-Go 판단 이후 진행합니다.
+- 기존 Python 동작과의 계약 호환(응답 필드/에러 규약/정렬/페이징)은 반드시 테스트로 고정합니다.
+
+## 레거시 코드 다룰 때
+
+- `deprecated/` 내부 문서(`deprecated/AGENTS.md`, `deprecated/CLAUDE.md`, `deprecated/GEMINI.md`)는 레거시 코드 수정 시에만 적용합니다.
+- 루트 문서와 레거시 문서가 충돌하면, 수정 대상 디렉터리의 문서 스코프를 우선합니다.
+
+## 주의
+
+- 이 저장소 루트에는 아직 Rust 실행 코드(`Cargo.toml`)가 없습니다.
+- 따라서 현재 CI/로컬 검증은 프론트엔드 중심이며, 백엔드 검증은 레거시(`deprecated/`) 또는 별도 Rust 저장소/브랜치에서 수행해야 합니다.
