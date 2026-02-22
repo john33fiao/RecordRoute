@@ -24,6 +24,22 @@ interface ApiRequestOptions extends RequestInit {
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim().replace(/\/$/, '') ?? '';
 
+const DEFAULT_DESTRUCTIVE_AUTH: DestructiveApiAuth = {
+  adminToken: (import.meta.env.VITE_DESTRUCTIVE_API_TOKEN as string | undefined)?.trim() || undefined,
+  sessionId: (import.meta.env.VITE_DESTRUCTIVE_API_SESSION_ID as string | undefined)?.trim() || undefined,
+  sessionToken: (import.meta.env.VITE_DESTRUCTIVE_API_SESSION_TOKEN as string | undefined)?.trim() || undefined,
+};
+
+function resolveDestructiveAuth(auth?: DestructiveApiAuth): DestructiveApiAuth | undefined {
+  const merged: DestructiveApiAuth = {
+    adminToken: auth?.adminToken ?? DEFAULT_DESTRUCTIVE_AUTH.adminToken,
+    sessionId: auth?.sessionId ?? DEFAULT_DESTRUCTIVE_AUTH.sessionId,
+    sessionToken: auth?.sessionToken ?? DEFAULT_DESTRUCTIVE_AUTH.sessionToken,
+  };
+
+  return merged.adminToken || (merged.sessionId && merged.sessionToken) ? merged : undefined;
+}
+
 function withApiBase(path: string): string {
   if (!path.startsWith('/')) return path;
   return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
@@ -31,22 +47,23 @@ function withApiBase(path: string): string {
 
 
 function buildDestructiveApiAuthOptions(auth?: DestructiveApiAuth): { headers?: Record<string, string>; body?: Record<string, string> } {
-  if (!auth) return {};
+  const resolvedAuth = resolveDestructiveAuth(auth);
+  if (!resolvedAuth) return {};
 
   const headers: Record<string, string> = {};
   const body: Record<string, string> = {};
 
-  if (auth.adminToken) {
-    headers['X-RecordRoute-Admin-Token'] = auth.adminToken;
-    body.admin_token = auth.adminToken;
+  if (resolvedAuth.adminToken) {
+    headers['X-RecordRoute-Admin-Token'] = resolvedAuth.adminToken;
+    body.admin_token = resolvedAuth.adminToken;
   }
-  if (auth.sessionId) {
-    headers['X-RecordRoute-Session-Id'] = auth.sessionId;
-    body.session_id = auth.sessionId;
+  if (resolvedAuth.sessionId) {
+    headers['X-RecordRoute-Session-Id'] = resolvedAuth.sessionId;
+    body.session_id = resolvedAuth.sessionId;
   }
-  if (auth.sessionToken) {
-    headers['X-RecordRoute-Session-Token'] = auth.sessionToken;
-    body.session_token = auth.sessionToken;
+  if (resolvedAuth.sessionToken) {
+    headers['X-RecordRoute-Session-Token'] = resolvedAuth.sessionToken;
+    body.session_token = resolvedAuth.sessionToken;
   }
 
   return {
