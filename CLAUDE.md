@@ -2,6 +2,9 @@
 
 이 문서는 요약본이며, 상세 기준은 `AGENTS.md`를 따릅니다.
 
+
+> 문서 동기화: 2026-02-22 기준 `TODO/TODO.md`, `docs/rust-cpp-backend-rewrite-plan.md` 상태와 정렬됨.
+
 ## 우선 확인 순서
 
 1. `AGENTS.md`
