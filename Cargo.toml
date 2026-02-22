@@ -1,0 +1,15 @@
+[package]
+name = "recordroute-orchestrator"
+version = "0.1.0"
+edition = "2021"
+description = "Rust 오케스트레이터 작업 환경 스캐폴딩"
+
+[dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[profile.release]
+strip = "symbols"

@@ -22,3 +22,9 @@ frontend/dist/
 frontend/tsconfig.tsbuildinfo
 # Local llama.cpp model assets
 models/
+
+# Rust build artifacts
+target/
+
+# Runtime/vendor working dirs (binary artifacts excluded)
+vendor/
