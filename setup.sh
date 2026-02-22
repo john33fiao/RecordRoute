@@ -27,7 +27,10 @@ echo
 
 # Provider 설정 정규화(.env가 있으면 반영)
 if [ -f "$SCRIPT_DIR/.env" ]; then
-    export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
+    set -a
+    # shellcheck disable=SC1090
+    . "$SCRIPT_DIR/.env"
+    set +a
 fi
 LLM_PROVIDER_VALUE="${LLM_PROVIDER:-ollama}"
 EMBEDDING_PROVIDER_VALUE="${EMBEDDING_PROVIDER:-$LLM_PROVIDER_VALUE}"
