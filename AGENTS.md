@@ -58,6 +58,7 @@ Docker Compose provider profile(분리 배포):
 - llama.cpp 포함: `docker compose --profile llamacpp up -d --build`
 - 프론트 접속: `http://localhost:3000`, 백엔드 API: `http://localhost:8080`, WebSocket: `ws://localhost:8765`
 - 프론트 컨테이너(Nginx)는 `/api` -> backend(8080), `/ws` -> backend WebSocket(8765) 프록시를 기본 제공
+- 프론트 빌드 시 `VITE_DESTRUCTIVE_API_TOKEN` 또는 `VITE_DESTRUCTIVE_API_SESSION_ID`/`VITE_DESTRUCTIVE_API_SESSION_TOKEN`를 지정하면 파괴적 API 요청(`/delete`, `/reset*`, `/shutdown`)에 인증 헤더/바디가 자동 첨부됩니다.
 
 ## 3. 데이터/경로 규칙
 - DB 루트는 `DB_FOLDER_PATH` 환경변수 우선, 없으면 프로젝트 루트의 `DB/`

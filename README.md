@@ -49,6 +49,8 @@ docker compose --profile llamacpp up -d --build
 프론트 빌드 변수(Compose build args):
 - `VITE_API_BASE_URL` (기본 `/api`, 프론트 Nginx가 backend:8080으로 프록시)
 - `VITE_WS_URL` (기본 비움. 비어 있으면 브라우저 origin 기준 `/ws` 사용)
+- `VITE_DESTRUCTIVE_API_TOKEN` (선택, 파괴적 API 보호용 관리자 토큰 자동 첨부)
+- `VITE_DESTRUCTIVE_API_SESSION_ID` / `VITE_DESTRUCTIVE_API_SESSION_TOKEN` (선택, 세션 기반 보호 인증 자동 첨부)
 
 백엔드 헬스체크:
 - `GET /health` → `{ "status": "ok" }`

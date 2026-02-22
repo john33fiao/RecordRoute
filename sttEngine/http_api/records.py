@@ -8,7 +8,6 @@ from typing import Any
 from ..embedding_pipeline import load_index, save_index
 from .history import load_upload_history, save_upload_history
 from .paths import (
-    BASE_DIR,
     DB_ALIAS,
     DELETED_OUTPUT_DIR,
     DELETED_UPLOAD_DIR,
@@ -87,59 +86,52 @@ def reset_upload_record(record_id: str) -> bool:
 
 
 def delete_file(file_identifier: str, file_type: str) -> tuple[bool, str]:
-    """Delete a specific file (STT or summary) and update history."""
+    """Delete a specific task artifact for a record and update metadata."""
     try:
-        # Get file info by UUID
-        file_info = get_file_by_uuid(file_identifier)
-        if not file_info:
+        normalized_task = str(file_type or "").strip().lower()
+        if normalized_task not in TASK_TYPES:
+            return False, "지원하지 않는 항목입니다."
+
+        file_path, record_id, resolved_task_type, _ = resolve_file_identifier(file_identifier)
+        if not file_path:
             return False, "파일을 찾을 수 없습니다."
 
-        # Get the actual file path
-        file_path = Path(BASE_DIR) / file_info["file_path"]
+        expected_task_type = resolved_task_type
+        if expected_task_type is None:
+            suffix = file_path.name
+            if suffix.endswith(".summary.md"):
+                expected_task_type = "summary"
 
-        if not file_path.exists():
-            return False, "파일이 존재하지 않습니다."
+        if expected_task_type and expected_task_type != normalized_task:
+            return False, "요청한 항목과 파일 유형이 일치하지 않습니다."
 
-        # Verify file type matches
-        if file_type == "stt" and not file_path.name.endswith(".md"):
-            return False, "STT 파일이 아닙니다."
-        if file_type == "summary" and not file_path.name.endswith(".summary.md"):
-            return False, "요약 파일이 아닙니다."
+        if not record_id:
+            return False, "연결된 기록을 찾을 수 없습니다."
 
-        # Delete the file
-        try:
-            file_path.unlink()
-        except Exception as e:
-            print(f"Failed to delete {file_path}: {e}")
-            return False, "파일 삭제에 실패했습니다."
-
-        # Update history record
         history = load_upload_history()
-        record_id = file_info["record_id"]
+        record = next((item for item in history if item.get("id") == record_id), None)
+        if not record:
+            return False, "기록을 찾을 수 없습니다."
+        if record.get("deleted"):
+            return False, "삭제된 항목입니다."
 
-        for record in history:
-            if record["id"] == record_id:
-                if record.get("deleted"):
-                    return False, "삭제된 항목입니다."
-                # Update completion status
-                record["completed_tasks"][file_type] = False
-
-                # Remove download link
-                if file_type in record["download_links"]:
-                    del record["download_links"][file_type]
-
-                # If deleting summary, also clear title_summary
-                if file_type == "summary":
-                    record["title_summary"] = ""
-                break
-
-        # Remove from file registry
         registry = load_file_registry()
-        if file_identifier in registry:
-            del registry[file_identifier]
-            save_file_registry(registry)
+        index = load_index()
 
-        # Save updated history
+        results, registry_changed, index_changed = reset_tasks_for_record(
+            record,
+            {normalized_task},
+            registry,
+            index,
+        )
+
+        if not results.get(normalized_task):
+            return False, "삭제할 항목이 없습니다."
+
+        if registry_changed:
+            save_file_registry(registry)
+        if index_changed:
+            save_index(index)
         save_upload_history(history)
 
         return True, ""

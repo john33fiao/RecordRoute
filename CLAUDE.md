@@ -36,3 +36,5 @@
 - 로컬 GGUF 파일이 없으면 `HF_MODEL_REPO_ID`/`HF_MODEL_FILENAME`(선택 `HF_MODEL_REVISION`) 기반으로 Hugging Face 자동 다운로드를 시도하며 `HF_TOKEN`이 필요합니다.
 - Hugging Face 캐시 경로는 `LLAMA_CPP_MODEL_CACHE_DIR`(기본 `./models`)로 제어합니다.
 - Whisper 모델 경로는 `WHISPER_MODEL_DIR`로 오버라이드할 수 있고, 기본값은 프로젝트 루트 `./models`입니다.
+- 프론트 빌드 변수로 `VITE_DESTRUCTIVE_API_TOKEN` 또는 `VITE_DESTRUCTIVE_API_SESSION_ID`/`VITE_DESTRUCTIVE_API_SESSION_TOKEN`를 지정하면 파괴적 API 요청에 인증 정보가 자동 첨부됩니다.
+
