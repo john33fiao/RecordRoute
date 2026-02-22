@@ -7,10 +7,10 @@ RecordRoute는 음성/문서 처리 파이프라인을 **Rust 중심 아키텍�
 - `frontend/`: 현재 유지 중인 웹 프론트엔드
 - `docs/`: Rust 전환/설계 문서
 
-Rust 백엔드는 스캐폴딩(실행 진입점/로깅) 단계까지 반영되어 있으며, API/엔진 연동은 설계 문서를 기준으로 단계적으로 이전합니다.
+Rust 백엔드는 Phase A(실행 진입점/로깅 + 최소 HTTP 서버 `/healthz`/`/readyz`)까지 반영되어 있으며, 잡 API/엔진 연동은 설계 문서를 기준으로 단계적으로 이전합니다.
 
 
-> 문서 동기화: 2026-02-22 기준 `TODO/TODO.md`, `docs/rust-cpp-backend-rewrite-plan.md` 상태와 정렬됨.
+> 문서 동기화: 2026-02-22 기준 Phase A(최소 HTTP 서버/헬스 엔드포인트) 반영 상태와 정렬됨.
 
 오디오 전처리/변환은 기존 `ffmpeg` 실행 방식 대신 Rust `symphonia` 크레이트 기반 구현을 목표 기준으로 문서화합니다.
 
