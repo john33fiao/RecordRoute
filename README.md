@@ -16,8 +16,9 @@ Rust 백엔드는 아직 본 저장소에 구현되지 않았고, 설계 및 전
 1. 아키텍처/작업 규칙: `AGENTS.md`
 2. 사용자/운영 개요: `README.md` (이 문서)
 3. 전환 설계: `docs/rust-cpp-backend-rewrite-plan.md`
-4. 레거시 코드 참고: `deprecated/current-codebase-overview.md`
-5. 에이전트 요약: `CLAUDE.md`, `GEMINI.md`
+4. 전환 실행 WBS: `docs/rust-migration-wbs.md`
+5. 레거시 코드 참고: `deprecated/current-codebase-overview.md`
+6. 에이전트 요약: `CLAUDE.md`, `GEMINI.md`
 
 ## 현재 상태 (2026-02 기준)
 
@@ -45,6 +46,7 @@ npm run build
 ## Rust 전환 가이드
 
 - 상세 목표/포트/큐/타임아웃/슈퍼비전 정책은 `docs/rust-cpp-backend-rewrite-plan.md`를 단일 기준으로 따릅니다.
+- 실행 단위 일정/의존성 관리는 `docs/rust-migration-wbs.md`를 기준으로 추적합니다.
 - 전환 우선순위는 **read-heavy API 및 검색 경로 최적화**를 먼저 수행하고, `/process` 전체 전환은 Go/No-Go 판단 이후 진행합니다.
 - 기존 Python 동작과의 계약 호환(응답 필드/에러 규약/정렬/페이징)은 반드시 테스트로 고정합니다.
 
