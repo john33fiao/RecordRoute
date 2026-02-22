@@ -1,5 +1,12 @@
 # Rust/C++ 백엔드 재작성 WBS (Work Breakdown Structure)
 
+## 작업 로그
+
+- 2026-02-22: 착수 시작
+  - `docs/architecture.md` 신규 작성 (단일 진입점/엔진 경계/포트 고정/큐 분리 원칙 명시)
+  - `docs/rust-cpp-backend-rewrite-plan.md`에 기준 문서 링크 추가
+  - 다음 우선 작업: WBS 1.2.x ~ 2.2.x 산출물(배포/자산 정책) 구체화
+
 ## WBS 1.0 전략/기반 정합성
 
 ### 1.1 아키텍처 기준 수립
