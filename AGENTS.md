@@ -6,11 +6,11 @@
 
 - `frontend/`: 운영 중인 프론트엔드 코드
 - `docs/`: Rust 전환/설계 문서
-- `deprecated/`: Python 기반 레거시 코드베이스(참조 및 안정성 기준선)
+- (현재 없음) `deprecated/`: 과거 Python 레거시 코드베이스 경로였으며, 현 저장소에는 포함되지 않습니다.
 
 원칙:
 - 신규 구현/문서화는 Rust 전환 목표를 기준으로 작성합니다.
-- 레거시 수정이 아닌 경우 `deprecated/`를 기본 실행 타깃으로 가정하지 않습니다.
+- 현재 저장소에는 `deprecated/` 디렉터리가 없으므로 레거시 실행 경로를 기본 타깃으로 가정하지 않습니다.
 
 ## 2) Rust 전환 기본 방향
 
@@ -21,6 +21,7 @@
 - 오디오 전처리: `ffmpeg` 외부 프로세스 대신 Rust `symphonia` 크레이트 기반 변환을 기본값으로 사용
 
 세부 정책은 `docs/rust-cpp-backend-rewrite-plan.md`를 단일 기준으로 따르며, 아키텍처 기준선은 `docs/architecture.md`를 참조합니다.
+배포/자산 세부 운영 기준은 `docs/deployment-asset-policy.md`를 참조합니다.
 실행 단위/의존성 추적은 `TODO/TODO.md`를 함께 참조합니다.
 
 ## 3) 문서 동기화 규칙
@@ -51,14 +52,13 @@
 
 코드 변경이 포함되면 해당 스택 검증 필수:
 - 프론트: `cd frontend && npm run build`
-- 레거시 Python: `cd deprecated && pytest` 또는 영향 범위 테스트
+- 레거시 Python(외부/별도 저장소에서만): 해당 저장소 테스트 규칙에 따라 `pytest` 또는 영향 범위 테스트
 - Rust 코드 도입 시: `cargo test`, `cargo clippy`(도입 이후 필수)
 
 ## 6) 레거시 스코프 주의
 
-`deprecated/` 하위 파일을 수정할 경우:
-- 반드시 `deprecated/AGENTS.md`를 추가로 준수합니다.
-- 루트 규칙보다 더 구체적인(더 깊은) 지침이 있으면 해당 지침을 우선합니다.
+- 현재 저장소 기준 `deprecated/`는 비어 있거나 존재하지 않을 수 있습니다.
+- 향후 `deprecated/`가 재도입되어 하위 파일을 수정할 경우, 해당 경로의 `AGENTS.md`가 있으면 우선 준수합니다.
 
 ## 7) 금지/권장
 
