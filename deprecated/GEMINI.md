@@ -1,5 +1,9 @@
 # GEMINI.md - RecordRoute 에이전트 가이드
 
+> 레거시 문서 안내: 이 파일은 `deprecated/` 코드베이스 전용입니다.
+> Rust 전환 기준/신규 작업 규칙은 루트 `AGENTS.md`를 우선 확인하세요.
+
+
 최신 기준 문서는 `AGENTS.md`입니다. 이 파일은 Gemini 작업 시 필요한 요약만 제공합니다.
 
 ## 우선 참고
