@@ -1,1 +1,0 @@
-"""RecordRoute STT engine package."""
