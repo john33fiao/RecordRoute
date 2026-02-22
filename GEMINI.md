@@ -12,8 +12,9 @@
 
 - 기준 규칙: `AGENTS.md`
 - 사용자 개요: `README.md`
+- 아키텍처 기준선: `docs/architecture.md`
 - 전환 설계: `docs/rust-cpp-backend-rewrite-plan.md`
-- 전환 실행 WBS: `docs/rust-migration-wbs.md`
+- 전환 실행 WBS: `TODO/TODO.md`
 - 레거시 지침(필요 시): `deprecated/AGENTS.md`
 
 ## 에이전트 작업 규칙 (요약)

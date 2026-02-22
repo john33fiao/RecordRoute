@@ -20,8 +20,8 @@
 - 운영: 헬스체크/재시작/타임아웃/배압을 Rust 계층에서 명시적으로 관리
 - 오디오 전처리: `ffmpeg` 외부 프로세스 대신 Rust `symphonia` 크레이트 기반 변환을 기본값으로 사용
 
-세부 정책은 `docs/rust-cpp-backend-rewrite-plan.md`를 단일 기준으로 따릅니다.
-실행 단위/의존성 추적은 `docs/rust-migration-wbs.md`를 함께 참조합니다.
+세부 정책은 `docs/rust-cpp-backend-rewrite-plan.md`를 단일 기준으로 따르며, 아키텍처 기준선은 `docs/architecture.md`를 참조합니다.
+실행 단위/의존성 추적은 `TODO/TODO.md`를 함께 참조합니다.
 
 ## 3) 문서 동기화 규칙
 
