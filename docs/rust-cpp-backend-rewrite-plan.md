@@ -92,15 +92,15 @@ Head-of-Line Blocking 방지를 위해 큐를 엔진별로 분리한다.
 
 둘을 분리해 장애 원인을 명확히 관측한다.
 
-## 7) FFmpeg 전처리 위치 (단일 선택 고정)
+## 7) 오디오 전처리 위치 (단일 선택 고정)
 
 본 계획은 보안/예측가능성을 위해 **Rust 전처리 고정**을 기본값으로 채택한다.
 
-- Rust가 `ffmpeg`로 16kHz, 16-bit mono WAV로 변환
-- Rust가 `ffprobe`로 길이 추출
+- Rust가 `symphonia` 크레이트로 오디오 디코딩/리샘플링 후 16kHz, 16-bit mono WAV 규격으로 정규화
+- 길이 추출도 Rust 내부 메타데이터/샘플 기반으로 계산(외부 `ffprobe` 의존 제거)
 - `whisper-server`는 추론만 수행(변환 책임 제외)
 
-대안(미채택): `whisper-server --convert` 사용. 로컬 격리 미흡 시 파일 업로드 + ffmpeg 공격면이 커지므로 기본안에서 제외한다.
+대안(미채택): 외부 `ffmpeg`/`ffprobe` 실행 또는 `whisper-server --convert` 사용. 외부 프로세스 의존성과 공격면을 키우므로 기본안에서 제외한다.
 
 ## 8) 프로세스 슈퍼비전 (Drop만으로 불충분)
 
@@ -146,7 +146,7 @@ Rust 오케스트레이터는 단순 launcher가 아니라 supervisor로 동작�
 - `POST /jobs`, `GET /jobs/{id}` 구현
 
 ### Phase 3 — 전처리/타임아웃/오류계약
-- Rust ffmpeg/ffprobe 파이프라인 구현
+- Rust `symphonia` 기반 전처리/길이 추출 파이프라인 구현
 - 처리율 기반 timeout 계산 도입
 - HTTP vs Job timeout 분리 및 에러코드 체계화
 
@@ -166,7 +166,7 @@ Rust 오케스트레이터는 단순 launcher가 아니라 supervisor로 동작�
 - [ ] `llama-text`(18101), `llama-embed`(18102), `whisper-server`(18103) 실행 검증
 - [ ] 임베딩 모델 pooling 정책/런치 플래그 고정
 - [ ] Rust 엔진별 큐(`stt/summarize/embed`) + semaphore 구현
-- [ ] Rust ffmpeg/ffprobe 전처리 및 길이 추출 적용
+- [ ] Rust `symphonia` 전처리 및 길이 추출 적용
 - [ ] 처리율 기반 timeout 파라미터 파일 작성
 - [ ] supervisor(헬스체크/재시작/종료) 구현
 - [ ] Swagger 별도 프로세스(14000) 배포 구성
