@@ -9,9 +9,11 @@ WBS 추적은 `TODO/TODO.md`를 사용합니다.
 - 루트 Rust 바이너리 프로젝트가 존재 (`Cargo.toml`, `src/main.rs`)
 - `tokio` 비동기 런타임으로 실행 진입점 구성
 - `tracing`/`tracing-subscriber` 기반 bootstrap 로깅 구성
+- `tokio::net::TcpListener` 기반 최소 API 서버 바인딩 (`:18000` 기본값)
+- 헬스 엔드포인트 (`GET /healthz`, `GET /readyz`)
+- 환경변수 기반 최소 설정 로더 (`RECORDROUTE_API_HOST`, `RECORDROUTE_API_PORT`)
 
 ### 아직 미구현
-- Rust HTTP API 서버 (`:18000`)
 - 잡 API (`POST /jobs`, `GET /jobs/{id}`)
 - 엔진 프로세스 관리/헬스체크/재시작
 - 엔진별 큐/동시성 제어 (`stt/summarize/embed`)
@@ -67,9 +69,9 @@ WBS 추적은 `TODO/TODO.md`를 사용합니다.
 ## 4) 단계별 구현 계획
 
 ### Phase A — Rust HTTP 최소 기동
-- `axum` 도입
-- `/healthz`, `/readyz` 구현
-- 설정 구조체(포트/타임아웃 기본값) 도입
+- 최소 HTTP 서버 도입(`tokio::net::TcpListener`) ✅
+- `/healthz`, `/readyz` 구현 ✅
+- 설정 구조체(포트 기본값) 도입 ✅
 
 완료 조건:
 - 로컬에서 `:18000` 바인딩 확인

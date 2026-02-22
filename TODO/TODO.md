@@ -5,6 +5,10 @@
 
 ## 작업 로그
 
+- 2026-02-22: Phase A 최소 HTTP 서버 도입
+  - `tokio::net::TcpListener` 기반 API 서버 바인딩(`:18000` 기본값) 구현
+  - `/healthz`, `/readyz` 엔드포인트 및 readiness 상태 코드 분리 반영
+  - 환경변수(`RECORDROUTE_API_HOST`, `RECORDROUTE_API_PORT`) 기반 최소 설정 로더 도입
 - 2026-02-22: Rust 오케스트레이터 스캐폴딩 반영 확인
   - 루트 `Cargo.toml` + `src/main.rs` 존재
   - `tokio` 런타임/`tracing` 초기화 및 bootstrap 로그 출력 구현
@@ -18,9 +22,9 @@
 - [x] Rust 실행 바이너리 스캐폴딩 (`recordroute-orchestrator`)
 - [x] 비동기 런타임 초기화 (`tokio`)
 - [x] 기본 로깅/필터 초기화 (`tracing`, `tracing-subscriber`)
-- [ ] API 서버 바인딩 (`:18000`)
+- [x] API 서버 바인딩 (`:18000`)
 - [ ] 작업 API (`POST /jobs`, `GET /jobs/{id}`)
-- [ ] 헬스 엔드포인트 (`/healthz`, `/readyz`)
+- [x] 헬스 엔드포인트 (`/healthz`, `/readyz`)
 - [ ] 엔진별 큐 (`stt/summarize/embed`)
 - [ ] 엔진 프로세스 슈퍼비전 (spawn/health/restart/shutdown)
 - [ ] Rust `symphonia` 전처리 파이프라인
@@ -38,8 +42,8 @@
 ## 2.0 런타임 스캐폴딩
 
 - [x] 2.1 Rust 실행 진입점 및 로깅 부트스트랩 구현
-- [ ] 2.2 HTTP 서버 프레임워크(`axum`) 도입 및 `/healthz`/`/readyz` 최소 구현
-- [ ] 2.3 설정 로더(포트/타임아웃/큐 크기) 도입
+- [x] 2.2 HTTP 서버 최소 구현(`/healthz`/`/readyz`)
+- [x] 2.3 설정 로더(포트/타임아웃/큐 크기) 도입 (포트/호스트 최소값)
 
 ## 3.0 엔진 통합 기반
 
@@ -73,6 +77,6 @@
 
 ## 다음 우선순위 (실행 단위)
 
-1. `axum` 기반 `/healthz`, `/readyz` 최소 서버 도입
-2. 잡 엔티티 + 인메모리 저장소 + `POST /jobs`/`GET /jobs/{id}` 골격 구현
-3. 엔진별 큐 추상화(`stt/summarize/embed`)와 기본 backpressure 규약(`429`) 확정
+1. 잡 엔티티 + 인메모리 저장소 + `POST /jobs`/`GET /jobs/{id}` 골격 구현
+2. 엔진별 큐 추상화(`stt/summarize/embed`)와 기본 backpressure 규약(`429`) 확정
+3. 엔진별 클라이언트/포트 설정(`18101`, `18102`, `18103`) + readiness 연동
