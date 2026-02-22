@@ -18,6 +18,7 @@
 - 엔진 연동: FFI 대신 내부 HTTP 계약 우선
 - 큐: 단일 큐 금지, 엔진별 큐/동시성 분리
 - 운영: 헬스체크/재시작/타임아웃/배압을 Rust 계층에서 명시적으로 관리
+- 오디오 전처리: `ffmpeg` 외부 프로세스 대신 Rust `symphonia` 크레이트 기반 변환을 기본값으로 사용
 
 세부 정책은 `docs/rust-cpp-backend-rewrite-plan.md`를 단일 기준으로 따릅니다.
 

@@ -13,6 +13,7 @@
 
 - Rust 백엔드는 전환 계획 단계이며 루트에 `Cargo.toml`이 아직 없습니다.
 - 운영 중 코드 기준은 `frontend/`(현행) + `deprecated/`(레거시 참조)입니다.
+- 오디오 변환 기본 전략은 외부 `ffmpeg` 호출이 아니라 Rust `symphonia` 크레이트 사용입니다.
 
 ## 작업 체크리스트
 
