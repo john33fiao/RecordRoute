@@ -5,6 +5,10 @@
 
 ## 작업 로그
 
+- 2026-02-22: Phase B-1 엔진별 큐 수용량/배압(429) 스켈레톤 도입
+  - `POST /jobs?engine=<stt|summarize|embed>` 라우팅 추가(기본값 `stt`)
+  - 엔진별 bounded capacity 기반 큐 포화 시 `429 + queue_full` 반환
+  - 엔진별 큐 포화가 다른 큐 접수에는 영향을 주지 않는 단위 테스트 추가
 - 2026-02-22: Phase A+ 잡 API 스켈레톤 도입
   - `POST /jobs`에서 `202 + job_id` 반환 구현
   - `GET /jobs/{id}` 인메모리 조회(초기 상태 `queued`) 구현
@@ -52,7 +56,7 @@
 ## 3.0 엔진 통합 기반
 
 - [ ] 3.1 엔진별 클라이언트/포트 설정 (`18101`, `18102`, `18103`)
-- [ ] 3.2 엔진별 bounded queue + semaphore
+- [ ] 3.2 엔진별 bounded queue + semaphore (in-memory capacity 스켈레톤 반영, semaphore 미구현)
 - [ ] 3.3 큐 포화/엔진 포화 `429` 규약 및 메트릭 라벨 분리
 
 ## 4.0 잡 모델/오류 계약
@@ -82,6 +86,6 @@
 
 ## 다음 우선순위 (실행 단위)
 
-1. 엔진별 큐 추상화(`stt/summarize/embed`)와 기본 backpressure 규약(`429`) 확정
+1. 엔진별 semaphore/워커 모델로 큐 추상화(`stt/summarize/embed`) 고도화
 2. 엔진별 클라이언트/포트 설정(`18101`, `18102`, `18103`) + readiness 연동
 3. 잡 상태 전이 확장(`running|completed|failed|timeout|canceled`) 및 타임아웃 계층 연결

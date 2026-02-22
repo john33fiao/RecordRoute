@@ -16,6 +16,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 struct AppState {
     ready: bool,
     jobs: Arc<JobStore>,
+    queues: Arc<EngineQueueStore>,
 }
 
 #[derive(Debug)]
@@ -28,12 +29,35 @@ struct JobStore {
 struct AppConfig {
     host: String,
     api_port: u16,
+    stt_queue_capacity: usize,
+    summarize_queue_capacity: usize,
+    embed_queue_capacity: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
 struct Job {
     job_id: String,
     status: &'static str,
+    engine: EngineKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum EngineKind {
+    Stt,
+    Summarize,
+    Embed,
+}
+
+#[derive(Debug)]
+struct EngineQueueStore {
+    capacities: HashMap<EngineKind, usize>,
+    depths: Mutex<HashMap<EngineKind, usize>>,
+}
+
+#[derive(Debug)]
+enum QueueEnqueueError {
+    Full { engine: EngineKind },
 }
 
 impl AppConfig {
@@ -43,8 +67,18 @@ impl AppConfig {
             .ok()
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or(18_000);
+        let stt_queue_capacity = read_usize_env("RECORDROUTE_STT_QUEUE_CAPACITY", 1_024);
+        let summarize_queue_capacity =
+            read_usize_env("RECORDROUTE_SUMMARIZE_QUEUE_CAPACITY", 1_024);
+        let embed_queue_capacity = read_usize_env("RECORDROUTE_EMBED_QUEUE_CAPACITY", 1_024);
 
-        Self { host, api_port }
+        Self {
+            host,
+            api_port,
+            stt_queue_capacity,
+            summarize_queue_capacity,
+            embed_queue_capacity,
+        }
     }
 
     fn api_addr(&self) -> Result<SocketAddr, std::net::AddrParseError> {
@@ -60,12 +94,13 @@ impl JobStore {
         }
     }
 
-    fn create_job(&self) -> Job {
+    fn create_job(&self, engine: EngineKind) -> Job {
         let job_number = self.next_id.fetch_add(1, Ordering::Relaxed);
         let job_id = format!("job-{job_number:010}");
         let job = Job {
             job_id: job_id.clone(),
             status: "queued",
+            engine,
         };
 
         self.jobs
@@ -85,6 +120,36 @@ impl JobStore {
     }
 }
 
+impl EngineQueueStore {
+    fn new(config: &AppConfig) -> Self {
+        let capacities = HashMap::from([
+            (EngineKind::Stt, config.stt_queue_capacity),
+            (EngineKind::Summarize, config.summarize_queue_capacity),
+            (EngineKind::Embed, config.embed_queue_capacity),
+        ]);
+        let depths = Mutex::new(HashMap::from([
+            (EngineKind::Stt, 0),
+            (EngineKind::Summarize, 0),
+            (EngineKind::Embed, 0),
+        ]));
+
+        Self { capacities, depths }
+    }
+
+    fn enqueue(&self, engine: EngineKind) -> Result<(), QueueEnqueueError> {
+        let capacity = *self.capacities.get(&engine).unwrap_or(&0);
+        let mut depths = self.depths.lock().expect("queue depth mutex poisoned");
+        let depth = depths.entry(engine).or_insert(0);
+
+        if *depth >= capacity {
+            return Err(QueueEnqueueError::Full { engine });
+        }
+
+        *depth += 1;
+        Ok(())
+    }
+}
+
 #[tokio::main]
 async fn main() {
     init_tracing();
@@ -100,6 +165,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let state = AppState {
         ready: true,
         jobs: Arc::new(JobStore::new()),
+        queues: Arc::new(EngineQueueStore::new(&config)),
     };
 
     tracing::info!(%addr, "starting RecordRoute API server");
@@ -151,7 +217,8 @@ fn handle_connection(
 fn route_request(request_line: &str, state: &AppState) -> String {
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or_default();
-    let path = parts.next().unwrap_or_default();
+    let path_with_query = parts.next().unwrap_or_default();
+    let (path, query) = parse_path_and_query(path_with_query);
 
     match (method, path) {
         ("GET", "/healthz") => json_response(200, &StatusBody { status: "ok" }),
@@ -168,13 +235,28 @@ fn route_request(request_line: &str, state: &AppState) -> String {
             }
         }
         ("POST", "/jobs") => {
-            let job = state.jobs.create_job();
-            json_response(
-                202,
-                &JobCreatedResponse {
-                    job_id: &job.job_id,
-                },
-            )
+            let engine = parse_engine_kind(query).unwrap_or(EngineKind::Stt);
+
+            match state.queues.enqueue(engine) {
+                Ok(()) => {
+                    let job = state.jobs.create_job(engine);
+                    json_response(
+                        202,
+                        &JobCreatedResponse {
+                            job_id: &job.job_id,
+                        },
+                    )
+                }
+                Err(QueueEnqueueError::Full { engine }) => json_error_response(
+                    429,
+                    "queue_full",
+                    match engine {
+                        EngineKind::Stt => "stt queue is full",
+                        EngineKind::Summarize => "summarize queue is full",
+                        EngineKind::Embed => "embed queue is full",
+                    },
+                ),
+            }
         }
         ("GET", path) if path.starts_with("/jobs/") => {
             let job_id = path.trim_start_matches("/jobs/");
@@ -227,9 +309,40 @@ fn reason_phrase(status_code: u16) -> &'static str {
         400 => "Bad Request",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        429 => "Too Many Requests",
         503 => "Service Unavailable",
         _ => "Unknown",
     }
+}
+
+fn parse_path_and_query(path_with_query: &str) -> (&str, Option<&str>) {
+    match path_with_query.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (path_with_query, None),
+    }
+}
+
+fn parse_engine_kind(query: Option<&str>) -> Option<EngineKind> {
+    let query = query?;
+    for token in query.split('&') {
+        let (key, value) = token.split_once('=')?;
+        if key == "engine" {
+            return match value {
+                "stt" => Some(EngineKind::Stt),
+                "summarize" => Some(EngineKind::Summarize),
+                "embed" => Some(EngineKind::Embed),
+                _ => None,
+            };
+        }
+    }
+    None
+}
+
+fn read_usize_env(key: &str, default: usize) -> usize {
+    env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(default)
 }
 
 fn init_tracing() {
@@ -242,9 +355,18 @@ mod tests {
     use super::*;
 
     fn build_state(ready: bool) -> AppState {
+        let config = AppConfig {
+            host: "0.0.0.0".to_string(),
+            api_port: 18_000,
+            stt_queue_capacity: 1_024,
+            summarize_queue_capacity: 1_024,
+            embed_queue_capacity: 1_024,
+        };
+
         AppState {
             ready,
             jobs: Arc::new(JobStore::new()),
+            queues: Arc::new(EngineQueueStore::new(&config)),
         }
     }
 
@@ -269,6 +391,35 @@ mod tests {
 
         assert!(response.starts_with("HTTP/1.1 202 Accepted"));
         assert!(response.contains("\"job_id\":\"job-"));
+    }
+
+    #[test]
+    fn post_jobs_honors_per_engine_queue_capacity() {
+        let state = AppState {
+            ready: true,
+            jobs: Arc::new(JobStore::new()),
+            queues: Arc::new(EngineQueueStore {
+                capacities: HashMap::from([
+                    (EngineKind::Stt, 1),
+                    (EngineKind::Summarize, 1),
+                    (EngineKind::Embed, 1),
+                ]),
+                depths: Mutex::new(HashMap::from([
+                    (EngineKind::Stt, 0),
+                    (EngineKind::Summarize, 0),
+                    (EngineKind::Embed, 0),
+                ])),
+            }),
+        };
+
+        let first_stt = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
+        let second_stt = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
+        let first_embed = route_request("POST /jobs?engine=embed HTTP/1.1", &state);
+
+        assert!(first_stt.starts_with("HTTP/1.1 202 Accepted"));
+        assert!(second_stt.starts_with("HTTP/1.1 429 Too Many Requests"));
+        assert!(second_stt.contains("\"code\":\"queue_full\""));
+        assert!(first_embed.starts_with("HTTP/1.1 202 Accepted"));
     }
 
     #[test]
