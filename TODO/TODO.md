@@ -5,6 +5,10 @@
 
 ## 작업 로그
 
+- 2026-02-22: Phase A+ 잡 API 스켈레톤 도입
+  - `POST /jobs`에서 `202 + job_id` 반환 구현
+  - `GET /jobs/{id}` 인메모리 조회(초기 상태 `queued`) 구현
+  - 향후 엔진별 큐/실행기 연동 전까지 오케스트레이터 스켈레톤 상태 유지
 - 2026-02-22: Phase A 최소 HTTP 서버 도입
   - `tokio::net::TcpListener` 기반 API 서버 바인딩(`:18000` 기본값) 구현
   - `/healthz`, `/readyz` 엔드포인트 및 readiness 상태 코드 분리 반영
@@ -23,7 +27,7 @@
 - [x] 비동기 런타임 초기화 (`tokio`)
 - [x] 기본 로깅/필터 초기화 (`tracing`, `tracing-subscriber`)
 - [x] API 서버 바인딩 (`:18000`)
-- [ ] 작업 API (`POST /jobs`, `GET /jobs/{id}`)
+- [x] 작업 API (`POST /jobs`, `GET /jobs/{id}`)
 - [x] 헬스 엔드포인트 (`/healthz`, `/readyz`)
 - [ ] 엔진별 큐 (`stt/summarize/embed`)
 - [ ] 엔진 프로세스 슈퍼비전 (spawn/health/restart/shutdown)
@@ -53,7 +57,8 @@
 
 ## 4.0 잡 모델/오류 계약
 
-- [ ] 4.1 잡 상태 전이 모델 (`queued|running|completed|failed|timeout|canceled`)
+- [x] 4.1 잡 상태 전이 모델 (`queued` 초기 상태 + 조회 스켈레톤)
+- [ ] 4.1-확장 잡 상태 전이 전체 모델 (`running|completed|failed|timeout|canceled`)
 - [ ] 4.2 타임아웃 계층 분리 (HTTP vs Job)
 - [ ] 4.3 에러 코드/응답 필드 계약 고정
 
@@ -77,6 +82,6 @@
 
 ## 다음 우선순위 (실행 단위)
 
-1. 잡 엔티티 + 인메모리 저장소 + `POST /jobs`/`GET /jobs/{id}` 골격 구현
-2. 엔진별 큐 추상화(`stt/summarize/embed`)와 기본 backpressure 규약(`429`) 확정
-3. 엔진별 클라이언트/포트 설정(`18101`, `18102`, `18103`) + readiness 연동
+1. 엔진별 큐 추상화(`stt/summarize/embed`)와 기본 backpressure 규약(`429`) 확정
+2. 엔진별 클라이언트/포트 설정(`18101`, `18102`, `18103`) + readiness 연동
+3. 잡 상태 전이 확장(`running|completed|failed|timeout|canceled`) 및 타임아웃 계층 연결
