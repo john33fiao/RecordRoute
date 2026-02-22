@@ -1,0 +1,757 @@
+openapi: 3.0.3
+info:
+  title: RecordRoute Backend API
+  version: 0.1.0
+  description: |
+    RecordRoute 백엔드 API 명세입니다. Swagger UI/Editor에서 바로 로드할 수 있도록 OpenAPI 3.0 형식으로 작성되었습니다.
+
+    - 기본 API 서버: `http://localhost:8080`
+    - WebSocket 진행 이벤트: `ws://localhost:8765` (`/progress/<task_id>`와 동일한 진행 정보 스트림)
+
+servers:
+  - url: http://localhost:8080
+    description: Local backend
+
+tags:
+  - name: system
+  - name: files
+  - name: workflow
+  - name: search
+  - name: similarity
+  - name: models
+  - name: cache
+
+paths:
+  /health:
+    get:
+      tags: [system]
+      summary: Health check
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /upload:
+    post:
+      tags: [files]
+      summary: Upload a file
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Upload success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+        '400':
+          description: Invalid upload request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /history:
+    get:
+      tags: [files]
+      summary: Get upload/processing history
+      responses:
+        '200':
+          description: History list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HistoryItem'
+
+  /tasks:
+    get:
+      tags: [workflow]
+      summary: Get task list
+      responses:
+        '200':
+          description: Task map by task_id
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: '#/components/schemas/TaskStatus'
+
+  /progress/{task_id}:
+    get:
+      tags: [workflow]
+      summary: Get task progress
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Progress payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProgressResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /segments/{file_identifier}:
+    get:
+      tags: [files]
+      summary: Get STT segments sidecar
+      parameters:
+        - in: path
+          name: file_identifier
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Segment list (empty array when none)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SttSegment'
+
+  /download/{uuid_or_path}:
+    get:
+      tags: [files]
+      summary: Download a file by UUID or DB path alias
+      parameters:
+        - in: path
+          name: uuid_or_path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File stream
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: File not found
+
+  /process:
+    post:
+      tags: [workflow]
+      summary: Execute workflow steps (stt/correct/summary/embedding/diarize)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProcessRequest'
+      responses:
+        '200':
+          description: Workflow result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Workflow error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /cancel:
+    post:
+      tags: [workflow]
+      summary: Cancel a running task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [task_id]
+              properties:
+                task_id:
+                  type: string
+      responses:
+        '200':
+          description: Cancel request accepted
+
+  /shutdown:
+    post:
+      tags: [system]
+      summary: Shutdown backend (destructive API safe-mode protected)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  description: RECORDROUTE_DESTRUCTIVE_API_TOKEN
+                session_id:
+                  type: string
+                  description: RECORDROUTE_DESTRUCTIVE_API_SESSION_ID
+                session_token:
+                  type: string
+                  description: RECORDROUTE_DESTRUCTIVE_API_SESSION_TOKEN
+      responses:
+        '200':
+          description: Shutdown initiated
+        '401':
+          description: Unauthorized / missing safe-mode credentials
+
+  /search:
+    get:
+      tags: [search]
+      summary: Unified search
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+        - in: query
+          name: sort_by
+          schema:
+            type: string
+            enum: [similarity, date, uploaded_at]
+        - in: query
+          name: sort_order
+          schema:
+            type: string
+            enum: [asc, desc]
+        - in: query
+          name: status
+          schema:
+            type: string
+            description: completed|pending + aliases(done/success/incomplete/todo)
+        - in: query
+          name: status_task
+          schema:
+            type: string
+            enum: [stt, summary, embedding]
+        - in: query
+          name: min_score
+          schema:
+            type: number
+            minimum: 0
+            maximum: 1
+      responses:
+        '200':
+          description: Search response (contract_version search-v2)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+
+  /file_search:
+    get:
+      tags: [search]
+      summary: File metadata search
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HistoryItem'
+
+  /similar/{uuid_or_path}:
+    get:
+      tags: [similarity]
+      summary: Find similar documents using path/uuid
+      parameters:
+        - in: path
+          name: uuid_or_path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Similar documents list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimilarResponse'
+
+  /similar:
+    post:
+      tags: [similarity]
+      summary: Find similar documents by request body
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                file_path:
+                  type: string
+                record_id:
+                  type: string
+                top_k:
+                  type: integer
+                  minimum: 1
+                  default: 10
+      responses:
+        '200':
+          description: Similar documents list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimilarResponse'
+
+  /api/similarity-graph:
+    get:
+      tags: [similarity]
+      summary: Similarity graph API
+      parameters:
+        - in: query
+          name: min_similarity
+          schema:
+            type: number
+            minimum: 0
+            maximum: 1
+            default: 0.4
+        - in: query
+          name: max_neighbors
+          schema:
+            type: integer
+            minimum: 1
+            default: 10
+        - in: query
+          name: max_nodes
+          schema:
+            type: integer
+            minimum: 1
+            default: 500
+        - in: query
+          name: sampling
+          schema:
+            type: string
+            enum: [none, random, recent]
+            default: none
+        - in: query
+          name: neighbor_strategy
+          schema:
+            type: string
+            enum: [auto, exact, lsh]
+            default: auto
+        - in: query
+          name: doc_types
+          schema:
+            type: string
+            description: Comma separated doc type filter
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: keyword
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Graph payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimilarityGraphResponse'
+
+  /api/documents/metadata:
+    get:
+      tags: [similarity]
+      summary: Document metadata for graph/filter UI
+      responses:
+        '200':
+          description: Metadata list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documents:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+
+  /models:
+    get:
+      tags: [models]
+      summary: Get model list and provider status
+      parameters:
+        - in: query
+          name: provider
+          schema:
+            type: string
+            enum: [ollama, llamacpp]
+      responses:
+        '200':
+          description: Models grouped by provider
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelsResponse'
+
+  /cache/stats:
+    get:
+      tags: [cache]
+      summary: Cache statistics
+      responses:
+        '200':
+          description: Cache stats payload
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /cache/cleanup:
+    get:
+      tags: [cache]
+      summary: Trigger cache cleanup
+      responses:
+        '200':
+          description: Cache cleanup result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /metrics/workflow:
+    get:
+      tags: [workflow]
+      summary: Workflow metrics snapshot
+      responses:
+        '200':
+          description: Metrics payload
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+components:
+  schemas:
+    UploadResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        file_path:
+          type: string
+          example: DB/uploads/1234/sample.m4a
+        record_id:
+          type: string
+        task_id:
+          type: string
+
+    HistoryItem:
+      type: object
+      properties:
+        record_id:
+          type: string
+        file_path:
+          type: string
+        original_filename:
+          type: string
+        uploaded_at:
+          type: string
+          format: date-time
+        status:
+          type: object
+          additionalProperties: true
+        results:
+          type: object
+          additionalProperties: true
+
+    TaskStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        eta_seconds:
+          type: integer
+          nullable: true
+        error:
+          $ref: '#/components/schemas/WorkflowError'
+
+    WorkflowError:
+      type: object
+      nullable: true
+      properties:
+        error:
+          type: string
+        error_code:
+          type: string
+        retryable:
+          type: boolean
+        failed_step:
+          type: string
+
+    ProgressResponse:
+      type: object
+      properties:
+        task_id:
+          type: string
+        status:
+          type: string
+        progress_percent:
+          type: number
+        eta_seconds:
+          type: integer
+          nullable: true
+        current_step:
+          type: string
+          nullable: true
+        error:
+          $ref: '#/components/schemas/WorkflowError'
+
+    SttSegment:
+      type: object
+      required: [start, end, text]
+      properties:
+        start:
+          type: number
+        end:
+          type: number
+        text:
+          type: string
+        speaker:
+          oneOf:
+            - type: string
+            - type: 'null'
+
+    ProcessRequest:
+      type: object
+      required: [steps]
+      properties:
+        file_path:
+          type: string
+          description: DB alias path, e.g. DB/uploads/.../sample.m4a
+        record_id:
+          type: string
+        task_id:
+          type: string
+        steps:
+          type: array
+          items:
+            type: string
+            enum: [stt, correct, summary, embedding, diarize]
+        model_settings:
+          type: object
+          properties:
+            whisper:
+              type: string
+              example: large-v3-turbo
+            language:
+              type: string
+              example: ko
+            device:
+              type: string
+              example: auto
+            provider:
+              type: string
+              enum: [ollama, llamacpp]
+            llm_provider:
+              type: string
+              enum: [ollama, llamacpp]
+            correct:
+              type: string
+            summarize:
+              type: string
+            diarization_provider:
+              type: string
+              default: pyannote
+            num_speakers:
+              type: integer
+              minimum: 1
+              maximum: 20
+            min_speakers:
+              type: integer
+              minimum: 1
+              maximum: 20
+            max_speakers:
+              type: integer
+              minimum: 1
+              maximum: 20
+            temperature:
+              type: number
+            context_window:
+              type: integer
+            max_tokens:
+              type: integer
+
+    ProcessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        record_id:
+          type: string
+        task_id:
+          type: string
+        results:
+          type: object
+          additionalProperties: true
+        stt_segments:
+          type: array
+          items:
+            $ref: '#/components/schemas/SttSegment'
+        error:
+          type: string
+        error_code:
+          type: string
+        retryable:
+          type: boolean
+        failed_step:
+          type: string
+
+    SearchResultItem:
+      type: object
+      properties:
+        record_id:
+          type: string
+        file_path:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        similarity:
+          type: number
+        uploaded_at:
+          type: string
+          format: date-time
+        status:
+          type: object
+          additionalProperties: true
+
+    SearchResponse:
+      type: object
+      properties:
+        contract_version:
+          type: string
+          example: search-v2
+        total:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchResultItem'
+
+    SimilarResponse:
+      type: object
+      properties:
+        source:
+          type: object
+          additionalProperties: true
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    SimilarityGraphResponse:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        edges:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        meta:
+          type: object
+          additionalProperties: true
+
+    ModelsResponse:
+      type: object
+      properties:
+        models:
+          type: array
+          items:
+            type: string
+        models_by_provider:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        provider_status:
+          type: object
+          additionalProperties: true
+        default:
+          type: object
+          properties:
+            provider:
+              type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        error_code:
+          type: string
+        retryable:
+          type: boolean
+        failed_step:
+          type: string
