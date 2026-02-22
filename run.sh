@@ -8,7 +8,10 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 # .env 파일이 있으면 환경변수 로드
 if [ -f "$SCRIPT_DIR/.env" ]; then
     echo ".env 파일에서 환경변수를 로드합니다."
-    export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
+    set -a
+    # shellcheck disable=SC1090
+    . "$SCRIPT_DIR/.env"
+    set +a
     echo "[DEBUG] PYANNOTE_TOKEN이 로드되었습니다."
 fi
 
