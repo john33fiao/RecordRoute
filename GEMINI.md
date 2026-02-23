@@ -7,6 +7,7 @@
 
 ## 핵심 컨텍스트
 
+- OpenAPI 계약(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)은 Rust 목표 엔드포인트 기준으로 정렬되어 있습니다.
 - 저장소는 Rust 전환 진행 중이며, 레거시 Python 코드는 현 저장소에 포함되어 있지 않습니다.
 - 루트에는 Rust 실행 코드가 존재하며, 문서/프론트와 함께 Rust 구현 변경도 작업 대상입니다.
 - 오디오 전처리/변환 기본안은 Rust `symphonia` 크레이트 기반입니다.

@@ -5,6 +5,10 @@
 
 ## 작업 로그
 
+- 2026-02-23: OpenAPI/API 계약 Rust 목표 엔드포인트 정렬 상태 확인 및 WBS 반영
+  - `docs/openapi.yaml`, `docs/swagger/openapi.yaml` 기준 엔드포인트가 `/healthz`, `/readyz`, `POST /jobs`, `GET /jobs/{job_id}`로 정렬됨을 재검증
+  - 잡 상태/에러 코드(enum)가 Rust 오케스트레이터 구현 계약(`queued|running|completed|failed|timeout|canceled|rejected`, `invalid_job_id`, `queue_full` 등)과 일치함을 확인
+  - WBS `1.2 OpenAPI/API 계약 재정렬` 항목 완료 처리
 - 2026-02-22: Phase B-1 엔진별 큐 수용량/배압(429) 스켈레톤 도입
   - `POST /jobs?engine=<stt|summarize|embed>` 라우팅 추가(기본값 `stt`)
   - 엔진별 bounded capacity 기반 큐 포화 시 `429 + queue_full` 반환
@@ -44,8 +48,8 @@
 
 - [x] 1.1 Rust 단일 진입점/엔진 경계 문서 기준 확정
   - 근거 문서: `docs/architecture.md`, `docs/rust-cpp-backend-rewrite-plan.md`
-- [ ] 1.2 OpenAPI/API 계약을 Rust 목표 엔드포인트 기준으로 재정렬
-  - 비고: 현재 `docs/openapi.yaml`은 레거시 경로 중심
+- [x] 1.2 OpenAPI/API 계약을 Rust 목표 엔드포인트 기준으로 재정렬
+  - 근거 문서: `docs/openapi.yaml`, `docs/swagger/openapi.yaml`
 
 ## 2.0 런타임 스캐폴딩
 

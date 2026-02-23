@@ -14,6 +14,7 @@ Rust 백엔드는 `/healthz`/`/readyz` + `POST /jobs`/`GET /jobs/{id}`와 엔진
 
 ## 운영 안정화 메모 (Phase B-2)
 
+- OpenAPI 계약은 Rust 목표 엔드포인트(`/healthz`, `/readyz`, `POST /jobs`, `GET /jobs/{job_id}`) 기준으로 정렬되어 있습니다.
 - 동시성 상한은 semaphore 대기 태스크 누적 대신 **고정 worker 개수**로 강제합니다.
 - bounded queue 백프레셔를 유지하여 과부하 시 `POST /jobs`가 `429(queue_full)`로 떨어지도록 합니다.
 - 엔진 HTTP 호출은 `connect_timeout` + read/write timeout을 적용해 connect 지연과 응답 지연 모두 시간 상한 내 실패합니다.
