@@ -26,6 +26,7 @@
 - `POST /jobs` 과부하 응답은 `429(queue_full|engine_full)` 규약으로 구분되며 엔진/사유별 리젝션 카운트를 기록합니다.
 - `/readyz`는 수용량 압박 시 `503 degraded`로 응답하며, `/metrics`에서 readiness/queue/rejection 스냅샷(JSON)을 노출합니다.
 - STT는 `audio_ms` 길이 입력이 있을 때 처리율/버퍼/상하한 기반 timeout budget 산정식을 적용합니다.
+- STT payload는 `audio_contract`를 통해 Rust(`recordroute_symphonia`) 전처리 완료/변환 불필요(`conversion_required=false`) 계약을 명시합니다.
 
 ## 작업 체크리스트
 

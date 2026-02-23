@@ -14,6 +14,7 @@
 - `/readyz`는 수용량 압박 시 `503 degraded`로 응답하며, `/metrics`에서 readiness/queue/rejection 스냅샷(JSON)을 노출합니다.
 - STT는 `audio_ms` 길이 입력이 있을 때 처리율/버퍼/상하한 기반 timeout budget 산정식을 적용합니다.
 - 오디오 전처리/변환 기본안은 Rust `symphonia` 크레이트 기반입니다.
+- STT payload는 `audio_contract`를 포함하며 whisper-server는 변환 없이 추론만 수행한다는 계약(`conversion_required=false`)을 사용합니다.
 
 ## 우선 참조
 

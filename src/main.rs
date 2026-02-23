@@ -573,11 +573,7 @@ fn route_request(request_line: &str, state: &AppState) -> String {
             let request = JobRequest {
                 job_id: job.job_id.clone(),
                 engine,
-                payload: json!({
-                    "job_id": job.job_id,
-                    "engine": engine.as_str(),
-                    "timeout_budget_ms": timeout_budget.as_millis(),
-                }),
+                payload: build_engine_payload(&job.job_id, engine, timeout_budget),
                 timeout_budget,
                 queue_depth_guard: None,
             };
@@ -657,6 +653,24 @@ fn route_request(request_line: &str, state: &AppState) -> String {
         ("GET", _) => json_error_response(404, "not_found", "not found"),
         _ => json_error_response(405, "method_not_allowed", "method not allowed"),
     }
+}
+
+fn build_engine_payload(job_id: &JobId, engine: EngineKind, timeout_budget: Duration) -> Value {
+    let mut payload = json!({
+        "job_id": job_id,
+        "engine": engine.as_str(),
+        "timeout_budget_ms": timeout_budget.as_millis(),
+    });
+
+    if engine == EngineKind::Stt {
+        payload["audio_contract"] = json!({
+            "normalized_by": "recordroute_symphonia",
+            "format": "wav_mono_pcm16_16khz",
+            "conversion_required": false,
+        });
+    }
+
+    payload
 }
 
 fn derive_job_timeout_budget(
@@ -1191,6 +1205,27 @@ mod tests {
         assert!(get_response.starts_with("HTTP/1.1 200 OK"));
         assert!(get_response.contains("\"status\":\"completed\""));
         assert!(get_response.contains("\"result\""));
+    }
+
+    #[tokio::test]
+    async fn stt_payload_declares_rust_audio_preprocessing_contract() {
+        let client = Arc::new(MockEngineClient {
+            fail_with_5xx: Arc::new(AtomicBool::new(false)),
+            delay: Duration::from_millis(10),
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
+        });
+        let state = build_state(8, 1, client);
+
+        let response = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
+        let created_job_id = extract_job_id(&response);
+
+        wait_for_status(&state, &created_job_id, JobStatus::Completed).await;
+
+        let get_response = route_request(&format!("GET /jobs/{created_job_id} HTTP/1.1"), &state);
+        assert!(get_response.contains("\"audio_contract\""));
+        assert!(get_response.contains("\"normalized_by\":\"recordroute_symphonia\""));
+        assert!(get_response.contains("\"conversion_required\":false"));
     }
 
     #[tokio::test]
