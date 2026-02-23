@@ -9,7 +9,7 @@ use std::{
 use std::time::Duration;
 
 use tokio::{
-    sync::{mpsc, Semaphore},
+    sync::{mpsc, Mutex},
     time::timeout,
 };
 
@@ -27,12 +27,11 @@ pub fn build_dispatchers(
     for engine in [EngineKind::Stt, EngineKind::Summarize, EngineKind::Embed] {
         let (sender, receiver) = mpsc::channel(config.queue_capacity(engine));
         let queue_depth = Arc::new(AtomicUsize::new(0));
-        let semaphore = Arc::new(Semaphore::new(config.concurrency(engine).max(1)));
 
-        spawn_worker_loop(
+        spawn_worker_pool(
             engine,
             receiver,
-            semaphore,
+            config.concurrency(engine).max(1),
             jobs.clone(),
             engine_client.clone(),
             Duration::from_secs(config.job_timeout_secs),
@@ -50,30 +49,33 @@ pub fn build_dispatchers(
     dispatchers
 }
 
-pub fn spawn_worker_loop(
+pub fn spawn_worker_pool(
     engine: EngineKind,
-    mut receiver: mpsc::Receiver<JobRequest>,
-    semaphore: Arc<Semaphore>,
+    receiver: mpsc::Receiver<JobRequest>,
+    worker_count: usize,
     jobs: Arc<JobStore>,
     engine_client: Arc<dyn EngineClient>,
     job_timeout: Duration,
 ) {
-    tokio::spawn(async move {
-        while let Some(request) = receiver.recv().await {
-            // Acquire permit before spawning so recv loop cannot drain queue without available
-            // execution capacity. This preserves bounded-mpsc backpressure under load.
-            let permit = semaphore
-                .clone()
-                .acquire_owned()
-                .await
-                .expect("engine semaphore closed unexpectedly");
+    let receiver = Arc::new(Mutex::new(receiver));
 
-            let jobs = jobs.clone();
-            let engine_client = engine_client.clone();
-            let job_timeout = job_timeout;
+    for worker_index in 0..worker_count {
+        let receiver = receiver.clone();
+        let jobs = jobs.clone();
+        let engine_client = engine_client.clone();
 
-            tokio::spawn(async move {
-                let _permit = permit;
+        tokio::spawn(async move {
+            loop {
+                let request = {
+                    let mut locked = receiver.lock().await;
+                    locked.recv().await
+                };
+
+                let Some(request) = request else {
+                    tracing::info!(engine = engine.as_str(), worker_index, "worker channel closed");
+                    break;
+                };
+
                 let _queue_depth_guard: Option<QueueDepthGuard> = request.queue_depth_guard;
 
                 let start = std::time::Instant::now();
@@ -81,6 +83,7 @@ pub fn spawn_worker_loop(
                 tracing::info!(
                     job_id = %request.job_id.safe_for_logs(),
                     engine = engine.as_str(),
+                    worker_index,
                     status_transition = "queued->running",
                     "job started"
                 );
@@ -97,6 +100,7 @@ pub fn spawn_worker_loop(
                         tracing::info!(
                             job_id = %request.job_id.safe_for_logs(),
                             engine = engine.as_str(),
+                            worker_index,
                             status_transition = "running->succeeded",
                             latency_ms,
                             "job completed"
@@ -108,6 +112,7 @@ pub fn spawn_worker_loop(
                         tracing::warn!(
                             job_id = %request.job_id.safe_for_logs(),
                             engine = engine.as_str(),
+                            worker_index,
                             status_transition = "running->failed",
                             latency_ms,
                             retryable = error.retryable,
@@ -129,6 +134,7 @@ pub fn spawn_worker_loop(
                         tracing::warn!(
                             job_id = %request.job_id.safe_for_logs(),
                             engine = engine.as_str(),
+                            worker_index,
                             status_transition = "running->timeout",
                             latency_ms,
                             error_code = "job_timeout",
@@ -136,9 +142,9 @@ pub fn spawn_worker_loop(
                         );
                     }
                 }
-            });
-        }
-    });
+            }
+        });
+    }
 }
 
 impl crate::EngineDispatcher {
