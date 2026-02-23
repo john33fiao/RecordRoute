@@ -37,8 +37,9 @@ Rust 백엔드는 `/healthz`/`/readyz` + `POST /jobs`/`GET /jobs/{id}`와 엔진
 3. 아키텍처 기준선: `docs/architecture.md`
 4. 전환 설계: `docs/rust-cpp-backend-rewrite-plan.md`
 5. 배포/자산 정책: `docs/deployment-asset-policy.md`
-6. 전환 실행 WBS: `TODO/TODO.md`
-7. 에이전트 요약: `CLAUDE.md`, `GEMINI.md`
+6. `main.rs` 분할 가이드: `docs/main-rs-modularization-guide.md`
+7. 전환 실행 WBS: `TODO/TODO.md`
+8. 에이전트 요약: `CLAUDE.md`, `GEMINI.md`
 
 ## 현재 상태 (2026-02 기준)
 
@@ -68,6 +69,7 @@ npm run build
 - 단일 진입점/엔진 경계 기준은 `docs/architecture.md`를 먼저 확인합니다.
 - 상세 목표/포트/큐/타임아웃/슈퍼비전 정책은 `docs/rust-cpp-backend-rewrite-plan.md`를 단일 기준으로 따릅니다.
 - 실행 단위 일정/의존성 관리는 `TODO/TODO.md`를 기준으로 추적합니다.
+- `main.rs` 분할 전략은 `docs/main-rs-modularization-guide.md`를 참고합니다.
 - 전환 우선순위는 **read-heavy API 및 검색 경로 최적화**를 먼저 수행하고, `/process` 전체 전환은 Go/No-Go 판단 이후 진행합니다.
 - 기존 Python 동작과의 계약 호환(응답 필드/에러 규약/정렬/페이징)은 반드시 테스트로 고정합니다.
 

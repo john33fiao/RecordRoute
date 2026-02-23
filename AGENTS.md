@@ -24,6 +24,7 @@
 
 세부 정책은 `docs/rust-cpp-backend-rewrite-plan.md`를 단일 기준으로 따르며, 아키텍처 기준선은 `docs/architecture.md`를 참조합니다.
 배포/자산 세부 운영 기준은 `docs/deployment-asset-policy.md`를 참조합니다.
+`main.rs` 분할/모듈화 실무 기준은 `docs/main-rs-modularization-guide.md`를 참조합니다.
 실행 단위/의존성 추적은 `TODO/TODO.md`를 함께 참조합니다.
 
 ## 3) 문서 동기화 규칙

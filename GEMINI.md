@@ -20,6 +20,7 @@
 - 아키텍처 기준선: `docs/architecture.md`
 - 전환 설계: `docs/rust-cpp-backend-rewrite-plan.md`
 - 배포/자산 정책: `docs/deployment-asset-policy.md`
+- `main.rs` 분할 가이드: `docs/main-rs-modularization-guide.md`
 - 전환 실행 WBS: `TODO/TODO.md`
 - 레거시 지침(필요 시): 별도 레거시 보관소/브랜치의 AGENTS 문서
 
