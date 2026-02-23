@@ -1,7 +1,7 @@
 use std::io::Cursor;
 
 use symphonia::core::{
-    audio::{AudioBufferRef, SampleBuffer, SignalSpec},
+    audio::{AudioBufferRef, SampleBuffer, Signal},
     codecs::DecoderOptions,
     formats::FormatOptions,
     io::MediaSourceStream,
@@ -51,7 +51,7 @@ pub fn normalize_to_wav_mono_16k(input: &[u8]) -> Result<Vec<u8>, String> {
         input_rate = decoded.spec().rate;
 
         match decoded {
-            AudioBufferRef::F32(buf) => collect_mono_f32_from_f32(buf, &mut mono_f32),
+            AudioBufferRef::F32(buf) => collect_mono_f32_from_f32(buf.as_ref(), &mut mono_f32),
             _ => {
                 let spec = *decoded.spec();
                 let duration = decoded.capacity() as u64;
@@ -80,7 +80,7 @@ pub fn normalize_to_wav_mono_16k(input: &[u8]) -> Result<Vec<u8>, String> {
     Ok(build_wav_mono_i16(TARGET_SAMPLE_RATE, &pcm_i16))
 }
 
-fn collect_mono_f32_from_f32(buf: symphonia::core::audio::AudioBuffer<f32>, out: &mut Vec<f32>) {
+fn collect_mono_f32_from_f32(buf: &symphonia::core::audio::AudioBuffer<f32>, out: &mut Vec<f32>) {
     let channels = buf.spec().channels.count().max(1);
     if channels == 1 {
         out.extend_from_slice(buf.chan(0));
