@@ -5,13 +5,18 @@
 
 ## 작업 로그
 
+- 2026-02-23: Phase B-2 429 사유 분리/리젝션 메트릭 라벨 분리 반영
+  - `POST /jobs` enqueue 실패(Full) 시 `engine_full`/`queue_full` reason을 worker 포화 기준으로 분리
+  - 엔진/사유(`engine`, `reason`) 단위 리젝션 카운터를 오케스트레이터 메모리 지표로 추가
+  - 관련 단위 테스트(사유 분기, 리젝션 카운트) 갱신 및 통과
+
 - 2026-02-23: OpenAPI/API 계약 Rust 목표 엔드포인트 정렬 상태 확인 및 WBS 반영
   - `docs/openapi.yaml`, `docs/swagger/openapi.yaml` 기준 엔드포인트가 `/healthz`, `/readyz`, `POST /jobs`, `GET /jobs/{job_id}`로 정렬됨을 재검증
-  - 잡 상태/에러 코드(enum)가 Rust 오케스트레이터 구현 계약(`queued|running|completed|failed|timeout|canceled|rejected`, `invalid_job_id`, `queue_full` 등)과 일치함을 확인
+  - 잡 상태/에러 코드(enum)가 Rust 오케스트레이터 구현 계약(`queued|running|completed|failed|timeout|canceled|rejected`, `invalid_job_id`, `queue_full|engine_full` 등)과 일치함을 확인
   - WBS `1.2 OpenAPI/API 계약 재정렬` 항목 완료 처리
 - 2026-02-22: Phase B-1 엔진별 큐 수용량/배압(429) 스켈레톤 도입
   - `POST /jobs?engine=<stt|summarize|embed>` 라우팅 추가(기본값 `stt`)
-  - 엔진별 bounded capacity 기반 큐 포화 시 `429 + queue_full` 반환
+  - 엔진별 bounded capacity 기반 큐 포화 시 `429 + queue_full|engine_full` 반환
   - 엔진별 큐 포화가 다른 큐 접수에는 영향을 주지 않는 단위 테스트 추가
 - 2026-02-22: Phase A+ 잡 API 스켈레톤 도입
   - `POST /jobs`에서 `202 + job_id` 반환 구현
@@ -61,7 +66,7 @@
 
 - [x] 3.1 엔진별 클라이언트/포트 설정 (`18101`, `18102`, `18103`)
 - [x] 3.2 엔진별 bounded queue + semaphore
-- [ ] 3.3 큐 포화/엔진 포화 `429` 규약 및 메트릭 라벨 분리
+- [x] 3.3 큐 포화/엔진 포화 `429` 규약 및 메트릭 라벨 분리
 
 ## 4.0 잡 모델/오류 계약
 
