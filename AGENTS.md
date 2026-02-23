@@ -41,6 +41,9 @@
 
 ## 4) 변경 우선순위
 
+
+정렬 상태 메모:
+- OpenAPI 계약(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)은 Rust 목표 엔드포인트 기준으로 유지합니다.
 1. 계약 안정성(API 응답 필드/에러 규약)
 2. 운영 안전성(타임아웃, 큐 포화, 헬스체크)
 3. 성능 최적화(검색/벡터/read-heavy 경로)
