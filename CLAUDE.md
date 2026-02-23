@@ -3,7 +3,7 @@
 이 문서는 요약본이며, 상세 기준은 `AGENTS.md`를 따릅니다.
 
 
-> 문서 동기화: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, job_id 검증/로그 위생, queue depth guard) 반영 상태와 정렬됨.
+> 문서 동기화: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, job_id 검증/로그 위생, queue depth guard, 429 reason/리젝션 메트릭 분리) 반영 상태와 정렬됨.
 
 ## 우선 확인 순서
 
@@ -22,6 +22,7 @@
 - 운영 중 코드 기준은 `frontend/`(현행) + 루트 Rust 코드입니다.
 - 오디오 변환 기본 전략은 외부 `ffmpeg` 호출이 아니라 Rust `symphonia` 크레이트 사용입니다.
 - 잡 상태는 `queued|running|completed|failed|timeout|canceled|rejected`로 관리합니다.
+- `POST /jobs` 과부하 응답은 `429(queue_full|engine_full)` 규약으로 구분되며 엔진/사유별 리젝션 카운트를 기록합니다.
 
 ## 작업 체크리스트
 

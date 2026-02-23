@@ -42,6 +42,8 @@ pub fn build_dispatchers(
             EngineDispatcher {
                 sender,
                 queue_depth,
+                queue_capacity: config.queue_capacity(engine),
+                worker_count: config.concurrency(engine).max(1),
             },
         );
     }
@@ -72,7 +74,11 @@ pub fn spawn_worker_pool(
                 };
 
                 let Some(request) = request else {
-                    tracing::info!(engine = engine.as_str(), worker_index, "worker channel closed");
+                    tracing::info!(
+                        engine = engine.as_str(),
+                        worker_index,
+                        "worker channel closed"
+                    );
                     break;
                 };
 

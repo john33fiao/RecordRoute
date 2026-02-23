@@ -29,11 +29,19 @@ struct AppState {
     ready: bool,
     jobs: Arc<JobStore>,
     dispatchers: Arc<HashMap<EngineKind, EngineDispatcher>>,
+    rejection_metrics: Arc<RejectionMetrics>,
 }
 
 pub(crate) struct EngineDispatcher {
     pub(crate) sender: mpsc::Sender<JobRequest>,
     pub(crate) queue_depth: Arc<AtomicUsize>,
+    pub(crate) queue_capacity: usize,
+    pub(crate) worker_count: usize,
+}
+
+#[derive(Debug)]
+struct RejectionMetrics {
+    counters: Mutex<HashMap<(EngineKind, &'static str), u64>>,
 }
 
 #[derive(Debug)]
@@ -461,6 +469,34 @@ impl JobStore {
     }
 }
 
+impl RejectionMetrics {
+    fn new() -> Self {
+        Self {
+            counters: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn increment(&self, engine: EngineKind, reason: &'static str) -> u64 {
+        let mut counters = self
+            .counters
+            .lock()
+            .expect("rejection metrics mutex poisoned");
+        let counter = counters.entry((engine, reason)).or_insert(0);
+        *counter += 1;
+        *counter
+    }
+
+    #[cfg(test)]
+    fn count(&self, engine: EngineKind, reason: &'static str) -> u64 {
+        *self
+            .counters
+            .lock()
+            .expect("rejection metrics mutex poisoned")
+            .get(&(engine, reason))
+            .unwrap_or(&0)
+    }
+}
+
 impl EngineKind {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
@@ -576,6 +612,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         ready: true,
         jobs,
         dispatchers: Arc::new(dispatchers),
+        rejection_metrics: Arc::new(RejectionMetrics::new()),
     };
 
     tracing::info!(%addr, "starting RecordRoute API server");
@@ -709,14 +746,21 @@ fn route_request(request_line: &str, state: &AppState) -> String {
                     },
                 ),
                 Err(QueueEnqueueError::Full) => {
-                    let reason = if dispatcher.queue_depth() >= state.jobs.running_count(engine) {
-                        "queue_full"
-                    } else {
-                        "engine_full"
-                    };
+                    let reason = rejection_reason_for_full(engine, dispatcher, &state.jobs);
+                    let rejection_count = state.rejection_metrics.increment(engine, reason);
                     state
                         .jobs
                         .mark_rejected_capacity_exceeded(&job.job_id, engine, reason);
+                    tracing::warn!(
+                        engine = engine.as_str(),
+                        reason,
+                        queue_depth = dispatcher.queue_depth(),
+                        queue_capacity = dispatcher.queue_capacity,
+                        running = state.jobs.running_count(engine),
+                        worker_count = dispatcher.worker_count,
+                        rejection_count,
+                        "job rejected due to capacity pressure"
+                    );
                     json_error_response(
                         429,
                         reason,
@@ -724,10 +768,19 @@ fn route_request(request_line: &str, state: &AppState) -> String {
                     )
                 }
                 Err(QueueEnqueueError::Closed) => {
+                    let rejection_count = state
+                        .rejection_metrics
+                        .increment(engine, "engine_dispatcher_closed");
                     state.jobs.mark_failed(
                         &job.job_id,
                         "engine_dispatcher_closed",
                         "engine dispatcher closed".to_string(),
+                    );
+                    tracing::warn!(
+                        engine = engine.as_str(),
+                        reason = "engine_dispatcher_closed",
+                        rejection_count,
+                        "job rejected because dispatcher is closed"
                     );
                     json_error_response(503, "engine_dispatcher_closed", "engine dispatcher closed")
                 }
@@ -754,6 +807,19 @@ fn route_request(request_line: &str, state: &AppState) -> String {
         }
         ("GET", _) => json_error_response(404, "not_found", "not found"),
         _ => json_error_response(405, "method_not_allowed", "method not allowed"),
+    }
+}
+
+fn rejection_reason_for_full(
+    engine: EngineKind,
+    dispatcher: &EngineDispatcher,
+    jobs: &JobStore,
+) -> &'static str {
+    let running = jobs.running_count(engine);
+    if running >= dispatcher.worker_count {
+        "engine_full"
+    } else {
+        "queue_full"
     }
 }
 
@@ -1105,6 +1171,7 @@ mod tests {
             ready: true,
             jobs,
             dispatchers: Arc::new(dispatchers),
+            rejection_metrics: Arc::new(RejectionMetrics::new()),
         }
     }
 
@@ -1152,6 +1219,7 @@ mod tests {
             ready: true,
             jobs,
             dispatchers: Arc::new(dispatchers),
+            rejection_metrics: Arc::new(RejectionMetrics::new()),
         }
     }
 
@@ -1230,7 +1298,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn queue_full_returns_429_and_records_rejected_job() {
+    async fn capacity_rejection_returns_429_and_records_rejected_job() {
         let client = Arc::new(MockEngineClient {
             fail_with_5xx: Arc::new(AtomicBool::new(false)),
             delay: Duration::from_millis(200),
@@ -1244,9 +1312,15 @@ mod tests {
 
         assert!(first.starts_with("HTTP/1.1 202 Accepted"));
         assert!(second.starts_with("HTTP/1.1 429 Too Many Requests"));
-        assert!(second.contains("\"code\":\"queue_full\""));
+        assert!(second.contains("\"code\":\"engine_full\""));
 
-        assert_eq!(find_first_rejected_error_code(&state), Some("queue_full"));
+        assert_eq!(find_first_rejected_error_code(&state), Some("engine_full"));
+        assert_eq!(
+            state
+                .rejection_metrics
+                .count(EngineKind::Stt, "engine_full"),
+            1
+        );
 
         let rejected = find_status_count(&state, JobStatus::Rejected);
         assert!(rejected >= 1);
@@ -1273,6 +1347,33 @@ mod tests {
 
         let third = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
         assert!(third.starts_with("HTTP/1.1 202 Accepted"));
+    }
+
+    #[test]
+    fn full_rejection_reason_distinguishes_queue_vs_engine_pressure() {
+        let jobs = JobStore::new();
+        let queued_job = jobs.create_queued_job(EngineKind::Stt);
+
+        let queue_pressure_dispatcher = EngineDispatcher {
+            sender: tokio::sync::mpsc::channel(1).0,
+            queue_depth: Arc::new(AtomicUsize::new(1)),
+            queue_capacity: 1,
+            worker_count: 2,
+        };
+        let queue_reason =
+            rejection_reason_for_full(EngineKind::Stt, &queue_pressure_dispatcher, &jobs);
+        assert_eq!(queue_reason, "queue_full");
+
+        jobs.mark_running(&queued_job.job_id);
+        let engine_pressure_dispatcher = EngineDispatcher {
+            sender: tokio::sync::mpsc::channel(1).0,
+            queue_depth: Arc::new(AtomicUsize::new(1)),
+            queue_capacity: 1,
+            worker_count: 1,
+        };
+        let engine_reason =
+            rejection_reason_for_full(EngineKind::Stt, &engine_pressure_dispatcher, &jobs);
+        assert_eq!(engine_reason, "engine_full");
     }
 
     #[tokio::test]
@@ -1426,6 +1527,7 @@ mod tests {
                 ready: true,
                 jobs: store,
                 dispatchers: Arc::new(HashMap::new()),
+                rejection_metrics: Arc::new(RejectionMetrics::new()),
             },
             JobStatus::Completed,
         );

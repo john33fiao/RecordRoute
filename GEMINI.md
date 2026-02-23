@@ -3,13 +3,14 @@
 최신 원본 기준은 `AGENTS.md`입니다. 이 문서는 실행 요약만 제공합니다.
 
 
-> 문서 동기화: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, job_id 검증/로그 위생, queue depth guard) 반영 상태와 정렬됨.
+> 문서 동기화: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, job_id 검증/로그 위생, queue depth guard, 429 reason/리젝션 메트릭 분리) 반영 상태와 정렬됨.
 
 ## 핵심 컨텍스트
 
 - OpenAPI 계약(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)은 Rust 목표 엔드포인트 기준으로 정렬되어 있습니다.
 - 저장소는 Rust 전환 진행 중이며, 레거시 Python 코드는 현 저장소에 포함되어 있지 않습니다.
 - 루트에는 Rust 실행 코드가 존재하며, 문서/프론트와 함께 Rust 구현 변경도 작업 대상입니다.
+- `POST /jobs` 과부하 응답은 `429(queue_full|engine_full)`로 구분되며, 리젝션은 엔진/사유 라벨 카운트로 관측합니다.
 - 오디오 전처리/변환 기본안은 Rust `symphonia` 크레이트 기반입니다.
 
 ## 우선 참조
