@@ -24,6 +24,8 @@
 ## 작업 체크리스트
 
 - 문서 변경 시 `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `README.md` 동기화
+- 코드 작업 전 RTD Step 1~4, 커밋 전 RTD Step 5~18 수행(단계별 PASS/FAIL + 근거 기록)
+- 보안 리스크/롤백 경로 불명확 시 PASS 금지, Step 1~18 READY 전 커밋/PR 금지
 - 목표/현황 구분 명확화(완료 표현 금지)
 - 레거시 수정 시 해당 스코프 문서 지침 우선
 
