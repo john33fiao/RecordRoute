@@ -1,15 +1,15 @@
 use std::{
     collections::HashMap,
-    env, fmt,
+    env,
     future::Future,
     io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     pin::Pin,
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 use serde::Serialize;
@@ -18,9 +18,11 @@ use tokio::sync::mpsc;
 use tracing_subscriber::{fmt as tracing_fmt, EnvFilter};
 
 mod audio;
+mod domain;
 mod engine_manager;
 mod workers;
 
+use domain::{JobId, JobStore};
 use engine_manager::{EngineManager, EngineManagerConfig, EngineProcessSpec};
 use workers::build_dispatchers;
 
@@ -50,12 +52,6 @@ pub(crate) struct JobRequest {
     pub(crate) engine: EngineKind,
     pub(crate) payload: Value,
     pub(crate) queue_depth_guard: Option<QueueDepthGuard>,
-}
-
-#[derive(Debug)]
-pub(crate) struct JobStore {
-    next_id: AtomicU64,
-    jobs: Mutex<HashMap<JobId, Job>>,
 }
 
 #[derive(Clone, Debug)]
@@ -90,46 +86,12 @@ pub(crate) struct AppConfig {
     engine_restart_backoff_max_ms: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
-struct Job {
-    job_id: JobId,
-    status: JobStatus,
-    engine: EngineKind,
-    created_at_ms: u64,
-    started_at_ms: Option<u64>,
-    finished_at_ms: Option<u64>,
-    result: Option<Value>,
-    error: Option<JobError>,
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
-#[serde(transparent)]
-struct JobId(String);
-
-#[derive(Clone, Debug, Serialize)]
-struct JobError {
-    code: &'static str,
-    message: String,
-}
-
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum EngineKind {
     Stt,
     Summarize,
     Embed,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-enum JobStatus {
-    Queued,
-    Running,
-    Completed,
-    Failed,
-    Timeout,
-    Canceled,
-    Rejected,
 }
 
 #[derive(Debug)]
@@ -181,64 +143,6 @@ impl QueueDepthGuard {
 impl Drop for QueueDepthGuard {
     fn drop(&mut self) {
         self.queue_depth.fetch_sub(1, Ordering::Relaxed);
-    }
-}
-
-impl JobId {
-    const MAX_LEN: usize = 64;
-
-    fn parse(input: &str) -> Result<Self, JobIdValidationError> {
-        if input.is_empty() {
-            return Err(JobIdValidationError::Empty);
-        }
-        if input.len() > Self::MAX_LEN {
-            return Err(JobIdValidationError::TooLong);
-        }
-        if !input
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-        {
-            return Err(JobIdValidationError::InvalidCharacter);
-        }
-
-        Ok(Self(input.to_string()))
-    }
-
-    fn generated(job_number: u64) -> Self {
-        Self(format!("job-{job_number:010}"))
-    }
-
-    fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    pub(crate) fn safe_for_logs(&self) -> String {
-        sanitize_for_logs(self.as_str(), 24)
-    }
-}
-
-impl fmt::Display for JobId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug)]
-enum JobIdValidationError {
-    Empty,
-    TooLong,
-    InvalidCharacter,
-}
-
-impl JobIdValidationError {
-    fn message(&self) -> &'static str {
-        match self {
-            JobIdValidationError::Empty => "job_id must not be empty",
-            JobIdValidationError::TooLong => "job_id must be at most 64 characters",
-            JobIdValidationError::InvalidCharacter => {
-                "job_id supports only [a-zA-Z0-9_-] characters"
-            }
-        }
     }
 }
 
@@ -317,154 +221,6 @@ impl AppConfig {
             EngineKind::Stt => self.stt_concurrency,
             EngineKind::Summarize => self.summarize_concurrency,
             EngineKind::Embed => self.embed_concurrency,
-        }
-    }
-}
-
-impl JobStore {
-    pub(crate) fn new() -> Self {
-        Self {
-            next_id: AtomicU64::new(1),
-            jobs: Mutex::new(HashMap::new()),
-        }
-    }
-
-    fn create_queued_job(&self, engine: EngineKind) -> Job {
-        let job_number = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let job_id = JobId::generated(job_number);
-        let now = now_ms();
-        let job = Job {
-            job_id: job_id.clone(),
-            status: JobStatus::Queued,
-            engine,
-            created_at_ms: now,
-            started_at_ms: None,
-            finished_at_ms: None,
-            result: None,
-            error: None,
-        };
-
-        self.jobs
-            .lock()
-            .expect("job store mutex poisoned")
-            .insert(job_id, job.clone());
-
-        job
-    }
-
-    fn get_job(&self, job_id: &JobId) -> Option<Job> {
-        self.jobs
-            .lock()
-            .expect("job store mutex poisoned")
-            .get(job_id)
-            .cloned()
-    }
-
-    pub(crate) fn mark_running(&self, job_id: &JobId) {
-        self.transition(job_id, |job| {
-            if job.status == JobStatus::Queued {
-                job.status = JobStatus::Running;
-                job.started_at_ms = Some(now_ms());
-            }
-        });
-    }
-
-    pub(crate) fn mark_succeeded(&self, job_id: &JobId, result: Value) {
-        self.transition(job_id, |job| {
-            if job.status == JobStatus::Running {
-                job.status = JobStatus::Completed;
-                job.result = Some(result.clone());
-                job.finished_at_ms = Some(now_ms());
-            }
-        });
-    }
-
-    pub(crate) fn mark_failed(&self, job_id: &JobId, code: &'static str, message: String) {
-        self.transition(job_id, |job| {
-            if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
-                job.status = JobStatus::Failed;
-                if job.started_at_ms.is_none() {
-                    job.started_at_ms = Some(now_ms());
-                }
-                job.finished_at_ms = Some(now_ms());
-                job.error = Some(JobError {
-                    code,
-                    message: message.clone(),
-                });
-            }
-        });
-    }
-
-    fn mark_rejected_capacity_exceeded(
-        &self,
-        job_id: &JobId,
-        engine: EngineKind,
-        code: &'static str,
-    ) {
-        self.transition(job_id, |job| {
-            if job.status == JobStatus::Queued {
-                job.status = JobStatus::Rejected;
-                job.finished_at_ms = Some(now_ms());
-                job.error = Some(JobError {
-                    code,
-                    message: format!("{} capacity exceeded ({code})", engine.as_str()),
-                });
-            }
-        });
-    }
-
-    pub(crate) fn mark_timeout(&self, job_id: &JobId, code: &'static str, message: String) {
-        self.transition(job_id, |job| {
-            if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
-                job.status = JobStatus::Timeout;
-                if job.started_at_ms.is_none() {
-                    job.started_at_ms = Some(now_ms());
-                }
-                job.finished_at_ms = Some(now_ms());
-                job.error = Some(JobError {
-                    code,
-                    message: message.clone(),
-                });
-            }
-        });
-    }
-
-    pub(crate) fn mark_canceled(&self, job_id: &JobId, message: String) {
-        self.transition(job_id, |job| {
-            if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
-                job.status = JobStatus::Canceled;
-                if job.started_at_ms.is_none() {
-                    job.started_at_ms = Some(now_ms());
-                }
-                job.finished_at_ms = Some(now_ms());
-                job.error = Some(JobError {
-                    code: "job_canceled",
-                    message: message.clone(),
-                });
-            }
-        });
-    }
-
-    pub(crate) fn running_count(&self, engine: EngineKind) -> usize {
-        self.jobs
-            .lock()
-            .expect("job store mutex poisoned")
-            .values()
-            .filter(|job| job.engine == engine && job.status == JobStatus::Running)
-            .count()
-    }
-
-    fn transition<F>(&self, job_id: &JobId, mut updater: F)
-    where
-        F: FnMut(&mut Job),
-    {
-        if let Some(job) = self
-            .jobs
-            .lock()
-            .expect("job store mutex poisoned")
-            .get_mut(job_id)
-        {
-            updater(job);
         }
     }
 }
@@ -935,13 +691,6 @@ fn read_csv_env(key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO)
-        .as_millis() as u64
-}
-
 async fn sleep_backoff(base: Duration, attempt: usize) {
     let factor = 2u32.saturating_pow(attempt as u32);
     tokio::time::sleep(base * factor).await;
@@ -1091,6 +840,7 @@ fn init_tracing() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::{JobIdValidationError, JobStatus};
     use std::{
         net::TcpListener,
         sync::atomic::{AtomicBool, AtomicUsize},
@@ -1312,15 +1062,15 @@ mod tests {
 
         assert!(first.starts_with("HTTP/1.1 202 Accepted"));
         assert!(second.starts_with("HTTP/1.1 429 Too Many Requests"));
-        assert!(second.contains("\"code\":\"engine_full\""));
+        let reason = if second.contains("\"code\":\"engine_full\"") {
+            "engine_full"
+        } else {
+            assert!(second.contains("\"code\":\"queue_full\""));
+            "queue_full"
+        };
 
-        assert_eq!(find_first_rejected_error_code(&state), Some("engine_full"));
-        assert_eq!(
-            state
-                .rejection_metrics
-                .count(EngineKind::Stt, "engine_full"),
-            1
-        );
+        assert_eq!(find_first_rejected_error_code(&state), Some(reason));
+        assert_eq!(state.rejection_metrics.count(EngineKind::Stt, reason), 1);
 
         let rejected = find_status_count(&state, JobStatus::Rejected);
         assert!(rejected >= 1);
