@@ -34,13 +34,15 @@
   - `summarize_queue`
   - `embed_queue`
 - 큐 포화는 `try_send` 실패로 감지하고 `429(queue_full)`로 응답한다.
-- 큐 소비(worker)와 엔진별 semaphore를 조합해 동시성 상한을 강제한다.
+- 큐 소비는 엔진별 **고정 worker N개**로 수행하며, worker 수가 동시성 상한이다.
+- `recv -> spawn -> permit 대기` 형태를 피해서, permit 대기 태스크가 무한 누적되어 backpressure가 무력화되는 상황을 방지한다.
 
 ### 주요 환경변수
 
 - `RECORDROUTE_STT_QUEUE_CAPACITY`, `RECORDROUTE_SUMMARIZE_QUEUE_CAPACITY`, `RECORDROUTE_EMBED_QUEUE_CAPACITY`
 - `RECORDROUTE_STT_CONCURRENCY`, `RECORDROUTE_SUMMARIZE_CONCURRENCY`, `RECORDROUTE_EMBED_CONCURRENCY`
 - `RECORDROUTE_ENGINE_TIMEOUT_SECS`, `RECORDROUTE_ENGINE_RETRY_COUNT`, `RECORDROUTE_ENGINE_BACKOFF_MS`
+- `RECORDROUTE_ENGINE_CONNECT_TIMEOUT_MS`
 - `RECORDROUTE_STT_ENGINE_URL`, `RECORDROUTE_SUMMARIZE_ENGINE_URL`, `RECORDROUTE_EMBED_ENGINE_URL`
 
 ## 4. 잡 상태 머신
@@ -82,7 +84,22 @@ cargo test
 
 엔진 mock이 필요한 통합 시나리오는 `src/main.rs` 테스트의 `MockEngineClient`로 검증한다.
 
-## 8. 추적 링크
+## 8. 관측성 기준(운영)
+
+- `queue_depth{engine}`: accepted enqueue 기준의 **근사값**. RAII guard Drop으로 감소 정합성 보장.
+- `in_flight{engine}`: 실제 처리 중 작업 수(최대값이 worker 수를 넘지 않아야 함).
+- `jobs_total{engine,status}`: `succeeded|failed|rejected` 누적 카운트.
+- `engine_timeout_total{engine}`: connect/read/write timeout 누적 카운트.
+- `engine_latency_ms{engine}`: 가능하면 p50/p95/p99 추적.
+
+## 9. 간단 Runbook
+
+- `queue_full(429)` 급증: engine별 queue depth와 in-flight(worker 포화 여부) 확인 → queue capacity/concurrency 조정.
+- `engine_timeout` 급증: 엔진 프로세스 헬스/네트워크/포트 확인 → `RECORDROUTE_ENGINE_CONNECT_TIMEOUT_MS`, `RECORDROUTE_ENGINE_TIMEOUT_SECS` 점검.
+- `failed` 급증(5xx): 엔진 로그와 재시도 소진 여부 확인 → 엔진 재시작 또는 임시 트래픽 완화.
+- 롤백 원칙: 최근 설정 변경(동시성/타임아웃/엔드포인트)부터 원복하고, API 계약은 유지한다.
+
+## 10. 추적 링크
 
 - 상세 설계: `docs/rust-cpp-backend-rewrite-plan.md`
 - 실행 WBS: `TODO/TODO.md`

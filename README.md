@@ -7,10 +7,18 @@ RecordRoute는 음성/문서 처리 파이프라인을 **Rust 중심 아키텍�
 - `frontend/`: 현재 유지 중인 웹 프론트엔드
 - `docs/`: Rust 전환/설계 문서
 
-Rust 백엔드는 `/healthz`/`/readyz` + `POST /jobs`/`GET /jobs/{id}`와 엔진별 bounded queue/worker/semaphore 기반 처리 흐름(queued→running→succeeded|failed|rejected)까지 반영되어 있으며, 엔진 슈퍼비전/전처리는 단계적으로 이전합니다.
+Rust 백엔드는 `/healthz`/`/readyz` + `POST /jobs`/`GET /jobs/{id}`와 엔진별 bounded queue/worker 기반 처리 흐름(queued→running→succeeded|failed|rejected)까지 반영되어 있으며, 엔진 슈퍼비전/전처리는 단계적으로 이전합니다.
 
 
-> 문서 동기화: 2026-02-22 기준 Phase B-1(엔진별 bounded queue/worker/semaphore, 상태머신 실제 처리 흐름) 반영 상태와 정렬됨.
+> 문서 동기화: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, job_id 검증/로그 위생, queue depth guard) 반영 상태와 정렬됨.
+
+## 운영 안정화 메모 (Phase B-2)
+
+- 동시성 상한은 semaphore 대기 태스크 누적 대신 **고정 worker 개수**로 강제합니다.
+- bounded queue 백프레셔를 유지하여 과부하 시 `POST /jobs`가 `429(queue_full)`로 떨어지도록 합니다.
+- 엔진 HTTP 호출은 `connect_timeout` + read/write timeout을 적용해 connect 지연과 응답 지연 모두 시간 상한 내 실패합니다.
+- `job_id`는 `[a-zA-Z0-9_-]`, 1..64 규칙으로 검증되며 invalid 입력은 `400 invalid_job_id`로 응답합니다.
+- queue depth는 **근사 지표(accepted enqueue 기준)**로 정의하고 RAII guard Drop으로 감소 정합성을 보장합니다.
 
 오디오 전처리/변환은 기존 `ffmpeg` 실행 방식 대신 Rust `symphonia` 크레이트 기반 구현을 목표 기준으로 문서화합니다.
 
