@@ -1,0 +1,21 @@
+version: '3.9'
+services:
+  api:
+    build: .
+    command: ["cargo", "run"]
+    environment:
+      RECORDROUTE_API_HOST: 0.0.0.0
+      RECORDROUTE_API_PORT: "18000"
+    ports:
+      - "18000:18000"
+  swagger:
+    build: .
+    command: ["bash", "scripts/run-swagger.sh"]
+    environment:
+      RECORDROUTE_SWAGGER_HOST: 0.0.0.0
+      RECORDROUTE_SWAGGER_PORT: "14000"
+      RECORDROUTE_SWAGGER_ROOT: docs/swagger
+    ports:
+      - "14000:14000"
+    depends_on:
+      - api

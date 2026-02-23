@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use tracing_subscriber::{fmt as tracing_fmt, EnvFilter};
 
+mod audio;
 mod engine_manager;
 mod workers;
 
@@ -60,6 +61,7 @@ pub(crate) struct AppConfig {
     summarize_concurrency: usize,
     embed_concurrency: usize,
     engine_timeout_secs: u64,
+    pub(crate) job_timeout_secs: u64,
     engine_connect_timeout_ms: u64,
     engine_retry_count: usize,
     engine_base_backoff_ms: u64,
@@ -115,8 +117,10 @@ pub(crate) enum EngineKind {
 enum JobStatus {
     Queued,
     Running,
-    Succeeded,
+    Completed,
     Failed,
+    Timeout,
+    Canceled,
     Rejected,
 }
 
@@ -248,6 +252,7 @@ impl AppConfig {
             summarize_concurrency: read_usize_env("RECORDROUTE_SUMMARIZE_CONCURRENCY", 2),
             embed_concurrency: read_usize_env("RECORDROUTE_EMBED_CONCURRENCY", 2),
             engine_timeout_secs: read_u64_env("RECORDROUTE_ENGINE_TIMEOUT_SECS", 60),
+            job_timeout_secs: read_u64_env("RECORDROUTE_JOB_TIMEOUT_SECS", 120),
             engine_connect_timeout_ms: read_u64_env("RECORDROUTE_ENGINE_CONNECT_TIMEOUT_MS", 1_500),
             engine_retry_count: read_usize_env("RECORDROUTE_ENGINE_RETRY_COUNT", 1),
             engine_base_backoff_ms: read_u64_env("RECORDROUTE_ENGINE_BACKOFF_MS", 200),
@@ -359,7 +364,7 @@ impl JobStore {
     pub(crate) fn mark_succeeded(&self, job_id: &JobId, result: Value) {
         self.transition(job_id, |job| {
             if job.status == JobStatus::Running {
-                job.status = JobStatus::Succeeded;
+                job.status = JobStatus::Completed;
                 job.result = Some(result.clone());
                 job.finished_at_ms = Some(now_ms());
             }
@@ -393,6 +398,47 @@ impl JobStore {
                 });
             }
         });
+    }
+
+    pub(crate) fn mark_timeout(&self, job_id: &JobId, code: &'static str, message: String) {
+        self.transition(job_id, |job| {
+            if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
+                job.status = JobStatus::Timeout;
+                if job.started_at_ms.is_none() {
+                    job.started_at_ms = Some(now_ms());
+                }
+                job.finished_at_ms = Some(now_ms());
+                job.error = Some(JobError {
+                    code,
+                    message: message.clone(),
+                });
+            }
+        });
+    }
+
+    pub(crate) fn mark_canceled(&self, job_id: &JobId, message: String) {
+        self.transition(job_id, |job| {
+            if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
+                job.status = JobStatus::Canceled;
+                if job.started_at_ms.is_none() {
+                    job.started_at_ms = Some(now_ms());
+                }
+                job.finished_at_ms = Some(now_ms());
+                job.error = Some(JobError {
+                    code: "job_canceled",
+                    message: message.clone(),
+                });
+            }
+        });
+    }
+
+    pub(crate) fn running_count(&self, engine: EngineKind) -> usize {
+        self.jobs
+            .lock()
+            .expect("job store mutex poisoned")
+            .values()
+            .filter(|job| job.engine == engine && job.status == JobStatus::Running)
+            .count()
     }
 
     fn transition<F>(&self, job_id: &JobId, mut updater: F)
@@ -760,6 +806,7 @@ fn reason_phrase(status_code: u16) -> &'static str {
         404 => "Not Found",
         405 => "Method Not Allowed",
         429 => "Too Many Requests",
+        500 => "Internal Server Error",
         503 => "Service Unavailable",
         _ => "Unknown",
     }
@@ -863,7 +910,7 @@ async fn call_engine_http(
                 std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
             );
             EngineError {
-                code: if timed_out { "engine_timeout" } else { "engine_transport_error" },
+                code: if timed_out { "engine_connect_timeout" } else { "engine_transport_error" },
                 message: format!("engine connect failed: {error}"),
                 retryable: true,
             }
@@ -906,7 +953,7 @@ async fn call_engine_http(
             );
             EngineError {
                 code: if timed_out {
-                    "engine_timeout"
+                    "engine_request_timeout"
                 } else {
                     "engine_transport_error"
                 },
@@ -1023,12 +1070,72 @@ mod tests {
             summarize_concurrency: concurrency,
             embed_concurrency: concurrency,
             engine_timeout_secs: 60,
+            job_timeout_secs: 2,
             engine_connect_timeout_ms: 50,
             engine_retry_count: 0,
             engine_base_backoff_ms: 1,
             stt_engine_url: "http://127.0.0.1:18103/infer".to_string(),
             summarize_engine_url: "http://127.0.0.1:18101/infer".to_string(),
             embed_engine_url: "http://127.0.0.1:18102/infer".to_string(),
+            engine_supervision_enabled: false,
+            stt_engine_command: "whisper-server".to_string(),
+            stt_engine_args: vec![],
+            summarize_engine_command: "llama-text".to_string(),
+            summarize_engine_args: vec![],
+            embed_engine_command: "llama-embed".to_string(),
+            embed_engine_args: vec![],
+            engine_startup_timeout_secs: 20,
+            engine_readiness_poll_ms: 200,
+            engine_shutdown_grace_secs: 1,
+            engine_restart_backoff_base_ms: 100,
+            engine_restart_backoff_max_ms: 500,
+        };
+
+        let jobs = Arc::new(JobStore::new());
+        let dispatchers = build_dispatchers(&config, jobs.clone(), client);
+
+        AppState {
+            ready: true,
+            jobs,
+            dispatchers: Arc::new(dispatchers),
+        }
+    }
+
+    fn build_state_with_job_timeout(
+        queue_capacity: usize,
+        concurrency: usize,
+        client: Arc<dyn EngineClient>,
+        job_timeout_secs: u64,
+    ) -> AppState {
+        let config = AppConfig {
+            host: "0.0.0.0".to_string(),
+            api_port: 18_000,
+            stt_queue_capacity: queue_capacity,
+            summarize_queue_capacity: queue_capacity,
+            embed_queue_capacity: queue_capacity,
+            stt_concurrency: concurrency,
+            summarize_concurrency: concurrency,
+            embed_concurrency: concurrency,
+            engine_timeout_secs: 60,
+            job_timeout_secs,
+            engine_connect_timeout_ms: 50,
+            engine_retry_count: 0,
+            engine_base_backoff_ms: 1,
+            stt_engine_url: "http://127.0.0.1:18103/infer".to_string(),
+            summarize_engine_url: "http://127.0.0.1:18101/infer".to_string(),
+            embed_engine_url: "http://127.0.0.1:18102/infer".to_string(),
+            engine_supervision_enabled: false,
+            stt_engine_command: "whisper-server".to_string(),
+            stt_engine_args: vec![],
+            summarize_engine_command: "llama-text".to_string(),
+            summarize_engine_args: vec![],
+            embed_engine_command: "llama-embed".to_string(),
+            embed_engine_args: vec![],
+            engine_startup_timeout_secs: 20,
+            engine_readiness_poll_ms: 200,
+            engine_shutdown_grace_secs: 1,
+            engine_restart_backoff_base_ms: 100,
+            engine_restart_backoff_max_ms: 500,
         };
 
         let jobs = Arc::new(JobStore::new());
@@ -1067,12 +1174,32 @@ mod tests {
         let response = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
         let created_job_id = extract_job_id(&response);
 
-        wait_for_status(&state, &created_job_id, JobStatus::Succeeded).await;
+        wait_for_status(&state, &created_job_id, JobStatus::Completed).await;
 
         let get_response = route_request(&format!("GET /jobs/{created_job_id} HTTP/1.1"), &state);
         assert!(get_response.starts_with("HTTP/1.1 200 OK"));
-        assert!(get_response.contains("\"status\":\"succeeded\""));
+        assert!(get_response.contains("\"status\":\"completed\""));
         assert!(get_response.contains("\"result\""));
+    }
+
+    #[tokio::test]
+    async fn post_jobs_transitions_to_timeout_on_job_timeout() {
+        let client = Arc::new(MockEngineClient {
+            fail_with_5xx: Arc::new(AtomicBool::new(false)),
+            delay: Duration::from_millis(30),
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
+        });
+        let state = build_state_with_job_timeout(8, 1, client, 0);
+
+        let response = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
+        let created_job_id = extract_job_id(&response);
+
+        wait_for_status(&state, &created_job_id, JobStatus::Timeout).await;
+
+        let get_response = route_request(&format!("GET /jobs/{created_job_id} HTTP/1.1"), &state);
+        assert!(get_response.contains("\"status\":\"timeout\""));
+        assert!(get_response.contains("\"code\":\"job_timeout\""));
     }
 
     #[tokio::test]
@@ -1133,7 +1260,7 @@ mod tests {
         assert!(second.starts_with("HTTP/1.1 429 Too Many Requests"));
 
         let first_job_id = extract_job_id(&first);
-        wait_for_status(&state, &first_job_id, JobStatus::Succeeded).await;
+        wait_for_status(&state, &first_job_id, JobStatus::Completed).await;
 
         let third = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
         assert!(third.starts_with("HTTP/1.1 202 Accepted"));
@@ -1158,7 +1285,7 @@ mod tests {
         }
 
         for id in ids {
-            wait_for_status(&state, &id, JobStatus::Succeeded).await;
+            wait_for_status(&state, &id, JobStatus::Completed).await;
         }
 
         assert!(max_inflight.load(Ordering::SeqCst) <= 2);
@@ -1180,7 +1307,7 @@ mod tests {
             ids.push(extract_job_id(&response));
         }
         for id in ids {
-            wait_for_status(&state, &id, JobStatus::Succeeded).await;
+            wait_for_status(&state, &id, JobStatus::Completed).await;
         }
 
         let depth = state
@@ -1233,7 +1360,7 @@ mod tests {
         let error = result.expect_err("connect should timeout or fail");
         assert!(matches!(
             error.code,
-            "engine_timeout" | "engine_transport_error"
+            "engine_connect_timeout" | "engine_transport_error"
         ));
     }
 
@@ -1256,7 +1383,7 @@ mod tests {
             Duration::from_millis(40),
         ));
         let error = result.expect_err("read should timeout");
-        assert_eq!(error.code, "engine_timeout");
+        assert_eq!(error.code, "engine_request_timeout");
 
         handle.join().expect("join listener thread");
     }
@@ -1291,7 +1418,7 @@ mod tests {
                 jobs: store,
                 dispatchers: Arc::new(HashMap::new()),
             },
-            JobStatus::Succeeded,
+            JobStatus::Completed,
         );
         assert_eq!(completed, 32 * 200);
     }

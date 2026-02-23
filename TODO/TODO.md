@@ -34,9 +34,9 @@
 - [x] 작업 API (`POST /jobs`, `GET /jobs/{id}`)
 - [x] 헬스 엔드포인트 (`/healthz`, `/readyz`)
 - [x] 엔진별 큐 (`stt/summarize/embed`) 수용량/배압 스켈레톤
-- [ ] 엔진 프로세스 슈퍼비전 (spawn/health/restart/shutdown)
-- [ ] Rust `symphonia` 전처리 파이프라인
-- [ ] Swagger 분리 배포 (`:14000`)
+- [x] 엔진 프로세스 슈퍼비전 (spawn/health/restart/shutdown)
+- [x] Rust `symphonia` 전처리 파이프라인
+- [x] Swagger 분리 배포 (`:14000`)
 
 ## WBS 진행 현황
 
@@ -55,32 +55,32 @@
 
 ## 3.0 엔진 통합 기반
 
-- [ ] 3.1 엔진별 클라이언트/포트 설정 (`18101`, `18102`, `18103`)
-- [ ] 3.2 엔진별 bounded queue + semaphore (bounded queue 스켈레톤 반영 완료, semaphore 미구현)
+- [x] 3.1 엔진별 클라이언트/포트 설정 (`18101`, `18102`, `18103`)
+- [x] 3.2 엔진별 bounded queue + semaphore
 - [ ] 3.3 큐 포화/엔진 포화 `429` 규약 및 메트릭 라벨 분리
 
 ## 4.0 잡 모델/오류 계약
 
 - [x] 4.1 잡 상태 전이 모델 (`queued` 초기 상태 + 조회 스켈레톤)
-- [ ] 4.1-확장 잡 상태 전이 전체 모델 (`running|completed|failed|timeout|canceled`)
-- [ ] 4.2 타임아웃 계층 분리 (HTTP vs Job)
-- [ ] 4.3 에러 코드/응답 필드 계약 고정
+- [x] 4.1-확장 잡 상태 전이 전체 모델 (`running|completed|failed|timeout|canceled`)
+- [x] 4.2 타임아웃 계층 분리 (HTTP vs Job)
+- [x] 4.3 에러 코드/응답 필드 계약 고정
 
 ## 5.0 오디오 전처리/처리량 정책
 
-- [ ] 5.1 `symphonia` 기반 오디오 정규화 (16kHz/16-bit mono WAV)
+- [x] 5.1 `symphonia` 기반 오디오 정규화 (16kHz/16-bit mono WAV)
 - [ ] 5.2 길이/예산 계산 기반 timeout 산정식 적용
 - [ ] 5.3 whisper-server 추론 책임 한정(변환 책임 제거)
 
 ## 6.0 슈퍼비전/운영 안정성
 
-- [ ] 6.1 child 생명주기 감시 + backoff 재시작
-- [ ] 6.2 graceful shutdown + 강제 종료 fallback
+- [x] 6.1 child 생명주기 감시 + backoff 재시작
+- [x] 6.2 graceful shutdown + 강제 종료 fallback
 - [ ] 6.3 degraded 상태/관측성 메트릭 반영
 
 ## 7.0 배포/문서 분리
 
-- [ ] 7.1 API(18000) / Swagger(14000) 분리 배포 구성
+- [x] 7.1 API(18000) / Swagger(14000) 분리 배포 구성
 - [ ] 7.2 모델 manifest 정책 및 `.gitignore` 운영 검증
 - [ ] 7.3 운영 점검 시나리오(장애/복구/부하) 문서화
 
