@@ -5,6 +5,11 @@
 
 ## 작업 로그
 
+- 2026-02-23: Phase C-1 degraded readiness/운영 메트릭 노출 반영
+  - `/readyz`가 용량 리젝션/디스패처 종료 시 `degraded` 상태를 503으로 반환하도록 조정
+  - `/metrics` 엔드포인트에 readiness(ready/degraded), 엔진별 queue/running, 리젝션(engine/reason) 스냅샷 추가
+  - 라우팅 단위 테스트(`readyz degraded`, `metrics`) 추가 및 회귀 검증
+
 - 2026-02-23: Phase B-2 429 사유 분리/리젝션 메트릭 라벨 분리 반영
   - `POST /jobs` enqueue 실패(Full) 시 `engine_full`/`queue_full` reason을 worker 포화 기준으로 분리
   - 엔진/사유(`engine`, `reason`) 단위 리젝션 카운터를 오케스트레이터 메모리 지표로 추가
@@ -85,7 +90,7 @@
 
 - [x] 6.1 child 생명주기 감시 + backoff 재시작
 - [x] 6.2 graceful shutdown + 강제 종료 fallback
-- [ ] 6.3 degraded 상태/관측성 메트릭 반영
+- [x] 6.3 degraded 상태/관측성 메트릭 반영
 
 ## 7.0 배포/문서 분리
 

@@ -10,7 +10,7 @@ RecordRoute는 음성/문서 처리 파이프라인을 **Rust 중심 아키텍�
 Rust 백엔드는 `/healthz`/`/readyz` + `POST /jobs`/`GET /jobs/{id}`와 엔진별 bounded queue/worker 기반 처리 흐름(queued→running→completed|failed|timeout|canceled|rejected)까지 반영되어 있으며, 엔진 슈퍼비전/전처리/Swagger 분리 배포 구성을 단계적으로 이전합니다.
 
 
-> 문서 동기화: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, job_id 검증/로그 위생, queue depth guard, 429 reason/리젝션 메트릭 분리) 반영 상태와 정렬됨.
+> 문서 동기화: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, job_id 검증/로그 위생, queue depth guard, 429 reason/리젝션 메트릭 분리, readyz degraded + /metrics 노출) 반영 상태와 정렬됨.
 
 ## 운영 안정화 메모 (Phase B-2)
 
@@ -18,6 +18,8 @@ Rust 백엔드는 `/healthz`/`/readyz` + `POST /jobs`/`GET /jobs/{id}`와 엔진
 - 동시성 상한은 semaphore 대기 태스크 누적 대신 **고정 worker 개수**로 강제합니다.
 - bounded queue 백프레셔를 유지하며, 과부하 시 `POST /jobs`는 `429(queue_full|engine_full)`로 원인을 구분해 응답합니다.
 - 리젝션 관측성은 엔진/사유 라벨(`engine`, `reason`) 단위 카운트로 기록합니다.
+- `/readyz`는 수용량 압박(큐 포화/디스패처 종료) 발생 시 `503 {"status":"degraded"}`로 응답해 운영 경보 신호를 제공합니다.
+- `/metrics`는 readiness(ready/degraded), 엔진별 큐/워커/러닝 수, 리젝션 카운트 스냅샷(JSON)를 제공합니다.
 - 엔진 HTTP 호출은 `connect_timeout` + read/write timeout을 적용해 connect 지연과 응답 지연 모두 시간 상한 내 실패합니다.
 - `job_id`는 `[a-zA-Z0-9_-]`, 1..64 규칙으로 검증되며 invalid 입력은 `400 invalid_job_id`로 응답합니다.
 - queue depth는 **근사 지표(accepted enqueue 기준)**로 정의하고 RAII guard Drop으로 감소 정합성을 보장합니다.
