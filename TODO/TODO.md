@@ -10,6 +10,10 @@
   - timeout 파라미터는 환경변수(`RECORDROUTE_JOB_TIMEOUT_MIN_SECS`, `RECORDROUTE_JOB_TIMEOUT_MAX_SECS`, `RECORDROUTE_STT_TIMEOUT_PER_AUDIO_SEC_MS`, `RECORDROUTE_STT_TIMEOUT_BUFFER_MS`)로 제어
   - 워커가 요청별 timeout budget을 사용하도록 조정하고 기존 timeout 회귀 테스트 통과 확인
 
+- 2026-02-23: Phase E-1 whisper-server 추론 책임 한정(변환 책임 제거) 반영
+  - STT 엔진 payload에 `audio_contract`(normalized_by/format/conversion_required=false)를 명시해 변환 책임이 Rust에 있음을 고정
+  - whisper-server는 변환 없이 추론 전용 경로를 사용한다는 계약을 테스트로 검증
+
 - 2026-02-23: Phase C-1 degraded readiness/운영 메트릭 노출 반영
   - `/readyz`가 용량 리젝션/디스패처 종료 시 `degraded` 상태를 503으로 반환하도록 조정
   - `/metrics` 엔드포인트에 readiness(ready/degraded), 엔진별 queue/running, 리젝션(engine/reason) 스냅샷 추가
@@ -89,7 +93,7 @@
 
 - [x] 5.1 `symphonia` 기반 오디오 정규화 (16kHz/16-bit mono WAV)
 - [x] 5.2 길이/예산 계산 기반 timeout 산정식 적용
-- [ ] 5.3 whisper-server 추론 책임 한정(변환 책임 제거)
+- [x] 5.3 whisper-server 추론 책임 한정(변환 책임 제거)
 
 ## 6.0 슈퍼비전/운영 안정성
 
@@ -105,6 +109,5 @@
 
 ## 다음 우선순위 (실행 단위)
 
-1. whisper-server 추론 책임 한정(변환 책임 제거)
-2. 엔진별 클라이언트/포트 설정(`18101`, `18102`, `18103`) + readiness 연동
-3. 운영 점검 시나리오(장애/복구/부하) 문서화
+1. 엔진별 클라이언트/포트 설정(`18101`, `18102`, `18103`) + readiness 연동
+2. 운영 점검 시나리오(장애/복구/부하) 문서화
