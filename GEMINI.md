@@ -3,7 +3,7 @@
 최신 원본 기준은 `AGENTS.md`입니다. 이 문서는 실행 요약만 제공합니다.
 
 
-> 문서 동기화: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, job_id 검증/로그 위생, queue depth guard, 429 reason/리젝션 메트릭 분리, readyz degraded + /metrics 노출) 반영 상태와 정렬됨.
+> 문서 동기화: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, 길이/예산 기반 job timeout 산정식, job_id 검증/로그 위생, queue depth guard, 429 reason/리젝션 메트릭 분리, readyz degraded + /metrics 노출) 반영 상태와 정렬됨.
 
 ## 핵심 컨텍스트
 
@@ -12,6 +12,7 @@
 - 루트에는 Rust 실행 코드가 존재하며, 문서/프론트와 함께 Rust 구현 변경도 작업 대상입니다.
 - `POST /jobs` 과부하 응답은 `429(queue_full|engine_full)`로 구분되며, 리젝션은 엔진/사유 라벨 카운트로 관측합니다.
 - `/readyz`는 수용량 압박 시 `503 degraded`로 응답하며, `/metrics`에서 readiness/queue/rejection 스냅샷(JSON)을 노출합니다.
+- STT는 `audio_ms` 길이 입력이 있을 때 처리율/버퍼/상하한 기반 timeout budget 산정식을 적용합니다.
 - 오디오 전처리/변환 기본안은 Rust `symphonia` 크레이트 기반입니다.
 
 ## 우선 참조
