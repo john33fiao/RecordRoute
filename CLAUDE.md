@@ -20,6 +20,7 @@
 - 루트에 Rust 실행 코드(`Cargo.toml`)가 존재하며, 백엔드 전환 구현이 진행 중입니다.
 - 운영 중 코드 기준은 `frontend/`(현행) + 루트 Rust 코드입니다.
 - 오디오 변환 기본 전략은 외부 `ffmpeg` 호출이 아니라 Rust `symphonia` 크레이트 사용입니다.
+- 잡 상태는 `queued|running|completed|failed|timeout|canceled|rejected`로 관리합니다.
 
 ## 작업 체크리스트
 

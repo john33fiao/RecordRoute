@@ -7,7 +7,7 @@ RecordRoute는 음성/문서 처리 파이프라인을 **Rust 중심 아키텍�
 - `frontend/`: 현재 유지 중인 웹 프론트엔드
 - `docs/`: Rust 전환/설계 문서
 
-Rust 백엔드는 `/healthz`/`/readyz` + `POST /jobs`/`GET /jobs/{id}`와 엔진별 bounded queue/worker 기반 처리 흐름(queued→running→succeeded|failed|rejected)까지 반영되어 있으며, 엔진 슈퍼비전/전처리는 단계적으로 이전합니다.
+Rust 백엔드는 `/healthz`/`/readyz` + `POST /jobs`/`GET /jobs/{id}`와 엔진별 bounded queue/worker 기반 처리 흐름(queued→running→completed|failed|timeout|canceled|rejected)까지 반영되어 있으며, 엔진 슈퍼비전/전처리/Swagger 분리 배포 구성을 단계적으로 이전합니다.
 
 
 > 문서 동기화: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, job_id 검증/로그 위생, queue depth guard) 반영 상태와 정렬됨.
@@ -78,3 +78,6 @@ npm run build
 
 - 이 저장소 루트에는 Rust 실행 코드(`Cargo.toml`)가 존재합니다.
 - 따라서 Rust 코드 변경 시 `cargo test`, `cargo clippy`를 포함한 검증을 수행해야 합니다.
+
+
+Swagger 문서 서버는 `scripts/run-swagger.sh`로 `:14000`에서 분리 실행할 수 있습니다.

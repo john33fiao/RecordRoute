@@ -6,7 +6,12 @@ use std::{
     },
 };
 
-use tokio::sync::{mpsc, Semaphore};
+use std::time::Duration;
+
+use tokio::{
+    sync::{mpsc, Semaphore},
+    time::timeout,
+};
 
 use crate::{
     AppConfig, EngineClient, EngineDispatcher, EngineKind, JobRequest, JobStore, QueueDepthGuard,
@@ -30,6 +35,7 @@ pub fn build_dispatchers(
             semaphore,
             jobs.clone(),
             engine_client.clone(),
+            Duration::from_secs(config.job_timeout_secs),
         );
 
         dispatchers.insert(
@@ -50,6 +56,7 @@ pub fn spawn_worker_loop(
     semaphore: Arc<Semaphore>,
     jobs: Arc<JobStore>,
     engine_client: Arc<dyn EngineClient>,
+    job_timeout: Duration,
 ) {
     tokio::spawn(async move {
         while let Some(request) = receiver.recv().await {
@@ -63,6 +70,7 @@ pub fn spawn_worker_loop(
 
             let jobs = jobs.clone();
             let engine_client = engine_client.clone();
+            let job_timeout = job_timeout;
 
             tokio::spawn(async move {
                 let _permit = permit;
@@ -77,8 +85,13 @@ pub fn spawn_worker_loop(
                     "job started"
                 );
 
-                match engine_client.call(request.engine, request.payload).await {
-                    Ok(result) => {
+                match timeout(
+                    job_timeout,
+                    engine_client.call(request.engine, request.payload),
+                )
+                .await
+                {
+                    Ok(Ok(result)) => {
                         let latency_ms = start.elapsed().as_millis() as u64;
                         jobs.mark_succeeded(&request.job_id, result.payload);
                         tracing::info!(
@@ -89,7 +102,7 @@ pub fn spawn_worker_loop(
                             "job completed"
                         );
                     }
-                    Err(error) => {
+                    Ok(Err(error)) => {
                         let latency_ms = start.elapsed().as_millis() as u64;
                         jobs.mark_failed(&request.job_id, error.code, error.message.clone());
                         tracing::warn!(
@@ -101,6 +114,25 @@ pub fn spawn_worker_loop(
                             error_code = error.code,
                             error_message = %crate::sanitize_for_logs(&error.message, 120),
                             "job failed"
+                        );
+                    }
+                    Err(_) => {
+                        let latency_ms = start.elapsed().as_millis() as u64;
+                        jobs.mark_timeout(
+                            &request.job_id,
+                            "job_timeout",
+                            format!(
+                                "job exceeded timeout budget: {} ms",
+                                job_timeout.as_millis()
+                            ),
+                        );
+                        tracing::warn!(
+                            job_id = %request.job_id.safe_for_logs(),
+                            engine = engine.as_str(),
+                            status_transition = "running->timeout",
+                            latency_ms,
+                            error_code = "job_timeout",
+                            "job timed out"
                         );
                     }
                 }
