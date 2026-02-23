@@ -2,7 +2,7 @@
 
 이 문서는 저장소 루트(`./`) 기준 에이전트 작업 표준입니다.
 
-> 문서 동기화 메모: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, job_id 검증/로그 위생, queue depth guard, 429 reason/리젝션 메트릭 분리) 상태를 README/CLAUDE/GEMINI/TODO와 정렬.
+> 문서 동기화 메모: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, job_id 검증/로그 위생, queue depth guard, 429 reason/리젝션 메트릭 분리, readyz degraded + /metrics 노출) 상태를 README/CLAUDE/GEMINI/TODO와 정렬.
 
 ## 1) 프로젝트 구조 인식
 

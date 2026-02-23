@@ -6,7 +6,7 @@ use std::{
     net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     pin::Pin,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
     time::Duration,
@@ -29,6 +29,7 @@ use workers::build_dispatchers;
 #[derive(Clone)]
 struct AppState {
     ready: bool,
+    degraded: Arc<AtomicBool>,
     jobs: Arc<JobStore>,
     dispatchers: Arc<HashMap<EngineKind, EngineDispatcher>>,
     rejection_metrics: Arc<RejectionMetrics>,
@@ -44,6 +45,35 @@ pub(crate) struct EngineDispatcher {
 #[derive(Debug)]
 struct RejectionMetrics {
     counters: Mutex<HashMap<(EngineKind, &'static str), u64>>,
+}
+
+#[derive(Serialize)]
+struct MetricsResponse {
+    readiness: ReadinessMetrics,
+    engines: Vec<EngineMetrics>,
+    rejections: Vec<RejectionMetric>,
+}
+
+#[derive(Serialize)]
+struct ReadinessMetrics {
+    ready: bool,
+    degraded: bool,
+}
+
+#[derive(Serialize)]
+struct EngineMetrics {
+    engine: &'static str,
+    queue_depth: usize,
+    queue_capacity: usize,
+    worker_count: usize,
+    running: usize,
+}
+
+#[derive(Serialize)]
+struct RejectionMetric {
+    engine: &'static str,
+    reason: &'static str,
+    count: u64,
 }
 
 #[derive(Debug)]
@@ -242,6 +272,22 @@ impl RejectionMetrics {
         *counter
     }
 
+    fn snapshot(&self) -> Vec<RejectionMetric> {
+        let counters = self
+            .counters
+            .lock()
+            .expect("rejection metrics mutex poisoned");
+
+        counters
+            .iter()
+            .map(|((engine, reason), count)| RejectionMetric {
+                engine: engine.as_str(),
+                reason,
+                count: *count,
+            })
+            .collect()
+    }
+
     #[cfg(test)]
     fn count(&self, engine: EngineKind, reason: &'static str) -> u64 {
         *self
@@ -366,6 +412,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let state = AppState {
         ready: true,
+        degraded: Arc::new(AtomicBool::new(false)),
         jobs,
         dispatchers: Arc::new(dispatchers),
         rejection_metrics: Arc::new(RejectionMetrics::new()),
@@ -462,16 +509,40 @@ fn route_request(request_line: &str, state: &AppState) -> String {
     match (method, path) {
         ("GET", "/healthz") => json_response(200, &StatusBody { status: "ok" }),
         ("GET", "/readyz") => {
-            if state.ready {
+            if state.ready && !state.degraded.load(Ordering::Relaxed) {
                 json_response(200, &StatusBody { status: "ready" })
             } else {
-                json_response(
-                    503,
-                    &StatusBody {
-                        status: "not_ready",
-                    },
-                )
+                json_response(503, &StatusBody { status: "degraded" })
             }
+        }
+        ("GET", "/metrics") => {
+            let engines = [EngineKind::Stt, EngineKind::Summarize, EngineKind::Embed]
+                .iter()
+                .filter_map(|engine| {
+                    state
+                        .dispatchers
+                        .get(engine)
+                        .map(|dispatcher| EngineMetrics {
+                            engine: engine.as_str(),
+                            queue_depth: dispatcher.queue_depth(),
+                            queue_capacity: dispatcher.queue_capacity,
+                            worker_count: dispatcher.worker_count,
+                            running: state.jobs.running_count(*engine),
+                        })
+                })
+                .collect();
+
+            json_response(
+                200,
+                &MetricsResponse {
+                    readiness: ReadinessMetrics {
+                        ready: state.ready,
+                        degraded: state.degraded.load(Ordering::Relaxed),
+                    },
+                    engines,
+                    rejections: state.rejection_metrics.snapshot(),
+                },
+            )
         }
         ("POST", "/jobs") => {
             let engine = parse_engine_kind(query).unwrap_or(EngineKind::Stt);
@@ -495,13 +566,17 @@ fn route_request(request_line: &str, state: &AppState) -> String {
             };
 
             match dispatcher.enqueue(request) {
-                Ok(()) => json_response(
-                    202,
-                    &JobCreatedResponse {
-                        job_id: job.job_id.as_str(),
-                    },
-                ),
+                Ok(()) => {
+                    state.degraded.store(false, Ordering::Relaxed);
+                    json_response(
+                        202,
+                        &JobCreatedResponse {
+                            job_id: job.job_id.as_str(),
+                        },
+                    )
+                }
                 Err(QueueEnqueueError::Full) => {
+                    state.degraded.store(true, Ordering::Relaxed);
                     let reason = rejection_reason_for_full(engine, dispatcher, &state.jobs);
                     let rejection_count = state.rejection_metrics.increment(engine, reason);
                     state
@@ -524,6 +599,7 @@ fn route_request(request_line: &str, state: &AppState) -> String {
                     )
                 }
                 Err(QueueEnqueueError::Closed) => {
+                    state.degraded.store(true, Ordering::Relaxed);
                     let rejection_count = state
                         .rejection_metrics
                         .increment(engine, "engine_dispatcher_closed");
@@ -919,6 +995,7 @@ mod tests {
 
         AppState {
             ready: true,
+            degraded: Arc::new(AtomicBool::new(false)),
             jobs,
             dispatchers: Arc::new(dispatchers),
             rejection_metrics: Arc::new(RejectionMetrics::new()),
@@ -967,6 +1044,7 @@ mod tests {
 
         AppState {
             ready: true,
+            degraded: Arc::new(AtomicBool::new(false)),
             jobs,
             dispatchers: Arc::new(dispatchers),
             rejection_metrics: Arc::new(RejectionMetrics::new()),
@@ -984,6 +1062,43 @@ mod tests {
         let response = route_request("GET /healthz HTTP/1.1", &build_state(8, 1, client));
         assert!(response.starts_with("HTTP/1.1 200 OK"));
         assert!(response.contains("{\"status\":\"ok\"}"));
+    }
+
+    #[tokio::test]
+    async fn readyz_returns_degraded_when_flag_is_set() {
+        let client = Arc::new(MockEngineClient {
+            fail_with_5xx: Arc::new(AtomicBool::new(false)),
+            delay: Duration::ZERO,
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
+        });
+        let state = build_state(8, 1, client);
+        state.degraded.store(true, Ordering::Relaxed);
+
+        let response = route_request("GET /readyz HTTP/1.1", &state);
+        assert!(response.starts_with("HTTP/1.1 503 Service Unavailable"));
+        assert!(response.contains("{\"status\":\"degraded\"}"));
+    }
+
+    #[tokio::test]
+    async fn metrics_route_returns_queue_and_rejection_metrics() {
+        let client = Arc::new(MockEngineClient {
+            fail_with_5xx: Arc::new(AtomicBool::new(false)),
+            delay: Duration::from_millis(200),
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
+        });
+        let state = build_state(1, 1, client);
+
+        let _ = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
+        let _ = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
+
+        let response = route_request("GET /metrics HTTP/1.1", &state);
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.contains("\"readiness\""));
+        assert!(response.contains("\"engines\""));
+        assert!(response.contains("\"rejections\""));
+        assert!(response.contains("\"engine\":\"stt\""));
     }
 
     #[tokio::test]
@@ -1275,6 +1390,7 @@ mod tests {
         let completed = find_status_count(
             &AppState {
                 ready: true,
+                degraded: Arc::new(AtomicBool::new(false)),
                 jobs: store,
                 dispatchers: Arc::new(HashMap::new()),
                 rejection_metrics: Arc::new(RejectionMetrics::new()),
