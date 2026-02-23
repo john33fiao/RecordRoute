@@ -5,6 +5,11 @@
 
 ## 작업 로그
 
+- 2026-02-23: Phase E-1 길이/예산 기반 job timeout 산정식 1차 반영
+  - `POST /jobs?engine=stt&audio_ms=<ms>` 입력 시 `job_timeout = clamp((audio_ms * per_audio_sec_ms / 1000) + buffer_ms, min, max)` 산식으로 timeout budget 계산
+  - timeout 파라미터는 환경변수(`RECORDROUTE_JOB_TIMEOUT_MIN_SECS`, `RECORDROUTE_JOB_TIMEOUT_MAX_SECS`, `RECORDROUTE_STT_TIMEOUT_PER_AUDIO_SEC_MS`, `RECORDROUTE_STT_TIMEOUT_BUFFER_MS`)로 제어
+  - 워커가 요청별 timeout budget을 사용하도록 조정하고 기존 timeout 회귀 테스트 통과 확인
+
 - 2026-02-23: Phase C-1 degraded readiness/운영 메트릭 노출 반영
   - `/readyz`가 용량 리젝션/디스패처 종료 시 `degraded` 상태를 503으로 반환하도록 조정
   - `/metrics` 엔드포인트에 readiness(ready/degraded), 엔진별 queue/running, 리젝션(engine/reason) 스냅샷 추가
@@ -83,7 +88,7 @@
 ## 5.0 오디오 전처리/처리량 정책
 
 - [x] 5.1 `symphonia` 기반 오디오 정규화 (16kHz/16-bit mono WAV)
-- [ ] 5.2 길이/예산 계산 기반 timeout 산정식 적용
+- [x] 5.2 길이/예산 계산 기반 timeout 산정식 적용
 - [ ] 5.3 whisper-server 추론 책임 한정(변환 책임 제거)
 
 ## 6.0 슈퍼비전/운영 안정성
@@ -100,6 +105,6 @@
 
 ## 다음 우선순위 (실행 단위)
 
-1. 엔진별 semaphore/워커 모델로 큐 추상화(`stt/summarize/embed`) 고도화
+1. whisper-server 추론 책임 한정(변환 책임 제거)
 2. 엔진별 클라이언트/포트 설정(`18101`, `18102`, `18103`) + readiness 연동
-3. 잡 상태 전이 확장(`running|completed|failed|timeout|canceled`) 및 타임아웃 계층 연결
+3. 운영 점검 시나리오(장애/복구/부하) 문서화

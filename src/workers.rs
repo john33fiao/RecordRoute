@@ -57,7 +57,7 @@ pub fn spawn_worker_pool(
     worker_count: usize,
     jobs: Arc<JobStore>,
     engine_client: Arc<dyn EngineClient>,
-    job_timeout: Duration,
+    _job_timeout: Duration,
 ) {
     let receiver = Arc::new(Mutex::new(receiver));
 
@@ -94,8 +94,10 @@ pub fn spawn_worker_pool(
                     "job started"
                 );
 
+                let timeout_budget = request.timeout_budget;
+
                 match timeout(
-                    job_timeout,
+                    timeout_budget,
                     engine_client.call(request.engine, request.payload),
                 )
                 .await
@@ -134,7 +136,7 @@ pub fn spawn_worker_pool(
                             "job_timeout",
                             format!(
                                 "job exceeded timeout budget: {} ms",
-                                job_timeout.as_millis()
+                                timeout_budget.as_millis()
                             ),
                         );
                         tracing::warn!(

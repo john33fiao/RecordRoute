@@ -30,6 +30,7 @@ use workers::build_dispatchers;
 struct AppState {
     ready: bool,
     degraded: Arc<AtomicBool>,
+    config: Arc<AppConfig>,
     jobs: Arc<JobStore>,
     dispatchers: Arc<HashMap<EngineKind, EngineDispatcher>>,
     rejection_metrics: Arc<RejectionMetrics>,
@@ -81,6 +82,7 @@ pub(crate) struct JobRequest {
     pub(crate) job_id: JobId,
     pub(crate) engine: EngineKind,
     pub(crate) payload: Value,
+    pub(crate) timeout_budget: Duration,
     pub(crate) queue_depth_guard: Option<QueueDepthGuard>,
 }
 
@@ -96,6 +98,10 @@ pub(crate) struct AppConfig {
     embed_concurrency: usize,
     engine_timeout_secs: u64,
     pub(crate) job_timeout_secs: u64,
+    pub(crate) job_timeout_min_secs: u64,
+    pub(crate) job_timeout_max_secs: u64,
+    pub(crate) stt_timeout_per_audio_sec_ms: u64,
+    pub(crate) stt_timeout_buffer_ms: u64,
     engine_connect_timeout_ms: u64,
     engine_retry_count: usize,
     engine_base_backoff_ms: u64,
@@ -195,6 +201,13 @@ impl AppConfig {
             embed_concurrency: read_usize_env("RECORDROUTE_EMBED_CONCURRENCY", 2),
             engine_timeout_secs: read_u64_env("RECORDROUTE_ENGINE_TIMEOUT_SECS", 60),
             job_timeout_secs: read_u64_env("RECORDROUTE_JOB_TIMEOUT_SECS", 120),
+            job_timeout_min_secs: read_u64_env("RECORDROUTE_JOB_TIMEOUT_MIN_SECS", 30),
+            job_timeout_max_secs: read_u64_env("RECORDROUTE_JOB_TIMEOUT_MAX_SECS", 900),
+            stt_timeout_per_audio_sec_ms: read_u64_env(
+                "RECORDROUTE_STT_TIMEOUT_PER_AUDIO_SEC_MS",
+                1_500,
+            ),
+            stt_timeout_buffer_ms: read_u64_env("RECORDROUTE_STT_TIMEOUT_BUFFER_MS", 5_000),
             engine_connect_timeout_ms: read_u64_env("RECORDROUTE_ENGINE_CONNECT_TIMEOUT_MS", 1_500),
             engine_retry_count: read_usize_env("RECORDROUTE_ENGINE_RETRY_COUNT", 1),
             engine_base_backoff_ms: read_u64_env("RECORDROUTE_ENGINE_BACKOFF_MS", 200),
@@ -413,6 +426,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let state = AppState {
         ready: true,
         degraded: Arc::new(AtomicBool::new(false)),
+        config: Arc::new(config.clone()),
         jobs,
         dispatchers: Arc::new(dispatchers),
         rejection_metrics: Arc::new(RejectionMetrics::new()),
@@ -555,13 +569,16 @@ fn route_request(request_line: &str, state: &AppState) -> String {
             };
 
             let job = state.jobs.create_queued_job(engine);
+            let timeout_budget = derive_job_timeout_budget(engine, query, &state.config);
             let request = JobRequest {
                 job_id: job.job_id.clone(),
                 engine,
                 payload: json!({
                     "job_id": job.job_id,
                     "engine": engine.as_str(),
+                    "timeout_budget_ms": timeout_budget.as_millis(),
                 }),
+                timeout_budget,
                 queue_depth_guard: None,
             };
 
@@ -640,6 +657,50 @@ fn route_request(request_line: &str, state: &AppState) -> String {
         ("GET", _) => json_error_response(404, "not_found", "not found"),
         _ => json_error_response(405, "method_not_allowed", "method not allowed"),
     }
+}
+
+fn derive_job_timeout_budget(
+    engine: EngineKind,
+    query: Option<&str>,
+    config: &AppConfig,
+) -> Duration {
+    let default_timeout = Duration::from_secs(config.job_timeout_secs);
+    let Some(query) = query else {
+        return default_timeout;
+    };
+
+    let min_ms = config.job_timeout_min_secs.saturating_mul(1_000);
+    let max_ms = config.job_timeout_max_secs.saturating_mul(1_000);
+    let min_ms = min_ms.min(max_ms);
+    let max_ms = max_ms.max(min_ms);
+
+    if engine != EngineKind::Stt {
+        let clamped = default_timeout.as_millis() as u64;
+        return Duration::from_millis(clamped.clamp(min_ms, max_ms));
+    }
+
+    let Some(audio_ms) = query_u64(query, "audio_ms") else {
+        let clamped = default_timeout.as_millis() as u64;
+        return Duration::from_millis(clamped.clamp(min_ms, max_ms));
+    };
+
+    let per_audio_sec_ms = config.stt_timeout_per_audio_sec_ms;
+    let buffer_ms = config.stt_timeout_buffer_ms;
+    let estimated_ms = audio_ms
+        .saturating_mul(per_audio_sec_ms)
+        .checked_div(1_000)
+        .unwrap_or(u64::MAX)
+        .saturating_add(buffer_ms);
+
+    Duration::from_millis(estimated_ms.clamp(min_ms, max_ms))
+}
+
+fn query_u64(query: &str, key: &str) -> Option<u64> {
+    query
+        .split('&')
+        .filter_map(|token| token.split_once('='))
+        .find_map(|(k, v)| (k == key).then_some(v))
+        .and_then(|v| v.parse::<u64>().ok())
 }
 
 fn rejection_reason_for_full(
@@ -970,6 +1031,10 @@ mod tests {
             embed_concurrency: concurrency,
             engine_timeout_secs: 60,
             job_timeout_secs: 2,
+            job_timeout_min_secs: 1,
+            job_timeout_max_secs: 30,
+            stt_timeout_per_audio_sec_ms: 1_500,
+            stt_timeout_buffer_ms: 5_000,
             engine_connect_timeout_ms: 50,
             engine_retry_count: 0,
             engine_base_backoff_ms: 1,
@@ -996,6 +1061,7 @@ mod tests {
         AppState {
             ready: true,
             degraded: Arc::new(AtomicBool::new(false)),
+            config: Arc::new(config),
             jobs,
             dispatchers: Arc::new(dispatchers),
             rejection_metrics: Arc::new(RejectionMetrics::new()),
@@ -1019,6 +1085,10 @@ mod tests {
             embed_concurrency: concurrency,
             engine_timeout_secs: 60,
             job_timeout_secs,
+            job_timeout_min_secs: 0,
+            job_timeout_max_secs: 30,
+            stt_timeout_per_audio_sec_ms: 1_500,
+            stt_timeout_buffer_ms: 5_000,
             engine_connect_timeout_ms: 50,
             engine_retry_count: 0,
             engine_base_backoff_ms: 1,
@@ -1045,6 +1115,7 @@ mod tests {
         AppState {
             ready: true,
             degraded: Arc::new(AtomicBool::new(false)),
+            config: Arc::new(config),
             jobs,
             dispatchers: Arc::new(dispatchers),
             rejection_metrics: Arc::new(RejectionMetrics::new()),
@@ -1391,6 +1462,7 @@ mod tests {
             &AppState {
                 ready: true,
                 degraded: Arc::new(AtomicBool::new(false)),
+                config: Arc::new(AppConfig::from_env()),
                 jobs: store,
                 dispatchers: Arc::new(HashMap::new()),
                 rejection_metrics: Arc::new(RejectionMetrics::new()),
@@ -1398,6 +1470,36 @@ mod tests {
             JobStatus::Completed,
         );
         assert_eq!(completed, 32 * 200);
+    }
+
+    #[tokio::test]
+    async fn timeout_budget_formula_applies_for_stt_audio_length() {
+        let client = Arc::new(MockEngineClient {
+            fail_with_5xx: Arc::new(AtomicBool::new(false)),
+            delay: Duration::ZERO,
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
+        });
+        let state = build_state(8, 1, client);
+
+        let budget =
+            derive_job_timeout_budget(EngineKind::Stt, Some("audio_ms=10000"), &state.config);
+        assert_eq!(budget, Duration::from_secs(20));
+    }
+
+    #[tokio::test]
+    async fn timeout_budget_is_clamped_to_max() {
+        let client = Arc::new(MockEngineClient {
+            fail_with_5xx: Arc::new(AtomicBool::new(false)),
+            delay: Duration::ZERO,
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
+        });
+        let state = build_state(8, 1, client);
+
+        let budget =
+            derive_job_timeout_budget(EngineKind::Stt, Some("audio_ms=999999999"), &state.config);
+        assert_eq!(budget, Duration::from_secs(30));
     }
 
     async fn wait_for_status(state: &AppState, job_id: &str, target: JobStatus) {
