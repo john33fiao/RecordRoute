@@ -1,9 +1,9 @@
 use std::{
     collections::HashMap,
-    env,
+    env, fmt,
     future::Future,
     io::{Read, Write},
-    net::{SocketAddr, TcpListener, TcpStream},
+    net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     pin::Pin,
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -15,7 +15,7 @@ use std::{
 use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, Semaphore};
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::{fmt as tracing_fmt, EnvFilter};
 
 #[derive(Clone)]
 struct AppState {
@@ -29,17 +29,18 @@ struct EngineDispatcher {
     queue_depth: Arc<AtomicUsize>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct JobRequest {
-    job_id: String,
+    job_id: JobId,
     engine: EngineKind,
     payload: Value,
+    queue_depth_guard: Option<QueueDepthGuard>,
 }
 
 #[derive(Debug)]
 struct JobStore {
     next_id: AtomicU64,
-    jobs: Mutex<HashMap<String, Job>>,
+    jobs: Mutex<HashMap<JobId, Job>>,
 }
 
 #[derive(Clone, Debug)]
@@ -53,6 +54,7 @@ struct AppConfig {
     summarize_concurrency: usize,
     embed_concurrency: usize,
     engine_timeout_secs: u64,
+    engine_connect_timeout_ms: u64,
     engine_retry_count: usize,
     engine_base_backoff_ms: u64,
     stt_engine_url: String,
@@ -62,7 +64,7 @@ struct AppConfig {
 
 #[derive(Clone, Debug, Serialize)]
 struct Job {
-    job_id: String,
+    job_id: JobId,
     status: JobStatus,
     engine: EngineKind,
     created_at_ms: u64,
@@ -71,6 +73,10 @@ struct Job {
     result: Option<Value>,
     error: Option<JobError>,
 }
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
+#[serde(transparent)]
+struct JobId(String);
 
 #[derive(Clone, Debug, Serialize)]
 struct JobError {
@@ -124,9 +130,86 @@ trait EngineClient: Send + Sync {
 #[derive(Clone)]
 struct HttpEngineClient {
     endpoints: HashMap<EngineKind, String>,
+    connect_timeout: Duration,
     timeout: Duration,
     retry_count: usize,
     base_backoff: Duration,
+}
+
+#[derive(Debug)]
+struct QueueDepthGuard {
+    queue_depth: Arc<AtomicUsize>,
+}
+
+impl QueueDepthGuard {
+    fn new(queue_depth: Arc<AtomicUsize>) -> Self {
+        queue_depth.fetch_add(1, Ordering::Relaxed);
+        Self { queue_depth }
+    }
+}
+
+impl Drop for QueueDepthGuard {
+    fn drop(&mut self) {
+        self.queue_depth.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+impl JobId {
+    const MAX_LEN: usize = 64;
+
+    fn parse(input: &str) -> Result<Self, JobIdValidationError> {
+        if input.is_empty() {
+            return Err(JobIdValidationError::Empty);
+        }
+        if input.len() > Self::MAX_LEN {
+            return Err(JobIdValidationError::TooLong);
+        }
+        if !input
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        {
+            return Err(JobIdValidationError::InvalidCharacter);
+        }
+
+        Ok(Self(input.to_string()))
+    }
+
+    fn generated(job_number: u64) -> Self {
+        Self(format!("job-{job_number:010}"))
+    }
+
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    fn safe_for_logs(&self) -> String {
+        sanitize_for_logs(self.as_str(), 24)
+    }
+}
+
+impl fmt::Display for JobId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug)]
+enum JobIdValidationError {
+    Empty,
+    TooLong,
+    InvalidCharacter,
+}
+
+impl JobIdValidationError {
+    fn message(&self) -> &'static str {
+        match self {
+            JobIdValidationError::Empty => "job_id must not be empty",
+            JobIdValidationError::TooLong => "job_id must be at most 64 characters",
+            JobIdValidationError::InvalidCharacter => {
+                "job_id supports only [a-zA-Z0-9_-] characters"
+            }
+        }
+    }
 }
 
 impl AppConfig {
@@ -147,6 +230,7 @@ impl AppConfig {
             summarize_concurrency: read_usize_env("RECORDROUTE_SUMMARIZE_CONCURRENCY", 2),
             embed_concurrency: read_usize_env("RECORDROUTE_EMBED_CONCURRENCY", 2),
             engine_timeout_secs: read_u64_env("RECORDROUTE_ENGINE_TIMEOUT_SECS", 60),
+            engine_connect_timeout_ms: read_u64_env("RECORDROUTE_ENGINE_CONNECT_TIMEOUT_MS", 1_500),
             engine_retry_count: read_usize_env("RECORDROUTE_ENGINE_RETRY_COUNT", 1),
             engine_base_backoff_ms: read_u64_env("RECORDROUTE_ENGINE_BACKOFF_MS", 200),
             stt_engine_url: env::var("RECORDROUTE_STT_ENGINE_URL")
@@ -189,7 +273,7 @@ impl JobStore {
 
     fn create_queued_job(&self, engine: EngineKind) -> Job {
         let job_number = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let job_id = format!("job-{job_number:010}");
+        let job_id = JobId::generated(job_number);
         let now = now_ms();
         let job = Job {
             job_id: job_id.clone(),
@@ -210,7 +294,7 @@ impl JobStore {
         job
     }
 
-    fn get_job(&self, job_id: &str) -> Option<Job> {
+    fn get_job(&self, job_id: &JobId) -> Option<Job> {
         self.jobs
             .lock()
             .expect("job store mutex poisoned")
@@ -218,7 +302,7 @@ impl JobStore {
             .cloned()
     }
 
-    fn mark_running(&self, job_id: &str) {
+    fn mark_running(&self, job_id: &JobId) {
         self.transition(job_id, |job| {
             if job.status == JobStatus::Queued {
                 job.status = JobStatus::Running;
@@ -227,7 +311,7 @@ impl JobStore {
         });
     }
 
-    fn mark_succeeded(&self, job_id: &str, result: Value) {
+    fn mark_succeeded(&self, job_id: &JobId, result: Value) {
         self.transition(job_id, |job| {
             if job.status == JobStatus::Running {
                 job.status = JobStatus::Succeeded;
@@ -237,7 +321,7 @@ impl JobStore {
         });
     }
 
-    fn mark_failed(&self, job_id: &str, code: &'static str, message: String) {
+    fn mark_failed(&self, job_id: &JobId, code: &'static str, message: String) {
         self.transition(job_id, |job| {
             if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
                 job.status = JobStatus::Failed;
@@ -253,7 +337,7 @@ impl JobStore {
         });
     }
 
-    fn mark_rejected_queue_full(&self, job_id: &str, engine: EngineKind) {
+    fn mark_rejected_queue_full(&self, job_id: &JobId, engine: EngineKind) {
         self.transition(job_id, |job| {
             if job.status == JobStatus::Queued {
                 job.status = JobStatus::Rejected;
@@ -266,7 +350,7 @@ impl JobStore {
         });
     }
 
-    fn transition<F>(&self, job_id: &str, mut updater: F)
+    fn transition<F>(&self, job_id: &JobId, mut updater: F)
     where
         F: FnMut(&mut Job),
     {
@@ -292,12 +376,12 @@ impl EngineKind {
 }
 
 impl EngineDispatcher {
-    fn enqueue(&self, request: JobRequest) -> Result<(), QueueEnqueueError> {
+    // queue_depth is an approximation based on accepted enqueues. It is decremented via RAII
+    // guard drop, which makes decrement reliable across success/failure/panic paths.
+    fn enqueue(&self, mut request: JobRequest) -> Result<(), QueueEnqueueError> {
+        request.queue_depth_guard = Some(QueueDepthGuard::new(self.queue_depth.clone()));
         match self.sender.try_send(request) {
-            Ok(()) => {
-                self.queue_depth.fetch_add(1, Ordering::Relaxed);
-                Ok(())
-            }
+            Ok(()) => Ok(()),
             Err(mpsc::error::TrySendError::Full(_)) => Err(QueueEnqueueError::Full),
             Err(mpsc::error::TrySendError::Closed(_)) => Err(QueueEnqueueError::Closed),
         }
@@ -318,7 +402,9 @@ impl EngineClient for HttpEngineClient {
                 })?;
 
             for attempt in 0..=self.retry_count {
-                match call_engine_http(&endpoint, &payload, self.timeout).await {
+                match call_engine_http(&endpoint, &payload, self.connect_timeout, self.timeout)
+                    .await
+                {
                     Ok((status, body)) if (200..300).contains(&status) => {
                         let json =
                             serde_json::from_str::<Value>(&body).map_err(|error| EngineError {
@@ -384,6 +470,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             (EngineKind::Summarize, config.summarize_engine_url.clone()),
             (EngineKind::Embed, config.embed_engine_url.clone()),
         ]),
+        connect_timeout: Duration::from_millis(config.engine_connect_timeout_ms),
         timeout: Duration::from_secs(config.engine_timeout_secs),
         retry_count: config.engine_retry_count,
         base_backoff: Duration::from_millis(config.engine_base_backoff_ms),
@@ -418,7 +505,6 @@ fn build_dispatchers(
         spawn_worker_loop(
             engine,
             receiver,
-            queue_depth.clone(),
             semaphore,
             jobs.clone(),
             engine_client.clone(),
@@ -439,29 +525,31 @@ fn build_dispatchers(
 fn spawn_worker_loop(
     engine: EngineKind,
     mut receiver: mpsc::Receiver<JobRequest>,
-    queue_depth: Arc<AtomicUsize>,
     semaphore: Arc<Semaphore>,
     jobs: Arc<JobStore>,
     engine_client: Arc<dyn EngineClient>,
 ) {
     tokio::spawn(async move {
         while let Some(request) = receiver.recv().await {
-            queue_depth.fetch_sub(1, Ordering::Relaxed);
+            // Acquire permit before spawning so recv loop cannot drain queue without available
+            // execution capacity. This preserves bounded-mpsc backpressure under load.
+            let permit = semaphore
+                .clone()
+                .acquire_owned()
+                .await
+                .expect("engine semaphore closed unexpectedly");
 
-            let semaphore = semaphore.clone();
             let jobs = jobs.clone();
             let engine_client = engine_client.clone();
 
             tokio::spawn(async move {
-                let _permit = semaphore
-                    .acquire_owned()
-                    .await
-                    .expect("engine semaphore closed unexpectedly");
+                let _permit = permit;
+                let _queue_depth_guard = request.queue_depth_guard;
 
                 let start = std::time::Instant::now();
                 jobs.mark_running(&request.job_id);
                 tracing::info!(
-                    job_id = %request.job_id,
+                    job_id = %request.job_id.safe_for_logs(),
                     engine = engine.as_str(),
                     status_transition = "queued->running",
                     "job started"
@@ -472,7 +560,7 @@ fn spawn_worker_loop(
                         let latency_ms = start.elapsed().as_millis() as u64;
                         jobs.mark_succeeded(&request.job_id, result.payload);
                         tracing::info!(
-                            job_id = %request.job_id,
+                            job_id = %request.job_id.safe_for_logs(),
                             engine = engine.as_str(),
                             status_transition = "running->succeeded",
                             latency_ms,
@@ -483,13 +571,13 @@ fn spawn_worker_loop(
                         let latency_ms = start.elapsed().as_millis() as u64;
                         jobs.mark_failed(&request.job_id, error.code, error.message.clone());
                         tracing::warn!(
-                            job_id = %request.job_id,
+                            job_id = %request.job_id.safe_for_logs(),
                             engine = engine.as_str(),
                             status_transition = "running->failed",
                             latency_ms,
                             retryable = error.retryable,
                             error_code = error.code,
-                            error_message = %error.message,
+                            error_message = %sanitize_for_logs(&error.message, 120),
                             "job failed"
                         );
                     }
@@ -577,13 +665,14 @@ fn route_request(request_line: &str, state: &AppState) -> String {
                     "job_id": job.job_id,
                     "engine": engine.as_str(),
                 }),
+                queue_depth_guard: None,
             };
 
             match dispatcher.enqueue(request) {
                 Ok(()) => json_response(
                     202,
                     &JobCreatedResponse {
-                        job_id: &job.job_id,
+                        job_id: job.job_id.as_str(),
                     },
                 ),
                 Err(QueueEnqueueError::Full) => {
@@ -605,8 +694,20 @@ fn route_request(request_line: &str, state: &AppState) -> String {
             }
         }
         ("GET", path) if path.starts_with("/jobs/") => {
-            let job_id = path.trim_start_matches("/jobs/");
-            match state.jobs.get_job(job_id) {
+            let job_id_raw = path.trim_start_matches("/jobs/");
+            let job_id = match JobId::parse(job_id_raw) {
+                Ok(job_id) => job_id,
+                Err(error) => {
+                    tracing::warn!(
+                        job_id = %sanitize_for_logs(job_id_raw, 24),
+                        reason = error.message(),
+                        "invalid job_id in request"
+                    );
+                    return json_error_response(400, "invalid_job_id", error.message());
+                }
+            };
+
+            match state.jobs.get_job(&job_id) {
                 Some(job) => json_response(200, &job),
                 None => json_error_response(404, "job_not_found", "job not found"),
             }
@@ -630,6 +731,22 @@ struct StatusBody<'a> {
 #[derive(Serialize)]
 struct JobCreatedResponse<'a> {
     job_id: &'a str,
+}
+
+fn sanitize_for_logs(input: &str, max_len: usize) -> String {
+    let mut out = String::new();
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+        if out.len() >= max_len {
+            out.push('…');
+            break;
+        }
+    }
+    out
 }
 
 fn json_response(status_code: u16, body: &impl Serialize) -> String {
@@ -713,6 +830,7 @@ async fn sleep_backoff(base: Duration, attempt: usize) {
 async fn call_engine_http(
     endpoint: &str,
     payload: &Value,
+    connect_timeout: Duration,
     timeout: Duration,
 ) -> Result<(u16, String), EngineError> {
     let endpoint = endpoint.to_string();
@@ -725,9 +843,27 @@ async fn call_engine_http(
             retryable: false,
         })?;
 
-        let mut stream = TcpStream::connect((parsed.host.as_str(), parsed.port)).map_err(|error| {
-            EngineError {
+        let connect_addr = (parsed.host.as_str(), parsed.port)
+            .to_socket_addrs()
+            .map_err(|error| EngineError {
                 code: "engine_transport_error",
+                message: format!("engine resolve failed: {error}"),
+                retryable: true,
+            })?
+            .next()
+            .ok_or_else(|| EngineError {
+                code: "engine_transport_error",
+                message: "engine resolve returned no addresses".to_string(),
+                retryable: true,
+            })?;
+
+        let mut stream = TcpStream::connect_timeout(&connect_addr, connect_timeout).map_err(|error| {
+            let timed_out = matches!(
+                error.kind(),
+                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+            );
+            EngineError {
+                code: if timed_out { "engine_timeout" } else { "engine_transport_error" },
                 message: format!("engine connect failed: {error}"),
                 retryable: true,
             }
@@ -764,7 +900,10 @@ async fn call_engine_http(
 
         let mut response = String::new();
         stream.read_to_string(&mut response).map_err(|error| {
-            let timed_out = error.kind() == std::io::ErrorKind::TimedOut;
+            let timed_out = matches!(
+                error.kind(),
+                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+            );
             EngineError {
                 code: if timed_out {
                     "engine_timeout"
@@ -826,33 +965,42 @@ fn parse_http_endpoint(endpoint: &str) -> Option<ParsedEndpoint> {
 
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    fmt().with_env_filter(filter).init();
+    tracing_fmt().with_env_filter(filter).init();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicBool;
+    use std::{
+        net::TcpListener,
+        sync::atomic::{AtomicBool, AtomicUsize},
+    };
 
     #[derive(Clone)]
     struct MockEngineClient {
         fail_with_5xx: Arc<AtomicBool>,
         delay: Duration,
+        inflight: Arc<AtomicUsize>,
+        max_inflight: Arc<AtomicUsize>,
     }
 
     impl EngineClient for MockEngineClient {
         fn call(&self, _engine: EngineKind, payload: Value) -> EngineFuture<'_> {
             Box::pin(async move {
+                let now = self.inflight.fetch_add(1, Ordering::SeqCst) + 1;
+                self.max_inflight.fetch_max(now, Ordering::SeqCst);
                 if self.delay > Duration::ZERO {
                     tokio::time::sleep(self.delay).await;
                 }
                 if self.fail_with_5xx.load(Ordering::Relaxed) {
+                    self.inflight.fetch_sub(1, Ordering::SeqCst);
                     return Err(EngineError {
                         code: "engine_upstream_5xx",
                         message: "mock engine 5xx".to_string(),
                         retryable: true,
                     });
                 }
+                self.inflight.fetch_sub(1, Ordering::SeqCst);
                 Ok(EngineResult {
                     payload: json!({"ok": true, "echo": payload}),
                 })
@@ -875,6 +1023,7 @@ mod tests {
             summarize_concurrency: concurrency,
             embed_concurrency: concurrency,
             engine_timeout_secs: 60,
+            engine_connect_timeout_ms: 50,
             engine_retry_count: 0,
             engine_base_backoff_ms: 1,
             stt_engine_url: "http://127.0.0.1:18103/infer".to_string(),
@@ -897,6 +1046,8 @@ mod tests {
         let client = Arc::new(MockEngineClient {
             fail_with_5xx: Arc::new(AtomicBool::new(false)),
             delay: Duration::ZERO,
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
         });
         let response = route_request("GET /healthz HTTP/1.1", &build_state(8, 1, client));
         assert!(response.starts_with("HTTP/1.1 200 OK"));
@@ -908,6 +1059,8 @@ mod tests {
         let client = Arc::new(MockEngineClient {
             fail_with_5xx: Arc::new(AtomicBool::new(false)),
             delay: Duration::from_millis(10),
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
         });
         let state = build_state(8, 1, client);
 
@@ -927,6 +1080,8 @@ mod tests {
         let client = Arc::new(MockEngineClient {
             fail_with_5xx: Arc::new(AtomicBool::new(true)),
             delay: Duration::from_millis(5),
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
         });
         let state = build_state(8, 1, client);
 
@@ -945,6 +1100,8 @@ mod tests {
         let client = Arc::new(MockEngineClient {
             fail_with_5xx: Arc::new(AtomicBool::new(false)),
             delay: Duration::from_millis(200),
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
         });
         let state = build_state(1, 1, client);
 
@@ -964,6 +1121,8 @@ mod tests {
         let client = Arc::new(MockEngineClient {
             fail_with_5xx: Arc::new(AtomicBool::new(false)),
             delay: Duration::from_millis(40),
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
         });
         let state = build_state(1, 1, client);
 
@@ -980,9 +1139,167 @@ mod tests {
         assert!(third.starts_with("HTTP/1.1 202 Accepted"));
     }
 
+    #[tokio::test]
+    async fn inflight_never_exceeds_worker_concurrency() {
+        let max_inflight = Arc::new(AtomicUsize::new(0));
+        let client = Arc::new(MockEngineClient {
+            fail_with_5xx: Arc::new(AtomicBool::new(false)),
+            delay: Duration::from_millis(60),
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: max_inflight.clone(),
+        });
+        let state = build_state(16, 2, client);
+
+        let mut ids = Vec::new();
+        for _ in 0..8 {
+            let response = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
+            assert!(response.starts_with("HTTP/1.1 202 Accepted"));
+            ids.push(extract_job_id(&response));
+        }
+
+        for id in ids {
+            wait_for_status(&state, &id, JobStatus::Succeeded).await;
+        }
+
+        assert!(max_inflight.load(Ordering::SeqCst) <= 2);
+    }
+
+    #[tokio::test]
+    async fn queue_depth_gauge_returns_to_zero_after_processing() {
+        let client = Arc::new(MockEngineClient {
+            fail_with_5xx: Arc::new(AtomicBool::new(false)),
+            delay: Duration::from_millis(20),
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
+        });
+        let state = build_state(8, 1, client);
+
+        let mut ids = Vec::new();
+        for _ in 0..3 {
+            let response = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
+            ids.push(extract_job_id(&response));
+        }
+        for id in ids {
+            wait_for_status(&state, &id, JobStatus::Succeeded).await;
+        }
+
+        let depth = state
+            .dispatchers
+            .get(&EngineKind::Stt)
+            .expect("stt dispatcher")
+            .queue_depth
+            .load(Ordering::Relaxed);
+        assert_eq!(depth, 0);
+    }
+
+    #[tokio::test]
+    async fn get_job_rejects_invalid_job_id() {
+        let client = Arc::new(MockEngineClient {
+            fail_with_5xx: Arc::new(AtomicBool::new(false)),
+            delay: Duration::ZERO,
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
+        });
+        let state = build_state(8, 1, client);
+
+        let response = route_request("GET /jobs/bad*id HTTP/1.1", &state);
+        assert!(response.starts_with("HTTP/1.1 400 Bad Request"));
+        assert!(response.contains("\"code\":\"invalid_job_id\""));
+    }
+
+    #[test]
+    fn job_id_parse_validation_rules() {
+        assert!(JobId::parse("job-abc_123").is_ok());
+        assert!(matches!(JobId::parse(""), Err(JobIdValidationError::Empty)));
+        assert!(matches!(
+            JobId::parse(&"a".repeat(65)),
+            Err(JobIdValidationError::TooLong)
+        ));
+        assert!(matches!(
+            JobId::parse("bad/id"),
+            Err(JobIdValidationError::InvalidCharacter)
+        ));
+    }
+
+    #[test]
+    fn call_engine_http_times_out_on_connect() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let result = runtime.block_on(call_engine_http(
+            "http://10.255.255.1:81/infer",
+            &json!({"ping": true}),
+            Duration::from_millis(20),
+            Duration::from_millis(40),
+        ));
+        let error = result.expect_err("connect should timeout or fail");
+        assert!(matches!(
+            error.code,
+            "engine_timeout" | "engine_transport_error"
+        ));
+    }
+
+    #[test]
+    fn call_engine_http_times_out_on_stalled_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener bind");
+        let addr = listener.local_addr().expect("listener local addr");
+        let handle = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().expect("accept connection");
+            let mut buf = [0_u8; 512];
+            let _ = socket.read(&mut buf);
+            std::thread::sleep(Duration::from_millis(120));
+        });
+
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let result = runtime.block_on(call_engine_http(
+            &format!("http://{}/infer", addr),
+            &json!({"ping": true}),
+            Duration::from_millis(30),
+            Duration::from_millis(40),
+        ));
+        let error = result.expect_err("read should timeout");
+        assert_eq!(error.code, "engine_timeout");
+
+        handle.join().expect("join listener thread");
+    }
+
+    #[tokio::test]
+    async fn job_store_mutex_contention_smoke_measurement() {
+        let store = Arc::new(JobStore::new());
+        let start = std::time::Instant::now();
+
+        let mut tasks = Vec::new();
+        for _ in 0..32 {
+            let store = store.clone();
+            tasks.push(tokio::spawn(async move {
+                for _ in 0..200 {
+                    let job = store.create_queued_job(EngineKind::Stt);
+                    store.mark_running(&job.job_id);
+                    store.mark_succeeded(&job.job_id, json!({"ok": true}));
+                }
+            }));
+        }
+
+        for task in tasks {
+            task.await.expect("contention task should complete");
+        }
+
+        let elapsed_ms = start.elapsed().as_millis();
+        println!("job store contention smoke: {} ms", elapsed_ms);
+
+        let completed = find_status_count(
+            &AppState {
+                ready: true,
+                jobs: store,
+                dispatchers: Arc::new(HashMap::new()),
+            },
+            JobStatus::Succeeded,
+        );
+        assert_eq!(completed, 32 * 200);
+    }
+
     async fn wait_for_status(state: &AppState, job_id: &str, target: JobStatus) {
+        let job_id = JobId::parse(job_id).expect("valid generated job id");
         for _ in 0..80 {
-            if let Some(job) = state.jobs.get_job(job_id) {
+            if let Some(job) = state.jobs.get_job(&job_id) {
                 if job.status == target {
                     return;
                 }

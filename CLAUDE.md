@@ -3,7 +3,7 @@
 이 문서는 요약본이며, 상세 기준은 `AGENTS.md`를 따릅니다.
 
 
-> 문서 동기화: 2026-02-22 기준 Phase B-1(엔진별 bounded queue/worker/semaphore, 상태머신 실제 처리 흐름) 반영 상태와 정렬됨.
+> 문서 동기화: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, job_id 검증/로그 위생, queue depth guard) 반영 상태와 정렬됨.
 
 ## 우선 확인 순서
 
