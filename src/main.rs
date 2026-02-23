@@ -14,8 +14,14 @@ use std::{
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::mpsc;
 use tracing_subscriber::{fmt as tracing_fmt, EnvFilter};
+
+mod engine_manager;
+mod workers;
+
+use engine_manager::{EngineManager, EngineManagerConfig, EngineProcessSpec};
+use workers::build_dispatchers;
 
 #[derive(Clone)]
 struct AppState {
@@ -24,27 +30,27 @@ struct AppState {
     dispatchers: Arc<HashMap<EngineKind, EngineDispatcher>>,
 }
 
-struct EngineDispatcher {
-    sender: mpsc::Sender<JobRequest>,
-    queue_depth: Arc<AtomicUsize>,
+pub(crate) struct EngineDispatcher {
+    pub(crate) sender: mpsc::Sender<JobRequest>,
+    pub(crate) queue_depth: Arc<AtomicUsize>,
 }
 
 #[derive(Debug)]
-struct JobRequest {
-    job_id: JobId,
-    engine: EngineKind,
-    payload: Value,
-    queue_depth_guard: Option<QueueDepthGuard>,
+pub(crate) struct JobRequest {
+    pub(crate) job_id: JobId,
+    pub(crate) engine: EngineKind,
+    pub(crate) payload: Value,
+    pub(crate) queue_depth_guard: Option<QueueDepthGuard>,
 }
 
 #[derive(Debug)]
-struct JobStore {
+pub(crate) struct JobStore {
     next_id: AtomicU64,
     jobs: Mutex<HashMap<JobId, Job>>,
 }
 
 #[derive(Clone, Debug)]
-struct AppConfig {
+pub(crate) struct AppConfig {
     host: String,
     api_port: u16,
     stt_queue_capacity: usize,
@@ -60,6 +66,18 @@ struct AppConfig {
     stt_engine_url: String,
     summarize_engine_url: String,
     embed_engine_url: String,
+    engine_supervision_enabled: bool,
+    stt_engine_command: String,
+    stt_engine_args: Vec<String>,
+    summarize_engine_command: String,
+    summarize_engine_args: Vec<String>,
+    embed_engine_command: String,
+    embed_engine_args: Vec<String>,
+    engine_startup_timeout_secs: u64,
+    engine_readiness_poll_ms: u64,
+    engine_shutdown_grace_secs: u64,
+    engine_restart_backoff_base_ms: u64,
+    engine_restart_backoff_max_ms: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -86,7 +104,7 @@ struct JobError {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-enum EngineKind {
+pub(crate) enum EngineKind {
     Stt,
     Summarize,
     Embed,
@@ -103,27 +121,27 @@ enum JobStatus {
 }
 
 #[derive(Debug)]
-enum QueueEnqueueError {
+pub(crate) enum QueueEnqueueError {
     Full,
     Closed,
 }
 
 #[derive(Debug)]
-struct EngineResult {
-    payload: Value,
+pub(crate) struct EngineResult {
+    pub(crate) payload: Value,
 }
 
 #[derive(Debug)]
-struct EngineError {
-    code: &'static str,
-    message: String,
-    retryable: bool,
+pub(crate) struct EngineError {
+    pub(crate) code: &'static str,
+    pub(crate) message: String,
+    pub(crate) retryable: bool,
 }
 
 type EngineFuture<'a> =
     Pin<Box<dyn Future<Output = Result<EngineResult, EngineError>> + Send + 'a>>;
 
-trait EngineClient: Send + Sync {
+pub(crate) trait EngineClient: Send + Sync {
     fn call(&self, engine: EngineKind, payload: Value) -> EngineFuture<'_>;
 }
 
@@ -137,12 +155,12 @@ struct HttpEngineClient {
 }
 
 #[derive(Debug)]
-struct QueueDepthGuard {
+pub(crate) struct QueueDepthGuard {
     queue_depth: Arc<AtomicUsize>,
 }
 
 impl QueueDepthGuard {
-    fn new(queue_depth: Arc<AtomicUsize>) -> Self {
+    pub(crate) fn new(queue_depth: Arc<AtomicUsize>) -> Self {
         queue_depth.fetch_add(1, Ordering::Relaxed);
         Self { queue_depth }
     }
@@ -182,7 +200,7 @@ impl JobId {
         &self.0
     }
 
-    fn safe_for_logs(&self) -> String {
+    pub(crate) fn safe_for_logs(&self) -> String {
         sanitize_for_logs(self.as_str(), 24)
     }
 }
@@ -213,7 +231,7 @@ impl JobIdValidationError {
 }
 
 impl AppConfig {
-    fn from_env() -> Self {
+    pub(crate) fn from_env() -> Self {
         let host = env::var("RECORDROUTE_API_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
         let api_port = env::var("RECORDROUTE_API_PORT")
             .ok()
@@ -239,6 +257,33 @@ impl AppConfig {
                 .unwrap_or_else(|_| "http://127.0.0.1:18101/infer".to_string()),
             embed_engine_url: env::var("RECORDROUTE_EMBED_ENGINE_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:18102/infer".to_string()),
+            engine_supervision_enabled: env::var("RECORDROUTE_ENGINE_SUPERVISION_ENABLED")
+                .ok()
+                .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+                .unwrap_or(false),
+            stt_engine_command: env::var("RECORDROUTE_STT_ENGINE_COMMAND")
+                .unwrap_or_else(|_| "whisper-server".to_string()),
+            stt_engine_args: read_csv_env("RECORDROUTE_STT_ENGINE_ARGS"),
+            summarize_engine_command: env::var("RECORDROUTE_SUMMARIZE_ENGINE_COMMAND")
+                .unwrap_or_else(|_| "llama-text".to_string()),
+            summarize_engine_args: read_csv_env("RECORDROUTE_SUMMARIZE_ENGINE_ARGS"),
+            embed_engine_command: env::var("RECORDROUTE_EMBED_ENGINE_COMMAND")
+                .unwrap_or_else(|_| "llama-embed".to_string()),
+            embed_engine_args: read_csv_env("RECORDROUTE_EMBED_ENGINE_ARGS"),
+            engine_startup_timeout_secs: read_u64_env(
+                "RECORDROUTE_ENGINE_STARTUP_TIMEOUT_SECS",
+                20,
+            ),
+            engine_readiness_poll_ms: read_u64_env("RECORDROUTE_ENGINE_READINESS_POLL_MS", 500),
+            engine_shutdown_grace_secs: read_u64_env("RECORDROUTE_ENGINE_SHUTDOWN_GRACE_SECS", 5),
+            engine_restart_backoff_base_ms: read_u64_env(
+                "RECORDROUTE_ENGINE_RESTART_BACKOFF_BASE_MS",
+                500,
+            ),
+            engine_restart_backoff_max_ms: read_u64_env(
+                "RECORDROUTE_ENGINE_RESTART_BACKOFF_MAX_MS",
+                15_000,
+            ),
         }
     }
 
@@ -246,7 +291,7 @@ impl AppConfig {
         format!("{}:{}", self.host, self.api_port).parse()
     }
 
-    fn queue_capacity(&self, engine: EngineKind) -> usize {
+    pub(crate) fn queue_capacity(&self, engine: EngineKind) -> usize {
         match engine {
             EngineKind::Stt => self.stt_queue_capacity,
             EngineKind::Summarize => self.summarize_queue_capacity,
@@ -254,7 +299,7 @@ impl AppConfig {
         }
     }
 
-    fn concurrency(&self, engine: EngineKind) -> usize {
+    pub(crate) fn concurrency(&self, engine: EngineKind) -> usize {
         match engine {
             EngineKind::Stt => self.stt_concurrency,
             EngineKind::Summarize => self.summarize_concurrency,
@@ -264,7 +309,7 @@ impl AppConfig {
 }
 
 impl JobStore {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             next_id: AtomicU64::new(1),
             jobs: Mutex::new(HashMap::new()),
@@ -302,7 +347,7 @@ impl JobStore {
             .cloned()
     }
 
-    fn mark_running(&self, job_id: &JobId) {
+    pub(crate) fn mark_running(&self, job_id: &JobId) {
         self.transition(job_id, |job| {
             if job.status == JobStatus::Queued {
                 job.status = JobStatus::Running;
@@ -311,7 +356,7 @@ impl JobStore {
         });
     }
 
-    fn mark_succeeded(&self, job_id: &JobId, result: Value) {
+    pub(crate) fn mark_succeeded(&self, job_id: &JobId, result: Value) {
         self.transition(job_id, |job| {
             if job.status == JobStatus::Running {
                 job.status = JobStatus::Succeeded;
@@ -321,7 +366,7 @@ impl JobStore {
         });
     }
 
-    fn mark_failed(&self, job_id: &JobId, code: &'static str, message: String) {
+    pub(crate) fn mark_failed(&self, job_id: &JobId, code: &'static str, message: String) {
         self.transition(job_id, |job| {
             if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
                 job.status = JobStatus::Failed;
@@ -366,24 +411,11 @@ impl JobStore {
 }
 
 impl EngineKind {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             EngineKind::Stt => "stt",
             EngineKind::Summarize => "summarize",
             EngineKind::Embed => "embed",
-        }
-    }
-}
-
-impl EngineDispatcher {
-    // queue_depth is an approximation based on accepted enqueues. It is decremented via RAII
-    // guard drop, which makes decrement reliable across success/failure/panic paths.
-    fn enqueue(&self, mut request: JobRequest) -> Result<(), QueueEnqueueError> {
-        request.queue_depth_guard = Some(QueueDepthGuard::new(self.queue_depth.clone()));
-        match self.sender.try_send(request) {
-            Ok(()) => Ok(()),
-            Err(mpsc::error::TrySendError::Full(_)) => Err(QueueEnqueueError::Full),
-            Err(mpsc::error::TrySendError::Closed(_)) => Err(QueueEnqueueError::Closed),
         }
     }
 }
@@ -478,6 +510,17 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let dispatchers = build_dispatchers(&config, jobs.clone(), engine_client);
 
+    let _engine_manager = if config.engine_supervision_enabled {
+        tracing::info!("engine supervision enabled");
+        Some(EngineManager::spawn(
+            engine_specs_from_config(&config),
+            supervision_config(&config),
+        ))
+    } else {
+        tracing::info!("engine supervision disabled");
+        None
+    };
+
     let state = AppState {
         ready: true,
         jobs,
@@ -490,101 +533,40 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-fn build_dispatchers(
-    config: &AppConfig,
-    jobs: Arc<JobStore>,
-    engine_client: Arc<dyn EngineClient>,
-) -> HashMap<EngineKind, EngineDispatcher> {
-    let mut dispatchers = HashMap::new();
-
-    for engine in [EngineKind::Stt, EngineKind::Summarize, EngineKind::Embed] {
-        let (sender, receiver) = mpsc::channel(config.queue_capacity(engine));
-        let queue_depth = Arc::new(AtomicUsize::new(0));
-        let semaphore = Arc::new(Semaphore::new(config.concurrency(engine).max(1)));
-
-        spawn_worker_loop(
-            engine,
-            receiver,
-            semaphore,
-            jobs.clone(),
-            engine_client.clone(),
-        );
-
-        dispatchers.insert(
-            engine,
-            EngineDispatcher {
-                sender,
-                queue_depth,
-            },
-        );
-    }
-
-    dispatchers
+fn engine_specs_from_config(config: &AppConfig) -> Vec<EngineProcessSpec> {
+    vec![
+        EngineProcessSpec {
+            name: "llama-text",
+            port: 18101,
+            command: config.summarize_engine_command.clone(),
+            args: config.summarize_engine_args.clone(),
+            health_path: "/healthz",
+        },
+        EngineProcessSpec {
+            name: "llama-embed",
+            port: 18102,
+            command: config.embed_engine_command.clone(),
+            args: config.embed_engine_args.clone(),
+            health_path: "/healthz",
+        },
+        EngineProcessSpec {
+            name: "whisper-server",
+            port: 18103,
+            command: config.stt_engine_command.clone(),
+            args: config.stt_engine_args.clone(),
+            health_path: "/healthz",
+        },
+    ]
 }
 
-fn spawn_worker_loop(
-    engine: EngineKind,
-    mut receiver: mpsc::Receiver<JobRequest>,
-    semaphore: Arc<Semaphore>,
-    jobs: Arc<JobStore>,
-    engine_client: Arc<dyn EngineClient>,
-) {
-    tokio::spawn(async move {
-        while let Some(request) = receiver.recv().await {
-            // Acquire permit before spawning so recv loop cannot drain queue without available
-            // execution capacity. This preserves bounded-mpsc backpressure under load.
-            let permit = semaphore
-                .clone()
-                .acquire_owned()
-                .await
-                .expect("engine semaphore closed unexpectedly");
-
-            let jobs = jobs.clone();
-            let engine_client = engine_client.clone();
-
-            tokio::spawn(async move {
-                let _permit = permit;
-                let _queue_depth_guard = request.queue_depth_guard;
-
-                let start = std::time::Instant::now();
-                jobs.mark_running(&request.job_id);
-                tracing::info!(
-                    job_id = %request.job_id.safe_for_logs(),
-                    engine = engine.as_str(),
-                    status_transition = "queued->running",
-                    "job started"
-                );
-
-                match engine_client.call(request.engine, request.payload).await {
-                    Ok(result) => {
-                        let latency_ms = start.elapsed().as_millis() as u64;
-                        jobs.mark_succeeded(&request.job_id, result.payload);
-                        tracing::info!(
-                            job_id = %request.job_id.safe_for_logs(),
-                            engine = engine.as_str(),
-                            status_transition = "running->succeeded",
-                            latency_ms,
-                            "job completed"
-                        );
-                    }
-                    Err(error) => {
-                        let latency_ms = start.elapsed().as_millis() as u64;
-                        jobs.mark_failed(&request.job_id, error.code, error.message.clone());
-                        tracing::warn!(
-                            job_id = %request.job_id.safe_for_logs(),
-                            engine = engine.as_str(),
-                            status_transition = "running->failed",
-                            latency_ms,
-                            retryable = error.retryable,
-                            error_code = error.code,
-                            error_message = %sanitize_for_logs(&error.message, 120),
-                            "job failed"
-                        );
-                    }
-                }
-            });
-        }
-    });
+fn supervision_config(config: &AppConfig) -> EngineManagerConfig {
+    EngineManagerConfig {
+        startup_timeout: Duration::from_secs(config.engine_startup_timeout_secs),
+        readiness_poll_interval: Duration::from_millis(config.engine_readiness_poll_ms),
+        shutdown_grace: Duration::from_secs(config.engine_shutdown_grace_secs),
+        restart_backoff_base: Duration::from_millis(config.engine_restart_backoff_base_ms),
+        restart_backoff_max: Duration::from_millis(config.engine_restart_backoff_max_ms),
+    }
 }
 
 fn run_blocking_server(
@@ -676,11 +658,16 @@ fn route_request(request_line: &str, state: &AppState) -> String {
                     },
                 ),
                 Err(QueueEnqueueError::Full) => {
+                    let reason = if dispatcher.queue_depth() >= state.jobs.running_count(engine) {
+                        "queue_full"
+                    } else {
+                        "engine_full"
+                    };
                     state.jobs.mark_rejected_queue_full(&job.job_id, engine);
                     json_error_response(
                         429,
-                        "queue_full",
-                        &format!("{} queue is full", engine.as_str()),
+                        reason,
+                        &format!("{} capacity exceeded ({reason})", engine.as_str()),
                     )
                 }
                 Err(QueueEnqueueError::Closed) => {
@@ -733,7 +720,7 @@ struct JobCreatedResponse<'a> {
     job_id: &'a str,
 }
 
-fn sanitize_for_logs(input: &str, max_len: usize) -> String {
+pub(crate) fn sanitize_for_logs(input: &str, max_len: usize) -> String {
     let mut out = String::new();
     for ch in input.chars() {
         if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
@@ -813,6 +800,19 @@ fn read_u64_env(key: &str, default: u64) -> u64 {
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(default)
+}
+
+fn read_csv_env(key: &str) -> Vec<String> {
+    env::var(key)
+        .ok()
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn now_ms() -> u64 {
