@@ -387,14 +387,19 @@ impl JobStore {
         });
     }
 
-    fn mark_rejected_queue_full(&self, job_id: &JobId, engine: EngineKind) {
+    fn mark_rejected_capacity_exceeded(
+        &self,
+        job_id: &JobId,
+        engine: EngineKind,
+        code: &'static str,
+    ) {
         self.transition(job_id, |job| {
             if job.status == JobStatus::Queued {
                 job.status = JobStatus::Rejected;
                 job.finished_at_ms = Some(now_ms());
                 job.error = Some(JobError {
-                    code: "queue_full",
-                    message: format!("{} queue is full", engine.as_str()),
+                    code,
+                    message: format!("{} capacity exceeded ({code})", engine.as_str()),
                 });
             }
         });
@@ -709,7 +714,9 @@ fn route_request(request_line: &str, state: &AppState) -> String {
                     } else {
                         "engine_full"
                     };
-                    state.jobs.mark_rejected_queue_full(&job.job_id, engine);
+                    state
+                        .jobs
+                        .mark_rejected_capacity_exceeded(&job.job_id, engine, reason);
                     json_error_response(
                         429,
                         reason,
@@ -1239,6 +1246,8 @@ mod tests {
         assert!(second.starts_with("HTTP/1.1 429 Too Many Requests"));
         assert!(second.contains("\"code\":\"queue_full\""));
 
+        assert_eq!(find_first_rejected_error_code(&state), Some("queue_full"));
+
         let rejected = find_status_count(&state, JobStatus::Rejected);
         assert!(rejected >= 1);
     }
@@ -1446,6 +1455,17 @@ mod tests {
             .values()
             .filter(|job| job.status == target)
             .count()
+    }
+
+    fn find_first_rejected_error_code(state: &AppState) -> Option<&'static str> {
+        state
+            .jobs
+            .jobs
+            .lock()
+            .expect("job store mutex poisoned")
+            .values()
+            .find(|job| job.status == JobStatus::Rejected)
+            .and_then(|job| job.error.as_ref().map(|error| error.code))
     }
 
     fn extract_job_id(response: &str) -> String {
