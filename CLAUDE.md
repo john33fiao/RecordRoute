@@ -18,7 +18,7 @@
 
 ## 현재 프로젝트 전제
 
-- OpenAPI 계약(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)은 Rust 목표 엔드포인트 기준으로 정렬되어 있습니다.
+- OpenAPI 계약(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)은 Rust 목표 엔드포인트(`/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`) 기준으로 정렬되어 있습니다.
 - 루트에 Rust 실행 코드(`Cargo.toml`)가 존재하며, 백엔드 전환 구현이 진행 중입니다.
 - 운영 중 코드 기준은 `frontend/`(현행) + 루트 Rust 코드입니다.
 - 오디오 변환 기본 전략은 외부 `ffmpeg` 호출이 아니라 Rust `symphonia` 크레이트 사용입니다.
@@ -26,6 +26,7 @@
 - `POST /jobs` 과부하 응답은 `429(queue_full|engine_full)` 규약으로 구분되며 엔진/사유별 리젝션 카운트를 기록합니다.
 - `/readyz`는 수용량 압박 시 `503 degraded`로 응답하며, `/metrics`에서 readiness/queue/rejection 스냅샷(JSON)을 노출합니다.
 - STT는 `audio_ms` 길이 입력이 있을 때 처리율/버퍼/상하한 기반 timeout budget 산정식을 적용합니다.
+- `POST /jobs`는 `audio_ms` query 파라미터(선택)를 받아 STT timeout budget 산정에 사용하며, 미지정 시 기본 timeout을 사용합니다.
 - STT payload는 `audio_contract`를 통해 Rust(`recordroute_symphonia`) 전처리 완료/변환 불필요(`conversion_required=false`) 계약을 명시합니다.
 - 운영 점검 시나리오(장애/복구/부하) runbook은 `docs/operations-runbook-scenarios.md`를 기준으로 사용합니다.
 - 운영 runbook은 인증/인가/비밀관리 참조와 계량 롤백 기준, Owner/Approver, 보안 영향 검토 필드를 포함한 버전을 기준으로 사용합니다.

@@ -7,14 +7,14 @@ RecordRoute는 음성/문서 처리 파이프라인을 **Rust 중심 아키텍�
 - `frontend/`: 현재 유지 중인 웹 프론트엔드
 - `docs/`: Rust 전환/설계 문서
 
-Rust 백엔드는 `/healthz`/`/readyz` + `POST /jobs`/`GET /jobs/{id}`와 엔진별 bounded queue/worker 기반 처리 흐름(queued→running→completed|failed|timeout|canceled|rejected)까지 반영되어 있으며, 엔진 슈퍼비전/전처리/Swagger 분리 배포 구성을 단계적으로 이전합니다.
+Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{id}`와 엔진별 bounded queue/worker 기반 처리 흐름(queued→running→completed|failed|timeout|canceled|rejected)까지 반영되어 있으며, 엔진 슈퍼비전/전처리/Swagger 분리 배포 구성을 단계적으로 이전합니다.
 
 
 > 문서 동기화: 2026-02-24 기준 운영 안정화 + 운영 점검 정례화 정책(7.4.1~7.4.4) 수립 완료 상태와 정렬됨.
 
 ## 운영 안정화 메모 (Phase B-2)
 
-- OpenAPI 계약은 Rust 목표 엔드포인트(`/healthz`, `/readyz`, `POST /jobs`, `GET /jobs/{job_id}`) 기준으로 정렬되어 있습니다.
+- OpenAPI 계약은 Rust 목표 엔드포인트(`/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`) 기준으로 정렬되어 있습니다.
 - 동시성 상한은 semaphore 대기 태스크 누적 대신 **고정 worker 개수**로 강제합니다.
 - bounded queue 백프레셔를 유지하며, 과부하 시 `POST /jobs`는 `429(queue_full|engine_full)`로 원인을 구분해 응답합니다.
 - 리젝션 관측성은 엔진/사유 라벨(`engine`, `reason`) 단위 카운트로 기록합니다.
@@ -32,6 +32,13 @@ Rust 백엔드는 `/healthz`/`/readyz` + `POST /jobs`/`GET /jobs/{id}`와 엔진
 - `vendor/`는 외부 엔진 소스 코드를 버전관리하고, 빌드 산출물만 `.gitignore`로 제외합니다.
 
 오디오 전처리/변환은 기존 `ffmpeg` 실행 방식 대신 Rust `symphonia` 크레이트 기반 구현을 목표 기준으로 문서화합니다.
+
+
+## API 변경 이력
+
+- 2026-02-24: OpenAPI(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)에 `GET /metrics` 경로와 metrics 응답 스키마(readiness: ready/degraded, 엔진별 queue/running, rejections)를 명시했습니다.
+- 2026-02-24: `POST /jobs` query parameter에 `audio_ms`를 추가하고, 미지정 시 기본 timeout 사용 + min/max clamp 동작을 문서화했습니다.
+- 2026-02-24: 에러 코드 enum을 현재 구현 코드(`queue_full`, `engine_full`, `engine_dispatcher_closed` 포함)와 일치하도록 재검증/동기화했습니다.
 
 ## RTD(배포준비) 점검 규칙
 

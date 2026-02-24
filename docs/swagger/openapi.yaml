@@ -33,6 +33,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StatusResponse'
+  /metrics:
+    get:
+      summary: Queue/rejection/readiness metrics snapshot
+      responses:
+        '200':
+          description: metrics snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsResponse'
   /jobs:
     post:
       summary: Enqueue a job
@@ -42,6 +52,18 @@ paths:
           schema:
             type: string
             enum: [stt, summarize, embed]
+        - in: query
+          name: audio_ms
+          required: false
+          description: >
+            STT timeout budget 산정용 오디오 길이(ms). 0 이상 정수(uint64)만 유효하며,
+            stt 엔진에서만 산식(`audio_ms * per_audio_sec_ms / 1000 + buffer_ms`)에 사용됩니다.
+            값이 없거나 파싱되지 않으면 기본 timeout(`RECORDROUTE_JOB_TIMEOUT_SECS`)을 사용하고,
+            최종 budget은 min/max 설정(`RECORDROUTE_JOB_TIMEOUT_MIN_SECS`, `RECORDROUTE_JOB_TIMEOUT_MAX_SECS`)으로 clamp 됩니다.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
       responses:
         '202':
           description: accepted
@@ -91,6 +113,29 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 components:
   schemas:
+    ErrorCode:
+      type: string
+      enum:
+        - queue_full
+        - engine_full
+        - engine_dispatcher_closed
+        - engine_dispatcher_unavailable
+        - engine_connect_timeout
+        - engine_request_timeout
+        - engine_transport_error
+        - engine_upstream_4xx
+        - engine_upstream_5xx
+        - engine_retry_exhausted
+        - engine_endpoint_invalid
+        - engine_invalid_http
+        - engine_invalid_json
+        - engine_not_configured
+        - job_timeout
+        - job_canceled
+        - invalid_job_id
+        - job_not_found
+        - not_found
+        - method_not_allowed
     StatusResponse:
       type: object
       required: [status]
@@ -98,6 +143,62 @@ components:
         status:
           type: string
           example: ok
+    MetricsReadiness:
+      type: object
+      required: [ready, degraded]
+      properties:
+        ready:
+          type: boolean
+        degraded:
+          type: boolean
+    EngineMetrics:
+      type: object
+      required: [engine, queue_depth, queue_capacity, worker_count, running]
+      properties:
+        engine:
+          type: string
+          enum: [stt, summarize, embed]
+        queue_depth:
+          type: integer
+          minimum: 0
+        queue_capacity:
+          type: integer
+          minimum: 0
+        worker_count:
+          type: integer
+          minimum: 0
+        running:
+          type: integer
+          minimum: 0
+    RejectionMetric:
+      type: object
+      required: [engine, reason, count]
+      properties:
+        engine:
+          type: string
+          enum: [stt, summarize, embed]
+        reason:
+          type: string
+        count:
+          type: integer
+          format: int64
+          minimum: 0
+    MetricsResponse:
+      type: object
+      required: [readiness, engines, rejections]
+      properties:
+        readiness:
+          allOf:
+            - $ref: '#/components/schemas/MetricsReadiness'
+          description: readiness 상태 스냅샷(ready/degraded)
+        engines:
+          type: array
+          items:
+            $ref: '#/components/schemas/EngineMetrics'
+        rejections:
+          type: array
+          items:
+            $ref: '#/components/schemas/RejectionMetric'
     JobCreatedResponse:
       type: object
       required: [job_id]
@@ -112,20 +213,7 @@ components:
       required: [code, message]
       properties:
         code:
-          type: string
-          enum:
-            - queue_full
-            - engine_full
-            - engine_dispatcher_closed
-            - engine_connect_timeout
-            - engine_request_timeout
-            - engine_transport_error
-            - engine_upstream_4xx
-            - engine_upstream_5xx
-            - engine_retry_exhausted
-            - job_timeout
-            - job_canceled
-            - invalid_job_id
+          $ref: '#/components/schemas/ErrorCode'
         message:
           type: string
     Job:
@@ -163,6 +251,6 @@ components:
       required: [code, message]
       properties:
         code:
-          type: string
+          $ref: '#/components/schemas/ErrorCode'
         message:
           type: string
