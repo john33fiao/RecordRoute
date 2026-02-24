@@ -68,21 +68,21 @@
 ### 필수 ignore 항목
 - `/build`
 - `/target`
-- `/models/**/*` (원본)
+- `/models/**` (원본 모델 데이터 전역 제외)
 - 엔진 바이너리/오브젝트/캐시
 
 ### 버전관리 허용 항목
 - `/vendor/llama.cpp/**` 소스
 - `/vendor/whisper.cpp/**` 소스
-- `/models/**/manifest.yml` 또는 `manifest.json`
+- `/models/**/manifest.yml` 또는 `manifest.yaml` 또는 `manifest.json`
 - 배포/실행 스크립트, 설정 템플릿
 
 ## 5) WBS 완료 판정 체크포인트
 
 - [ ] API(`:18000`)와 Swagger(`:14000`)를 독립 프로세스로 실행 가능한 배포 정의가 준비되었는가?
 - [ ] `llama-text`/`llama-embed`가 모델 경로와 요청 타입 기준으로 완전히 분리되었는가?
-- [ ] 저장소에 `/vendor`, `/models`, 빌드 산출물 정책이 `.gitignore`와 함께 반영되었는가?
-- [ ] 모델 원본 없이 manifest만으로 버전/체크섬 추적이 가능한가?
+- [x] 저장소에 `/vendor`, `/models`, 빌드 산출물 정책이 `.gitignore`와 함께 반영되었는가?
+- [x] 모델 원본 없이 manifest만으로 버전/체크섬 추적이 가능한가?
 
 ## 6) 관련 문서
 

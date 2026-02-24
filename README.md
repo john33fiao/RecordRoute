@@ -25,6 +25,8 @@ Rust 백엔드는 `/healthz`/`/readyz` + `POST /jobs`/`GET /jobs/{id}`와 엔진
 - `job_id`는 `[a-zA-Z0-9_-]`, 1..64 규칙으로 검증되며 invalid 입력은 `400 invalid_job_id`로 응답합니다.
 - queue depth는 **근사 지표(accepted enqueue 기준)**로 정의하고 RAII guard Drop으로 감소 정합성을 보장합니다.
 - STT 엔진 payload는 `audio_contract`(normalized_by=`recordroute_symphonia`, format=`wav_mono_pcm16_16khz`, conversion_required=false)를 포함해 whisper-server의 변환 책임을 제거합니다.
+- 모델 자산은 **raw 데이터 미추적 + manifest 추적** 원칙을 적용합니다(`models/**` 제외, `manifest.yml|yaml|json`만 버전관리).
+- `vendor/`는 외부 엔진 소스 코드를 버전관리하고, 빌드 산출물만 `.gitignore`로 제외합니다.
 
 오디오 전처리/변환은 기존 `ffmpeg` 실행 방식 대신 Rust `symphonia` 크레이트 기반 구현을 목표 기준으로 문서화합니다.
 
