@@ -109,6 +109,28 @@ curl -sS http://127.0.0.1:18000/metrics | jq .
 
 ## 7. 점검 결과 템플릿
 
+### 7-1. 저장 규칙 (필수)
+
+- 결과 문서는 아래 경로에 **고정 저장**합니다.
+  - `docs/operations-checks/YYYY-MM-DD-<scenario>.md`
+  - 예: `docs/operations-checks/2026-02-24-B-queue-pressure.md`
+- `<scenario>`는 `A-engine-failure`, `B-queue-pressure`, `C-timeout`처럼 시나리오 식별이 가능한 값으로 작성합니다.
+- 점검 결과 본문에는 아래 **필수 첨부 항목**을 반드시 포함합니다.
+  1. `/readyz` raw 응답(상태 코드 + 바디 원문)
+  2. `/metrics` 스냅샷(점검 시점 원문 또는 JSON 발췌)
+  3. 대표 API 샘플 1쌍: `POST /jobs` 요청/응답 + 대응 `GET /jobs/{id}` 결과
+
+### 7-2. 작성 필드 (필수)
+
+- 아래 필드는 모든 시나리오에서 필수입니다.
+  - `즉시 조치`
+  - `롤백 여부(실시/미실시 + 근거)`
+  - `재실행 예정일`
+- 시나리오 B(부하/포화)에서는 아래 필드를 추가로 필수 기록합니다.
+  - `rejection 분포(건수): queue_full=<n>, engine_full=<n>`
+  - 필요 시 비율 병기: `queue_full=<n>(<p>%), engine_full=<n>(<p>%)`
+- 시나리오 B가 아닌 경우 해당 필드는 `N/A`로 명시합니다.
+
 ```markdown
 - 점검 일시:
 - 점검 버전(커밋):
@@ -117,5 +139,30 @@ curl -sS http://127.0.0.1:18000/metrics | jq .
 - 수집 증거(readyz/metrics/job 샘플):
 - 실패/이슈:
 - 즉시 조치:
+- 롤백 여부(실시/미실시 + 근거):
+- 재실행 예정일:
+- rejection 분포(건수): queue_full=<n>, engine_full=<n>  # 시나리오 B 필수, 그 외 N/A
 - 후속 액션(담당/기한):
+```
+
+### 7-3. 템플릿 예시 (편차 최소화용)
+
+```markdown
+# 2026-02-24-B-queue-pressure
+
+- 점검 일시: 2026-02-24 14:00~14:25 KST
+- 점검 버전(커밋): abcdef1
+- 시나리오: B
+- 관찰 요약: burst 500req 구간에서 429 발생, 부하 종료 후 3분 내 queue_depth 정상화
+- 수집 증거(readyz/metrics/job 샘플):
+  - /readyz raw: `HTTP/1.1 200 OK` / `{"status":"ready"}`
+  - /metrics 스냅샷: `rejections{engine="stt",reason="queue_full"}=37`, `rejections{engine="stt",reason="engine_full"}=12`
+  - POST /jobs 샘플: `POST /jobs?engine=stt` -> `429 {"error":"queue_full"}`
+  - GET /jobs/{id} 샘플: `GET /jobs/3f...` -> `200 {"status":"rejected"}`
+- 실패/이슈: 피크 구간에서 queue_full 비중이 예상보다 높음(37건)
+- 즉시 조치: STT 입력 burst를 20% 감쇠하도록 임시 rate limit 적용
+- 롤백 여부(실시/미실시 + 근거): 미실시(ready 유지, 큐 수렴 확인됨)
+- 재실행 예정일: 2026-02-26
+- rejection 분포(건수): queue_full=37(75.5%), engine_full=12(24.5%)
+- 후속 액션(담당/기한): 큐 용량/worker 재튜닝안 작성 (ops-team, 2026-02-27)
 ```
