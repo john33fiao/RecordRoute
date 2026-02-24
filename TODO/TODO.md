@@ -48,6 +48,11 @@
   - `docs/openapi.yaml`, `docs/swagger/openapi.yaml` 기준 엔드포인트가 `/healthz`, `/readyz`, `POST /jobs`, `GET /jobs/{job_id}`로 정렬됨을 재검증
   - 잡 상태/에러 코드(enum)가 Rust 오케스트레이터 구현 계약(`queued|running|completed|failed|timeout|canceled|rejected`, `invalid_job_id`, `queue_full|engine_full` 등)과 일치함을 확인
   - WBS `1.2 OpenAPI/API 계약 재정렬` 항목 완료 처리
+
+- 2026-02-24: WBS 1.2(OpenAPI/API 계약 재정렬) 재검토 상태로 환원
+  - 구현 라우트/파라미터와 OpenAPI 간 1:1 매핑 검증 증적이 부족해 완료 판정을 보류
+  - 재완료 조건: Rust 구현 라우트/파라미터 ↔ OpenAPI path/param의 1:1 매핑 확인 체크리스트 통과
+  - 후속 태스크: CI에 정적 계약 점검(필수 path/param 존재 검사 스크립트) 도입
 - 2026-02-22: Phase B-1 엔진별 큐 수용량/배압(429) 스켈레톤 도입
   - `POST /jobs?engine=<stt|summarize|embed>` 라우팅 추가(기본값 `stt`)
   - 엔진별 bounded capacity 기반 큐 포화 시 `429 + queue_full|engine_full` 반환
@@ -87,8 +92,11 @@
 
 - [x] 1.1 Rust 단일 진입점/엔진 경계 문서 기준 확정
   - 근거 문서: `docs/architecture.md`, `docs/rust-cpp-backend-rewrite-plan.md`
-- [x] 1.2 OpenAPI/API 계약을 Rust 목표 엔드포인트 기준으로 재정렬
-  - 근거 문서: `docs/openapi.yaml`, `docs/swagger/openapi.yaml`
+- [ ] 1.2 OpenAPI/API 계약을 Rust 목표 엔드포인트 기준으로 재정렬 (재검토)
+  - 재완료 조건:
+    - [ ] `docs/openapi.yaml`, `docs/swagger/openapi.yaml`에 Rust 목표 엔드포인트가 동일하게 반영되어 있다.
+    - [ ] 구현 라우트/파라미터와 OpenAPI path/query/path-param의 **1:1 매핑 확인** 체크를 통과했다.
+    - [ ] 계약 드리프트 점검 항목(주간 점검/CI 정적 점검)이 활성 상태다.
 
 ## 2.0 런타임 스캐폴딩
 
@@ -149,3 +157,8 @@
      - [ ] 시나리오 A/B/C 각각의 최소 수행 빈도를 충족한다.
      - [ ] 회차별 PASS/FAIL 및 근거 지표(ready 복귀 시간, 429 reason 관측)가 기록되어 있다.
      - [ ] 미해결 액션 아이템이 0건이거나, 모든 액션에 책임자/기한이 지정되어 있다.
+
+2. **WBS 1.2 재완료 게이트 — OpenAPI/API 계약 1:1 매핑 검증 자동화**
+   - [ ] 구현 라우트/파라미터와 OpenAPI path/param의 수동 대조 체크리스트 완료
+   - [ ] CI 정적 계약 점검(필수 path/param 존재 확인 스크립트) 추가
+   - [ ] 스크립트 결과를 근거로 WBS 1.2 재완료 판정
