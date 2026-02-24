@@ -132,10 +132,11 @@ curl -sS http://127.0.0.1:18000/metrics | jq .
 
 ### 7-1. 저장 규칙 (필수)
 
-- 결과 문서는 아래 경로에 **고정 저장**합니다.
-  - `docs/operations-checks/YYYY-MM-DD-<scenario>.md`
-  - 예: `docs/operations-checks/2026-02-24-B-queue-pressure.md`
-- `<scenario>`는 `A-engine-failure`, `B-queue-pressure`, `C-timeout`처럼 시나리오 식별이 가능한 값으로 작성합니다.
+- 정례 점검 결과 문서는 아래 경로에 **고정 저장**합니다.
+  - `docs/operations/weekly-drill/<YYYY-MM-DD>.md`
+  - 예: `docs/operations/weekly-drill/2026-03-02.md`
+- 정례 점검 정책(주기/역할/합격 기준)은 `docs/operations/weekly-drill/README.md`를 참조합니다.
+- 결과 템플릿은 `docs/operations/weekly-drill/_template.md`를 복사해 사용합니다.
 - 점검 결과 본문에는 아래 **필수 첨부 항목**을 반드시 포함합니다.
   1. `/readyz` raw 응답(상태 코드 + 바디 원문)
   2. `/metrics` 스냅샷(점검 시점 원문 또는 JSON 발췌)
@@ -174,12 +175,15 @@ curl -sS http://127.0.0.1:18000/metrics | jq .
 
 ### 7-3. 템플릿 예시 (편차 최소화용)
 
-```markdown
-# 2026-02-24-B-queue-pressure
+> 정례 점검 시에는 `docs/operations/weekly-drill/_template.md`를 복사해 사용하세요.
+> 아래는 단일 시나리오 기록 시 최소 필드 예시입니다.
 
-- 점검 일시: 2026-02-24 14:00~14:25 KST
+```markdown
+# 2026-03-02 주간 운영 점검 결과
+
+- 점검 일시: 2026-03-02 14:00~14:25 KST
 - 점검 버전(커밋): abcdef1
-- 시나리오: B
+- 시나리오: C
 - 관찰 요약: burst 500req 구간에서 429 발생, 부하 종료 후 3분 내 queue_depth 정상화
 - 수집 증거(readyz/metrics/job 샘플):
   - /readyz raw: `HTTP/1.1 200 OK` / `{"status":"ready"}`

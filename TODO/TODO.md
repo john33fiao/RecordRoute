@@ -5,11 +5,12 @@
 
 ## 작업 로그
 
-- 2026-02-24: WBS 7.4 운영 점검 정례화 기준선 등록
-  - 시작일: 2026-02-24 / 담당: 운영 담당(On-call) / 리뷰어: 서비스 오너
+- 2026-02-24: WBS 7.4 운영 점검 정례화 정책 수립 완료 (7.4.1~7.4.4)
+  - `docs/operations/weekly-drill/README.md`: 주기/역할/시나리오별 PASS/FAIL 기준/완료 조건 고정
+  - `docs/operations/weekly-drill/_template.md`: 주간 점검 결과 템플릿 생성
+  - `docs/operations-runbook-scenarios.md` 섹션 7-1 저장 경로를 `docs/operations/weekly-drill/`로 정렬
   - 첫 점검 예정일: 2026-03-02(주간 점검 윈도우)
-  - 산출물 위치: `docs/operations/weekly-drill/` (회차별 결과), `docs/operations-runbook-scenarios.md` (기준 절차)
-  - 완료 누적 기준: 최근 4회 결과 + 미해결 액션 0건(또는 책임자/기한 지정)
+  - 잔여: 7.4.5 완료 조건 달성은 4회 누적 실행 후 판정
 
 - 2026-02-23: Phase E-1 길이/예산 기반 job timeout 산정식 1차 반영
   - `POST /jobs?engine=stt&audio_ms=<ms>` 입력 시 `job_timeout = clamp((audio_ms * per_audio_sec_ms / 1000) + buffer_ms, min, max)` 산식으로 timeout budget 계산
@@ -123,17 +124,21 @@
 - [x] 7.3 운영 점검 시나리오(장애/복구/부하) 문서화
   - 근거 문서: `docs/operations-runbook-scenarios.md`
 - [ ] 7.4 운영 점검 정례화(주기/역할/합격 기준/누적 완료조건)
+  - [x] 7.4.1 운영 주기/역할/산출물 정책 고정 — `docs/operations/weekly-drill/README.md`
+  - [x] 7.4.2 시나리오 A(장애 주입) PASS/FAIL 기준 고정
+  - [x] 7.4.3 시나리오 B(복구 검증) PASS/FAIL 기준 고정
+  - [x] 7.4.4 시나리오 C(부하/배압) PASS/FAIL 기준 고정
+  - [ ] 7.4.5 완료 조건 달성(최근 4회 누적 + 미해결 액션 0건)
   - 최소 운영 cadence: 주 1회(기본), 릴리스 안정화 구간은 격주로 완화 가능
   - 역할: 운영 담당(시나리오 실행/증적 수집), 리뷰어(판정/액션 승인)
   - 산출물: `docs/operations/weekly-drill/<YYYY-MM-DD>.md` + 액션 트래킹 표
+  - 결과 템플릿: `docs/operations/weekly-drill/_template.md`
 
 ## 다음 우선순위 (실행 단위)
 
-1. **WBS 7.4 운영 점검 정례화 실행**
-   - 7.4.1 운영 주기/역할/산출물 고정: 운영 점검은 **주 1회 기본(안정화 시 격주 허용)** 으로 실행하고, 운영 담당과 리뷰어를 회차마다 명시하며 결과는 `docs/operations/weekly-drill/`에 남긴다.
-   - 7.4.2 시나리오 A(장애 주입) 기준: **최소 월 1회** 수행하며, PASS는 `readyz=degraded` 전이 관측 후 조치 완료 시점부터 **10분 이내 ready 복귀**가 확인될 때로 고정한다.
-   - 7.4.3 시나리오 B(복구 검증) 기준: **최소 월 1회** 수행하며, PASS는 복구 이후 `GET /jobs/{id}` 신규 요청이 정상 상태 전이(`queued→running→completed|failed`)를 재개하고 **30분 내 미처리 stuck job 0건**일 때로 고정한다.
-   - 7.4.4 시나리오 C(부하/배압) 기준: **최소 주 1회** 수행하며, PASS는 부하 구간에서 `429`가 발생할 때 **`reason=queue_full|engine_full` 라벨이 관측**되고, 부하 해제 후 **15분 이내 ready 복귀**가 확인될 때로 고정한다.
+1. **WBS 7.4.5 운영 점검 정례화 — 4회 누적 실행 후 완료 판정**
+   - 정책(7.4.1~7.4.4)은 수립 완료: `docs/operations/weekly-drill/README.md` 참조
+   - 첫 점검 예정일: 2026-03-02
    - 7.4.5 완료 조건 체크리스트:
      - [ ] 최근 4회(최소 1개월) 점검 결과가 `docs/operations/weekly-drill/`에 누적되어 있다.
      - [ ] 시나리오 A/B/C 각각의 최소 수행 빈도를 충족한다.
