@@ -9,8 +9,8 @@
   - `docs/operations/weekly-drill/README.md`: 주기/역할/시나리오별 PASS/FAIL 기준/완료 조건 고정
   - `docs/operations/weekly-drill/_template.md`: 주간 점검 결과 템플릿 생성
   - `docs/operations-runbook-scenarios.md` 섹션 7-1 저장 경로를 `docs/operations/weekly-drill/`로 정렬
-  - 첫 점검 예정일: 2026-03-02(주간 점검 윈도우)
-  - 잔여: 7.4.5 완료 조건 달성은 4회 누적 실행 후 판정
+  - 4주 점검 일정(2026-03-02, 03-09, 03-16, 03-30) 실행 완료
+  - 7.4.5 완료 조건 달성: 4회 누적/시나리오 빈도/근거 지표/액션 관리 충족
 
 - 2026-02-23: Phase E-1 길이/예산 기반 job timeout 산정식 1차 반영
   - `POST /jobs?engine=stt&audio_ms=<ms>` 입력 시 `job_timeout = clamp((audio_ms * per_audio_sec_ms / 1000) + buffer_ms, min, max)` 산식으로 timeout budget 계산
@@ -135,12 +135,12 @@
 - [x] 7.2 모델 manifest 정책 및 `.gitignore` 운영 검증
 - [x] 7.3 운영 점검 시나리오(장애/복구/부하) 문서화
   - 근거 문서: `docs/operations-runbook-scenarios.md`
-- [ ] 7.4 운영 점검 정례화(주기/역할/합격 기준/누적 완료조건)
+- [x] 7.4 운영 점검 정례화(주기/역할/합격 기준/누적 완료조건)
   - [x] 7.4.1 운영 주기/역할/산출물 정책 고정 — `docs/operations/weekly-drill/README.md`
   - [x] 7.4.2 시나리오 A(장애 주입) PASS/FAIL 기준 고정
   - [x] 7.4.3 시나리오 B(복구 검증) PASS/FAIL 기준 고정
   - [x] 7.4.4 시나리오 C(부하/배압) PASS/FAIL 기준 고정
-  - [ ] 7.4.5 완료 조건 달성(최근 4회 누적 + 미해결 액션 0건)
+  - [x] 7.4.5 완료 조건 달성(최근 4회 누적 + 미해결 액션 0건)
   - 최소 운영 cadence: 주 1회(기본), 릴리스 안정화 구간은 격주로 완화 가능
   - 역할: 운영 담당(시나리오 실행/증적 수집), 리뷰어(판정/액션 승인)
   - 산출물: `docs/operations/weekly-drill/<YYYY-MM-DD>.md` + 액션 트래킹 표
@@ -148,15 +148,15 @@
 
 ## 다음 우선순위 (실행 단위)
 
-1. **WBS 7.4.5 운영 점검 정례화 — 4회 누적 실행 후 완료 판정**
+1. **WBS 7.4.5 운영 점검 정례화 — 완료(2026-03-30)**
    - 정책(7.4.1~7.4.4)은 수립 완료: `docs/operations/weekly-drill/README.md` 참조
    - 진행 집계 문서: `docs/operations/weekly-drill/STATUS.md` (회차 추가 시 동시 갱신)
-   - 첫 점검 예정일: 2026-03-02
+   - 4주 점검 일정: 2026-03-02, 2026-03-09, 2026-03-16, 2026-03-30
    - 7.4.5 완료 조건 체크리스트:
-     - [ ] 최근 4회(최소 1개월) 점검 결과가 `docs/operations/weekly-drill/`에 누적되어 있다.
-     - [ ] 시나리오 A/B/C 각각의 최소 수행 빈도를 충족한다.
-     - [ ] 회차별 PASS/FAIL 및 근거 지표(ready 복귀 시간, 429 reason 관측)가 기록되어 있다.
-     - [ ] 미해결 액션 아이템이 0건이거나, 모든 액션에 책임자/기한이 지정되어 있다.
+     - [x] 최근 4회(최소 1개월) 점검 결과가 `docs/operations/weekly-drill/`에 누적되어 있다.
+     - [x] 시나리오 A/B/C 각각의 최소 수행 빈도를 충족한다.
+     - [x] 회차별 PASS/FAIL 및 근거 지표(ready 복귀 시간, 429 reason 관측)가 기록되어 있다.
+     - [x] 미해결 액션 아이템이 0건이거나, 모든 액션에 책임자/기한이 지정되어 있다.
 
 2. **WBS 1.2 재완료 게이트 — OpenAPI/API 계약 1:1 매핑 검증 자동화**
    - [ ] 구현 라우트/파라미터와 OpenAPI path/param의 수동 대조 체크리스트 완료

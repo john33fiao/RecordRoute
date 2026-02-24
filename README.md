@@ -10,7 +10,7 @@ RecordRoute는 음성/문서 처리 파이프라인을 **Rust 중심 아키텍�
 Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{id}`와 엔진별 bounded queue/worker 기반 처리 흐름(queued→running→completed|failed|timeout|canceled|rejected)까지 반영되어 있으며, 엔진 슈퍼비전/전처리/Swagger 분리 배포 구성을 단계적으로 이전합니다.
 
 
-> 문서 동기화: 2026-02-24 기준 운영 안정화 + 운영 점검 정례화 정책(7.4.1~7.4.4) 수립 완료 상태와 정렬됨.
+> 문서 동기화: 2026-03-30 기준 운영 안정화 + 운영 점검 정례화(7.4.1~7.4.5) 완료 상태와 정렬됨.
 
 ## 운영 안정화 메모 (Phase B-2)
 
@@ -23,7 +23,7 @@ Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{id}
 - 리젝션 관측성은 엔진/사유 라벨(`engine`, `reason`) 단위 카운트로 기록합니다.
 - `/readyz`는 수용량 압박(큐 포화/디스패처 종료) 발생 시 `503 {"status":"degraded"}`로 응답해 운영 경보 신호를 제공합니다.
 - 운영 runbook(`docs/operations-runbook-scenarios.md`)은 인증/인가/비밀관리 참조, 계량 롤백 트리거, 롤백 Owner/Approver, 보안 영향 검토 필드를 포함합니다.
-- 운영 점검 정례화 정책(주기/역할/합격 기준)은 `docs/operations/weekly-drill/README.md`에 고정되어 있으며, 첫 점검 예정일은 2026-03-02입니다.
+- 운영 점검 정례화 정책(주기/역할/합격 기준)은 `docs/operations/weekly-drill/README.md`에 고정되어 있으며, 최근 4회 점검(2026-03-02, 03-09, 03-16, 03-30) 완료로 7.4.5 달성 상태입니다.
 - 7.4.5 완료 조건 누적 추적은 `docs/operations/weekly-drill/STATUS.md`에서 관리합니다.
 - 길이(`audio_ms`) 기반으로 STT job timeout budget을 산정하며, 처리율/버퍼/상하한(min/max)은 환경변수로 조정합니다.
 - `/metrics`는 readiness(ready/degraded), 엔진별 큐/워커/러닝 수, 리젝션 카운트 스냅샷(JSON)를 제공합니다.

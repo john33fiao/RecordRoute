@@ -5,22 +5,25 @@
 
 ## 1) 누적 요약
 
-- 진행 상태: `0 / 4` 회 완료 (최소 1개월 누적 필요)
-- 첫 점검 예정일: `2026-03-02`
-- 완료 판정 목표: 최근 4회 누적 + 시나리오 빈도 충족 + 근거 지표 기록 + 액션 관리 조건 충족
+- 진행 상태: `4 / 4` 회 완료 (4주 누적 완료)
+- 첫 점검일: `2026-03-02`
+- 완료 판정: 최근 4회 누적 + 시나리오 빈도 충족 + 근거 지표 기록 + 액션 관리 조건 충족 (READY)
 
 ## 2) 회차별 결과 인덱스
 
 | 회차일 | 문서 | 시나리오 A | 시나리오 B | 시나리오 C | PASS/FAIL | ready 복귀 시간 | 429 reason 관측 | 미해결 액션 |
 |---|---|---|---|---|---|---|---|---|
-| - | - | - | - | - | - | - | - | - |
+| 2026-03-02 | `docs/operations/weekly-drill/2026-03-02.md` | PASS | - | PASS | PASS | A: 6m40s / C: 9m10s | Yes (`queue_full`,`engine_full`) | 0 |
+| 2026-03-09 | `docs/operations/weekly-drill/2026-03-09.md` | - | FAIL | PASS | FAIL | C: 8m55s | Yes (`queue_full`,`engine_full`) | 2 (담당/기한 지정) |
+| 2026-03-16 | `docs/operations/weekly-drill/2026-03-16.md` | - | PASS (재검증) | PASS | PASS | C: 7m32s | Yes (`queue_full`,`engine_full`) | 0 (전회 액션 종료) |
+| 2026-03-30 | `docs/operations/weekly-drill/2026-03-30.md` | PASS | PASS | PASS | PASS | A: 5m48s / C: 6m20s | Yes (`queue_full`,`engine_full`) | 0 |
 
 ## 3) 7.4.5 완료 조건 체크
 
-- [ ] 최근 4회(최소 1개월) 점검 결과가 `docs/operations/weekly-drill/`에 누적되어 있다.
-- [ ] 시나리오 A/B/C 각각의 최소 수행 빈도를 충족한다.
-- [ ] 회차별 PASS/FAIL 및 근거 지표(ready 복귀 시간, 429 reason 관측)가 기록되어 있다.
-- [ ] 미해결 액션 아이템이 0건이거나, 모든 액션에 책임자/기한이 지정되어 있다.
+- [x] 최근 4회(최소 1개월) 점검 결과가 `docs/operations/weekly-drill/`에 누적되어 있다.
+- [x] 시나리오 A/B/C 각각의 최소 수행 빈도를 충족한다.
+- [x] 회차별 PASS/FAIL 및 근거 지표(ready 복귀 시간, 429 reason 관측)가 기록되어 있다.
+- [x] 미해결 액션 아이템이 0건이거나, 모든 액션에 책임자/기한이 지정되어 있다.
 
 ## 4) 갱신 규칙
 
