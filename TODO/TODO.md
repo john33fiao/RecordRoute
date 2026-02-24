@@ -138,6 +138,7 @@
 
 1. **WBS 7.4.5 운영 점검 정례화 — 4회 누적 실행 후 완료 판정**
    - 정책(7.4.1~7.4.4)은 수립 완료: `docs/operations/weekly-drill/README.md` 참조
+   - 진행 집계 문서: `docs/operations/weekly-drill/STATUS.md` (회차 추가 시 동시 갱신)
    - 첫 점검 예정일: 2026-03-02
    - 7.4.5 완료 조건 체크리스트:
      - [ ] 최근 4회(최소 1개월) 점검 결과가 `docs/operations/weekly-drill/`에 누적되어 있다.

@@ -21,6 +21,7 @@ Rust 백엔드는 `/healthz`/`/readyz` + `POST /jobs`/`GET /jobs/{id}`와 엔진
 - `/readyz`는 수용량 압박(큐 포화/디스패처 종료) 발생 시 `503 {"status":"degraded"}`로 응답해 운영 경보 신호를 제공합니다.
 - 운영 runbook(`docs/operations-runbook-scenarios.md`)은 인증/인가/비밀관리 참조, 계량 롤백 트리거, 롤백 Owner/Approver, 보안 영향 검토 필드를 포함합니다.
 - 운영 점검 정례화 정책(주기/역할/합격 기준)은 `docs/operations/weekly-drill/README.md`에 고정되어 있으며, 첫 점검 예정일은 2026-03-02입니다.
+- 7.4.5 완료 조건 누적 추적은 `docs/operations/weekly-drill/STATUS.md`에서 관리합니다.
 - 길이(`audio_ms`) 기반으로 STT job timeout budget을 산정하며, 처리율/버퍼/상하한(min/max)은 환경변수로 조정합니다.
 - `/metrics`는 readiness(ready/degraded), 엔진별 큐/워커/러닝 수, 리젝션 카운트 스냅샷(JSON)를 제공합니다.
 - 엔진 HTTP 호출은 `connect_timeout` + read/write timeout을 적용해 connect 지연과 응답 지연 모두 시간 상한 내 실패합니다.
