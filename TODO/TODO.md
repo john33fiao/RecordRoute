@@ -40,6 +40,10 @@
   - 엔진/사유(`engine`, `reason`) 단위 리젝션 카운터를 오케스트레이터 메모리 지표로 추가
   - 관련 단위 테스트(사유 분기, 리젝션 카운트) 갱신 및 통과
 
+- 2026-02-24: 상태 전이/에러 코드 설명 문구를 OpenAPI enum 기준으로 고정(문서 드리프트 완화)
+  - `docs/architecture.md`, `docs/rust-cpp-backend-rewrite-plan.md`, `README.md`, `TODO/TODO.md` 상태명 표기를 `queued|running|completed|failed|timeout|canceled|rejected`로 교차 점검/정렬
+  - 상태 전이와 에러 코드 설명은 OpenAPI enum을 단일 기준 텍스트로 유지
+
 - 2026-02-23: OpenAPI/API 계약 Rust 목표 엔드포인트 정렬 상태 확인 및 WBS 반영
   - `docs/openapi.yaml`, `docs/swagger/openapi.yaml` 기준 엔드포인트가 `/healthz`, `/readyz`, `POST /jobs`, `GET /jobs/{job_id}`로 정렬됨을 재검증
   - 잡 상태/에러 코드(enum)가 Rust 오케스트레이터 구현 계약(`queued|running|completed|failed|timeout|canceled|rejected`, `invalid_job_id`, `queue_full|engine_full` 등)과 일치함을 확인
