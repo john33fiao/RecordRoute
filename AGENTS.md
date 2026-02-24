@@ -49,7 +49,7 @@
 
 정렬 상태 메모:
 - WBS `1.2 OpenAPI/API 계약 재정렬`은 구현 라우트/파라미터와 OpenAPI path/param 1:1 매핑 재검증 완료 전까지 재검토 상태로 관리합니다.
-- 운영 점검 정례화(7.4.1~7.4.4)에는 계약 드리프트 주간 점검(구현↔OpenAPI path/param 대조 + CI 정적 계약 점검 확인)을 포함합니다.
+- 운영 점검 정례화(7.4.1~7.4.4)에는 계약 드리프트 주간 점검(구현↔OpenAPI path/param 대조 + CI 정적 계약 점검 확인 + 경로 파라미터 명칭 일치 검증)을 포함합니다.
 - OpenAPI 계약(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)은 Rust 목표 엔드포인트 기준으로 유지합니다.
 - OpenAPI 잡 상태 enum은 `queued|running|completed|failed|timeout|canceled|rejected`를 단일 기준으로 유지합니다.
 1. 계약 안정성(API 응답 필드/에러 규약)
