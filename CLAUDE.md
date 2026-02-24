@@ -15,6 +15,7 @@
 6. `docs/main-rs-modularization-guide.md` (`main.rs` 분할 가이드)
 7. `TODO/TODO.md`
 8. 레거시는 별도 보관소/브랜치에서만 취급 (현 저장소 `deprecated/` 없음)
+9. 사용자 조작 매뉴얼: `docs/user-operation-manual.md`
 
 ## 현재 프로젝트 전제
 

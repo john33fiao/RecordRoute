@@ -55,12 +55,13 @@ Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{job
 
 1. 아키텍처/작업 규칙: `AGENTS.md`
 2. 사용자/운영 개요: `README.md` (이 문서)
-3. 아키텍처 기준선: `docs/architecture.md`
-4. 전환 설계: `docs/rust-cpp-backend-rewrite-plan.md`
-5. 배포/자산 정책: `docs/deployment-asset-policy.md`
-6. `main.rs` 분할 가이드: `docs/main-rs-modularization-guide.md`
-7. 전환 실행 WBS: `TODO/TODO.md`
-8. 에이전트 요약: `CLAUDE.md`, `GEMINI.md`
+3. 사용자 조작 매뉴얼: `docs/user-operation-manual.md`
+4. 아키텍처 기준선: `docs/architecture.md`
+5. 전환 설계: `docs/rust-cpp-backend-rewrite-plan.md`
+6. 배포/자산 정책: `docs/deployment-asset-policy.md`
+7. `main.rs` 분할 가이드: `docs/main-rs-modularization-guide.md`
+8. 전환 실행 WBS: `TODO/TODO.md`
+9. 에이전트 요약: `CLAUDE.md`, `GEMINI.md`
 
 ## 현재 상태 (2026-02 기준)
 
