@@ -92,6 +92,7 @@ OpenAPI/API 계약 드리프트를 조기 탐지하기 위해, 매 주간 점검
 - [ ] CI 정적 계약 점검 스크립트 산출물 링크/경로(`artifacts/contracts/<run-id>/contract-drift-report.json` 등)를 회차 문서에 명시
 
 > 운영 담당은 점검 결과 문서(`YYYY-MM-DD.md`)에 계약 드리프트 점검 결과(PASS/FAIL + 근거)를 명시합니다.
+> WBS 1.2 재완료 판정 시에는 `docs/openapi-wbs-1.2-recompletion-gate.md` 체크리스트를 동일 기준으로 적용합니다.
 
 ## 7. 진행 현황 기록 규칙
 

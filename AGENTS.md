@@ -28,6 +28,7 @@
 배포/자산 세부 운영 기준은 `docs/deployment-asset-policy.md`를 참조합니다.
 `main.rs` 분할/모듈화 실무 기준은 `docs/main-rs-modularization-guide.md`를 참조합니다.
 운영 점검 정례화 정책은 `docs/operations/weekly-drill/README.md`를 참조합니다.
+WBS 1.2 재완료 게이트(구현 라우트/파라미터 ↔ OpenAPI path/param 1:1 매핑) 기준은 `docs/openapi-wbs-1.2-recompletion-gate.md`를 단일 체크리스트로 참조합니다.
 7.4.5 완료 조건 누적 추적은 `docs/operations/weekly-drill/STATUS.md`를 기준으로 갱신합니다.
 실행 단위/의존성 추적은 `TODO/TODO.md`를 함께 참조합니다.
 
