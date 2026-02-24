@@ -23,6 +23,10 @@ WBS 추적은 `TODO/TODO.md`를 사용합니다.
 
 > 본 계획의 목적은 "목표 상태"를 유지하되, 문서/구현 간 간극을 단계별로 닫는 것입니다.
 
+- 상태 전이/에러 코드는 OpenAPI(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`) enum을 단일 기준으로 유지
+  - 상태: `queued|running|completed|failed|timeout|canceled|rejected`
+  - 에러 코드: `queue_full|engine_full|engine_dispatcher_closed|engine_dispatcher_unavailable|engine_connect_timeout|engine_request_timeout|engine_transport_error|engine_upstream_4xx|engine_upstream_5xx|engine_retry_exhausted|engine_endpoint_invalid|engine_invalid_http|engine_invalid_json|engine_not_configured|job_timeout|job_canceled|invalid_job_id|job_not_found|not_found|method_not_allowed`
+
 ### 방금 반영된 단계 (Phase B-1)
 - `POST /jobs?engine=<stt|summarize|embed>` 엔진 라우팅 스켈레톤 추가 (기본값 `stt`)
 - 엔진별 인메모리 bounded capacity 확인 후 포화 시 `429(queue_full)` 반환
@@ -59,8 +63,8 @@ WBS 추적은 `TODO/TODO.md`를 사용합니다.
 - `GET /jobs/{id}` → 상태 조회
 - `GET /healthz` / `GET /readyz`
 
-잡 상태 표준:
-- `queued | running | completed | failed | timeout | canceled`
+잡 상태 표준(OpenAPI enum 기준):
+- `queued | running | completed | failed | timeout | canceled | rejected`
 
 ### 2.2 Swagger 서버 (`:14000`, 별도 프로세스)
 - Swagger UI/문서만 담당

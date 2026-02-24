@@ -9,7 +9,7 @@
 - Rust 계층이 다음 책임을 전담한다.
   - 요청 인증/검증
   - 큐 라우팅(`stt/summarize/embed`)
-  - 작업 상태 관리(`queued|running|succeeded|failed|rejected`)
+  - 작업 상태 관리(`queued|running|completed|failed|timeout|canceled|rejected`)
   - 타임아웃/재시도/배압 정책
   - 엔진 헬스체크 및 슈퍼비전
 - Swagger UI는 `:14000`에서 별도 프로세스로 운영하며, API 가용성과 분리한다.
@@ -47,8 +47,10 @@
 
 ## 4. 잡 상태 머신
 
-- 기본 전이: `queued -> running -> succeeded|failed`
-- 예외 전이: `queued -> rejected` (`queue_full`)
+- OpenAPI 기준 상태 enum(고정): `queued|running|completed|failed|timeout|canceled|rejected`
+- 기본 전이(OpenAPI 기준): `queued -> running -> completed|failed|timeout|canceled`
+- 예외 전이(OpenAPI 기준): `queued -> rejected` (enqueue 거부 시)
+- OpenAPI 기준 에러 코드 enum(고정): `queue_full|engine_full|engine_dispatcher_closed|engine_dispatcher_unavailable|engine_connect_timeout|engine_request_timeout|engine_transport_error|engine_upstream_4xx|engine_upstream_5xx|engine_retry_exhausted|engine_endpoint_invalid|engine_invalid_http|engine_invalid_json|engine_not_configured|job_timeout|job_canceled|invalid_job_id|job_not_found|not_found|method_not_allowed`
 - 상태 메타데이터:
   - `created_at_ms`
   - `started_at_ms`
@@ -66,12 +68,15 @@
 
 ### 현재 상태
 - 저장소 루트 Rust 서버는 `/healthz`, `/readyz`, `POST /jobs`, `GET /jobs/{id}`를 제공한다.
-- 엔진별 bounded queue + worker + concurrency limit + 실패/배압 상태 전이까지 구현되어 있다.
+- 상태/오류 계약은 OpenAPI enum 기준으로 관리한다.
+  - 상태: `queued|running|completed|failed|timeout|canceled|rejected`
+  - 에러 코드: `queue_full|engine_full|engine_dispatcher_closed|engine_dispatcher_unavailable|engine_connect_timeout|engine_request_timeout|engine_transport_error|engine_upstream_4xx|engine_upstream_5xx|engine_retry_exhausted|engine_endpoint_invalid|engine_invalid_http|engine_invalid_json|engine_not_configured|job_timeout|job_canceled|invalid_job_id|job_not_found|not_found|method_not_allowed`
 
 ### 목표 상태
 - Rust API(`:18000`) + 엔진 3종(`18101~18103`) + Swagger(`:14000`) 분리 운영
 - 엔진 프로세스 슈퍼비전/헬스체크/재시작 정책 고도화
 - `symphonia` 전처리 및 `/process` 전체 워크플로우 전환
+- 상태 전이/에러 코드는 OpenAPI enum 기준(`queued|running|completed|failed|timeout|canceled|rejected` 및 ErrorCode enum)으로 문서·구현·운영 가이드를 고정 유지
 
 ## 7. 로컬 실행 및 테스트
 
@@ -88,7 +93,7 @@ cargo test
 
 - `queue_depth{engine}`: accepted enqueue 기준의 **근사값**. RAII guard Drop으로 감소 정합성 보장.
 - `in_flight{engine}`: 실제 처리 중 작업 수(최대값이 worker 수를 넘지 않아야 함).
-- `jobs_total{engine,status}`: `succeeded|failed|rejected` 누적 카운트.
+- `jobs_total{engine,status}`: `completed|failed|timeout|canceled|rejected` 누적 카운트.
 - `engine_timeout_total{engine}`: connect/read/write timeout 누적 카운트.
 - `engine_latency_ms{engine}`: 가능하면 p50/p95/p99 추적.
 
