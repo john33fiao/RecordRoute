@@ -11,7 +11,18 @@
 - 상태 전이: `queued|running|completed|failed|timeout|canceled|rejected`
 - 리젝션 규약: `429(queue_full|engine_full)` + 리젝션 메트릭(`engine`, `reason`)
 
-> 주의: 이 문서는 운영 절차 가이드입니다. 인증/인가 정책, 비밀 관리 정책은 별도 보안 문서를 우선합니다.
+### 0-1. 인증/인가/비밀관리 참조
+
+- 저장소 내부 참조(현재 확인 가능 문서)
+  - 인증/검증 책임 경계: `docs/architecture.md` (Rust 오케스트레이터의 요청 인증/검증 책임)
+  - 배포/운영 분리 원칙: `docs/deployment-asset-policy.md`
+- 저장소에는 인증/인가/비밀관리 전용 정책 문서가 분리되어 있지 않습니다.
+- 운영 환경 기준 문서 위치(시스템/경로)
+  - 시스템명: **Kubernetes (cluster runtime)**
+  - 비밀값 원천 경로: `k8s namespace(recordroute)/Secret/*` (환경별 Secret 리소스)
+  - 주입 지점 경로: `Deployment.spec.template.spec.containers[].env[].valueFrom.secretKeyRef`
+
+> 주의: 본 문서는 운영 절차(runbook) 가이드입니다. 인증/인가/비밀관리의 최종 판정은 위 보안 기준(저장소 참조 + 운영 환경 시스템 경로)을 우선합니다.
 
 ## 1. 공통 사전 점검
 
@@ -99,13 +110,23 @@ curl -sS http://127.0.0.1:18000/metrics | jq .
 
 ## 6. 롤백/완화 기준
 
+> RTD 주석: 이 섹션의 체크 항목은 **RTD Step 7(보안/크리티컬 이슈)** 및 **RTD Step 17(배포 준비도 판정)** 에 직접 사용됩니다.
+
 - 즉시 롤백 조건
-  - 다중 엔진 동시 장애로 `/readyz` 장시간 `degraded` 지속
-  - 리젝션 급증 + 큐 수렴 실패가 임계 시간 초과
+  - `/readyz`가 `503 degraded` 상태로 **연속 10분 초과** 지속
+  - `rejections_total(engine, reason)` 5분 합계가 최근 1시간 중앙값 대비 **3배 이상**으로 **2개 연속 구간** 급증
+  - 부하 중단 후에도 `queue_depth`가 엔진별 최대 큐 깊이의 **30% 이상으로 10분 내 미수렴**
+  - 인증/인가/비밀관리 이상(권한 오판정, 비밀 노출 의심) 1건 이상 확인 시 즉시 롤백 또는 서비스 격리
 - 완화 우선순위
   1. 트래픽 셰이핑/임시 rate limit
   2. 문제 엔진만 격리(타 엔진 서비스 유지)
   3. 직전 안정 버전으로 롤백
+
+### 6-1. 롤백 실행 책임 체계 (필수 필드)
+
+- 롤백 실행 책임자(Owner): `<이름/팀>`
+- 롤백 승인자(Approver): `<이름/직책>`
+- 실행/승인 시각: `<YYYY-MM-DD HH:MM TZ>`
 
 ## 7. 점검 결과 템플릿
 
@@ -125,6 +146,9 @@ curl -sS http://127.0.0.1:18000/metrics | jq .
 - 아래 필드는 모든 시나리오에서 필수입니다.
   - `즉시 조치`
   - `롤백 여부(실시/미실시 + 근거)`
+  - `롤백 실행 책임자(Owner)`
+  - `롤백 승인자(Approver)`
+  - `보안 영향 검토(있음/없음 + 근거)`
   - `재실행 예정일`
 - 시나리오 B(부하/포화)에서는 아래 필드를 추가로 필수 기록합니다.
   - `rejection 분포(건수): queue_full=<n>, engine_full=<n>`
@@ -140,6 +164,9 @@ curl -sS http://127.0.0.1:18000/metrics | jq .
 - 실패/이슈:
 - 즉시 조치:
 - 롤백 여부(실시/미실시 + 근거):
+- 롤백 실행 책임자(Owner):
+- 롤백 승인자(Approver):
+- 보안 영향 검토(있음/없음 + 근거):
 - 재실행 예정일:
 - rejection 분포(건수): queue_full=<n>, engine_full=<n>  # 시나리오 B 필수, 그 외 N/A
 - 후속 액션(담당/기한):
@@ -162,6 +189,9 @@ curl -sS http://127.0.0.1:18000/metrics | jq .
 - 실패/이슈: 피크 구간에서 queue_full 비중이 예상보다 높음(37건)
 - 즉시 조치: STT 입력 burst를 20% 감쇠하도록 임시 rate limit 적용
 - 롤백 여부(실시/미실시 + 근거): 미실시(ready 유지, 큐 수렴 확인됨)
+- 롤백 실행 책임자(Owner): oncall-ops-1
+- 롤백 승인자(Approver): sre-lead
+- 보안 영향 검토(있음/없음 + 근거): 없음(인증/인가/비밀값 경로 변경 없음, 오류는 부하 제어 범주)
 - 재실행 예정일: 2026-02-26
 - rejection 분포(건수): queue_full=37(75.5%), engine_full=12(24.5%)
 - 후속 액션(담당/기한): 큐 용량/worker 재튜닝안 작성 (ops-team, 2026-02-27)
