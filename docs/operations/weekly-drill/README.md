@@ -83,11 +83,13 @@ WBS 7.4를 완료로 판정하려면 아래 **모든 조건**을 충족해야 �
 
 OpenAPI/API 계약 드리프트를 조기 탐지하기 위해, 매 주간 점검 회차에서 아래 항목을 **필수 확인**합니다.
 
+- [ ] 계약 드리프트 기준 엔드포인트 세트를 `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`로 고정하고 구현/OpenAPI에 동일 적용되는지 확인
 - [ ] 구현 라우트 집합과 OpenAPI path 집합의 차이가 없는지 확인
 - [ ] 구현 파라미터(path/query)와 OpenAPI 파라미터 정의가 1:1 매핑되는지 확인
 - [ ] 상태 enum 7종(`queued|running|completed|failed|timeout|canceled|rejected`)이 구현/문서/OpenAPI 간 완전 일치하는지 확인
 - [ ] 불일치가 발생하면 회차 결과를 FAIL로 판정하고 액션 아이템(책임자/기한) 등록
 - [ ] CI 정적 계약 점검 결과(필수 path/param 존재 체크) 링크 또는 로그 요약 첨부
+- [ ] CI 정적 계약 점검 스크립트 산출물 링크/경로(`artifacts/contracts/<run-id>/contract-drift-report.json` 등)를 회차 문서에 명시
 
 > 운영 담당은 점검 결과 문서(`YYYY-MM-DD.md`)에 계약 드리프트 점검 결과(PASS/FAIL + 근거)를 명시합니다.
 

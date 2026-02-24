@@ -16,7 +16,7 @@ Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{job
 
 - WBS `1.2 OpenAPI/API 계약 재정렬`은 구현 라우트/파라미터와 OpenAPI path/param 1:1 매핑 재검증을 위해 **재검토 상태**로 환원되었습니다.
 - 주간 운영 점검(`docs/operations/weekly-drill/README.md`)에 계약 드리프트 점검(구현↔OpenAPI path/param 대조 + CI 정적 점검 결과 첨부) 항목이 추가되었습니다.
-- CI 정적 계약 점검은 필수 path/param 존재 여부뿐 아니라 경로 파라미터 명칭(`job_id`) 일치 여부까지 검증해야 합니다.
+- CI 정적 계약 점검은 필수 path/param 존재 여부뿐 아니라 경로 파라미터 명칭(`job_id`) 일치 여부까지 검증해야 하며, 점검 로그에는 스크립트 산출물 링크/경로를 첨부해야 합니다.
 
 - OpenAPI 계약은 Rust 목표 엔드포인트(`/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`) 기준으로 정렬되어 있습니다.
 - 동시성 상한은 semaphore 대기 태스크 누적 대신 **고정 worker 개수**로 강제합니다.

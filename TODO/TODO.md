@@ -45,14 +45,17 @@
   - 상태 전이와 에러 코드 설명은 OpenAPI enum을 단일 기준 텍스트로 유지
 
 - 2026-02-23: OpenAPI/API 계약 Rust 목표 엔드포인트 정렬 상태 확인 및 WBS 반영
-  - `docs/openapi.yaml`, `docs/swagger/openapi.yaml` 기준 엔드포인트가 `/healthz`, `/readyz`, `POST /jobs`, `GET /jobs/{job_id}`로 정렬됨을 재검증
+  - 당시 판정 기준 OpenAPI 버전(커밋): `225c316`
+  - `docs/openapi.yaml`, `docs/swagger/openapi.yaml` 기준 엔드포인트가 `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`로 정렬됨을 재검증
   - 잡 상태/에러 코드(enum)가 Rust 오케스트레이터 구현 계약(`queued|running|completed|failed|timeout|canceled|rejected`, `invalid_job_id`, `queue_full|engine_full` 등)과 일치함을 확인
   - WBS `1.2 OpenAPI/API 계약 재정렬` 항목 완료 처리
 
 - 2026-02-24: WBS 1.2(OpenAPI/API 계약 재정렬) 재검토 상태로 환원
-  - 구현 라우트/파라미터와 OpenAPI 간 1:1 매핑 검증 증적이 부족해 완료 판정을 보류
+  - 당시 판정 기준 OpenAPI 버전(커밋): `78020f1`
+  - 구현 라우트/파라미터와 OpenAPI 간 1:1 매핑 검증 대상 엔드포인트 세트를 `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`로 고정하고 증적 부족으로 완료 판정을 보류
   - 재완료 조건: Rust 구현 라우트/파라미터 ↔ OpenAPI path/param의 1:1 매핑 확인 체크리스트 통과
   - 후속 태스크: CI에 정적 계약 점검(필수 path/param 존재 + path-param 명칭 일치 검사 스크립트) 도입
+  - 증적 규칙: 회차 로그에 CI 정적 계약 점검 스크립트 산출물 링크/경로(`artifacts/contracts/<run-id>/contract-drift-report.json` 등)를 첨부
 - 2026-02-22: Phase B-1 엔진별 큐 수용량/배압(429) 스켈레톤 도입
   - `POST /jobs?engine=<stt|summarize|embed>` 라우팅 추가(기본값 `stt`)
   - 엔진별 bounded capacity 기반 큐 포화 시 `429 + queue_full|engine_full` 반환
@@ -162,4 +165,4 @@
 2. **WBS 1.2 재완료 게이트 — OpenAPI/API 계약 1:1 매핑 검증 자동화**
    - [ ] 구현 라우트/파라미터와 OpenAPI path/param의 수동 대조 체크리스트 완료
    - [ ] CI 정적 계약 점검(필수 path/param 존재 + path-param 명칭 일치 확인 스크립트) 추가
-   - [ ] 스크립트 결과를 근거로 WBS 1.2 재완료 판정
+   - [ ] 스크립트 결과와 산출물 링크/경로를 근거로 WBS 1.2 재완료 판정
