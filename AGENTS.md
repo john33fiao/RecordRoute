@@ -2,8 +2,8 @@
 
 이 문서는 저장소 루트(`./`) 기준 에이전트 작업 표준입니다.
 
-> 문서 동기화 메모: 2026-02-24 기준 운영 안정화 + STT `audio_contract`(conversion_required=false) + 운영 점검 시나리오 runbook(`docs/operations-runbook-scenarios.md`) 상태를 README/CLAUDE/GEMINI/TODO와 정렬.
-> 동기화 포인트: runbook 0장/6장 보강(보안 참조, 계량 롤백 트리거, Owner/Approver, 보안 영향 검토, RTD Step 7/17 주석) 반영 상태를 유지합니다.
+> 문서 동기화 메모: 2026-02-24 기준 운영 안정화 + 운영 점검 정례화 정책(7.4.1~7.4.4) 수립 완료 상태를 README/CLAUDE/GEMINI/TODO와 정렬.
+> 동기화 포인트: runbook 저장 경로를 `docs/operations/weekly-drill/`로 통일, 정례화 정책/템플릿 신규 문서 반영.
 
 ## 1) 프로젝트 구조 인식
 
@@ -27,6 +27,7 @@
 세부 정책은 `docs/rust-cpp-backend-rewrite-plan.md`를 단일 기준으로 따르며, 아키텍처 기준선은 `docs/architecture.md`를 참조합니다.
 배포/자산 세부 운영 기준은 `docs/deployment-asset-policy.md`를 참조합니다.
 `main.rs` 분할/모듈화 실무 기준은 `docs/main-rs-modularization-guide.md`를 참조합니다.
+운영 점검 정례화 정책은 `docs/operations/weekly-drill/README.md`를 참조합니다.
 실행 단위/의존성 추적은 `TODO/TODO.md`를 함께 참조합니다.
 
 ## 3) 문서 동기화 규칙
