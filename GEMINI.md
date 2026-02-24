@@ -31,6 +31,7 @@
 
 - 기준 규칙: `AGENTS.md`
 - 사용자 개요: `README.md`
+- 사용자 조작 매뉴얼: `docs/user-operation-manual.md`
 - 아키텍처 기준선: `docs/architecture.md`
 - 전환 설계: `docs/rust-cpp-backend-rewrite-plan.md`
 - 배포/자산 정책: `docs/deployment-asset-policy.md`
