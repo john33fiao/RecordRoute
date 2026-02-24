@@ -1,0 +1,17 @@
+name: contract-drift-check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  openapi-contract-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Check required endpoints and path params
+        run: cargo run --quiet --bin check_contract_drift
