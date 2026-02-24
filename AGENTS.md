@@ -3,6 +3,7 @@
 이 문서는 저장소 루트(`./`) 기준 에이전트 작업 표준입니다.
 
 > 문서 동기화 메모: 2026-02-24 기준 운영 안정화 + STT `audio_contract`(conversion_required=false) + 운영 점검 시나리오 runbook(`docs/operations-runbook-scenarios.md`) 상태를 README/CLAUDE/GEMINI/TODO와 정렬.
+> 동기화 포인트: runbook 0장/6장 보강(보안 참조, 계량 롤백 트리거, Owner/Approver, 보안 영향 검토, RTD Step 7/17 주석) 반영 상태를 유지합니다.
 
 ## 1) 프로젝트 구조 인식
 

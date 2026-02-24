@@ -28,6 +28,7 @@
 - STT는 `audio_ms` 길이 입력이 있을 때 처리율/버퍼/상하한 기반 timeout budget 산정식을 적용합니다.
 - STT payload는 `audio_contract`를 통해 Rust(`recordroute_symphonia`) 전처리 완료/변환 불필요(`conversion_required=false`) 계약을 명시합니다.
 - 운영 점검 시나리오(장애/복구/부하) runbook은 `docs/operations-runbook-scenarios.md`를 기준으로 사용합니다.
+- 운영 runbook은 인증/인가/비밀관리 참조와 계량 롤백 기준, Owner/Approver, 보안 영향 검토 필드를 포함한 버전을 기준으로 사용합니다.
 - 모델 자산은 raw 데이터 미추적, `models/**/manifest.yml|yaml|json` 메타데이터만 추적합니다.
 - `vendor/`는 소스 추적을 유지하고 빌드 산출물만 ignore 합니다.
 
