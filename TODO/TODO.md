@@ -52,14 +52,14 @@
 - 2026-02-24: WBS 1.2(OpenAPI/API 계약 재정렬) 재검토 상태로 환원
   - 구현 라우트/파라미터와 OpenAPI 간 1:1 매핑 검증 증적이 부족해 완료 판정을 보류
   - 재완료 조건: Rust 구현 라우트/파라미터 ↔ OpenAPI path/param의 1:1 매핑 확인 체크리스트 통과
-  - 후속 태스크: CI에 정적 계약 점검(필수 path/param 존재 검사 스크립트) 도입
+  - 후속 태스크: CI에 정적 계약 점검(필수 path/param 존재 + path-param 명칭 일치 검사 스크립트) 도입
 - 2026-02-22: Phase B-1 엔진별 큐 수용량/배압(429) 스켈레톤 도입
   - `POST /jobs?engine=<stt|summarize|embed>` 라우팅 추가(기본값 `stt`)
   - 엔진별 bounded capacity 기반 큐 포화 시 `429 + queue_full|engine_full` 반환
   - 엔진별 큐 포화가 다른 큐 접수에는 영향을 주지 않는 단위 테스트 추가
 - 2026-02-22: Phase A+ 잡 API 스켈레톤 도입
   - `POST /jobs`에서 `202 + job_id` 반환 구현
-  - `GET /jobs/{id}` 인메모리 조회(초기 상태 `queued`) 구현
+  - `GET /jobs/{job_id}` 인메모리 조회(초기 상태 `queued`) 구현
   - 향후 엔진별 큐/실행기 연동 전까지 오케스트레이터 스켈레톤 상태 유지
 - 2026-02-22: Phase A 최소 HTTP 서버 도입
   - `tokio::net::TcpListener` 기반 API 서버 바인딩(`:18000` 기본값) 구현
@@ -79,7 +79,7 @@
 - [x] 비동기 런타임 초기화 (`tokio`)
 - [x] 기본 로깅/필터 초기화 (`tracing`, `tracing-subscriber`)
 - [x] API 서버 바인딩 (`:18000`)
-- [x] 작업 API (`POST /jobs`, `GET /jobs/{id}`)
+- [x] 작업 API (`POST /jobs`, `GET /jobs/{job_id}`)
 - [x] 헬스 엔드포인트 (`/healthz`, `/readyz`)
 - [x] 엔진별 큐 (`stt/summarize/embed`) 수용량/배압 스켈레톤
 - [x] 엔진 프로세스 슈퍼비전 (spawn/health/restart/shutdown)
@@ -97,6 +97,7 @@
     - [ ] `docs/openapi.yaml`, `docs/swagger/openapi.yaml`에 Rust 목표 엔드포인트가 동일하게 반영되어 있다.
     - [ ] 구현 라우트/파라미터와 OpenAPI path/query/path-param의 **1:1 매핑 확인** 체크를 통과했다.
     - [ ] 계약 드리프트 점검 항목(주간 점검/CI 정적 점검)이 활성 상태다.
+    - [ ] 문서 경로 파라미터 명칭 통일(`GET /jobs/{job_id}`) 체크포인트를 통과했다.
 
 ## 2.0 런타임 스캐폴딩
 
@@ -160,5 +161,5 @@
 
 2. **WBS 1.2 재완료 게이트 — OpenAPI/API 계약 1:1 매핑 검증 자동화**
    - [ ] 구현 라우트/파라미터와 OpenAPI path/param의 수동 대조 체크리스트 완료
-   - [ ] CI 정적 계약 점검(필수 path/param 존재 확인 스크립트) 추가
+   - [ ] CI 정적 계약 점검(필수 path/param 존재 + path-param 명칭 일치 확인 스크립트) 추가
    - [ ] 스크립트 결과를 근거로 WBS 1.2 재완료 판정
