@@ -54,6 +54,7 @@
   - 당시 판정 기준 OpenAPI 버전(커밋): `78020f1`
   - 구현 라우트/파라미터와 OpenAPI 간 1:1 매핑 검증 대상 엔드포인트 세트를 `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`로 고정하고 증적 부족으로 완료 판정을 보류
   - 재완료 조건: Rust 구현 라우트/파라미터 ↔ OpenAPI path/param의 1:1 매핑 확인 체크리스트 통과
+  - 판정 체크리스트 기준 문서: `docs/openapi-wbs-1.2-recompletion-gate.md`
   - 후속 태스크: CI에 정적 계약 점검(필수 path/param 존재 + path-param 명칭 일치 검사 스크립트) 도입
   - 증적 규칙: 회차 로그에 CI 정적 계약 점검 스크립트 산출물 링크/경로(`artifacts/contracts/<run-id>/contract-drift-report.json` 등)를 첨부
 - 2026-02-22: Phase B-1 엔진별 큐 수용량/배압(429) 스켈레톤 도입
@@ -163,6 +164,7 @@
      - [x] 미해결 액션 아이템이 0건이거나, 모든 액션에 책임자/기한이 지정되어 있다.
 
 2. **WBS 1.2 재완료 게이트 — OpenAPI/API 계약 1:1 매핑 검증 자동화**
+   - [x] 재완료 판정 체크리스트 문서 고정 (`docs/openapi-wbs-1.2-recompletion-gate.md`)
    - [ ] 구현 라우트/파라미터와 OpenAPI path/param의 수동 대조 체크리스트 완료
    - [ ] CI 정적 계약 점검(필수 path/param 존재 + path-param 명칭 일치 확인 스크립트) 추가
    - [ ] 스크립트 결과와 산출물 링크/경로를 근거로 WBS 1.2 재완료 판정
