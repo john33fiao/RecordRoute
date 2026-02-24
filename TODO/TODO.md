@@ -10,6 +10,10 @@
   - timeout 파라미터는 환경변수(`RECORDROUTE_JOB_TIMEOUT_MIN_SECS`, `RECORDROUTE_JOB_TIMEOUT_MAX_SECS`, `RECORDROUTE_STT_TIMEOUT_PER_AUDIO_SEC_MS`, `RECORDROUTE_STT_TIMEOUT_BUFFER_MS`)로 제어
   - 워커가 요청별 timeout budget을 사용하도록 조정하고 기존 timeout 회귀 테스트 통과 확인
 
+- 2026-02-24: 운영 점검 시나리오(장애/복구/부하) runbook 문서화
+  - `docs/operations-runbook-scenarios.md`에 장애 주입/복구 판정/부하(429 reason) 점검 절차 및 롤백 기준 추가
+  - WBS 7.3 항목 완료 처리
+
 - 2026-02-23: Phase E-1 whisper-server 추론 책임 한정(변환 책임 제거) 반영
   - STT 엔진 payload에 `audio_contract`(normalized_by/format/conversion_required=false)를 명시해 변환 책임이 Rust에 있음을 고정
   - whisper-server는 변환 없이 추론 전용 경로를 사용한다는 계약을 테스트로 검증
@@ -105,9 +109,10 @@
 
 - [x] 7.1 API(18000) / Swagger(14000) 분리 배포 구성
 - [ ] 7.2 모델 manifest 정책 및 `.gitignore` 운영 검증
-- [ ] 7.3 운영 점검 시나리오(장애/복구/부하) 문서화
+- [x] 7.3 운영 점검 시나리오(장애/복구/부하) 문서화
+  - 근거 문서: `docs/operations-runbook-scenarios.md`
 
 ## 다음 우선순위 (실행 단위)
 
-1. 엔진별 클라이언트/포트 설정(`18101`, `18102`, `18103`) + readiness 연동
-2. 운영 점검 시나리오(장애/복구/부하) 문서화
+1. 모델 manifest 정책 및 `.gitignore` 운영 검증
+2. 운영 점검 시나리오 기반 장애훈련(정기) 및 결과 누적

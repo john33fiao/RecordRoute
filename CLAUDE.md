@@ -3,7 +3,7 @@
 이 문서는 요약본이며, 상세 기준은 `AGENTS.md`를 따릅니다.
 
 
-> 문서 동기화: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, 길이/예산 기반 job timeout 산정식, job_id 검증/로그 위생, queue depth guard, 429 reason/리젝션 메트릭 분리, readyz degraded + /metrics 노출) 반영 상태와 정렬됨.
+> 문서 동기화: 2026-02-24 기준 운영 안정화 + 운영 점검 시나리오 runbook 반영 상태와 정렬됨.
 
 ## 우선 확인 순서
 
@@ -27,6 +27,7 @@
 - `/readyz`는 수용량 압박 시 `503 degraded`로 응답하며, `/metrics`에서 readiness/queue/rejection 스냅샷(JSON)을 노출합니다.
 - STT는 `audio_ms` 길이 입력이 있을 때 처리율/버퍼/상하한 기반 timeout budget 산정식을 적용합니다.
 - STT payload는 `audio_contract`를 통해 Rust(`recordroute_symphonia`) 전처리 완료/변환 불필요(`conversion_required=false`) 계약을 명시합니다.
+- 운영 점검 시나리오(장애/복구/부하) runbook은 `docs/operations-runbook-scenarios.md`를 기준으로 사용합니다.
 
 ## 작업 체크리스트
 

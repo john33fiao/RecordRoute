@@ -3,7 +3,7 @@
 최신 원본 기준은 `AGENTS.md`입니다. 이 문서는 실행 요약만 제공합니다.
 
 
-> 문서 동기화: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, 길이/예산 기반 job timeout 산정식, job_id 검증/로그 위생, queue depth guard, 429 reason/리젝션 메트릭 분리, readyz degraded + /metrics 노출) 반영 상태와 정렬됨.
+> 문서 동기화: 2026-02-24 기준 운영 안정화 + 운영 점검 시나리오 runbook 반영 상태와 정렬됨.
 
 ## 핵심 컨텍스트
 
@@ -15,6 +15,7 @@
 - STT는 `audio_ms` 길이 입력이 있을 때 처리율/버퍼/상하한 기반 timeout budget 산정식을 적용합니다.
 - 오디오 전처리/변환 기본안은 Rust `symphonia` 크레이트 기반입니다.
 - STT payload는 `audio_contract`를 포함하며 whisper-server는 변환 없이 추론만 수행한다는 계약(`conversion_required=false`)을 사용합니다.
+- 운영 점검 시나리오(장애/복구/부하) runbook은 `docs/operations-runbook-scenarios.md`를 기준으로 사용합니다.
 
 ## 우선 참조
 
