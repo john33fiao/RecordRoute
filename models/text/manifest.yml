@@ -1,0 +1,6 @@
+model_id: llama-text-default
+engine: llama-text
+version: "v1"
+source: internal-artifact-registry
+checksum_sha256: "REPLACE_WITH_REAL_SHA256"
+updated_at: "2026-02-24T00:00:00Z"

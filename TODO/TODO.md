@@ -10,6 +10,11 @@
   - timeout 파라미터는 환경변수(`RECORDROUTE_JOB_TIMEOUT_MIN_SECS`, `RECORDROUTE_JOB_TIMEOUT_MAX_SECS`, `RECORDROUTE_STT_TIMEOUT_PER_AUDIO_SEC_MS`, `RECORDROUTE_STT_TIMEOUT_BUFFER_MS`)로 제어
   - 워커가 요청별 timeout budget을 사용하도록 조정하고 기존 timeout 회귀 테스트 통과 확인
 
+- 2026-02-24: WBS 7.2 모델 manifest 정책 및 `.gitignore` 운영 검증 반영
+  - `.gitignore`를 `vendor` 소스 추적 + 빌드 산출물 제외 정책으로 정렬
+  - `models/**` raw 데이터 제외 + `manifest.yml|yaml|json` 메타데이터 추적 예외 규칙 반영
+  - `docs/deployment-asset-policy.md` 체크포인트(정책 반영/manifest 추적) 완료 처리
+
 - 2026-02-24: 운영 점검 시나리오(장애/복구/부하) runbook 문서화
   - `docs/operations-runbook-scenarios.md`에 장애 주입/복구 판정/부하(429 reason) 점검 절차 및 롤백 기준 추가
   - WBS 7.3 항목 완료 처리
@@ -108,11 +113,10 @@
 ## 7.0 배포/문서 분리
 
 - [x] 7.1 API(18000) / Swagger(14000) 분리 배포 구성
-- [ ] 7.2 모델 manifest 정책 및 `.gitignore` 운영 검증
+- [x] 7.2 모델 manifest 정책 및 `.gitignore` 운영 검증
 - [x] 7.3 운영 점검 시나리오(장애/복구/부하) 문서화
   - 근거 문서: `docs/operations-runbook-scenarios.md`
 
 ## 다음 우선순위 (실행 단위)
 
-1. 모델 manifest 정책 및 `.gitignore` 운영 검증
-2. 운영 점검 시나리오 기반 장애훈련(정기) 및 결과 누적
+1. 운영 점검 시나리오 기반 장애훈련(정기) 및 결과 누적

@@ -21,6 +21,7 @@
 - 큐: 단일 큐 금지, 엔진별 큐/동시성 분리
 - 운영: 헬스체크/재시작/타임아웃/배압을 Rust 계층에서 명시적으로 관리
 - 오디오 전처리: `ffmpeg` 외부 프로세스 대신 Rust `symphonia` 크레이트 기반 변환을 기본값으로 사용
+- 자산 추적: `vendor/` 소스는 버전관리, `models/`는 raw 데이터 제외 후 manifest(`manifest.yml|yaml|json`)만 추적
 
 세부 정책은 `docs/rust-cpp-backend-rewrite-plan.md`를 단일 기준으로 따르며, 아키텍처 기준선은 `docs/architecture.md`를 참조합니다.
 배포/자산 세부 운영 기준은 `docs/deployment-asset-policy.md`를 참조합니다.

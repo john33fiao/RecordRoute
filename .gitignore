@@ -20,11 +20,25 @@ DB
 frontend/node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
-# Local llama.cpp model assets
-models/
+# Model assets policy: raw model binaries are excluded, metadata manifests are tracked
+models/**
+!models/**/
+!models/**/manifest.yml
+!models/**/manifest.yaml
+!models/**/manifest.json
 
 # Rust build artifacts
 target/
+build/
 
-# Runtime/vendor working dirs (binary artifacts excluded)
-vendor/
+# Vendor source is tracked; ignore vendor build/runtime artifacts only
+vendor/**/build/
+vendor/**/bin/
+vendor/**/obj/
+vendor/**/out/
+vendor/**/*.o
+vendor/**/*.so
+vendor/**/*.a
+vendor/**/*.dylib
+vendor/**/*.dll
+vendor/**/*.exe
