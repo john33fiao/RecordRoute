@@ -10,7 +10,7 @@ RecordRoute는 음성/문서 처리 파이프라인을 **Rust 중심 아키텍�
 Rust 백엔드는 `/healthz`/`/readyz` + `POST /jobs`/`GET /jobs/{id}`와 엔진별 bounded queue/worker 기반 처리 흐름(queued→running→completed|failed|timeout|canceled|rejected)까지 반영되어 있으며, 엔진 슈퍼비전/전처리/Swagger 분리 배포 구성을 단계적으로 이전합니다.
 
 
-> 문서 동기화: 2026-02-23 기준 운영 안정화(고정 worker 동시성 상한, connect+request timeout 관철, 길이/예산 기반 job timeout 산정식, job_id 검증/로그 위생, queue depth guard, 429 reason/리젝션 메트릭 분리, readyz degraded + /metrics 노출) 반영 상태와 정렬됨.
+> 문서 동기화: 2026-02-24 기준 운영 안정화 + 운영 점검 시나리오(장애/복구/부하) runbook 반영 상태와 정렬됨.
 
 ## 운영 안정화 메모 (Phase B-2)
 
