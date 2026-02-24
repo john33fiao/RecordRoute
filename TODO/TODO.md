@@ -114,7 +114,7 @@
 ## 4.0 잡 모델/오류 계약
 
 - [x] 4.1 잡 상태 전이 모델 (`queued` 초기 상태 + 조회 스켈레톤)
-- [x] 4.1-확장 잡 상태 전이 전체 모델 (`running|completed|failed|timeout|canceled`)
+- [x] 4.1-확장 잡 상태 전이 전체 모델 (`running|completed|failed|timeout|canceled|rejected`)
 - [x] 4.2 타임아웃 계층 분리 (HTTP vs Job)
 - [x] 4.3 에러 코드/응답 필드 계약 고정
 

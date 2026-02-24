@@ -66,7 +66,7 @@ Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{job
 - Python 기반 구 구현은 현재 저장소에 포함되어 있지 않으며, 필요 시 별도 레거시 보관소를 참조합니다.
 - Rust 오케스트레이터 + C++(llama.cpp/whisper.cpp) 엔진 분리 아키텍처를 목표로 합니다.
 - 프론트엔드는 유지하되, 향후 Rust API 계약에 맞춰 점진적으로 연결합니다.
-- 현재 상태/목표 상태의 API 상태 enum 기준은 `queued|running|completed|failed|timeout|canceled|rejected`입니다(OpenAPI 기준).
+- 상태 전이/에러 코드 설명은 OpenAPI enum을 단일 기준으로 유지합니다(상태: `queued|running|completed|failed|timeout|canceled|rejected`).
 
 ## 목표 상태 (문서/구현 고정 기준)
 
