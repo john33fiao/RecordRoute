@@ -5,6 +5,11 @@
 
 ## 작업 로그
 
+- 2026-02-25: WBS 9.0 Tauri 전환 선행 작업(프론트 런타임 엔드포인트 정책) 착수
+  - `frontend/src/runtime/endpoints.ts` 추가: 웹/데스크톱 런타임을 구분해 API base/WS URL 결정 로직을 단일화
+  - `VITE_API_BASE_URL`, `VITE_WS_URL` 우선 정책 유지 + `VITE_TAURI_BACKEND_URL` 단일 오버라이드 경로 추가
+  - Tauri 프로토콜(`tauri:`, `asset:`)에서는 기본 `127.0.0.1:8080` fallback을 사용해 PoC 단계의 연결 불확실성을 축소
+
 - 2026-02-24: WBS 7.4 운영 점검 정례화 정책 수립 완료 (7.4.1~7.4.4)
   - `docs/operations/weekly-drill/README.md`: 주기/역할/시나리오별 PASS/FAIL 기준/완료 조건 고정
   - `docs/operations/weekly-drill/_template.md`: 주간 점검 결과 템플릿 생성
@@ -185,6 +190,7 @@
 ## 9.0 Tauri 데스크톱 앱 전환
 
 - [ ] 9.1 Tauri 런처/런타임 PoC
+  - [x] 프론트 런타임 엔드포인트 해석 로직 단일화(`resolveApiBaseUrl`, `resolveWebSocketUrl`) 및 Tauri fallback 추가
   - [ ] Rust 오케스트레이터(`recordroute-orchestrator`)와 Swagger(`swagger_server`)를 Tauri lifecycle에서 기동/종료할 수 있는지 검증
   - [ ] Windows/Linux/macOS에서 기본 포트 충돌 없이 동시 기동되는지 검증
   - [ ] 앱 로그 수집/표시/회수 경로를 기존 run 스크립트(`scripts/run_*`)와 정렬
@@ -234,4 +240,3 @@
    - [ ] 설치 단계 빌드 반영: 프론트 설치/빌드 + Rust 빌드
    - [ ] 실행 스크립트 2종 작성: Windows `.bat`, macOS/Linux `.sh`
    - [ ] 실행 단계 반영: Rust 서버 + 프론트 서버 실행
-
