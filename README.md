@@ -1,4 +1,4 @@
-# RecordRoute
+﻿# RecordRoute
 
 RecordRoute는 음성/문서 처리 파이프라인을 **Rust 중심 아키텍처**로 전환 중인 프로젝트입니다.
 
@@ -10,14 +10,14 @@ RecordRoute는 음성/문서 처리 파이프라인을 **Rust 중심 아키텍�
 Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{job_id}`와 엔진별 bounded queue/worker 기반 처리 흐름(queued→running→completed|failed|timeout|canceled|rejected)까지 반영되어 있으며, 엔진 슈퍼비전/전처리/Swagger 분리 배포 구성을 단계적으로 이전합니다.
 
 
-> 문서 동기화: 2026-03-30 기준 운영 안정화 + 운영 점검 정례화(7.4.1~7.4.5) 완료 상태와 정렬됨.
+> 문서 동기화: 2026-03-30 기준 운영 안정화 + 운영 점검 정례화(7.4.1~7.4.5), 2026-02-25 기준 WBS 1.2 재완료 상태와 정렬됨.
 
 ## 운영 안정화 메모 (Phase B-2)
 
-- WBS `1.2 OpenAPI/API 계약 재정렬`은 구현 라우트/파라미터와 OpenAPI path/param 1:1 매핑 재검증을 위해 **재검토 상태**로 환원되었습니다.
+- WBS `1.2 OpenAPI/API 계약 재정렬`은 구현 라우트/파라미터와 OpenAPI path/param 1:1 매핑 재검증(수동/자동/증적 기록)을 완료해 **재완료(READY)** 상태입니다.
 - 주간 운영 점검(`docs/operations/weekly-drill/README.md`)에 계약 드리프트 점검(구현↔OpenAPI path/param 대조 + CI 정적 점검 결과 첨부) 항목이 추가되었습니다.
 - CI 정적 계약 점검은 필수 path/param 존재 여부뿐 아니라 경로 파라미터 명칭(`job_id`) 일치 여부까지 검증해야 하며, 점검 로그에는 스크립트 산출물 링크/경로를 첨부해야 합니다.
-- WBS 1.2 재완료 판정은 `docs/openapi-wbs-1.2-recompletion-gate.md` 체크리스트(경로/파라미터 1:1 매핑 + 증적 기록) **전체 충족 시에만 READY**입니다.
+- WBS 1.2 재완료 판정은 `docs/openapi-wbs-1.2-recompletion-gate.md` 체크리스트 7개 항목을 충족했고, 근거 문서는 `docs/openapi-impl-path-param-manual-checklist.md` 및 CI 계약 점검 워크플로(`.github/workflows/contract-drift*.yml`)입니다.
 
 - OpenAPI 계약은 Rust 목표 엔드포인트(`/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`) 기준으로 정렬되어 있습니다.
 - 동시성 상한은 semaphore 대기 태스크 누적 대신 **고정 worker 개수**로 강제합니다.
