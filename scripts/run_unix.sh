@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,7 +18,7 @@ trap cleanup INT TERM EXIT
 echo "[RecordRoute] Starting Rust API server..."
 (
   cd "$ROOT_DIR"
-  cargo run
+  cargo run --bin recordroute-orchestrator
 ) &
 API_PID=$!
 
@@ -34,3 +34,4 @@ echo "[RecordRoute] Frontend PID: $FRONTEND_PID"
 echo "[RecordRoute] Press Ctrl+C to stop both services."
 
 wait -n "$API_PID" "$FRONTEND_PID"
+

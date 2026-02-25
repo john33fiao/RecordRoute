@@ -1,11 +1,11 @@
-@echo off
+﻿@echo off
 setlocal EnableExtensions
 
 set "ROOT_DIR=%~dp0.."
 pushd "%ROOT_DIR%" >nul
 
 echo [RecordRoute] Starting Rust API server...
-start "RecordRoute Rust API" cmd /k "cd /d %ROOT_DIR% && cargo run"
+start "RecordRoute Rust API" cmd /k "cd /d %ROOT_DIR% && cargo run --bin recordroute-orchestrator"
 if errorlevel 1 goto :fail
 
 echo [RecordRoute] Starting frontend dev server...
@@ -20,3 +20,4 @@ exit /b 0
 echo [RecordRoute] Failed to start one or more services.
 popd >nul
 exit /b 1
+
