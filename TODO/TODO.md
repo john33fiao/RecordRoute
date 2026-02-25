@@ -216,7 +216,7 @@
 
 2. **WBS 1.2 재완료 게이트 — OpenAPI/API 계약 1:1 매핑 검증 자동화**
    - [x] 재완료 판정 체크리스트 문서 고정 (`docs/openapi-wbs-1.2-recompletion-gate.md`)
-   - [ ] 구현 라우트/파라미터와 OpenAPI path/param의 수동 대조 체크리스트 완료
+   - [x] 구현 라우트/파라미터와 OpenAPI path/param의 수동 대조 체크리스트 완료 (`docs/openapi-impl-path-param-manual-checklist.md`)
    - [ ] CI 정적 계약 점검(필수 path/param 존재 + path-param 명칭 일치 확인 스크립트) 추가
    - [ ] 스크립트 결과와 산출물 링크/경로를 근거로 WBS 1.2 재완료 판정
 
