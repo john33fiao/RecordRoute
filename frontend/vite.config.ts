@@ -39,6 +39,12 @@ export default defineConfig({
       '/file_search': 'http://localhost:8080',
       '/cache': 'http://localhost:8080',
       '/incremental_embedding': 'http://localhost:8080',
+      '/segments': 'http://localhost:8080',
+      '/api': 'http://localhost:8080',
+      '/ws': {
+        target: 'ws://localhost:8080',
+        ws: true,
+      },
     },
   },
 });

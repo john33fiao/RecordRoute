@@ -5,6 +5,11 @@
 
 ## 작업 로그
 
+- 2026-02-25: Tauri 전환 상태 점검(현황 재검증)
+  - 완료 확인: `frontend/src/runtime/endpoints.ts`에서 `resolveApiBaseUrl`/`resolveWebSocketUrl` + `VITE_TAURI_BACKEND_URL` fallback이 구현되어 9.1 선행 과제 1건만 완료
+  - 미완료 확인: Tauri lifecycle 기동/종료(오케스트레이터/Swagger), 다중 OS 포트 충돌 검증, 로그 수집 경로 정렬은 미착수
+  - 보안/배포 미완료: `tauri.conf.json` allowlist/CSP 최소권한 정책, 패키징/릴리스 smoke gate(9.3~9.5) 미확정
+
 - 2026-02-25: WBS 9.0 Tauri 전환 선행 작업(프론트 런타임 엔드포인트 정책) 착수
   - `frontend/src/runtime/endpoints.ts` 추가: 웹/데스크톱 런타임을 구분해 API base/WS URL 결정 로직을 단일화
   - `VITE_API_BASE_URL`, `VITE_WS_URL` 우선 정책 유지 + `VITE_TAURI_BACKEND_URL` 단일 오버라이드 경로 추가
