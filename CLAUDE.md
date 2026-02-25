@@ -1,4 +1,4 @@
-# CLAUDE.md - RecordRoute 작업 요약
+﻿# CLAUDE.md - RecordRoute 작업 요약
 
 이 문서는 요약본이며, 상세 기준은 `AGENTS.md`를 따릅니다.
 
@@ -20,8 +20,8 @@
 ## 현재 프로젝트 전제
 
 - Windows `cargo build`에서 `rustc.exe ... not applicable` 오류가 나면 rustup toolchain/component 재설치(`stable-x86_64-pc-windows-msvc`) 절차를 우선 적용합니다(상세 커맨드는 `README.md`/`AGENTS.md` 참조).
-- WBS `1.2 OpenAPI/API 계약 재정렬`은 구현 라우트/파라미터와 OpenAPI 1:1 매핑 재검증 전까지 재검토 상태로 관리합니다.
-- 재완료 게이트는 `docs/openapi-wbs-1.2-recompletion-gate.md` 단일 체크리스트를 기준으로 판정하며, 7개 항목 미충족 시 `NOT READY`를 유지합니다.
+- WBS `1.2 OpenAPI/API 계약 재정렬`은 구현 라우트/파라미터와 OpenAPI 1:1 매핑 재검증(수동/자동/증적 기록) 완료로 재완료(READY) 상태입니다.
+- 재완료 게이트는 `docs/openapi-wbs-1.2-recompletion-gate.md` 단일 체크리스트를 기준으로 판정하며, 현재 7개 항목 충족 상태를 유지합니다.
 - 주간 점검에는 계약 드리프트 점검(구현↔OpenAPI path/param 대조, CI 정적 계약 점검 로그 확인 + 경로 파라미터 명칭 일치 여부 확인 + 기준 엔드포인트 세트 `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}` 고정)을 필수 항목으로 포함하며, 회차 로그에는 CI 정적 점검 스크립트 산출물 링크/경로를 첨부합니다.
 
 - OpenAPI 계약(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)은 Rust 목표 엔드포인트(`/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`) 기준으로 정렬되어 있습니다.
