@@ -16,13 +16,13 @@ import type {
   DestructiveApiAuth,
   SegmentItem,
 } from './types';
+import { resolveApiBaseUrl } from '../runtime/endpoints';
 
 interface ApiRequestOptions extends RequestInit {
   skipJson?: boolean;
 }
 
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim().replace(/\/$/, '') ?? '';
+const API_BASE_URL = resolveApiBaseUrl();
 
 function withApiBase(path: string): string {
   if (!path.startsWith('/')) return path;
