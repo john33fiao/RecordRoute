@@ -92,6 +92,29 @@ cd frontend
 npm run build
 ```
 
+### Rust 빌드(Windows) 트러블슈팅
+
+Windows에서 아래와 같은 오류가 발생하면(`rustc.exe ... is not applicable to ...`) Rust toolchain/component 불일치 상태일 가능성이 큽니다.
+
+```powershell
+cargo build
+error: the 'rustc.exe' binary ... is not applicable to the 'stable-x86_64-pc-windows-msvc' toolchain
+```
+
+아래 순서로 복구합니다.
+
+```powershell
+rustup show
+rustup toolchain uninstall stable-x86_64-pc-windows-msvc
+rustup toolchain install stable-x86_64-pc-windows-msvc --profile default
+rustup default stable-x86_64-pc-windows-msvc
+rustup component add rustc cargo clippy rustfmt --toolchain stable-x86_64-pc-windows-msvc
+rustup update
+cargo build
+```
+
+여전히 동일하면 `where rustc`, `rustup which rustc`로 PATH 오염(다중 rustc) 여부를 확인하고, Visual Studio Build Tools의 `MSVC v143` + `Windows 10/11 SDK` 설치 상태를 점검합니다.
+
 ## Rust 전환 가이드
 
 - 단일 진입점/엔진 경계 기준은 `docs/architecture.md`를 먼저 확인합니다.

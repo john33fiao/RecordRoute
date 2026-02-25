@@ -92,3 +92,26 @@ WBS 1.2 재완료 게이트(구현 라우트/파라미터 ↔ OpenAPI path/param
 권장:
 - “현재 상태”와 “목표 상태”를 문서에서 명확히 분리
 - 레거시 참조 경로를 명시해 온보딩 혼선을 줄이기
+
+## 8) Rust 빌드(Windows) 트러블슈팅
+
+Windows에서 `cargo build` 실행 시 아래 오류가 발생하면 rustup toolchain/component 불일치 가능성이 큽니다.
+
+```powershell
+cargo build
+error: the 'rustc.exe' binary ... is not applicable to the 'stable-x86_64-pc-windows-msvc' toolchain
+```
+
+복구 절차(순서 고정):
+
+```powershell
+rustup show
+rustup toolchain uninstall stable-x86_64-pc-windows-msvc
+rustup toolchain install stable-x86_64-pc-windows-msvc --profile default
+rustup default stable-x86_64-pc-windows-msvc
+rustup component add rustc cargo clippy rustfmt --toolchain stable-x86_64-pc-windows-msvc
+rustup update
+cargo build
+```
+
+지속 실패 시 `where rustc`, `rustup which rustc`로 PATH 중복을 점검하고 Visual Studio Build Tools(`MSVC v143`, `Windows 10/11 SDK`) 설치 상태를 확인합니다.
