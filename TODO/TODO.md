@@ -5,6 +5,12 @@
 
 ## 작업 로그
 
+
+- 2026-02-25: WBS 8.0 설치/실행 자동화 스크립트 완료(READY)
+  - `scripts/install_windows.bat`, `scripts/install_unix.sh`: 기본 모델 env 검증, 누락 시 중단, 모델 파일 확인/미존재 시 중단 또는 pull 선택지 제공
+  - 설치 단계 자동화: 프론트 의존성 설치 + 프론트 빌드 + Rust release 빌드 통합
+  - `scripts/run_windows.bat`, `scripts/run_unix.sh`: Rust 서버와 프론트 개발 서버 동시 기동 스크립트 제공
+
 - 2026-02-25: Tauri 전환 상태 점검(현황 재검증)
   - 완료 확인: `frontend/src/runtime/endpoints.ts`에서 `resolveApiBaseUrl`/`resolveWebSocketUrl` + `VITE_TAURI_BACKEND_URL` fallback이 구현되어 9.1 선행 과제 1건만 완료
   - 미완료 확인: Tauri lifecycle 기동/종료(오케스트레이터/Swagger), 다중 OS 포트 충돌 검증, 로그 수집 경로 정렬은 미착수
@@ -170,26 +176,26 @@
 
 ## 8.0 설치/실행 자동화 스크립트
 
-- [ ] 8.1 프로젝트 설치 스크립트(Windows `.bat`) 작성
-  - [ ] 설치 시작 전 env 기본 모델(STT/임베딩/요약) 세팅 확인
-  - [ ] 기본 모델 세팅 누락 시 설치 중단
-  - [ ] 모델 파일 존재 확인
-  - [ ] 모델 파일 누락 시 선택지 제공(설치 중단 / 모델 pull 진행)
-  - [ ] 프론트 의존성 설치 및 빌드(`npm` 등) 수행
-  - [ ] Rust 빌드 수행
-- [ ] 8.2 프로젝트 설치 스크립트(macOS/Linux `.sh`) 작성
-  - [ ] 설치 시작 전 env 기본 모델(STT/임베딩/요약) 세팅 확인
-  - [ ] 기본 모델 세팅 누락 시 설치 중단
-  - [ ] 모델 파일 존재 확인
-  - [ ] 모델 파일 누락 시 선택지 제공(설치 중단 / 모델 pull 진행)
-  - [ ] 프론트 의존성 설치 및 빌드(`npm` 등) 수행
-  - [ ] Rust 빌드 수행
-- [ ] 8.3 프로젝트 실행 스크립트(Windows `.bat`) 작성
-  - [ ] Rust 서버 실행
-  - [ ] 프론트 서버 실행
-- [ ] 8.4 프로젝트 실행 스크립트(macOS/Linux `.sh`) 작성
-  - [ ] Rust 서버 실행
-  - [ ] 프론트 서버 실행
+- [x] 8.1 프로젝트 설치 스크립트(Windows `.bat`) 작성
+  - [x] 설치 시작 전 env 기본 모델(STT/임베딩/요약) 세팅 확인
+  - [x] 기본 모델 세팅 누락 시 설치 중단
+  - [x] 모델 파일 존재 확인
+  - [x] 모델 파일 누락 시 선택지 제공(설치 중단 / 모델 pull 진행)
+  - [x] 프론트 의존성 설치 및 빌드(`npm` 등) 수행
+  - [x] Rust 빌드 수행
+- [x] 8.2 프로젝트 설치 스크립트(macOS/Linux `.sh`) 작성
+  - [x] 설치 시작 전 env 기본 모델(STT/임베딩/요약) 세팅 확인
+  - [x] 기본 모델 세팅 누락 시 설치 중단
+  - [x] 모델 파일 존재 확인
+  - [x] 모델 파일 누락 시 선택지 제공(설치 중단 / 모델 pull 진행)
+  - [x] 프론트 의존성 설치 및 빌드(`npm` 등) 수행
+  - [x] Rust 빌드 수행
+- [x] 8.3 프로젝트 실행 스크립트(Windows `.bat`) 작성
+  - [x] Rust 서버 실행
+  - [x] 프론트 서버 실행
+- [x] 8.4 프로젝트 실행 스크립트(macOS/Linux `.sh`) 작성
+  - [x] Rust 서버 실행
+  - [x] 프론트 서버 실행
 
 
 ## 9.0 Tauri 데스크톱 앱 전환
@@ -238,10 +244,10 @@
    - [x] CI 정적 계약 점검(필수 path/param 존재 + path-param 명칭 일치 확인 스크립트) 추가 (`scripts/check_contract_drift.py`, `.github/workflows/contract-drift.yml`, `src/bin/check_contract_drift.rs`, `.github/workflows/contract-drift-check.yml`)
    - [x] 스크립트 결과와 산출물 링크/경로를 근거로 WBS 1.2 재완료 판정 (`artifacts/contracts/${run_id}/contract-drift-report.json`, `docs/openapi-impl-path-param-manual-checklist.md`)
 
-3. **WBS 8.0 설치/실행 자동화 스크립트 — 신규**
-   - [ ] 설치 스크립트 2종 작성: Windows `.bat`, macOS/Linux `.sh`
-   - [ ] 설치 선행게이트 반영: env 기본 모델(STT/임베딩/요약) 세팅 확인 + 미세팅 시 중단
-   - [ ] 모델 파일 점검 반영: 미존재 시 선택지 제공(중단 / 모델 pull)
-   - [ ] 설치 단계 빌드 반영: 프론트 설치/빌드 + Rust 빌드
-   - [ ] 실행 스크립트 2종 작성: Windows `.bat`, macOS/Linux `.sh`
-   - [ ] 실행 단계 반영: Rust 서버 + 프론트 서버 실행
+3. **WBS 8.0 설치/실행 자동화 스크립트 — 완료(READY)**
+   - [x] 설치 스크립트 2종 작성: Windows `.bat`, macOS/Linux `.sh`
+   - [x] 설치 선행게이트 반영: env 기본 모델(STT/임베딩/요약) 세팅 확인 + 미세팅 시 중단
+   - [x] 모델 파일 점검 반영: 미존재 시 선택지 제공(중단 / 모델 pull)
+   - [x] 설치 단계 빌드 반영: 프론트 설치/빌드 + Rust 빌드
+   - [x] 실행 스크립트 2종 작성: Windows `.bat`, macOS/Linux `.sh`
+   - [x] 실행 단계 반영: Rust 서버 + 프론트 서버 실행
