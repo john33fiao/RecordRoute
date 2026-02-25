@@ -57,6 +57,13 @@
   - 판정 체크리스트 기준 문서: `docs/openapi-wbs-1.2-recompletion-gate.md`
   - 후속 태스크: CI에 정적 계약 점검(필수 path/param 존재 + path-param 명칭 일치 검사 스크립트) 도입
   - 증적 규칙: 회차 로그에 CI 정적 계약 점검 스크립트 산출물 링크/경로(`artifacts/contracts/<run-id>/contract-drift-report.json` 등)를 첨부
+
+- 2026-02-25: WBS 1.2(OpenAPI/API 계약 재정렬) 재완료 판정
+  - 수동 대조 증적 문서: `docs/openapi-impl-path-param-manual-checklist.md`
+  - 정적 계약 점검: `scripts/check_contract_drift.py`, `src/bin/check_contract_drift.rs`
+  - CI 워크플로: `.github/workflows/contract-drift.yml`, `.github/workflows/contract-drift-check.yml`
+  - 산출물 경로 규칙: `artifacts/contracts/${run_id}/contract-drift-report.json`
+
 - 2026-02-22: Phase B-1 엔진별 큐 수용량/배압(429) 스켈레톤 도입
   - `POST /jobs?engine=<stt|summarize|embed>` 라우팅 추가(기본값 `stt`)
   - 엔진별 bounded capacity 기반 큐 포화 시 `429 + queue_full|engine_full` 반환
@@ -96,12 +103,12 @@
 
 - [x] 1.1 Rust 단일 진입점/엔진 경계 문서 기준 확정
   - 근거 문서: `docs/architecture.md`, `docs/rust-cpp-backend-rewrite-plan.md`
-- [ ] 1.2 OpenAPI/API 계약을 Rust 목표 엔드포인트 기준으로 재정렬 (재검토)
+- [x] 1.2 OpenAPI/API 계약을 Rust 목표 엔드포인트 기준으로 재정렬 (재완료: 2026-02-25)
   - 재완료 조건:
-    - [ ] `docs/openapi.yaml`, `docs/swagger/openapi.yaml`에 Rust 목표 엔드포인트가 동일하게 반영되어 있다.
-    - [ ] 구현 라우트/파라미터와 OpenAPI path/query/path-param의 **1:1 매핑 확인** 체크를 통과했다.
-    - [ ] 계약 드리프트 점검 항목(주간 점검/CI 정적 점검)이 활성 상태다.
-    - [ ] 문서 경로 파라미터 명칭 통일(`GET /jobs/{job_id}`) 체크포인트를 통과했다.
+    - [x] `docs/openapi.yaml`, `docs/swagger/openapi.yaml`에 Rust 목표 엔드포인트가 동일하게 반영되어 있다.
+    - [x] 구현 라우트/파라미터와 OpenAPI path/query/path-param의 **1:1 매핑 확인** 체크를 통과했다. (`docs/openapi-impl-path-param-manual-checklist.md`)
+    - [x] 계약 드리프트 점검 항목(주간 점검/CI 정적 점검)이 활성 상태다. (`docs/operations/weekly-drill/README.md`, `.github/workflows/contract-drift.yml`, `.github/workflows/contract-drift-check.yml`)
+    - [x] 문서 경로 파라미터 명칭 통일(`GET /jobs/{job_id}`) 체크포인트를 통과했다.
 
 ## 2.0 런타임 스캐폴딩
 
@@ -217,8 +224,8 @@
 2. **WBS 1.2 재완료 게이트 — OpenAPI/API 계약 1:1 매핑 검증 자동화**
    - [x] 재완료 판정 체크리스트 문서 고정 (`docs/openapi-wbs-1.2-recompletion-gate.md`)
    - [x] 구현 라우트/파라미터와 OpenAPI path/param의 수동 대조 체크리스트 완료 (`docs/openapi-impl-path-param-manual-checklist.md`)
-   - [ ] CI 정적 계약 점검(필수 path/param 존재 + path-param 명칭 일치 확인 스크립트) 추가
-   - [ ] 스크립트 결과와 산출물 링크/경로를 근거로 WBS 1.2 재완료 판정
+   - [x] CI 정적 계약 점검(필수 path/param 존재 + path-param 명칭 일치 확인 스크립트) 추가 (`scripts/check_contract_drift.py`, `.github/workflows/contract-drift.yml`, `src/bin/check_contract_drift.rs`, `.github/workflows/contract-drift-check.yml`)
+   - [x] 스크립트 결과와 산출물 링크/경로를 근거로 WBS 1.2 재완료 판정 (`artifacts/contracts/${run_id}/contract-drift-report.json`, `docs/openapi-impl-path-param-manual-checklist.md`)
 
 3. **WBS 8.0 설치/실행 자동화 스크립트 — 신규**
    - [ ] 설치 스크립트 2종 작성: Windows `.bat`, macOS/Linux `.sh`
