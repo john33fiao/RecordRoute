@@ -1,4 +1,4 @@
-# Rust/C++ 백엔드 재작성 WBS (Work Breakdown Structure)
+﻿# Rust/C++ 백엔드 재작성 WBS (Work Breakdown Structure)
 
 이 문서는 **현재 코드베이스 기준 실제 진행 상태**를 반영한 실행 추적표입니다.
 세부 설계는 `docs/rust-cpp-backend-rewrite-plan.md`를 단일 기준으로 따릅니다.
@@ -174,6 +174,34 @@
   - [ ] Rust 서버 실행
   - [ ] 프론트 서버 실행
 
+
+## 9.0 Tauri 데스크톱 앱 전환
+
+- [ ] 9.1 Tauri 런처/런타임 PoC
+  - [ ] Rust 오케스트레이터(`recordroute-orchestrator`)와 Swagger(`swagger_server`)를 Tauri lifecycle에서 기동/종료할 수 있는지 검증
+  - [ ] Windows/Linux/macOS에서 기본 포트 충돌 없이 동시 기동되는지 검증
+  - [ ] 앱 로그 수집/표시/회수 경로를 기존 run 스크립트(`scripts/run_*`)와 정렬
+
+- [ ] 9.2 프론트-백 계약 정합성 선결
+  - [ ] 프론트엔드 API 호출 경로(`/upload`, `/process`, `/tasks`, `/progress`, `/shutdown` 등)와 Rust API 간 갭을 문서화하고 우선순위 확정
+  - [ ] `frontend/vite.config.ts`의 프록시 대상(`http://localhost:8080`)과 런처에서 사용하는 `VITE_API_BASE_URL`를 단일 기준으로 재정의
+  - [ ] `useWebSocket`의 `VITE_WS_URL`/`window.location` 기반 정책이 Tauri에서 동작할지 확인하고 필요 시 계약 고정
+  - [ ] Tauri 도입 전/후 API 라우트 표준 (`/api/*` 래핑 여부 등) 결정
+
+- [ ] 9.3 패키징/보안 체계 수립
+  - [ ] `tauri.conf.json` allowlist, CSP, 파일/프레임 권한 최소화 정책 확정
+  - [ ] 환경변수 주입(`RECORDROUTE_*`, 모델 경로, 로그 레벨) 및 비밀 관리 전략 확정
+  - [ ] 종료 처리(`shutdown`), 장애 재시작, 업그레이드 재진입 경로를 `engine_manager` 상태와 정합성 있게 정의
+
+- [ ] 9.4 설치/배포 자동화 통합
+  - [ ] 기존 설치/실행 스크립트(`scripts/install_*.sh`, `scripts/run_*.sh`)와 Tauri 배포 플로우를 1개 사용자 플로우로 통합
+  - [ ] 빌드 산출물 포함/제외(`target`, 앱 패키지 아티팩트) 정책을 `README/배포 문서`와 동기화
+  - [ ] 설치 게이트(필수 모델/의존성 확인)와 Tauri installer/업데이트 흐름 연동
+
+- [ ] 9.5 릴리스 품질 게이트
+  - [ ] `check_contract_drift`를 CI에서 유지하고 Tauri smoke test(기동/기능 최소 경로) 결합
+  - [ ] WBS 1.2 재완료 규칙(`implement path/param 1:1`, path-param `job_id`)과 Tauri 런치 플로우 회귀 감시를 연동
+  - [ ] 1인 실행 스크립트 실패 시 사용자 복구 가이드(`fallback`, `재실행`, `로그 조회`)를 문서화
 ## 다음 우선순위 (실행 단위)
 
 1. **WBS 7.4.5 운영 점검 정례화 — 완료(2026-03-30)**
@@ -199,3 +227,4 @@
    - [ ] 설치 단계 빌드 반영: 프론트 설치/빌드 + Rust 빌드
    - [ ] 실행 스크립트 2종 작성: Windows `.bat`, macOS/Linux `.sh`
    - [ ] 실행 단계 반영: Rust 서버 + 프론트 서버 실행
+
