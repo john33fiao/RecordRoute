@@ -3,6 +3,31 @@ import react from '@vitejs/plugin-react-swc';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 
+function normalizeHttpTarget(url: string): string {
+  return url.replace(/\/$/, '');
+}
+
+function resolveDevProxyHttpTarget(): string {
+  const fromApiBase = process.env.VITE_API_BASE_URL?.trim();
+  if (fromApiBase && fromApiBase.length > 0) {
+    return normalizeHttpTarget(fromApiBase);
+  }
+
+  const fromTauriBackend = process.env.VITE_TAURI_BACKEND_URL?.trim();
+  if (fromTauriBackend && fromTauriBackend.length > 0) {
+    return normalizeHttpTarget(fromTauriBackend);
+  }
+
+  return 'http://localhost:8080';
+}
+
+function resolveDevProxyWsTarget(httpTarget: string): string {
+  return httpTarget.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:');
+}
+
+const devProxyHttpTarget = resolveDevProxyHttpTarget();
+const devProxyWsTarget = resolveDevProxyWsTarget(devProxyHttpTarget);
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -17,32 +42,32 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/upload': 'http://localhost:8080',
-      '/process': 'http://localhost:8080',
-      '/history': 'http://localhost:8080',
-      '/tasks': 'http://localhost:8080',
-      '/search': 'http://localhost:8080',
-      '/similar': 'http://localhost:8080',
-      '/delete': 'http://localhost:8080',
-      '/cancel': 'http://localhost:8080',
-      '/models': 'http://localhost:8080',
-      '/download': 'http://localhost:8080',
-      '/shutdown': 'http://localhost:8080',
-      '/reset': 'http://localhost:8080',
-      '/update_filename': 'http://localhost:8080',
-      '/update_stt_text': 'http://localhost:8080',
-      '/check_existing_stt': 'http://localhost:8080',
-      '/reset_summary_embedding': 'http://localhost:8080',
-      '/reset_all_tasks': 'http://localhost:8080',
-      '/delete_records': 'http://localhost:8080',
-      '/progress': 'http://localhost:8080',
-      '/file_search': 'http://localhost:8080',
-      '/cache': 'http://localhost:8080',
-      '/incremental_embedding': 'http://localhost:8080',
-      '/segments': 'http://localhost:8080',
-      '/api': 'http://localhost:8080',
+      '/upload': devProxyHttpTarget,
+      '/process': devProxyHttpTarget,
+      '/history': devProxyHttpTarget,
+      '/tasks': devProxyHttpTarget,
+      '/search': devProxyHttpTarget,
+      '/similar': devProxyHttpTarget,
+      '/delete': devProxyHttpTarget,
+      '/cancel': devProxyHttpTarget,
+      '/models': devProxyHttpTarget,
+      '/download': devProxyHttpTarget,
+      '/shutdown': devProxyHttpTarget,
+      '/reset': devProxyHttpTarget,
+      '/update_filename': devProxyHttpTarget,
+      '/update_stt_text': devProxyHttpTarget,
+      '/check_existing_stt': devProxyHttpTarget,
+      '/reset_summary_embedding': devProxyHttpTarget,
+      '/reset_all_tasks': devProxyHttpTarget,
+      '/delete_records': devProxyHttpTarget,
+      '/progress': devProxyHttpTarget,
+      '/file_search': devProxyHttpTarget,
+      '/cache': devProxyHttpTarget,
+      '/incremental_embedding': devProxyHttpTarget,
+      '/segments': devProxyHttpTarget,
+      '/api': devProxyHttpTarget,
       '/ws': {
-        target: 'ws://localhost:8080',
+        target: devProxyWsTarget,
         ws: true,
       },
     },
