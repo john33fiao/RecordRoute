@@ -50,6 +50,8 @@ WBS 1.2 재완료 게이트(구현 라우트/파라미터 ↔ OpenAPI path/param
 
 - 2026-02-25 Tauri 전환 상태 점검 기준: WBS 9.0은 착수 단계이며, 완료로 간주 가능한 범위는 프론트 런타임 endpoint 해석 로직(`resolveApiBaseUrl`, `resolveWebSocketUrl`)과 `VITE_TAURI_BACKEND_URL` fallback까지로 제한합니다. lifecycle/보안/패키징/릴리스 게이트는 미완료로 유지합니다.
 
+- 2026-03-30 이후 9.1 검증 자동화 기준: `src/bin/tauri_lifecycle_probe.rs` 및 `.github/workflows/tauri-lifecycle-poc.yml`로 오케스트레이터/Swagger lifecycle 기동·종료, 포트 충돌, 3OS 매트릭스 검증, 로그 아티팩트 수집(`artifacts/tauri-lifecycle/<ts-os-pid>/`)을 수행합니다. 단, 9.0 전체(보안/패키징/릴리스 게이트)는 여전히 미완료로 유지합니다.
+
 
 정렬 상태 메모:
 - WBS `1.2 OpenAPI/API 계약 재정렬`은 구현 라우트/파라미터와 OpenAPI path/param 1:1 매핑 재검증 완료(수동/자동/증적 기록 충족) 상태로 관리합니다.

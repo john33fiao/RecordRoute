@@ -202,9 +202,9 @@
 
 - [ ] 9.1 Tauri 런처/런타임 PoC
   - [x] 프론트 런타임 엔드포인트 해석 로직 단일화(`resolveApiBaseUrl`, `resolveWebSocketUrl`) 및 Tauri fallback 추가
-  - [ ] Rust 오케스트레이터(`recordroute-orchestrator`)와 Swagger(`swagger_server`)를 Tauri lifecycle에서 기동/종료할 수 있는지 검증
-  - [ ] Windows/Linux/macOS에서 기본 포트 충돌 없이 동시 기동되는지 검증
-  - [ ] 앱 로그 수집/표시/회수 경로를 기존 run 스크립트(`scripts/run_*`)와 정렬
+  - [x] Rust 오케스트레이터(`recordroute-orchestrator`)와 Swagger(`swagger_server`)를 Tauri lifecycle에서 기동/종료할 수 있는지 검증 (`src/bin/tauri_lifecycle_probe.rs`)
+  - [x] Windows/Linux/macOS에서 기본 포트 충돌 없이 동시 기동되는지 검증 (`.github/workflows/tauri-lifecycle-poc.yml` 매트릭스)
+  - [x] 앱 로그 수집/표시/회수 경로를 기존 run 스크립트(`scripts/run_*`)와 정렬 (`artifacts/tauri-lifecycle/<ts-os-pid>/`)
 
 - [ ] 9.2 프론트-백 계약 정합성 선결
   - [ ] 프론트엔드 API 호출 경로(`/upload`, `/process`, `/tasks`, `/progress`, `/shutdown` 등)와 Rust API 간 갭을 문서화하고 우선순위 확정
