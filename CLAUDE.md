@@ -21,6 +21,8 @@
 
 - 2026-02-25 Tauri 전환 상태 점검: WBS 9.0은 착수 단계이며, 완료 범위는 프론트 endpoint 해석 로직 단일화(`resolveApiBaseUrl`, `resolveWebSocketUrl`) + `VITE_TAURI_BACKEND_URL` fallback까지입니다. lifecycle/보안/패키징/릴리스 게이트는 미완료입니다.
 
+- 2026-03-30 이후 9.1 보강: `src/bin/tauri_lifecycle_probe.rs` + `.github/workflows/tauri-lifecycle-poc.yml`로 오케스트레이터/Swagger lifecycle 기동·종료, 포트 충돌, 3OS 매트릭스 검증, 로그 아티팩트 수집 경로(`artifacts/tauri-lifecycle/<ts-os-pid>/`)를 자동화했습니다.
+
 - Windows `cargo build`에서 `rustc.exe ... not applicable` 오류가 나면 rustup toolchain/component 재설치(`stable-x86_64-pc-windows-msvc`) 절차를 우선 적용합니다(상세 커맨드는 `README.md`/`AGENTS.md` 참조).
 - WBS `1.2 OpenAPI/API 계약 재정렬`은 구현 라우트/파라미터와 OpenAPI 1:1 매핑 재검증(수동/자동/증적 기록) 완료로 재완료(READY) 상태입니다.
 - 재완료 게이트는 `docs/openapi-wbs-1.2-recompletion-gate.md` 단일 체크리스트를 기준으로 판정하며, 현재 7개 항목 충족 상태를 유지합니다.

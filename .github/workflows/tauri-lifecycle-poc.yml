@@ -1,0 +1,36 @@
+name: tauri-lifecycle-poc
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  tauri-lifecycle-probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build required binaries
+        run: cargo build --bins
+
+      - name: Run lifecycle probe (orchestrator + swagger)
+        run: cargo run --quiet --bin tauri_lifecycle_probe
+
+      - name: Upload lifecycle probe artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-lifecycle-${{ matrix.os }}
+          path: artifacts/tauri-lifecycle/**
+          if-no-files-found: error
