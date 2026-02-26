@@ -200,6 +200,8 @@
 
 ## 9.0 Tauri 데스크톱 앱 전환
 
+> 코드베이스 재점검(2026-02-26): `frontend/src/api/client.ts`, `frontend/vite.config.ts`, `frontend/src/runtime/endpoints.ts`, `frontend/src/hooks/useWebSocket.ts`, `src/bin/tauri_lifecycle_probe.rs`, `.github/workflows/tauri-lifecycle-poc.yml` 기준으로 항목 상태를 재검토했습니다.
+
 - [ ] 9.1 Tauri 런처/런타임 PoC
   - [x] 프론트 런타임 엔드포인트 해석 로직 단일화(`resolveApiBaseUrl`, `resolveWebSocketUrl`) 및 Tauri fallback 추가
   - [x] Rust 오케스트레이터(`recordroute-orchestrator`)와 Swagger(`swagger_server`)를 Tauri lifecycle에서 기동/종료할 수 있는지 검증 (`src/bin/tauri_lifecycle_probe.rs`)
@@ -208,8 +210,11 @@
 
 - [ ] 9.2 프론트-백 계약 정합성 선결
   - [ ] 프론트엔드 API 호출 경로(`/upload`, `/process`, `/tasks`, `/progress`, `/shutdown` 등)와 Rust API 간 갭을 문서화하고 우선순위 확정
+    - 코드베이스 관찰: 프론트는 현재 `/upload`, `/process`, `/tasks`, `/progress/{taskId}`, `/shutdown` 호출을 유지하며(`frontend/src/api/client.ts`), Rust/OpenAPI 기준 핵심 계약은 `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`입니다. 갭 우선순위 문서가 아직 없어 본 항목은 미완료로 유지합니다.
   - [ ] `frontend/vite.config.ts`의 프록시 대상(`http://localhost:8080`)과 런처에서 사용하는 `VITE_API_BASE_URL`를 단일 기준으로 재정의
+    - 코드베이스 관찰: `VITE_TAURI_BACKEND_URL` fallback은 반영됐지만(dev proxy 병행), 단일 운영 기준 문서/정책 고정은 미완료입니다.
   - [ ] `useWebSocket`의 `VITE_WS_URL`/`window.location` 기반 정책이 Tauri에서 동작할지 확인하고 필요 시 계약 고정
+    - 코드베이스 관찰: `resolveWebSocketUrl()` 경유로 URL을 계산하지만 Tauri 배포 정책(고정 endpoint/오리진 제약) 확정 문서는 없습니다.
   - [ ] Tauri 도입 전/후 API 라우트 표준 (`/api/*` 래핑 여부 등) 결정
 
 - [ ] 9.3 패키징/보안 체계 수립
