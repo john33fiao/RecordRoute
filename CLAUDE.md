@@ -7,6 +7,8 @@
 
 - 2026-02-27: WBS 9.2 계약 정합성 기준 문서(`docs/tauri-frontend-backend-contract-alignment.md`) 추가 및 TODO 9.2 완료 상태 반영.
 
+- 2026-04-01: WBS 9.3 패키징/보안 기준 문서(`docs/tauri-packaging-security-baseline.md`) 추가 및 TODO 9.3 완료 상태 반영.
+
 ## 우선 확인 순서
 
 1. `AGENTS.md`

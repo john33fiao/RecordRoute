@@ -6,6 +6,11 @@
 ## 작업 로그
 
 
+- 2026-04-01: WBS 9.3 패키징/보안 기준선 확정
+  - `docs/tauri-packaging-security-baseline.md`: `tauri.conf.json` allowlist/CSP/파일·프레임 최소 권한 정책 고정
+  - `RECORDROUTE_*` 환경변수 주입 경로, 모델 경로, 비밀 마스킹/비노출 전략 확정
+  - `engine_manager` 기반 종료(`shutdown`)/장애 재시작/업그레이드 재진입 상태 정합성(`Booting/Ready/Degraded/Stopping/Stopped`) 명시
+
 - 2026-02-25: WBS 8.0 설치/실행 자동화 스크립트 완료(READY)
   - `scripts/install_windows.bat`, `scripts/install_unix.sh`: 기본 모델 env 검증, 누락 시 중단, 모델 파일 확인/미존재 시 중단 또는 pull 선택지 제공
   - 설치 단계 자동화: 프론트 의존성 설치 + 프론트 빌드 + Rust release 빌드 통합
@@ -14,7 +19,7 @@
 - 2026-02-25: Tauri 전환 상태 점검(현황 재검증)
   - 완료 확인: `frontend/src/runtime/endpoints.ts`에서 `resolveApiBaseUrl`/`resolveWebSocketUrl` + `VITE_TAURI_BACKEND_URL` fallback이 구현되어 9.1 선행 과제 1건만 완료
   - 미완료 확인: Tauri lifecycle 기동/종료(오케스트레이터/Swagger), 다중 OS 포트 충돌 검증, 로그 수집 경로 정렬은 미착수
-  - 보안/배포 미완료: `tauri.conf.json` allowlist/CSP 최소권한 정책, 패키징/릴리스 smoke gate(9.3~9.5) 미확정
+  - 보안/배포 미완료: 패키징/릴리스 smoke gate(9.4~9.5) 미확정
 
 - 2026-02-25: WBS 9.0 Tauri 전환 선행 작업(프론트 런타임 엔드포인트 정책) 착수
   - `frontend/src/runtime/endpoints.ts` 추가: 웹/데스크톱 런타임을 구분해 API base/WS URL 결정 로직을 단일화
@@ -219,10 +224,11 @@
   - [x] Tauri 도입 전/후 API 라우트 표준 (`/api/*` 래핑 여부 등) 결정
     - 신규 Rust 핵심 계약은 non-`/api` 기본, 기존 `/api/*` read-heavy endpoint는 전환 완료 전까지 한시 유지
 
-- [ ] 9.3 패키징/보안 체계 수립
-  - [ ] `tauri.conf.json` allowlist, CSP, 파일/프레임 권한 최소화 정책 확정
-  - [ ] 환경변수 주입(`RECORDROUTE_*`, 모델 경로, 로그 레벨) 및 비밀 관리 전략 확정
-  - [ ] 종료 처리(`shutdown`), 장애 재시작, 업그레이드 재진입 경로를 `engine_manager` 상태와 정합성 있게 정의
+- [x] 9.3 패키징/보안 체계 수립
+  - [x] `tauri.conf.json` allowlist, CSP, 파일/프레임 권한 최소화 정책 확정
+  - [x] 환경변수 주입(`RECORDROUTE_*`, 모델 경로, 로그 레벨) 및 비밀 관리 전략 확정
+  - [x] 종료 처리(`shutdown`), 장애 재시작, 업그레이드 재진입 경로를 `engine_manager` 상태와 정합성 있게 정의
+  - 기준 문서: `docs/tauri-packaging-security-baseline.md`
 
 - [ ] 9.4 설치/배포 자동화 통합
   - [ ] 기존 설치/실행 스크립트(`scripts/install_*.sh`, `scripts/run_*.sh`)와 Tauri 배포 플로우를 1개 사용자 플로우로 통합

@@ -7,6 +7,8 @@
 
 - 2026-02-27: WBS 9.2 프론트-백 계약 정합성 기준 문서(`docs/tauri-frontend-backend-contract-alignment.md`)를 추가하고 TODO 9.2 완료 상태를 동기화했습니다.
 
+- 2026-04-01: WBS 9.3 패키징/보안 기준 문서(`docs/tauri-packaging-security-baseline.md`)를 추가하고 TODO 9.3 완료 상태를 동기화했습니다.
+
 ## 핵심 컨텍스트
 
 - 2026-02-25 Tauri 전환 상태 점검: WBS 9.0은 착수 단계이며, 완료 범위는 프론트 endpoint 해석 로직 단일화(`resolveApiBaseUrl`, `resolveWebSocketUrl`) + `VITE_TAURI_BACKEND_URL` fallback까지입니다. lifecycle/보안/패키징/릴리스 게이트는 미완료입니다.
