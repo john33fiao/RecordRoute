@@ -5,6 +5,8 @@
 > 문서 동기화 메모: 2026-03-30 기준 운영 안정화 + 운영 점검 정례화(7.4.1~7.4.5), 2026-02-25 기준 WBS 1.2 재완료 상태, 2026-02-26 기준 TODO(9.2 코드베이스 재점검 코멘트) 반영 상태를 README/CLAUDE/GEMINI/TODO와 정렬.
 > 동기화 포인트: runbook 저장 경로를 `docs/operations/weekly-drill/`로 통일, 정례화 정책/템플릿 신규 문서 반영.
 
+> 2026-02-27 업데이트: WBS 9.2 기준 문서 `docs/tauri-frontend-backend-contract-alignment.md`를 추가하고 TODO/README/CLAUDE/GEMINI와 상태를 동기화.
+
 ## 1) 프로젝트 구조 인식
 
 - `frontend/`: 운영 중인 프론트엔드 코드
