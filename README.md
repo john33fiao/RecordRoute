@@ -18,6 +18,8 @@ Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{job
 
 - 2026-02-27 업데이트: WBS 9.4 설치/배포 자동화 통합 문서(`docs/tauri-install-deploy-unified-flow.md`)를 추가하고, 설치 게이트(`scripts/install_*.sh|bat --check`) 기반 Tauri installer/업데이트 연동 및 빌드 산출물 포함/제외 정책을 동기화했습니다.
 
+- 2026-02-27 업데이트: WBS 9.5 릴리스 품질 게이트의 세부 체크포인트(CI 결합, WBS 1.2 `job_id` 회귀 감시, 1인 복구 가이드 범위)를 TODO와 동기화했습니다.
+
 ## 운영 안정화 메모 (Phase B-2)
 
 - 2026-02-25 Tauri 전환 상태 점검: **WBS 9.0은 착수 단계**이며, 현재 완료된 범위는 프론트 런타임 엔드포인트 해석(`resolveApiBaseUrl`, `resolveWebSocketUrl`)과 `VITE_TAURI_BACKEND_URL` fallback 정책까지입니다. Tauri lifecycle 기동/종료, 보안 allowlist/CSP, 패키징/릴리스 게이트는 미완료 상태로 유지합니다.

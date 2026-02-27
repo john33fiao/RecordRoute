@@ -11,6 +11,8 @@
 
 > 2026-02-27 업데이트: WBS 9.4 기준 문서 `docs/tauri-install-deploy-unified-flow.md`를 추가하고 TODO/README/CLAUDE/GEMINI와 상태를 동기화.
 
+> 2026-02-27 업데이트: WBS 9.5 릴리스 품질 게이트의 세부 체크포인트(CI 결합·1.2 재완료 회귀 감시·1인 복구 가이드 범위)를 TODO/README/CLAUDE/GEMINI와 동기화.
+
 ## 1) 프로젝트 구조 인식
 
 - `frontend/`: 운영 중인 프론트엔드 코드
