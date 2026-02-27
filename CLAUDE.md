@@ -9,6 +9,8 @@
 
 - 2026-04-01: WBS 9.3 패키징/보안 기준 문서(`docs/tauri-packaging-security-baseline.md`) 추가 및 TODO 9.3 완료 상태 반영.
 
+- 2026-02-27: WBS 9.4 설치/배포 통합 기준 문서(`docs/tauri-install-deploy-unified-flow.md`) 추가 및 TODO 9.4 완료 상태 반영.
+
 ## 우선 확인 순서
 
 1. `AGENTS.md`
@@ -26,6 +28,8 @@
 - 2026-02-25 Tauri 전환 상태 점검: WBS 9.0은 착수 단계이며, 완료 범위는 프론트 endpoint 해석 로직 단일화(`resolveApiBaseUrl`, `resolveWebSocketUrl`) + `VITE_TAURI_BACKEND_URL` fallback까지입니다. lifecycle/보안/패키징/릴리스 게이트는 미완료입니다.
 
 - 2026-03-30 이후 9.1 보강: `src/bin/tauri_lifecycle_probe.rs` + `.github/workflows/tauri-lifecycle-poc.yml`로 오케스트레이터/Swagger lifecycle 기동·종료, 포트 충돌, 3OS 매트릭스 검증, 로그 아티팩트 수집 경로(`artifacts/tauri-lifecycle/<ts-os-pid>/`)를 자동화했습니다.
+- WBS 9.4 설치/배포 자동화 통합: 설치 게이트(`scripts/install_*.sh|bat --check`)를 Tauri installer/업데이트 진입 조건으로 고정하고, 빌드 산출물 포함/제외 정책을 README/배포 문서와 동기화했습니다.
+
 
 - Windows `cargo build`에서 `rustc.exe ... not applicable` 오류가 나면 rustup toolchain/component 재설치(`stable-x86_64-pc-windows-msvc`) 절차를 우선 적용합니다(상세 커맨드는 `README.md`/`AGENTS.md` 참조).
 - WBS `1.2 OpenAPI/API 계약 재정렬`은 구현 라우트/파라미터와 OpenAPI 1:1 매핑 재검증(수동/자동/증적 기록) 완료로 재완료(READY) 상태입니다.

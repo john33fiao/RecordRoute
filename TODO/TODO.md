@@ -11,6 +11,11 @@
   - `RECORDROUTE_*` 환경변수 주입 경로, 모델 경로, 비밀 마스킹/비노출 전략 확정
   - `engine_manager` 기반 종료(`shutdown`)/장애 재시작/업그레이드 재진입 상태 정합성(`Booting/Ready/Degraded/Stopping/Stopped`) 명시
 
+
+- 2026-02-27: WBS 9.4 설치/배포 자동화 통합 완료
+  - `docs/tauri-install-deploy-unified-flow.md`: 설치 게이트(`--check`)→빌드/패키징→실행 검증→업데이트 단일 사용자 플로우 고정
+  - `README.md`, `docs/deployment-asset-policy.md`에 빌드 산출물 포함/제외(`frontend/dist`, `target/release`, `target/**` 중간 산출물 제외) 정책 동기화
+  - Tauri installer/업데이트 진입 전 `scripts/install_*.sh|bat --check` PASS를 필수 조건으로 명시
 - 2026-02-25: WBS 8.0 설치/실행 자동화 스크립트 완료(READY)
   - `scripts/install_windows.bat`, `scripts/install_unix.sh`: 기본 모델 env 검증, 누락 시 중단, 모델 파일 확인/미존재 시 중단 또는 pull 선택지 제공
   - 설치 단계 자동화: 프론트 의존성 설치 + 프론트 빌드 + Rust release 빌드 통합
@@ -230,10 +235,10 @@
   - [x] 종료 처리(`shutdown`), 장애 재시작, 업그레이드 재진입 경로를 `engine_manager` 상태와 정합성 있게 정의
   - 기준 문서: `docs/tauri-packaging-security-baseline.md`
 
-- [ ] 9.4 설치/배포 자동화 통합
-  - [ ] 기존 설치/실행 스크립트(`scripts/install_*.sh`, `scripts/run_*.sh`)와 Tauri 배포 플로우를 1개 사용자 플로우로 통합
-  - [ ] 빌드 산출물 포함/제외(`target`, 앱 패키지 아티팩트) 정책을 `README/배포 문서`와 동기화
-  - [ ] 설치 게이트(필수 모델/의존성 확인)와 Tauri installer/업데이트 흐름 연동
+- [x] 9.4 설치/배포 자동화 통합
+  - [x] 기존 설치/실행 스크립트(`scripts/install_*.sh`, `scripts/run_*.sh`)와 Tauri 배포 플로우를 1개 사용자 플로우로 통합
+  - [x] 빌드 산출물 포함/제외(`target`, 앱 패키지 아티팩트) 정책을 `README/배포 문서`와 동기화
+  - [x] 설치 게이트(필수 모델/의존성 확인)와 Tauri installer/업데이트 흐름 연동
 
 - [ ] 9.5 릴리스 품질 게이트
   - [ ] `check_contract_drift`를 CI에서 유지하고 Tauri smoke test(기동/기능 최소 경로) 결합

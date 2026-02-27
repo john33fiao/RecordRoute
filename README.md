@@ -16,6 +16,8 @@ Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{job
 
 - 2026-04-01 업데이트: WBS 9.3 패키징/보안 기준선 문서(`docs/tauri-packaging-security-baseline.md`)를 추가하고, allowlist/CSP 최소 권한·환경변수/비밀 관리·`engine_manager` 정합 종료/재시작 정책을 확정했습니다.
 
+- 2026-02-27 업데이트: WBS 9.4 설치/배포 자동화 통합 문서(`docs/tauri-install-deploy-unified-flow.md`)를 추가하고, 설치 게이트(`scripts/install_*.sh|bat --check`) 기반 Tauri installer/업데이트 연동 및 빌드 산출물 포함/제외 정책을 동기화했습니다.
+
 ## 운영 안정화 메모 (Phase B-2)
 
 - 2026-02-25 Tauri 전환 상태 점검: **WBS 9.0은 착수 단계**이며, 현재 완료된 범위는 프론트 런타임 엔드포인트 해석(`resolveApiBaseUrl`, `resolveWebSocketUrl`)과 `VITE_TAURI_BACKEND_URL` fallback 정책까지입니다. Tauri lifecycle 기동/종료, 보안 allowlist/CSP, 패키징/릴리스 게이트는 미완료 상태로 유지합니다.
@@ -52,6 +54,14 @@ Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{job
 - 2026-02-24: OpenAPI(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)에 `GET /metrics` 경로와 metrics 응답 스키마(readiness: ready/degraded, 엔진별 queue/running, rejections)를 명시했습니다.
 - 2026-02-24: `POST /jobs` query parameter에 `audio_ms`를 추가하고, 미지정 시 기본 timeout 사용 + min/max clamp 동작을 문서화했습니다.
 - 2026-02-24: 에러 코드 enum을 현재 구현 코드(`queue_full`, `engine_full`, `engine_dispatcher_closed` 포함)와 일치하도록 재검증/동기화했습니다.
+
+
+## WBS 9.4 설치/배포 통합 기준
+
+- 단일 사용자 플로우는 `사전 점검(--check) → 빌드/패키징 → 실행 검증 → 업데이트` 순서를 따릅니다.
+- Unix/macOS/Linux는 `scripts/install_unix.sh --check`, Windows는 `scripts\install_windows.bat --check`를 설치/업데이트 진입 게이트로 사용합니다.
+- 빌드 산출물 정책: 배포 후보(`frontend/dist/**`, `target/release/recordroute-orchestrator[.exe]`)와 제외 대상(`target/**` 중간 산출물, 패키징 임시 파일)을 분리합니다.
+- 상세 기준은 `docs/tauri-install-deploy-unified-flow.md`, `docs/deployment-asset-policy.md`를 참조합니다.
 
 ## RTD(배포준비) 점검 규칙
 

@@ -84,8 +84,18 @@
 - [x] 저장소에 `/vendor`, `/models`, 빌드 산출물 정책이 `.gitignore`와 함께 반영되었는가?
 - [x] 모델 원본 없이 manifest만으로 버전/체크섬 추적이 가능한가?
 
-## 6) 관련 문서
+## 6) Tauri 설치/배포 통합 정책 (WBS 9.4)
+
+- 단일 사용자 플로우(사전 점검→빌드/패키징→실행 검증→업데이트)는
+  `docs/tauri-install-deploy-unified-flow.md`를 기준으로 유지합니다.
+- 설치 게이트는 `scripts/install_*.sh|bat --check` 결과를 단일 기준으로 사용합니다.
+- `--check` 실패(필수 모델/의존성 누락) 상태에서는 Tauri installer/업데이트 단계를 시작하지 않습니다.
+- 배포 후보에는 `frontend/dist/**`, `target/release/recordroute-orchestrator[.exe]`, 운영 문서를 포함합니다.
+- 배포/버전관리 공통 제외 대상은 `target/**` 중간 산출물, 패키징 임시 산출물, 모델 raw 데이터입니다.
+
+## 7) 관련 문서
 
 - 기준 계획: `docs/rust-cpp-backend-rewrite-plan.md`
 - 아키텍처 기준선: `docs/architecture.md`
 - 실행 단위 추적: `TODO/TODO.md`
+- Tauri 통합 가이드: `docs/tauri-install-deploy-unified-flow.md`

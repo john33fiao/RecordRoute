@@ -9,6 +9,8 @@
 
 > 2026-04-01 업데이트: WBS 9.3 기준 문서 `docs/tauri-packaging-security-baseline.md`를 추가하고 TODO/README/CLAUDE/GEMINI와 상태를 동기화.
 
+> 2026-02-27 업데이트: WBS 9.4 기준 문서 `docs/tauri-install-deploy-unified-flow.md`를 추가하고 TODO/README/CLAUDE/GEMINI와 상태를 동기화.
+
 ## 1) 프로젝트 구조 인식
 
 - `frontend/`: 운영 중인 프론트엔드 코드
@@ -31,6 +33,7 @@
 세부 정책은 `docs/rust-cpp-backend-rewrite-plan.md`를 단일 기준으로 따르며, 아키텍처 기준선은 `docs/architecture.md`를 참조합니다.
 배포/자산 세부 운영 기준은 `docs/deployment-asset-policy.md`를 참조합니다.
 Tauri 패키징/보안 기준은 `docs/tauri-packaging-security-baseline.md`를 참조합니다.
+Tauri 설치/배포 통합 플로우 기준은 `docs/tauri-install-deploy-unified-flow.md`를 참조합니다.
 `main.rs` 분할/모듈화 실무 기준은 `docs/main-rs-modularization-guide.md`를 참조합니다.
 최종 사용자 조작 절차는 `docs/user-operation-manual.md`를 참조합니다.
 운영 점검 정례화 정책은 `docs/operations/weekly-drill/README.md`를 참조합니다.
