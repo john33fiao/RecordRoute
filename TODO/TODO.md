@@ -90,6 +90,12 @@
   - CI 워크플로: `.github/workflows/contract-drift.yml`, `.github/workflows/contract-drift-check.yml`
   - 산출물 경로 규칙: `artifacts/contracts/${run_id}/contract-drift-report.json`
 
+- 2026-02-27: WBS 1.2(OpenAPI/API 계약 재정렬) 재검토 항목 점검 완료
+  - `python scripts/check_contract_drift.py --spec docs/openapi.yaml --spec docs/swagger/openapi.yaml --report artifacts/contracts/local/contract-drift-report.json` 실행 PASS
+  - `cargo run --quiet --bin check_contract_drift` 실행 PASS
+  - `docs/openapi-impl-path-param-manual-checklist.md` 기준 1:1 매핑(`POST /jobs` query `engine`,`audio_ms`, `GET /jobs/{job_id}` path-param `job_id`) PASS
+  - 주간 점검/CI 정적 점검 활성 상태(`docs/operations/weekly-drill/README.md`, `.github/workflows/contract-drift*.yml`) 확인
+
 - 2026-02-22: Phase B-1 엔진별 큐 수용량/배압(429) 스켈레톤 도입
   - `POST /jobs?engine=<stt|summarize|embed>` 라우팅 추가(기본값 `stt`)
   - 엔진별 bounded capacity 기반 큐 포화 시 `429 + queue_full|engine_full` 반환
@@ -129,12 +135,12 @@
 
 - [x] 1.1 Rust 단일 진입점/엔진 경계 문서 기준 확정
   - 근거 문서: `docs/architecture.md`, `docs/rust-cpp-backend-rewrite-plan.md`
-- [ ] 1.2 OpenAPI/API 계약을 Rust 목표 엔드포인트 기준으로 재정렬 (재검토)
+- [x] 1.2 OpenAPI/API 계약을 Rust 목표 엔드포인트 기준으로 재정렬 (재검토)
   - 재완료 조건:
-    - [ ] `docs/openapi.yaml`, `docs/swagger/openapi.yaml`에 Rust 목표 엔드포인트가 동일하게 반영되어 있다.
-    - [ ] 구현 라우트/파라미터와 OpenAPI path/query/path-param의 ***1:1 매핑 확인*** 체크를 통과했다.
-    - [ ] 계약 드리프트 점검 항목(주간 점검/CI 정적 점검)이 활성 상태다.
-    - [ ] 문서 경로 파라미터 명칭 통일(`GET /jobs/{job_id}`) 체크포인트를 통과했다.
+    - [x] `docs/openapi.yaml`, `docs/swagger/openapi.yaml`에 Rust 목표 엔드포인트가 동일하게 반영되어 있다.
+    - [x] 구현 라우트/파라미터와 OpenAPI path/query/path-param의 ***1:1 매핑 확인*** 체크를 통과했다.
+    - [x] 계약 드리프트 점검 항목(주간 점검/CI 정적 점검)이 활성 상태다.
+    - [x] 문서 경로 파라미터 명칭 통일(`GET /jobs/{job_id}`) 체크포인트를 통과했다.
 
 ## 2.0 런타임 스캐폴딩
 
