@@ -241,9 +241,12 @@
   - [x] 설치 게이트(필수 모델/의존성 확인)와 Tauri installer/업데이트 흐름 연동
 
 - [ ] 9.5 릴리스 품질 게이트
-  - [ ] `check_contract_drift`를 CI에서 유지하고 Tauri smoke test(기동/기능 최소 경로) 결합
+  - [ ] `check_contract_drift`를 CI 필수 게이트로 유지하고 Tauri smoke test(기동 + 최소 기능 경로)와 단일 워크플로에서 결합
+    - 산출물 기준: CI 로그에 contract drift 결과 + Tauri smoke 결과 + 아티팩트 경로(`artifacts/tauri-lifecycle/<ts-os-pid>/`)가 함께 남아야 함
   - [ ] WBS 1.2 재완료 규칙(`implement path/param 1:1`, path-param `job_id`)과 Tauri 런치 플로우 회귀 감시를 연동
+    - 회귀 감시 기준 엔드포인트: `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`
   - [ ] 1인 실행 스크립트 실패 시 사용자 복구 가이드(`fallback`, `재실행`, `로그 조회`)를 문서화
+    - 문서 포함 범위: `scripts/install_*.sh|bat --check` 실패 대응, `scripts/run_*.sh|bat` 재실행 순서, 로그 수집/확인 위치
 ## 다음 우선순위 (실행 단위)
 
 1. **WBS 7.4.5 운영 점검 정례화 — 완료(2026-03-30)**

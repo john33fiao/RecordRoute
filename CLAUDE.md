@@ -11,6 +11,8 @@
 
 - 2026-02-27: WBS 9.4 설치/배포 통합 기준 문서(`docs/tauri-install-deploy-unified-flow.md`) 추가 및 TODO 9.4 완료 상태 반영.
 
+- 2026-02-27: WBS 9.5 릴리스 품질 게이트 세부 체크포인트(CI 결합/`job_id` 회귀 감시/1인 복구 가이드 범위) 동기화.
+
 ## 우선 확인 순서
 
 1. `AGENTS.md`
