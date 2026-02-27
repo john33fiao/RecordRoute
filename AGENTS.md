@@ -2,7 +2,7 @@
 
 이 문서는 저장소 루트(`./`) 기준 에이전트 작업 표준입니다.
 
-> 문서 동기화 메모: 2026-03-30 기준 운영 안정화 + 운영 점검 정례화(7.4.1~7.4.5), 2026-02-25 기준 WBS 1.2 재완료 상태, 2026-02-26 기준 TODO(9.2 코드베이스 재점검 코멘트) 반영 상태를 README/CLAUDE/GEMINI/TODO와 정렬.
+> 문서 동기화 메모: 2026-03-30 기준 운영 안정화 + 운영 점검 정례화(7.4.1~7.4.5), 2026-02-25 기준 WBS 1.2 재검토 상태, 2026-02-26 기준 TODO(9.2 코드베이스 재점검 코멘트) 반영 상태를 README/CLAUDE/GEMINI/TODO와 정렬.
 > 동기화 포인트: runbook 저장 경로를 `docs/operations/weekly-drill/`로 통일, 정례화 정책/템플릿 신규 문서 반영.
 
 > 2026-02-27 업데이트: WBS 9.2 기준 문서 `docs/tauri-frontend-backend-contract-alignment.md`를 추가하고 TODO/README/CLAUDE/GEMINI와 상태를 동기화.
@@ -64,7 +64,7 @@ WBS 1.2 재완료 게이트(구현 라우트/파라미터 ↔ OpenAPI path/param
 
 
 정렬 상태 메모:
-- WBS `1.2 OpenAPI/API 계약 재정렬`은 구현 라우트/파라미터와 OpenAPI path/param 1:1 매핑 재검증 완료(수동/자동/증적 기록 충족) 상태로 관리합니다.
+- WBS `1.2 OpenAPI/API 계약 재정렬`은 구현 라우트/파라미터와 OpenAPI path/param 1:1 매핑 재검토 대상으로 관리합니다.
 - 운영 점검 정례화(7.4.1~7.4.4)에는 계약 드리프트 주간 점검(구현↔OpenAPI path/param 대조 + CI 정적 계약 점검 확인 + 경로 파라미터 명칭 일치 검증 + 기준 엔드포인트 세트 `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}` 고정)을 포함합니다.
 - OpenAPI 계약(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)은 Rust 목표 엔드포인트 기준으로 유지합니다.
 - OpenAPI 잡 상태 enum은 `queued|running|completed|failed|timeout|canceled|rejected`를 단일 기준으로 유지합니다.
