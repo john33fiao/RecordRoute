@@ -132,7 +132,7 @@
 - [ ] 1.2 OpenAPI/API 계약을 Rust 목표 엔드포인트 기준으로 재정렬 (재검토)
   - 재완료 조건:
     - [ ] `docs/openapi.yaml`, `docs/swagger/openapi.yaml`에 Rust 목표 엔드포인트가 동일하게 반영되어 있다.
-    - [ ] 구현 라우트/파라미터와 OpenAPI path/query/path-param의 **1:1 매핑 확인** 체크를 통과했다.
+    - [ ] 구현 라우트/파라미터와 OpenAPI path/query/path-param의 ***1:1 매핑 확인*** 체크를 통과했다.
     - [ ] 계약 드리프트 점검 항목(주간 점검/CI 정적 점검)이 활성 상태다.
     - [ ] 문서 경로 파라미터 명칭 통일(`GET /jobs/{job_id}`) 체크포인트를 통과했다.
 
