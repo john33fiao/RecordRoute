@@ -3,6 +3,7 @@ name = "recordroute-orchestrator"
 version = "0.1.0"
 edition = "2021"
 description = "Rust 오케스트레이터 작업 환경 스캐폴딩"
+default-run = "recordroute-orchestrator"
 
 [dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "process"] }
