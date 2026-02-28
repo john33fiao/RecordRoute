@@ -6,6 +6,12 @@
 ## 작업 로그
 
 
+- 2026-02-28: WBS 9.1/스캐폴딩 상태 정합성 재정렬
+  - 9.1 하위 항목 4건 완료 상태를 재확인하고 9.1 헤더 체크 상태를 `[x]`로 정렬
+  - Tauri 앱 스캐폴딩 실재 여부를 점검한 결과, 현 저장소에는 `src-tauri/` 디렉터리·Tauri 의존성·`tauri` CLI 실행 경로가 없음
+  - 따라서 WBS 9.x는 "lifecycle PoC 자동화(9.1 일부) 완료"와 "앱 패키징 스캐폴딩 미도입" 상태를 분리해 관리
+
+
 - 2026-04-01: WBS 9.3 패키징/보안 기준선 확정
   - `docs/tauri-packaging-security-baseline.md`: `tauri.conf.json` allowlist/CSP/파일·프레임 최소 권한 정책 고정
   - `RECORDROUTE_*` 환경변수 주입 경로, 모델 경로, 비밀 마스킹/비노출 전략 확정
@@ -218,7 +224,7 @@
 
 > 코드베이스 재점검(2026-02-26): `frontend/src/api/client.ts`, `frontend/vite.config.ts`, `frontend/src/runtime/endpoints.ts`, `frontend/src/hooks/useWebSocket.ts`, `src/bin/tauri_lifecycle_probe.rs`, `.github/workflows/tauri-lifecycle-poc.yml` 기준으로 항목 상태를 재검토했습니다.
 
-- [ ] 9.1 Tauri 런처/런타임 PoC
+- [x] 9.1 Tauri 런처/런타임 PoC
   - [x] 프론트 런타임 엔드포인트 해석 로직 단일화(`resolveApiBaseUrl`, `resolveWebSocketUrl`) 및 Tauri fallback 추가
   - [x] Rust 오케스트레이터(`recordroute-orchestrator`)와 Swagger(`swagger_server`)를 Tauri lifecycle에서 기동/종료할 수 있는지 검증 (`src/bin/tauri_lifecycle_probe.rs`)
   - [x] Windows/Linux/macOS에서 기본 포트 충돌 없이 동시 기동되는지 검증 (`.github/workflows/tauri-lifecycle-poc.yml` 매트릭스)
@@ -284,8 +290,10 @@
 - 우선순위 정렬: [P0] 기본 실행 불가 요소 우선, [P1] 기능/운영 연동, [P2] 문서/운영 정합성
 
 ### [P0] 즉시 조치
-- [ ] 9.1 체크 헤더 상태 정합성 수정: 하위 항목이 모두 완료된 상태면 9.1 헤더도 완료(`[x]`)로 정리
-- [ ] Tauri 앱 스캐폴딩 실제 유무 확인 기준을 TODO에 반영 (`src-tauri` + Tauri deps + `tauri` CLI 사용 경로)
+- [x] 9.1 체크 헤더 상태 정합성 수정: 하위 항목이 모두 완료된 상태면 9.1 헤더도 완료(`[x]`)로 정리
+- [x] Tauri 앱 스캐폴딩 실제 유무 확인 기준을 TODO에 반영 (`src-tauri` + Tauri deps + `tauri` CLI 사용 경로)
+  - 점검 기준: `src-tauri/` 존재 여부 + Tauri 의존성 선언 + `tauri` CLI 사용 경로
+  - 현재 상태(2026-02-28): 세 기준 모두 미충족(미도입). 9.5/실사용 전환 전 별도 스캐폴딩 도입 태스크로 관리 필요.
 
 ### [P1] 실사용 기능/운영 정합성
 - [ ] 기존 9.5 항목의 실제 구현 반영 정렬(단일 게이트 통합 + 드리프트-런타임 연동 + 실패복구 가이드)
