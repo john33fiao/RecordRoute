@@ -5,6 +5,8 @@
 
 > 문서 동기화: 2026-03-30 기준 운영 안정화 + 운영 점검 정례화(7.4.1~7.4.5) 완료 상태, 2026-02-26 기준 TODO(9.2 코드베이스 재점검 코멘트) 반영 상태와 정렬됨.
 
+- 2026-02-28 업데이트: TODO 9.1 헤더 체크 상태를 하위 완료 항목과 정합화했고, Tauri 앱 스캐폴딩 실재 기준(`src-tauri` + Tauri deps + `tauri` CLI 경로) 및 현재 미도입 상태를 동기화했습니다.
+
 - 2026-02-27: WBS 9.2 프론트-백 계약 정합성 기준 문서(`docs/tauri-frontend-backend-contract-alignment.md`)를 추가하고 TODO 9.2 완료 상태를 동기화했습니다.
 
 - 2026-04-01: WBS 9.3 패키징/보안 기준 문서(`docs/tauri-packaging-security-baseline.md`)를 추가하고 TODO 9.3 완료 상태를 동기화했습니다.
