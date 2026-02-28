@@ -18,6 +18,7 @@ struct ProbeSummary {
     swagger_port: u16,
     port_conflict_check: &'static str,
     startup_check: &'static str,
+    runtime_contract_check: &'static str,
     shutdown_check: &'static str,
     artifacts_dir: String,
 }
@@ -78,8 +79,17 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     )?;
 
     wait_http_ok(api_port, "/healthz", Duration::from_secs(20))?;
+    wait_http_ok(api_port, "/readyz", Duration::from_secs(20))?;
+    wait_http_ok(api_port, "/metrics", Duration::from_secs(20))?;
     wait_http_ok(swagger_port, "/", Duration::from_secs(20))?;
     wait_http_ok(swagger_port, "/openapi.yaml", Duration::from_secs(20))?;
+
+    let created_job_id = post_job_and_extract_job_id(api_port)?;
+    wait_http_ok(
+        api_port,
+        &format!("/jobs/{created_job_id}"),
+        Duration::from_secs(20),
+    )?;
 
     terminate_child(&mut swagger)?;
     terminate_child(&mut orchestrator)?;
@@ -93,6 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         swagger_port,
         port_conflict_check: "pass",
         startup_check: "pass",
+        runtime_contract_check: "pass",
         shutdown_check: "pass",
         artifacts_dir: artifacts_dir.display().to_string(),
     };
@@ -220,13 +231,45 @@ fn wait_http_ok(
 }
 
 fn get_http_status(port: u16, path: &str) -> Result<u16, Box<dyn std::error::Error + Send + Sync>> {
+    let (status, _) = send_http_request(port, "GET", path)?;
+    Ok(status)
+}
+
+fn post_job_and_extract_job_id(
+    port: u16,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let (status, body) = send_http_request(port, "POST", "/jobs?engine=stt")?;
+    if status != 202 {
+        return Err(format!("expected 202 from POST /jobs?engine=stt, got {status}").into());
+    }
+
+    let parsed: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("failed to parse POST /jobs response body as json: {e}"))?;
+
+    let job_id = parsed
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .ok_or("missing string field `job_id` in POST /jobs response")?;
+
+    if job_id.is_empty() {
+        return Err("POST /jobs returned empty job_id".into());
+    }
+
+    Ok(job_id.to_string())
+}
+
+fn send_http_request(
+    port: u16,
+    method: &str,
+    path: &str,
+) -> Result<(u16, String), Box<dyn std::error::Error + Send + Sync>> {
     let mut stream = TcpStream::connect(("127.0.0.1", port))?;
     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     stream.set_write_timeout(Some(Duration::from_secs(2)))?;
 
     let req = format!(
-        "GET {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
-        path, port
+        "{} {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+        method, path, port
     );
     stream.write_all(req.as_bytes())?;
 
@@ -239,7 +282,14 @@ fn get_http_status(port: u16, path: &str) -> Result<u16, Box<dyn std::error::Err
         .nth(1)
         .ok_or("invalid http status line")?
         .parse::<u16>()?;
-    Ok(code)
+
+    let body = raw
+        .split_once("\r\n\r\n")
+        .map(|(_, b)| b)
+        .unwrap_or_default()
+        .to_string();
+
+    Ok((code, body))
 }
 
 fn terminate_child(child: &mut Child) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
