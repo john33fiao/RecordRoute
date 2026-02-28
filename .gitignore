@@ -31,6 +31,9 @@ models/**
 target/
 build/
 
+# Contract drift CI report outputs (auto-generated; tracked via CI artifact uploads only)
+artifacts/contracts/*/
+
 # Vendor source is tracked; ignore vendor build/runtime artifacts only
 vendor/**/build/
 vendor/**/bin/

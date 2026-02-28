@@ -1,6 +1,8 @@
 name: contract-drift-check
 
 on:
+  schedule:
+    - cron: '0 1 * * 1'
   pull_request:
   push:
     branches:
