@@ -21,7 +21,7 @@
 - 주간 점검에는 계약 드리프트 점검(구현↔OpenAPI path/param 대조, CI 정적 계약 점검 로그 확인 + 경로 파라미터 명칭 일치 여부 확인 + 기준 엔드포인트 세트 `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}` 고정)을 필수 항목으로 포함하며, 회차 로그에는 CI 정적 점검 스크립트 산출물 링크/경로를 첨부합니다.
 
 - OpenAPI 계약(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)은 Rust 목표 엔드포인트(`/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`) 기준으로 정렬되어 있습니다.
-- 상태 전이/에러 코드 설명은 OpenAPI enum을 단일 기준으로 유지합니다(상태: `queued|running|completed|failed|timeout|canceled|rejected`).
+- 상태 전이/에러 코드 설명은 OpenAPI enum을 단일 기준으로 유지합니다(상태: `queued|running|completed|failed|canceled|rejected`).
 - 저장소는 Rust 전환 진행 중이며, 레거시 Python 코드는 현 저장소에 포함되어 있지 않습니다.
 - 루트에는 Rust 실행 코드가 존재하며, 문서/프론트와 함께 Rust 구현 변경도 작업 대상입니다.
 - `POST /jobs` 과부하 응답은 `429(queue_full|engine_full)`로 구분되며, 리젝션은 엔진/사유 라벨 카운트로 관측합니다.

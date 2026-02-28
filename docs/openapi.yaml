@@ -130,7 +130,6 @@ components:
         - engine_invalid_http
         - engine_invalid_json
         - engine_not_configured
-        - job_timeout
         - job_canceled
         - invalid_job_id
         - job_not_found
@@ -207,7 +206,7 @@ components:
           type: string
     JobStatus:
       type: string
-      enum: [queued, running, completed, failed, timeout, canceled, rejected]
+      enum: [queued, running, completed, failed, canceled, rejected]
     JobError:
       type: object
       required: [code, message]
