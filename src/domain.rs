@@ -42,7 +42,6 @@ pub(crate) enum JobStatus {
     Running,
     Completed,
     Failed,
-    Timeout,
     Canceled,
     Rejected,
 }
@@ -198,22 +197,6 @@ impl JobStore {
                 job.error = Some(JobError {
                     code,
                     message: format!("{} capacity exceeded ({code})", engine.as_str()),
-                });
-            }
-        });
-    }
-
-    pub(crate) fn mark_timeout(&self, job_id: &JobId, code: &'static str, message: String) {
-        self.transition(job_id, |job| {
-            if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
-                job.status = JobStatus::Timeout;
-                if job.started_at_ms.is_none() {
-                    job.started_at_ms = Some(now_ms());
-                }
-                job.finished_at_ms = Some(now_ms());
-                job.error = Some(JobError {
-                    code,
-                    message: message.clone(),
                 });
             }
         });

@@ -7,7 +7,7 @@ RecordRoute는 음성/문서 처리 파이프라인을 **Rust 중심 아키텍�
 - `frontend/`: 현재 유지 중인 웹 프론트엔드
 - `docs/`: Rust 전환/설계 문서
 
-Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{job_id}`와 엔진별 bounded queue/worker 기반 처리 흐름(queued→running→completed|failed|timeout|canceled|rejected)까지 반영되어 있으며, 엔진 슈퍼비전/전처리/Swagger 분리 배포 구성을 단계적으로 이전합니다.
+Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{job_id}`와 엔진별 bounded queue/worker 기반 처리 흐름(queued→running→completed|failed|canceled|rejected)까지 반영되어 있으며, 엔진 슈퍼비전/전처리/Swagger 분리 배포 구성을 단계적으로 이전합니다.
 
 세부 구현 방식은 `docs/implementation-notes.md`에서 최신으로 관리합니다.
 
@@ -78,12 +78,12 @@ Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{job
 - Python 기반 구 구현은 현재 저장소에 포함되어 있지 않으며, 필요 시 별도 레거시 보관소를 참조합니다.
 - Rust 오케스트레이터 + C++(llama.cpp/whisper.cpp) 엔진 분리 아키텍처를 목표로 합니다.
 - 프론트엔드는 유지하되, 향후 Rust API 계약에 맞춰 점진적으로 연결합니다.
-- 상태 전이/에러 코드 설명은 OpenAPI enum을 단일 기준으로 유지합니다(상태: `queued|running|completed|failed|timeout|canceled|rejected`).
+- 상태 전이/에러 코드 설명은 OpenAPI enum을 단일 기준으로 유지합니다(상태: `queued|running|completed|failed|canceled|rejected`).
 
 ## 목표 상태 (문서/구현 고정 기준)
 
-- 상태 전이 설명은 OpenAPI 상태 enum을 단일 기준으로 유지합니다: `queued -> running -> completed|failed|timeout|canceled`, 예외 전이 `queued -> rejected`.
-- 에러 코드 설명은 OpenAPI ErrorCode enum을 단일 기준으로 유지합니다: `queue_full|engine_full|engine_dispatcher_closed|engine_dispatcher_unavailable|engine_connect_timeout|engine_request_timeout|engine_transport_error|engine_upstream_4xx|engine_upstream_5xx|engine_retry_exhausted|engine_endpoint_invalid|engine_invalid_http|engine_invalid_json|engine_not_configured|job_timeout|job_canceled|invalid_job_id|job_not_found|not_found|method_not_allowed`.
+- 상태 전이 설명은 OpenAPI 상태 enum을 단일 기준으로 유지합니다: `queued -> running -> completed|failed|canceled`, 예외 전이 `queued -> rejected`.
+- 에러 코드 설명은 OpenAPI ErrorCode enum을 단일 기준으로 유지합니다: `queue_full|engine_full|engine_dispatcher_closed|engine_dispatcher_unavailable|engine_connect_timeout|engine_request_timeout|engine_transport_error|engine_upstream_4xx|engine_upstream_5xx|engine_retry_exhausted|engine_endpoint_invalid|engine_invalid_http|engine_invalid_json|engine_not_configured|job_canceled|invalid_job_id|job_not_found|not_found|method_not_allowed`.
 
 ## 개발 시작
 
