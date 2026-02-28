@@ -1290,6 +1290,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn post_jobs_with_wav_payload_runs_audio_preprocessing_pipeline() {
+        let client = Arc::new(MockEngineClient {
+            fail_with_5xx: Arc::new(AtomicBool::new(false)),
+            delay: Duration::from_millis(10),
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
+        });
+        let state = build_state(8, 1, client);
+
+        let wav_payload = build_test_wav_mono_pcm16(8_000, &[0, 1000, -1000, 500, -500, 0]);
+        let response =
+            route_request_with_body("POST /jobs?engine=stt HTTP/1.1", &wav_payload, &state);
+        let created_job_id = extract_job_id(&response);
+
+        wait_for_status(&state, &created_job_id, JobStatus::Completed).await;
+
+        let get_response = route_request(&format!("GET /jobs/{created_job_id} HTTP/1.1"), &state);
+        let body = extract_json_body(&get_response);
+        let normalized_bytes = body["result"]["echo"]["audio_contract"]["normalized_bytes"]
+            .as_u64()
+            .expect("normalized_bytes should be numeric");
+        let conversion_required = body["result"]["echo"]["audio_contract"]["conversion_required"]
+            .as_bool()
+            .expect("conversion_required should be bool");
+
+        assert!(normalized_bytes > 0);
+        assert!(!conversion_required);
+    }
+
+    #[tokio::test]
     async fn post_jobs_transitions_to_timeout_on_job_timeout() {
         let client = Arc::new(MockEngineClient {
             fail_with_5xx: Arc::new(AtomicBool::new(false)),
@@ -1642,5 +1672,37 @@ mod tests {
             .expect("job_id closing quote found")
             + start;
         response[start..end].to_string()
+    }
+
+    fn extract_json_body(response: &str) -> serde_json::Value {
+        let body = response
+            .split("\r\n\r\n")
+            .nth(1)
+            .expect("http response should include body");
+        serde_json::from_str(body).expect("response body should be valid json")
+    }
+
+    fn build_test_wav_mono_pcm16(sample_rate: u32, samples: &[i16]) -> Vec<u8> {
+        let data_size = (samples.len() * 2) as u32;
+        let mut out = Vec::with_capacity(44 + data_size as usize);
+
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&(36 + data_size).to_le_bytes());
+        out.extend_from_slice(b"WAVE");
+        out.extend_from_slice(b"fmt ");
+        out.extend_from_slice(&16u32.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&sample_rate.to_le_bytes());
+        out.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+        out.extend_from_slice(&2u16.to_le_bytes());
+        out.extend_from_slice(&16u16.to_le_bytes());
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&data_size.to_le_bytes());
+        for sample in samples {
+            out.extend_from_slice(&sample.to_le_bytes());
+        }
+
+        out
     }
 }
