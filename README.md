@@ -22,6 +22,8 @@ Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{job
 
 - 2026-02-27 업데이트: WBS 9.5 릴리스 품질 게이트의 세부 체크포인트(CI 결합, WBS 1.2 `job_id` 회귀 감시, 1인 복구 가이드 범위)를 TODO와 동기화했습니다.
 
+- 2026-02-28 업데이트: WBS 9.5 1차 구현으로 단일 CI 워크플로(`.github/workflows/tauri-lifecycle-poc.yml`)에 contract drift + Tauri lifecycle smoke gate를 결합했고, 1인 실패 복구 가이드(`docs/tauri-single-operator-recovery-guide.md`)를 추가했습니다.
+
 ## 운영 안정화 메모 (Phase B-2)
 
 - 2026-02-25 Tauri 전환 상태 점검: **WBS 9.0은 착수 단계**이며, 현재 완료된 범위는 프론트 런타임 엔드포인트 해석(`resolveApiBaseUrl`, `resolveWebSocketUrl`)과 `VITE_TAURI_BACKEND_URL` fallback 정책까지입니다. Tauri lifecycle 기동/종료, 보안 allowlist/CSP, 패키징/릴리스 게이트는 미완료 상태로 유지합니다.

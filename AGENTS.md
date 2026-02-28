@@ -11,6 +11,8 @@
 
 > 2026-04-01 업데이트: WBS 9.3 기준 문서 `docs/tauri-packaging-security-baseline.md`를 추가하고 TODO/README/CLAUDE/GEMINI와 상태를 동기화.
 
+> 2026-02-28 업데이트: WBS 9.5 1차 구현(단일 CI 워크플로 결합 + WBS 1.2 엔드포인트 런타임 회귀 감시 + 1인 실패 복구 가이드 `docs/tauri-single-operator-recovery-guide.md`) 상태를 TODO/README/CLAUDE/GEMINI와 동기화.
+
 > 2026-02-27 업데이트: WBS 9.4 기준 문서 `docs/tauri-install-deploy-unified-flow.md`를 추가하고 TODO/README/CLAUDE/GEMINI와 상태를 동기화.
 
 > 2026-02-27 업데이트: WBS 9.5 릴리스 품질 게이트의 세부 체크포인트(CI 결합·1.2 재완료 회귀 감시·1인 복구 가이드 범위)를 TODO/README/CLAUDE/GEMINI와 동기화.

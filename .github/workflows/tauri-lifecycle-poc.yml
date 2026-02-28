@@ -7,7 +7,34 @@ on:
       - main
 
 jobs:
+  contract-drift:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run OpenAPI contract drift check
+        run: |
+          python scripts/check_contract_drift.py \
+            --spec docs/openapi.yaml \
+            --spec docs/swagger/openapi.yaml \
+            --report artifacts/contracts/${{ github.run_id }}/contract-drift-report.json
+
+      - name: Upload contract drift artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-drift-report
+          path: artifacts/contracts/${{ github.run_id }}/contract-drift-report.json
+          if-no-files-found: error
+
   tauri-lifecycle-probe:
+    needs: contract-drift
     strategy:
       fail-fast: false
       matrix:

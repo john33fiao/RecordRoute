@@ -5,6 +5,11 @@
 
 ## 작업 로그
 
+- 2026-02-28: WBS 9.5 릴리스 품질 게이트 1차 구현
+  - `.github/workflows/tauri-lifecycle-poc.yml`에 `contract-drift` 잡을 추가하고 `tauri-lifecycle-probe` 잡이 이를 `needs`로 참조하도록 구성해 단일 워크플로에서 계약 점검 + Tauri smoke gate를 결합
+  - `src/bin/tauri_lifecycle_probe.rs`에 런타임 회귀 감시를 확장해 `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`를 1회 스모크로 검증
+  - 1인 실행 실패 복구 절차 문서 `docs/tauri-single-operator-recovery-guide.md`를 추가해 `scripts/install_*.sh|bat --check`, `scripts/run_*.sh|bat` 재실행, `artifacts/tauri-lifecycle/<ts-os-pid>/` 로그 확인 경로를 고정
+
 
 - 2026-02-28: WBS 9.1/스캐폴딩 상태 정합성 재정렬
   - 9.1 하위 항목 4건 완료 상태를 재확인하고 9.1 헤더 체크 상태를 `[x]`로 정렬
@@ -252,12 +257,12 @@
   - [x] 빌드 산출물 포함/제외(`target`, 앱 패키지 아티팩트) 정책을 `README/배포 문서`와 동기화
   - [x] 설치 게이트(필수 모델/의존성 확인)와 Tauri installer/업데이트 흐름 연동
 
-- [ ] 9.5 릴리스 품질 게이트
-  - [ ] `check_contract_drift`를 CI 필수 게이트로 유지하고 Tauri smoke test(기동 + 최소 기능 경로)와 단일 워크플로에서 결합
+- [x] 9.5 릴리스 품질 게이트
+  - [x] `check_contract_drift`를 CI 필수 게이트로 유지하고 Tauri smoke test(기동 + 최소 기능 경로)와 단일 워크플로에서 결합
     - 산출물 기준: CI 로그에 contract drift 결과 + Tauri smoke 결과 + 아티팩트 경로(`artifacts/tauri-lifecycle/<ts-os-pid>/`)가 함께 남아야 함
-  - [ ] WBS 1.2 재완료 규칙(`implement path/param 1:1`, path-param `job_id`)과 Tauri 런치 플로우 회귀 감시를 연동
+  - [x] WBS 1.2 재완료 규칙(`implement path/param 1:1`, path-param `job_id`)과 Tauri 런치 플로우 회귀 감시를 연동
     - 회귀 감시 기준 엔드포인트: `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`
-  - [ ] 1인 실행 스크립트 실패 시 사용자 복구 가이드(`fallback`, `재실행`, `로그 조회`)를 문서화
+  - [x] 1인 실행 스크립트 실패 시 사용자 복구 가이드(`fallback`, `재실행`, `로그 조회`)를 문서화
     - 문서 포함 범위: `scripts/install_*.sh|bat --check` 실패 대응, `scripts/run_*.sh|bat` 재실행 순서, 로그 수집/확인 위치
 ## 다음 우선순위 (실행 단위)
 
@@ -296,10 +301,10 @@
   - 현재 상태(2026-02-28): 세 기준 모두 미충족(미도입). 9.5/실사용 전환 전 별도 스캐폴딩 도입 태스크로 관리 필요.
 
 ### [P1] 실사용 기능/운영 정합성
-- [ ] 기존 9.5 항목의 실제 구현 반영 정렬(단일 게이트 통합 + 드리프트-런타임 연동 + 실패복구 가이드)
-  - [ ] 9.5.1 계약 점검(`check_contract_drift`)과 Tauri 라이프사이클 스모크(`tauri_lifecycle_probe`)를 단일 CI 워크플로/게이트로 통합
-  - [ ] WBS 1.2 기준 엔드포인트(`/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`)를 Tauri 실행/표시 플로우와 1:1로 연결
-  - [ ] 스모크/런타임 실패 시 사용자 복구 절차(재시작, 환경 재설치, 로그 수집, 재검증) TODO 문서 항목으로 분리
+- [x] 기존 9.5 항목의 실제 구현 반영 정렬(단일 게이트 통합 + 드리프트-런타임 연동 + 실패복구 가이드)
+  - [x] 9.5.1 계약 점검(`check_contract_drift`)과 Tauri 라이프사이클 스모크(`tauri_lifecycle_probe`)를 단일 CI 워크플로/게이트로 통합
+  - [x] WBS 1.2 기준 엔드포인트(`/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`)를 Tauri 실행/표시 플로우와 1:1로 연결
+  - [x] 스모크/런타임 실패 시 사용자 복구 절차(재시작, 환경 재설치, 로그 수집, 재검증) TODO 문서 항목으로 분리
 - [ ] 코드 완성도 강화(P0): `src/audio.rs` 정규화 유틸의 미사용 경고 제거 (`normalize_to_wav_mono_16k` 사용 경로 확정)
 - [ ] 코드 완성도 강화(P0): 업로드/전처리 파이프라인에서 `collect_mono_f32_from_f32`, `linear_resample`, `build_wav_mono_i16`를 실제 호출하도록 연결
 - [ ] 코드 완성도 강화(P1): `JobStatus::Canceled` 및 `mark_canceled`를 실제 취소 API/취소 이벤트(클라이언트 요청, 타임아웃 전환)와 연동
