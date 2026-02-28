@@ -506,7 +506,11 @@ fn handle_connection(
 
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);
     let first_line = request.lines().next().unwrap_or_default();
-    let response = route_request(first_line, state);
+    let body = request
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body.as_bytes())
+        .unwrap_or_default();
+    let response = route_request_with_body(first_line, body, state);
 
     socket.write_all(response.as_bytes())?;
     socket.flush()?;
@@ -514,7 +518,12 @@ fn handle_connection(
     Ok(())
 }
 
+#[cfg(test)]
 fn route_request(request_line: &str, state: &AppState) -> String {
+    route_request_with_body(request_line, &[], state)
+}
+
+fn route_request_with_body(request_line: &str, body: &[u8], state: &AppState) -> String {
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or_default();
     let path_with_query = parts.next().unwrap_or_default();
@@ -570,10 +579,34 @@ fn route_request(request_line: &str, state: &AppState) -> String {
 
             let job = state.jobs.create_queued_job(engine);
             let timeout_budget = derive_job_timeout_budget(engine, query, &state.config);
+            let normalized_stt_audio = if engine == EngineKind::Stt && !body.is_empty() {
+                match audio::normalize_to_wav_mono_16k(body) {
+                    Ok(audio) => Some(audio),
+                    Err(error) => {
+                        state.jobs.mark_failed(
+                            &job.job_id,
+                            "invalid_audio_payload",
+                            format!("audio normalization failed: {error}"),
+                        );
+                        return json_error_response(
+                            400,
+                            "invalid_audio_payload",
+                            "invalid or unsupported audio payload",
+                        );
+                    }
+                }
+            } else {
+                None
+            };
             let request = JobRequest {
                 job_id: job.job_id.clone(),
                 engine,
-                payload: build_engine_payload(&job.job_id, engine, timeout_budget),
+                payload: build_engine_payload(
+                    &job.job_id,
+                    engine,
+                    timeout_budget,
+                    normalized_stt_audio,
+                ),
                 timeout_budget,
                 queue_depth_guard: None,
             };
@@ -655,7 +688,12 @@ fn route_request(request_line: &str, state: &AppState) -> String {
     }
 }
 
-fn build_engine_payload(job_id: &JobId, engine: EngineKind, timeout_budget: Duration) -> Value {
+fn build_engine_payload(
+    job_id: &JobId,
+    engine: EngineKind,
+    timeout_budget: Duration,
+    normalized_stt_audio: Option<Vec<u8>>,
+) -> Value {
     let mut payload = json!({
         "job_id": job_id,
         "engine": engine.as_str(),
@@ -663,10 +701,15 @@ fn build_engine_payload(job_id: &JobId, engine: EngineKind, timeout_budget: Dura
     });
 
     if engine == EngineKind::Stt {
+        let normalized_bytes = normalized_stt_audio
+            .as_ref()
+            .map(|audio| audio.len())
+            .unwrap_or(0);
         payload["audio_contract"] = json!({
             "normalized_by": "recordroute_symphonia",
             "format": "wav_mono_pcm16_16khz",
-            "conversion_required": false,
+            "conversion_required": normalized_bytes == 0,
+            "normalized_bytes": normalized_bytes,
         });
     }
 
@@ -1225,7 +1268,25 @@ mod tests {
         let get_response = route_request(&format!("GET /jobs/{created_job_id} HTTP/1.1"), &state);
         assert!(get_response.contains("\"audio_contract\""));
         assert!(get_response.contains("\"normalized_by\":\"recordroute_symphonia\""));
-        assert!(get_response.contains("\"conversion_required\":false"));
+        assert!(get_response.contains("\"conversion_required\":true"));
+        assert!(get_response.contains("\"normalized_bytes\":0"));
+    }
+
+    #[tokio::test]
+    async fn post_jobs_rejects_invalid_stt_audio_payload() {
+        let client = Arc::new(MockEngineClient {
+            fail_with_5xx: Arc::new(AtomicBool::new(false)),
+            delay: Duration::from_millis(10),
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
+        });
+        let state = build_state(8, 1, client);
+
+        let response =
+            route_request_with_body("POST /jobs?engine=stt HTTP/1.1", b"not-audio", &state);
+
+        assert!(response.starts_with("HTTP/1.1 400 Bad Request"));
+        assert!(response.contains("\"code\":\"invalid_audio_payload\""));
     }
 
     #[tokio::test]
