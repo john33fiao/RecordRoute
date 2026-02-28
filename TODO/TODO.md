@@ -207,8 +207,22 @@
 
 ## 7.0 배포/문서 분리
 
-- [x] 7.1 API(18000) / Swagger(14000) 분리 배포 구성
-- [x] 7.2 모델 manifest 정책 및 `.gitignore` 운영 검증
+- [ ] 7.1 API(18000) / Swagger(14000) 분리 배포 구성
+  - 완료 근거:
+    - API 서버 포트/설정은 `RECORDROUTE_API_PORT`로 18000 기본값 사용 (`src/main.rs`)
+    - Swagger 서버는 별도 바이너리(`swagger_server`) + `RECORDROUTE_SWAGGER_PORT`(기본 14000)로 구동 (`src/bin/swagger_server.rs`)
+    - 분리 실행/검증 경로는 `scripts/run-swagger.sh` 및 `scripts/run_unix.sh` + `scripts/run_windows.bat`에 반영
+    - 라이프사이클 검증은 `.github/workflows/tauri-lifecycle-poc.yml`에서 orchestrator+swagger 동시 기동/종료 및 로그 수집으로 수행
+  - 미완료:
+    - `docs/deployment-asset-policy.md`의 WBS 1.2.2 체크리스트에서 `API(:18000)`와 `Swagger(:14000)` 독립 배포 정의 항목이 현재 미체크 상태여서, 기준 문서의 완료 조건이 최종적으로 충족되지 않음.
+    - 조치: 체크리스트와 배포 정의의 완료 판정 기준을 동기화해 READY 상태로 갱신 필요.
+- [ ] 7.2 모델 manifest 정책 및 `.gitignore` 운영 검증
+  - 완료 근거:
+    - `.gitignore`의 `models/**` 원본 제외 + `manifest.yml|yaml|json` 예외 규칙이 반영됨
+    - `models/*/manifest.yml`가 저장되어 운영 추적 경로를 확보 (`models/stt`, `models/text`, `models/embed`)
+  - 미완료:
+    - 현재 manifest에 `checksum_sha256: "REPLACE_WITH_REAL_SHA256"` placeholder가 남아 있어 운영 실사용 검증용 메타데이터 신뢰도를 완성하지 못함
+    - 조치: 실제 checksum/버전 메타 반영 및 산출물 검증 절차를 문서/파이프라인에 반영 필요
 - [x] 7.3 운영 점검 시나리오(장애/복구/부하) 문서화
   - 근거 문서: `docs/operations-runbook-scenarios.md`
 - [x] 7.4 운영 점검 정례화(주기/역할/합격 기준/누적 완료조건)
@@ -231,6 +245,7 @@
   - [x] 모델 파일 누락 시 선택지 제공(설치 중단 / 모델 pull 진행)
   - [x] 프론트 의존성 설치 및 빌드(`npm` 등) 수행
   - [x] Rust 빌드 수행
+  - [x] RTD 상세: `scripts/install_windows.bat`에서 env/model 점검, 모델 누락 시 `prompt/--yes-pull/--no-pull` 분기, npm/cargo prerequisite 검사, frontend/npm 빌드, `cargo build --release`가 모두 실행됨이 확인됨
 - [x] 8.2 프로젝트 설치 스크립트(macOS/Linux `.sh`) 작성
   - [x] 설치 시작 전 env 기본 모델(STT/임베딩/요약) 세팅 확인
   - [x] 기본 모델 세팅 누락 시 설치 중단
@@ -238,12 +253,15 @@
   - [x] 모델 파일 누락 시 선택지 제공(설치 중단 / 모델 pull 진행)
   - [x] 프론트 의존성 설치 및 빌드(`npm` 등) 수행
   - [x] Rust 빌드 수행
+  - [x] RTD 상세: `scripts/install_unix.sh`에서 env/model 점검, 비대화형시 기본 cancel 처리, npm/cargo prerequisite 검사, frontend/npm 빌드, `cargo build --release`가 모두 실행됨이 확인됨
 - [x] 8.3 프로젝트 실행 스크립트(Windows `.bat`) 작성
   - [x] Rust 서버 실행
   - [x] 프론트 서버 실행
+  - [x] RTD 상세: `scripts/run_windows.bat`에서 release/dev 모드 분기 후 Rust API 서버 + `npm run dev`를 각각 별도 창으로 기동
 - [x] 8.4 프로젝트 실행 스크립트(macOS/Linux `.sh`) 작성
   - [x] Rust 서버 실행
   - [x] 프론트 서버 실행
+  - [x] RTD 상세: `scripts/run_unix.sh`에서 release/dev 모드 분기 후 백그라운드로 Rust API + frontend를 동시 기동하며 종료 시 cleanup trap으로 동시 종료 처리
 
 
 ## 9.0 Tauri 데스크톱 앱 전환
@@ -253,30 +271,46 @@
 - [x] 9.1 Tauri 런처/런타임 PoC
   - [x] 프론트 런타임 엔드포인트 해석 로직 단일화(`resolveApiBaseUrl`, `resolveWebSocketUrl`) 및 Tauri fallback 추가
   - [x] Rust 오케스트레이터(`recordroute-orchestrator`)와 Swagger(`swagger_server`)를 Tauri lifecycle에서 기동/종료할 수 있는지 검증 (`src/bin/tauri_lifecycle_probe.rs`)
-  - [x] Windows/Linux/macOS에서 기본 포트 충돌 없이 동시 기동되는지 검증 (`.github/workflows/tauri-lifecycle-poc.yml` 매트릭스)
-  - [x] 앱 로그 수집/표시/회수 경로를 기존 run 스크립트(`scripts/run_*`)와 정렬 (`artifacts/tauri-lifecycle/<ts-os-pid>/`)
+  - [ ] Windows/Linux/macOS에서 기본 포트 충돌 없이 동시 기동되는지 검증 (`.github/workflows/tauri-lifecycle-poc.yml` 매트릭스)
+    - `tauri_lifecycle_probe`에서 오케스트레이터 API 포트 충돌(18010/기본값)에 대한 실패 케이스 검증은 완료됨.
+    - Swagger 포트(14010) 충돌/경합 검증이 별도 항목으로 없습니다.
+  - [ ] 앱 로그 수집/표시/회수 경로를 기존 run 스크립트(`scripts/run_*`)와 정렬 (`artifacts/tauri-lifecycle/<ts-os-pid>/`)
+    - 프로브(`src/bin/tauri_lifecycle_probe.rs`)는 `artifacts/tauri-lifecycle/<ts-os-pid>/`에 로그·요약 저장을 수행.
+    - 기존 `scripts/run_unix.sh`, `scripts/run_windows.bat`는 로그 파일 아티팩트 수집 기능이 없어 사용자 실행 경로와 정렬되지 않음.
 
 - [x] 9.2 프론트-백 계약 정합성 선결
-  - [x] 프론트엔드 API 호출 경로(`/upload`, `/process`, `/tasks`, `/progress`, `/shutdown` 등)와 Rust API 간 갭을 문서화하고 우선순위 확정
+  - [x] 프론트엔드 API 호출 경로(`/upload`, `/process`, `/tasks`, `/progress/{task_id}`, `/shutdown` 등)와 Rust API 간 갭을 문서화하고 우선순위 확정
     - 기준 문서: `docs/tauri-frontend-backend-contract-alignment.md`
     - P0: 프론트 레거시 경로와 Rust 핵심 계약(`/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`) 갭을 명시하고 단계 전환 정책을 고정
+    - 근거: 런타임에서 실제로 legacy 경로를 호출(`frontend/src/api/client.ts`)하며, `resolveApiBaseUrl`는 Rust 핵심 계약 경로로의 직접 전환 이전 단계임이 전제
   - [x] `frontend/vite.config.ts`의 프록시 대상(`http://localhost:8080`)과 런처에서 사용하는 `VITE_API_BASE_URL`를 단일 기준으로 재정의
     - `VITE_API_BASE_URL` 우선, `VITE_TAURI_BACKEND_URL` 보조, 미설정 시 `http://localhost:8080` fallback 규칙 문서화 완료
+    - 근거: `resolveDevProxyHttpTarget()` 우선순위가 코드(`frontend/vite.config.ts`)와 문서(`docs/tauri-frontend-backend-contract-alignment.md`) 모두에서 동일하게 고정됨
   - [x] `useWebSocket`의 `VITE_WS_URL`/`window.location` 기반 정책이 Tauri에서 동작할지 확인하고 필요 시 계약 고정
     - `resolveWebSocketUrl()` 정책(`VITE_WS_URL` 우선, Tauri fallback `ws://127.0.0.1:8080/ws`)을 모드별로 고정
+    - 근거: `resolveWebSocketUrl()`는 `VITE_WS_URL` → `VITE_TAURI_BACKEND_URL` 변환(`/ws`) → Tauri fallback로 동작하고, 웹 모드에서는 `window.location` 기반으로 fallback
   - [x] Tauri 도입 전/후 API 라우트 표준 (`/api/*` 래핑 여부 등) 결정
     - 신규 Rust 핵심 계약은 non-`/api` 기본, 기존 `/api/*` read-heavy endpoint는 전환 완료 전까지 한시 유지
+    - 근거: 현재 `frontend/src/api/client.ts`에 `/api/similarity-graph`는 legacy read-heavy 용도 유지로 남아있어, 문서 기준과 코드가 일치
 
-- [x] 9.3 패키징/보안 체계 수립
-  - [x] `tauri.conf.json` allowlist, CSP, 파일/프레임 권한 최소화 정책 확정
-  - [x] 환경변수 주입(`RECORDROUTE_*`, 모델 경로, 로그 레벨) 및 비밀 관리 전략 확정
-  - [x] 종료 처리(`shutdown`), 장애 재시작, 업그레이드 재진입 경로를 `engine_manager` 상태와 정합성 있게 정의
+- [ ] 9.3 패키징/보안 체계 수립
+  - [ ] `tauri.conf.json` allowlist, CSP, 파일/프레임 권한 최소화 정책 확정
+    - [x] 문서 기준(`docs/tauri-packaging-security-baseline.md`)에 정책/최소 권한 원칙을 수립 완료.
+    - [ ] 코드 레벨 증적 미확정: `src-tauri/` 디렉터리 및 `tauri.conf.json` 미생성(9.0 스캐폴딩 미도입 상태).
+  - [ ] 환경변수 주입(`RECORDROUTE_*`, 모델 경로, 로그 레벨) 및 비밀 관리 전략 확정
+    - [x] 운영 설정 네임스페이스 정렬(`RECORDROUTE_*`)은 `src/main.rs`에서 host/port/큐/동시성/타임아웃/엔진 URL 등 다수 반영.
+    - [ ] 문서에서 요구한 모델 경로(`RECORDROUTE_MODEL_ROOT`), 로그 레벨(`RECORDROUTE_LOG_LEVEL`), 비밀 규약(`RECORDROUTE_SECRET_*` 마스킹/비노출) 및 런처 주입 경로 적용 미확정.
+  - [ ] 종료 처리(`shutdown`), 장애 재시작, 업그레이드 재진입 경로를 `engine_manager` 상태와 정합성 있게 정의
+    - [x] `/shutdown` 경로가 상태 플래그를 올리고 supervisor 종료/정리와 연결되는 기본 플로우는 존재.
+    - [ ] `Booting/Ready/Degraded/Stopping/Stopped` 상태 모델과의 정합성 매핑은 문서 기준으로만 정의되어 실제 코드/상태 전이 증적은 미완료.
   - 기준 문서: `docs/tauri-packaging-security-baseline.md`
 
-- [x] 9.4 설치/배포 자동화 통합
+- [ ] 9.4 설치/배포 자동화 통합
   - [x] 기존 설치/실행 스크립트(`scripts/install_*.sh`, `scripts/run_*.sh`)와 Tauri 배포 플로우를 1개 사용자 플로우로 통합
   - [x] 빌드 산출물 포함/제외(`target`, 앱 패키지 아티팩트) 정책을 `README/배포 문서`와 동기화
-  - [x] 설치 게이트(필수 모델/의존성 확인)와 Tauri installer/업데이트 흐름 연동
+  - [ ] 설치 게이트(필수 모델/의존성 확인)와 Tauri installer/업데이트 흐름 연동
+    - 현재 상태(부분 완료): `scripts/install_*.sh|bat --check`와 문서 기준은 완비되어 있으나, `src-tauri` 스캐폴딩/installer 진입점 자체가 없어 `--check`를 설치/업데이트의 실제 강제 게이트로 호출하는 실행 경로가 없음.
+    - 미해결: `src-tauri` 부재로 `installer/auto-update` 흐름이 실물 경로에서 연결되지 않음.
 
 - [x] 9.5 릴리스 품질 게이트
   - [x] `check_contract_drift`를 CI 필수 게이트로 유지하고 Tauri smoke test(기동 + 최소 기능 경로)와 단일 워크플로에서 결합

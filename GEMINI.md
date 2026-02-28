@@ -5,22 +5,13 @@
 
 > 문서 동기화: 2026-03-30 기준 운영 안정화 + 운영 점검 정례화(7.4.1~7.4.5) 완료 상태, 2026-02-26 기준 TODO(9.2 코드베이스 재점검 코멘트) 반영 상태와 정렬됨.
 
-- 2026-02-28 업데이트: TODO 9.1 헤더 체크 상태를 하위 완료 항목과 정합화했고, Tauri 앱 스캐폴딩 실재 기준(`src-tauri` + Tauri deps + `tauri` CLI 경로) 및 현재 미도입 상태를 동기화했습니다.
-
-- 2026-02-27: WBS 9.2 프론트-백 계약 정합성 기준 문서(`docs/tauri-frontend-backend-contract-alignment.md`)를 추가하고 TODO 9.2 완료 상태를 동기화했습니다.
-
-- 2026-04-01: WBS 9.3 패키징/보안 기준 문서(`docs/tauri-packaging-security-baseline.md`)를 추가하고 TODO 9.3 완료 상태를 동기화했습니다.
-
-- 2026-02-27: WBS 9.4 설치/배포 통합 기준 문서(`docs/tauri-install-deploy-unified-flow.md`)를 추가하고 TODO 9.4 완료 상태를 동기화했습니다.
-
-- 2026-02-27: WBS 9.5 릴리스 품질 게이트 세부 체크포인트(CI 결합/`job_id` 회귀 감시/1인 복구 가이드 범위) 동기화.
-- 2026-02-28: WBS 9.5 1차 구현 반영(단일 CI 워크플로 결합 + WBS 1.2 엔드포인트 런타임 회귀 감시 + 1인 실패 복구 가이드 `docs/tauri-single-operator-recovery-guide.md`).
+세부 구현 방식은 `docs/implementation-notes.md`에서 관리합니다.
 
 ## 핵심 컨텍스트
 
-- 2026-02-25 Tauri 전환 상태 점검: WBS 9.0은 착수 단계이며, 완료 범위는 프론트 endpoint 해석 로직 단일화(`resolveApiBaseUrl`, `resolveWebSocketUrl`) + `VITE_TAURI_BACKEND_URL` fallback까지입니다. lifecycle/보안/패키징/릴리스 게이트는 미완료입니다.
+- Tauri 전환 상태 점검: WBS 9.0은 착수 단계이며, 완료 범위는 프론트 endpoint 해석 로직 단일화(`resolveApiBaseUrl`, `resolveWebSocketUrl`) + `VITE_TAURI_BACKEND_URL` fallback까지입니다. lifecycle/보안/패키징/릴리스 게이트는 미완료입니다.
 
-- 2026-03-30 이후 9.1 보강: `src/bin/tauri_lifecycle_probe.rs` + `.github/workflows/tauri-lifecycle-poc.yml`로 오케스트레이터/Swagger lifecycle 기동·종료, 포트 충돌, 3OS 매트릭스 검증, 로그 아티팩트 수집 경로(`artifacts/tauri-lifecycle/<ts-os-pid>/`)를 자동화했습니다.
+- 이후 9.1 보강: `src/bin/tauri_lifecycle_probe.rs` + `.github/workflows/tauri-lifecycle-poc.yml`로 오케스트레이터/Swagger lifecycle 기동·종료, 포트 충돌, 3OS 매트릭스 검증, 로그 아티팩트 수집 경로(`artifacts/tauri-lifecycle/<ts-os-pid>/`)를 자동화했습니다.
 - WBS 9.4 설치/배포 자동화 통합: 설치 게이트(`scripts/install_*.sh|bat --check`)를 Tauri installer/업데이트 진입 조건으로 고정하고, 빌드 산출물 포함/제외 정책을 README/배포 문서와 동기화했습니다.
 
 

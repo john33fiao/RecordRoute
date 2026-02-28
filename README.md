@@ -9,28 +9,13 @@ RecordRoute는 음성/문서 처리 파이프라인을 **Rust 중심 아키텍�
 
 Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{job_id}`와 엔진별 bounded queue/worker 기반 처리 흐름(queued→running→completed|failed|timeout|canceled|rejected)까지 반영되어 있으며, 엔진 슈퍼비전/전처리/Swagger 분리 배포 구성을 단계적으로 이전합니다.
 
+세부 구현 방식은 `docs/implementation-notes.md`에서 최신으로 관리합니다.
 
-> 문서 동기화: 2026-03-30 기준 운영 안정화 + 운영 점검 정례화(7.4.1~7.4.5), 2026-02-25 기준 WBS 1.2 재검토, 2026-02-26 기준 TODO(9.2 코드베이스 재점검 코멘트) 반영 상태와 정렬됨.
+## 운영 안정화 메모
 
-- 2026-02-28 업데이트: TODO 9.1 헤더 체크 상태를 하위 완료 항목과 정합화했고, Tauri 앱 스캐폴딩 실재 기준(`src-tauri` + Tauri deps + `tauri` CLI 경로) 및 현재 미도입 상태를 동기화했습니다.
-
-- 2026-02-27 업데이트: WBS 9.2 프론트-백 계약 정합성 선결 항목의 기준 문서(`docs/tauri-frontend-backend-contract-alignment.md`)를 추가하고, 갭 우선순위/환경변수 단일 기준/API 라우트 표준을 확정했습니다.
-
-- 2026-04-01 업데이트: WBS 9.3 패키징/보안 기준선 문서(`docs/tauri-packaging-security-baseline.md`)를 추가하고, allowlist/CSP 최소 권한·환경변수/비밀 관리·`engine_manager` 정합 종료/재시작 정책을 확정했습니다.
-
-- 2026-02-27 업데이트: WBS 9.4 설치/배포 자동화 통합 문서(`docs/tauri-install-deploy-unified-flow.md`)를 추가하고, 설치 게이트(`scripts/install_*.sh|bat --check`) 기반 Tauri installer/업데이트 연동 및 빌드 산출물 포함/제외 정책을 동기화했습니다.
-
-- 2026-02-27 업데이트: WBS 9.5 릴리스 품질 게이트의 세부 체크포인트(CI 결합, WBS 1.2 `job_id` 회귀 감시, 1인 복구 가이드 범위)를 TODO와 동기화했습니다.
-
-- 2026-02-28 업데이트: WBS 9.5 1차 구현으로 단일 CI 워크플로(`.github/workflows/tauri-lifecycle-poc.yml`)에 contract drift + Tauri lifecycle smoke gate를 결합했고, 1인 실패 복구 가이드(`docs/tauri-single-operator-recovery-guide.md`)를 추가했습니다.
-
-## 운영 안정화 메모 (Phase B-2)
-
-- 2026-02-25 Tauri 전환 상태 점검: **WBS 9.0은 착수 단계**이며, 현재 완료된 범위는 프론트 런타임 엔드포인트 해석(`resolveApiBaseUrl`, `resolveWebSocketUrl`)과 `VITE_TAURI_BACKEND_URL` fallback 정책까지입니다. Tauri lifecycle 기동/종료, 보안 allowlist/CSP, 패키징/릴리스 게이트는 미완료 상태로 유지합니다.
-
-- 2026-03-30 이후 보강: `tauri_lifecycle_probe`로 오케스트레이터+Swagger 기동/종료 및 포트 충돌 검증을 자동화했고, 3개 OS CI 매트릭스(ubuntu/windows/macos)와 로그 산출물(`artifacts/tauri-lifecycle/<ts-os-pid>/`) 업로드를 추가했습니다.
-
-- WBS `1.2 OpenAPI/API 계약 재정렬`은 구현 라우트/파라미터와 OpenAPI path/param 1:1 매핑 재검증(수동/자동/증적 기록)을 재검토 대상으로 관리합니다.
+- WBS 9.0은 착수 단계입니다. 현재 완료 범위는 프론트 런타임 엔드포인트 해석(`resolveApiBaseUrl`, `resolveWebSocketUrl`)과 `VITE_TAURI_BACKEND_URL` fallback 정책입니다. Tauri lifecycle 기동/종료, 보안 allowlist/CSP, 패키징/릴리스 게이트는 미완료입니다.
+- 오케스트레이터+Swagger 라이프사이클은 자동 smoke gate로 기동/종료·포트 충돌을 검증하고, `artifacts/tauri-lifecycle/<ts-os-pid>/`에 로그를 수집합니다.
+- WBS 1.2 OpenAPI/API 계약 재정렬은 구현 라우트/파라미터와 OpenAPI path/param 1:1 매핑 재검증(수동/자동/증적 기록)으로 운영합니다.
 - 주간 운영 점검(`docs/operations/weekly-drill/README.md`)에 계약 드리프트 점검(구현↔OpenAPI path/param 대조 + CI 정적 점검 결과 첨부) 항목이 추가되었습니다.
 - CI 정적 계약 점검은 필수 path/param 존재 여부뿐 아니라 경로 파라미터 명칭(`job_id`) 일치 여부까지 검증해야 하며, 점검 로그에는 스크립트 산출물 링크/경로를 첨부해야 합니다.
 - WBS 1.2 재완료 판정은 `docs/openapi-wbs-1.2-recompletion-gate.md` 체크리스트를 기준으로 재검토를 진행하며, 근거 문서는 `docs/openapi-impl-path-param-manual-checklist.md` 및 CI 계약 점검 워크플로(`.github/workflows/contract-drift*.yml`)입니다.
@@ -55,11 +40,12 @@ Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{job
 오디오 전처리/변환은 기존 `ffmpeg` 실행 방식 대신 Rust `symphonia` 크레이트 기반 구현을 목표 기준으로 문서화합니다.
 
 
-## API 변경 이력
+## API 및 계약 요약
 
-- 2026-02-24: OpenAPI(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)에 `GET /metrics` 경로와 metrics 응답 스키마(readiness: ready/degraded, 엔진별 queue/running, rejections)를 명시했습니다.
-- 2026-02-24: `POST /jobs` query parameter에 `audio_ms`를 추가하고, 미지정 시 기본 timeout 사용 + min/max clamp 동작을 문서화했습니다.
-- 2026-02-24: 에러 코드 enum을 현재 구현 코드(`queue_full`, `engine_full`, `engine_dispatcher_closed` 포함)와 일치하도록 재검증/동기화했습니다.
+- OpenAPI(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`) 기준으로 `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`를 정렬합니다.
+- `GET /metrics`는 readiness(ready/degraded), 엔진별 queue/running, rejection 정보를 노출합니다.
+- `POST /jobs` query parameter에 `audio_ms`를 지원하고, 미지정 시 기본 timeout을 사용하며 min/max clamp 동작으로 조정합니다.
+- 에러 코드 enum은 현재 구현 코드와 일치하도록 유지합니다(`queue_full`, `engine_full`, `engine_dispatcher_closed` 등).
 
 
 ## WBS 9.4 설치/배포 통합 기준
@@ -87,7 +73,7 @@ Rust 백엔드는 `/healthz`/`/readyz`/`/metrics` + `POST /jobs`/`GET /jobs/{job
 8. 전환 실행 WBS: `TODO/TODO.md`
 9. 에이전트 요약: `CLAUDE.md`, `GEMINI.md`
 
-## 현재 상태 (2026-02 기준)
+## 현재 상태
 
 - Python 기반 구 구현은 현재 저장소에 포함되어 있지 않으며, 필요 시 별도 레거시 보관소를 참조합니다.
 - Rust 오케스트레이터 + C++(llama.cpp/whisper.cpp) 엔진 분리 아키텍처를 목표로 합니다.

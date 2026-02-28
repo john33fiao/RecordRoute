@@ -5,17 +5,9 @@
 > 문서 동기화 메모: 2026-03-30 기준 운영 안정화 + 운영 점검 정례화(7.4.1~7.4.5), 2026-02-25 기준 WBS 1.2 재검토 상태, 2026-02-26 기준 TODO(9.2 코드베이스 재점검 코멘트) 반영 상태를 README/CLAUDE/GEMINI/TODO와 정렬.
 > 동기화 포인트: runbook 저장 경로를 `docs/operations/weekly-drill/`로 통일, 정례화 정책/템플릿 신규 문서 반영.
 
-- 2026-02-28 업데이트: TODO 9.1 헤더 체크 상태를 하위 완료 항목과 정합화했고, Tauri 앱 스캐폴딩 실재 기준(`src-tauri` + Tauri deps + `tauri` CLI 경로) 및 현재 미도입 상태를 동기화했습니다.
+## 0) 구현 방식 정리 진입점
 
-> 2026-02-27 업데이트: WBS 9.2 기준 문서 `docs/tauri-frontend-backend-contract-alignment.md`를 추가하고 TODO/README/CLAUDE/GEMINI와 상태를 동기화.
-
-> 2026-04-01 업데이트: WBS 9.3 기준 문서 `docs/tauri-packaging-security-baseline.md`를 추가하고 TODO/README/CLAUDE/GEMINI와 상태를 동기화.
-
-> 2026-02-28 업데이트: WBS 9.5 1차 구현(단일 CI 워크플로 결합 + WBS 1.2 엔드포인트 런타임 회귀 감시 + 1인 실패 복구 가이드 `docs/tauri-single-operator-recovery-guide.md`) 상태를 TODO/README/CLAUDE/GEMINI와 동기화.
-
-> 2026-02-27 업데이트: WBS 9.4 기준 문서 `docs/tauri-install-deploy-unified-flow.md`를 추가하고 TODO/README/CLAUDE/GEMINI와 상태를 동기화.
-
-> 2026-02-27 업데이트: WBS 9.5 릴리스 품질 게이트의 세부 체크포인트(CI 결합·1.2 재완료 회귀 감시·1인 복구 가이드 범위)를 TODO/README/CLAUDE/GEMINI와 동기화.
+- 상세 구현 기준은 `docs/implementation-notes.md`에서 단일 관리합니다.
 
 ## 1) 프로젝트 구조 인식
 
