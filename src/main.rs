@@ -22,6 +22,7 @@ mod domain;
 mod engine_manager;
 mod workers;
 
+use audio::normalize_to_wav_mono_16k;
 use domain::{JobId, JobStore};
 use engine_manager::{EngineManager, EngineManagerConfig, EngineProcessSpec};
 use workers::build_dispatchers;
@@ -412,7 +413,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let dispatchers = build_dispatchers(&config, jobs.clone(), engine_client);
 
-    let _engine_manager = if config.engine_supervision_enabled {
+    let engine_manager = if config.engine_supervision_enabled {
         tracing::info!("engine supervision enabled");
         Some(EngineManager::spawn(
             engine_specs_from_config(&config),
@@ -435,6 +436,11 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing::info!(%addr, "starting RecordRoute API server");
 
     tokio::task::spawn_blocking(move || run_blocking_server(addr, state)).await??;
+
+    if let Some(manager) = engine_manager {
+        manager.shutdown().await;
+    }
+
     Ok(())
 }
 
@@ -498,15 +504,19 @@ fn handle_connection(
     mut socket: TcpStream,
     state: &AppState,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut buffer = [0; 4096];
+    let mut buffer = [0; 8192];
     let bytes_read = socket.read(&mut buffer)?;
     if bytes_read == 0 {
         return Ok(());
     }
 
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-    let first_line = request.lines().next().unwrap_or_default();
-    let response = route_request(first_line, state);
+    let (head, body) = request
+        .split_once("\r\n\r\n")
+        .map(|(h, b)| (h, Some(b)))
+        .unwrap_or((&request, None));
+    let first_line = head.lines().next().unwrap_or_default();
+    let response = route_request_with_body(first_line, body, state);
 
     socket.write_all(response.as_bytes())?;
     socket.flush()?;
@@ -514,7 +524,12 @@ fn handle_connection(
     Ok(())
 }
 
+#[cfg(test)]
 fn route_request(request_line: &str, state: &AppState) -> String {
+    route_request_with_body(request_line, None, state)
+}
+
+fn route_request_with_body(request_line: &str, body: Option<&str>, state: &AppState) -> String {
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or_default();
     let path_with_query = parts.next().unwrap_or_default();
@@ -573,7 +588,7 @@ fn route_request(request_line: &str, state: &AppState) -> String {
             let request = JobRequest {
                 job_id: job.job_id.clone(),
                 engine,
-                payload: build_engine_payload(&job.job_id, engine, timeout_budget),
+                payload: build_engine_payload(&job.job_id, engine, timeout_budget, body),
                 timeout_budget,
                 queue_depth_guard: None,
             };
@@ -631,6 +646,29 @@ fn route_request(request_line: &str, state: &AppState) -> String {
                 }
             }
         }
+        ("POST", path) if path.starts_with("/jobs/") && path.ends_with("/cancel") => {
+            let Some(job_id_raw) = path
+                .strip_prefix("/jobs/")
+                .and_then(|value| value.strip_suffix("/cancel"))
+            else {
+                return json_error_response(404, "not_found", "not found");
+            };
+            let job_id_raw = job_id_raw.trim_end_matches('/');
+            let job_id = match JobId::parse(job_id_raw) {
+                Ok(job_id) => job_id,
+                Err(error) => return json_error_response(400, "invalid_job_id", error.message()),
+            };
+            if state.jobs.get_job(&job_id).is_none() {
+                return json_error_response(404, "job_not_found", "job not found");
+            }
+            state
+                .jobs
+                .mark_canceled(&job_id, "job canceled by client".to_string());
+            match state.jobs.get_job(&job_id) {
+                Some(job) => json_response(200, &job),
+                None => json_error_response(404, "job_not_found", "job not found"),
+            }
+        }
         ("GET", path) if path.starts_with("/jobs/") => {
             let job_id_raw = path.trim_start_matches("/jobs/");
             let job_id = match JobId::parse(job_id_raw) {
@@ -655,7 +693,12 @@ fn route_request(request_line: &str, state: &AppState) -> String {
     }
 }
 
-fn build_engine_payload(job_id: &JobId, engine: EngineKind, timeout_budget: Duration) -> Value {
+fn build_engine_payload(
+    job_id: &JobId,
+    engine: EngineKind,
+    timeout_budget: Duration,
+    body: Option<&str>,
+) -> Value {
     let mut payload = json!({
         "job_id": job_id,
         "engine": engine.as_str(),
@@ -668,9 +711,59 @@ fn build_engine_payload(job_id: &JobId, engine: EngineKind, timeout_budget: Dura
             "format": "wav_mono_pcm16_16khz",
             "conversion_required": false,
         });
+
+        if let Some(raw_audio_wav) = extract_audio_wav_from_json(body) {
+            if let Ok(normalized_audio) = normalize_to_wav_mono_16k(&raw_audio_wav) {
+                payload["audio_size_bytes"] = Value::from(normalized_audio.len() as u64);
+            }
+        }
     }
 
     payload
+}
+
+fn extract_audio_wav_from_json(body: Option<&str>) -> Option<Vec<u8>> {
+    let body = body?;
+    let parsed: Value = serde_json::from_str(body).ok()?;
+    let sample_rate = parsed
+        .get("audio_sample_rate_hz")
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(16_000);
+    let samples = parsed.get("audio_samples_i16")?.as_array()?;
+    let mut pcm = Vec::with_capacity(samples.len());
+    for sample in samples {
+        let value = sample.as_i64()?;
+        let clamped = value.clamp(i16::MIN as i64, i16::MAX as i64) as i16;
+        pcm.push(clamped);
+    }
+
+    Some(build_wav_mono_i16(sample_rate, &pcm))
+}
+
+fn build_wav_mono_i16(sample_rate: u32, samples: &[i16]) -> Vec<u8> {
+    let data_size = (samples.len() * 2) as u32;
+    let mut out = Vec::with_capacity(44 + data_size as usize);
+
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_size).to_le_bytes());
+    out.extend_from_slice(b"WAVE");
+    out.extend_from_slice(b"fmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    out.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+    out.extend_from_slice(&2u16.to_le_bytes());
+    out.extend_from_slice(&16u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_size.to_le_bytes());
+    for s in samples {
+        out.extend_from_slice(&s.to_le_bytes());
+    }
+
+    out
 }
 
 fn derive_job_timeout_budget(
