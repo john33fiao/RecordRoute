@@ -154,28 +154,38 @@
 - [x] 1.2 OpenAPI/API 계약을 Rust 목표 엔드포인트 기준으로 재정렬 (재검토)
   - 재완료 조건:
     - [x] `docs/openapi.yaml`, `docs/swagger/openapi.yaml`에 Rust 목표 엔드포인트가 동일하게 반영되어 있다.
-    - [x] 구현 라우트/파라미터와 OpenAPI path/query/path-param의 ***1:1 매핑 확인*** 체크를 통과했다.
-    - [x] 계약 드리프트 점검 항목(주간 점검/CI 정적 점검)이 활성 상태다.
+    - [ ] 구현 라우트/파라미터와 OpenAPI path/query/path-param의 ***1:1 매핑 확인*** 체크를 통과했다.
+    - [ ] 계약 드리프트 점검 항목(주간 점검/CI 정적 점검)이 활성 상태다.
     - [x] 문서 경로 파라미터 명칭 통일(`GET /jobs/{job_id}`) 체크포인트를 통과했다.
 
 ## 2.0 런타임 스캐폴딩
 
 - [x] 2.1 Rust 실행 진입점 및 로깅 부트스트랩 구현
 - [x] 2.2 HTTP 서버 최소 구현(`/healthz`/`/readyz`)
-- [x] 2.3 설정 로더(포트/타임아웃/큐 크기) 도입 (포트/호스트 최소값)
+- [ ] 2.3 설정 로더(포트/타임아웃/큐 크기) 도입 (포트/호스트 최소값)
 
 ## 3.0 엔진 통합 기반
 
 - [x] 3.1 엔진별 클라이언트/포트 설정 (`18101`, `18102`, `18103`)
-- [x] 3.2 엔진별 bounded queue + semaphore
+- [ ] 3.2 엔진별 bounded queue + semaphore
+  - [x] 엔진별 bounded queue(`mpsc` 채널) 분리 구성
+  - [x] 엔진별 worker pool(`concurrency` 기반)으로 동시 처리 상한 적용
+  - [ ] 429 반환을 `semaphore` 기반으로도 동일 규약에 맞게 재정리(포화 감지/표기 경로 일치)
+  - [ ] `semaphore` 도입 후 3.2 완료 기준(엔진별 queue/engine 포화 규약) 문구 재정합성 정리
 - [x] 3.3 큐 포화/엔진 포화 `429` 규약 및 메트릭 라벨 분리
 
 ## 4.0 잡 모델/오류 계약
 
 - [x] 4.1 잡 상태 전이 모델 (`queued` 초기 상태 + 조회 스켈레톤)
-- [x] 4.1-확장 잡 상태 전이 전체 모델 (`running|completed|failed|timeout|canceled|rejected`)
-- [x] 4.2 타임아웃 계층 분리 (HTTP vs Job)
-- [x] 4.3 에러 코드/응답 필드 계약 고정
+- [ ] 4.1-확장 잡 상태 전이 전체 모델 (`running|completed|failed|timeout|canceled|rejected`)
+  - 완료: 상태 enum(`queued|running|completed|failed|timeout|canceled|rejected`) 자체는 코드/문서에 존재한다 (`src/domain.rs:38-48`, `docs/openapi.yaml`, `docs/swagger/openapi.yaml`)
+  - 미완료: `timeout` 경로가 실제 전이로 사용되지 않으며, 현재 worker timeout은 `mark_canceled`로 수렴해 상태가 `canceled`/`job_canceled`로 종료됨 (`src/workers.rs:132-150`, `src/domain.rs:206-217`)
+- [ ] 4.2 타임아웃 계층 분리 (HTTP vs Job)
+  - 완료: HTTP timeout(`engine_connect_timeout`, `engine_request_timeout`)와 job timeout budget(`audio_ms` 기반 계산+clamp)는 분리되어 계산/전송된다 (`src/main.rs:775-808`, `src/main.rs:949-1062`, `src/main.rs:1185-1210`)
+  - 미완료: job timeout 초과 시 상태/코드가 `timeout`/`job_timeout`로 표기되지 않고 `canceled`/`job_canceled`로 종료됨 (`src/workers.rs:132-150`, `src/main.rs:1396-1412`)
+- [ ] 4.3 에러 코드/응답 필드 계약 고정
+  - 완료: 응답 포맷(`ErrorBody { code, message }`)은 고정되어 있으며 OpenAPI 오류 스키마와 동기화 체계를 유지함 (`src/main.rs:876-877`, `docs/openapi.yaml`, `docs/swagger/openapi.yaml`)
+  - 미완료: 구현에서 발생하는 `invalid_audio_payload` 에러코드가 OpenAPI `ErrorCode` enum에 미포함 (`src/main.rs:614-623`, `docs/openapi.yaml:116-138`)
 
 ## 5.0 오디오 전처리/처리량 정책
 
@@ -185,9 +195,15 @@
 
 ## 6.0 슈퍼비전/운영 안정성
 
-- [x] 6.1 child 생명주기 감시 + backoff 재시작
+- [ ] 6.1 child 생명주기 감시 + backoff 재시작
+  - 구현: `EngineManager::spawn` + `supervise_engine` 루프에서 child spawn/종료 감시/예외 시 backoff 재시작이 동작한다. (`/src/engine_manager.rs:66~131`, `/src/engine_manager.rs:234~257`)
+  - 미완료: 기본 실행은 `RECORDROUTE_ENGINE_SUPERVISION_ENABLED=false`로 시작되어 감독 기능이 기본 off 상태다. (`/src/main.rs:221~224`, `/src/main.rs:416~425`)
 - [x] 6.2 graceful shutdown + 강제 종료 fallback
-- [x] 6.3 degraded 상태/관측성 메트릭 반영
+  - 구현: `graceful_shutdown`에서 grace 기간 대기 후 타임아웃 시 `start_kill` fallback을 수행한다. (`/src/engine_manager.rs:199~231`)
+  - `/shutdown` 경로가 종료 플래그를 올리고, run loop 종료 후 엔진 supervisor 정리를 수행한다. (`/src/main.rs:589~597`, `/src/main.rs:446~447`)
+- [ ] 6.3 degraded 상태/관측성 메트릭 반영
+  - 구현: `/readyz`에서 `degraded` 기반 503/200 전환, `/metrics`의 readiness/engine/rejections 스냅샷 반영이 완료돼 있다. (`/src/main.rs:552~583`, `/src/main.rs:644~692`)
+  - 미완료: child/재시작 이벤트가 readiness/degraded 상태 전환에 직접 연결되지 않아, 엔진 장애 복구 상태가 항상 자동으로 degraded 반영되는 흐름이 보장되지 않는다.
 
 ## 7.0 배포/문서 분리
 
