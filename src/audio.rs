@@ -38,12 +38,7 @@ pub fn normalize_to_wav_mono_16k(input: &[u8]) -> Result<Vec<u8>, String> {
     let mut mono_f32 = Vec::<f32>::new();
     let mut input_rate = track.codec_params.sample_rate.unwrap_or(TARGET_SAMPLE_RATE);
 
-    loop {
-        let packet = match format.next_packet() {
-            Ok(packet) => packet,
-            Err(_) => break,
-        };
-
+    while let Ok(packet) = format.next_packet() {
         let decoded = decoder
             .decode(&packet)
             .map_err(|e| format!("decode failed: {e}"))?;
