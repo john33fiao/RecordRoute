@@ -5,6 +5,11 @@
 
 ## 작업 로그
 
+- 2026-02-28: `src/audio.rs` 클리피 경고 정리
+  - `normalize_to_wav_mono_16k` 디코딩 루프를 `while let Ok(packet) = format.next_packet()` 형태로 정리해 `while_let_loop` 경고 제거
+  - 기존 오디오 정규화 파이프라인 호출 경로(`collect_mono_f32_from_f32` → `linear_resample` → `build_wav_mono_i16`) 동작은 유지됨을 검증
+  - P1 코드 완성도 강화 항목(`TODO/TODO.md`)에 반영
+
 - 2026-02-28: WBS 9.5 릴리스 품질 게이트 1차 구현
   - `.github/workflows/tauri-lifecycle-poc.yml`에 `contract-drift` 잡을 추가하고 `tauri-lifecycle-probe` 잡이 이를 `needs`로 참조하도록 구성해 단일 워크플로에서 계약 점검 + Tauri smoke gate를 결합
   - `src/bin/tauri_lifecycle_probe.rs`에 런타임 회귀 감시를 확장해 `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`를 1회 스모크로 검증
@@ -305,7 +310,7 @@
   - [x] 9.5.1 계약 점검(`check_contract_drift`)과 Tauri 라이프사이클 스모크(`tauri_lifecycle_probe`)를 단일 CI 워크플로/게이트로 통합
   - [x] WBS 1.2 기준 엔드포인트(`/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`)를 Tauri 실행/표시 플로우와 1:1로 연결
   - [x] 스모크/런타임 실패 시 사용자 복구 절차(재시작, 환경 재설치, 로그 수집, 재검증) TODO 문서 항목으로 분리
-- [ ] 코드 완성도 강화(P0): `src/audio.rs` 정규화 유틸의 미사용 경고 제거 (`normalize_to_wav_mono_16k` 사용 경로 확정)
+- [x] 코드 완성도 강화(P0): `src/audio.rs` 정규화 유틸의 미사용 경고 제거 (`normalize_to_wav_mono_16k` 사용 경로 확정)
 - [ ] 코드 완성도 강화(P0): 업로드/전처리 파이프라인에서 `collect_mono_f32_from_f32`, `linear_resample`, `build_wav_mono_i16`를 실제 호출하도록 연결
 - [ ] 코드 완성도 강화(P1): `JobStatus::Canceled` 및 `mark_canceled`를 실제 취소 API/취소 이벤트(클라이언트 요청, 타임아웃 전환)와 연동
 - [ ] 코드 완성도 강화(P1): `EngineManager::shutdown`를 종료 경로와 연결해 `shutdown_tx`, `tasks` 필드의 사용 경로를 실사용으로 전환
