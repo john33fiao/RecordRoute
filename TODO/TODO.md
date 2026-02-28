@@ -292,6 +292,10 @@
   - [ ] 9.5.1 계약 점검(`check_contract_drift`)과 Tauri 라이프사이클 스모크(`tauri_lifecycle_probe`)를 단일 CI 워크플로/게이트로 통합
   - [ ] WBS 1.2 기준 엔드포인트(`/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`)를 Tauri 실행/표시 플로우와 1:1로 연결
   - [ ] 스모크/런타임 실패 시 사용자 복구 절차(재시작, 환경 재설치, 로그 수집, 재검증) TODO 문서 항목으로 분리
+- [ ] 코드 완성도 강화(P0): `src/audio.rs` 정규화 유틸의 미사용 경고 제거 (`normalize_to_wav_mono_16k` 사용 경로 확정)
+- [ ] 코드 완성도 강화(P0): 업로드/전처리 파이프라인에서 `collect_mono_f32_from_f32`, `linear_resample`, `build_wav_mono_i16`를 실제 호출하도록 연결
+- [ ] 코드 완성도 강화(P1): `JobStatus::Canceled` 및 `mark_canceled`를 실제 취소 API/취소 이벤트(클라이언트 요청, 타임아웃 전환)와 연동
+- [ ] 코드 완성도 강화(P1): `EngineManager::shutdown`를 종료 경로와 연결해 `shutdown_tx`, `tasks` 필드의 사용 경로를 실사용으로 전환
 
 ### [P2] 장기 안정화
 - [ ] 9.x 블록에서 2026-02-28 기준 상태와 목표 상태를 분리 표기(현재 상태/목표 상태 토글)
