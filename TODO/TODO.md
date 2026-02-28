@@ -269,6 +269,18 @@
     - 회귀 감시 기준 엔드포인트: `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`
   - [x] 1인 실행 스크립트 실패 시 사용자 복구 가이드(`fallback`, `재실행`, `로그 조회`)를 문서화
     - 문서 포함 범위: `scripts/install_*.sh|bat --check` 실패 대응, `scripts/run_*.sh|bat` 재실행 순서, 로그 수집/확인 위치
+- [ ] 9.6 Tauri 완전 동시 실행(프론트+백엔드 one-command) 전환
+  - [ ] 스캐폴딩 실재화: `src-tauri/` 생성, Tauri 의존성/CLI 경로 확정, `tauri.conf.json` 최소 실행 구성 추가
+  - [ ] 프로세스 오케스트레이션: Tauri lifecycle에서 `recordroute-orchestrator`와 `swagger_server`를 앱 시작/종료 훅에 연결
+  - [ ] 포트/충돌 처리: API/Swagger 포트 점유 사전 점검 + 대체 포트/실패 가이드 정책 확정
+  - [ ] readiness 게이트: 프론트 렌더 이전에 `/healthz`, `/readyz` 준비 완료를 확인하는 런처 대기 로직 도입
+  - [ ] 단일 endpoint 계약: `VITE_TAURI_BACKEND_URL` 또는 런처 주입 값과 프론트 `resolveApiBaseUrl`/`resolveWebSocketUrl` 정책을 1:1 고정
+  - [ ] 종료/복구 보장: 앱 종료 시 child graceful shutdown 및 타임아웃 강제 종료 fallback 구현
+  - [ ] 로그/증적 일원화: `artifacts/tauri-lifecycle/<ts-os-pid>/`와 사용자 로그 조회 경로를 앱 UI/문서에 동일 표기로 고정
+  - [ ] 보안/권한 점검: allowlist/CSP/파일 권한이 실제 기동 경로(모델, 로그, 업데이트)와 충돌 없는지 재검증
+  - [ ] 설치/업데이트 연동: `scripts/install_*.sh|bat --check` PASS를 installer/auto-update 진입 조건으로 강제
+  - [ ] CI 릴리스 게이트 확장: 기존 lifecycle probe에 실제 Tauri 번들 smoke(설치→기동→API 호출→종료)를 추가
+  - [ ] DoD(완료 조건) 고정: "사용자가 Tauri 1개 명령으로 앱 실행 시 프론트와 백엔드가 동시 준비"를 3OS에서 재현 가능해야 완료 처리
 ## 다음 우선순위 (실행 단위)
 
 1. **WBS 7.4.5 운영 점검 정례화 — 완료(2026-03-30)**
@@ -294,6 +306,12 @@
    - [x] 설치 단계 빌드 반영: 프론트 설치/빌드 + Rust 빌드
    - [x] 실행 스크립트 2종 작성: Windows `.bat`, macOS/Linux `.sh`
    - [x] 실행 단계 반영: Rust 서버 + 프론트 서버 실행
+
+4. **WBS 9.6 완전 동시 실행(one-command) — 신규(미착수)**
+   - [ ] Tauri 앱 스캐폴딩(`src-tauri`, `tauri.conf.json`, CLI 경로) 도입
+   - [ ] 앱 lifecycle 기반 백엔드 동시 기동/종료 연결(오케스트레이터+Swagger)
+   - [ ] readiness/포트충돌/복구/로그 수집 정책을 실행 경로에 내장
+   - [ ] 3OS CI에서 실제 Tauri 번들 smoke까지 통과 시 READY 판정
 
 ## Tauri 실사용 준비용 TODO 정리(코드베이스 기준)
 
