@@ -3,134 +3,13 @@
 이 문서는 **현재 코드베이스 기준 실제 진행 상태**를 반영한 실행 추적표입니다.
 세부 설계는 `docs/rust-cpp-backend-rewrite-plan.md`를 단일 기준으로 따릅니다.
 
-## 작업 로그
+## 작업 로그 개요
 
-- 2026-02-28: `src/audio.rs` 클리피 경고 정리
-  - `normalize_to_wav_mono_16k` 디코딩 루프를 `while let Ok(packet) = format.next_packet()` 형태로 정리해 `while_let_loop` 경고 제거
-  - 기존 오디오 정규화 파이프라인 호출 경로(`collect_mono_f32_from_f32` → `linear_resample` → `build_wav_mono_i16`) 동작은 유지됨을 검증
-  - P1 코드 완성도 강화 항목(`TODO/TODO.md`)에 반영
+날짜별 실행 로그는 아래 문서로 통합되어 있으므로, TODO는 현재 추적 항목만 유지합니다.
 
-- 2026-02-28: WBS 9.5 릴리스 품질 게이트 1차 구현
-  - `.github/workflows/tauri-lifecycle-poc.yml`에 `contract-drift` 잡을 추가하고 `tauri-lifecycle-probe` 잡이 이를 `needs`로 참조하도록 구성해 단일 워크플로에서 계약 점검 + Tauri smoke gate를 결합
-  - `src/bin/tauri_lifecycle_probe.rs`에 런타임 회귀 감시를 확장해 `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`를 1회 스모크로 검증
-  - 1인 실행 실패 복구 절차 문서 `docs/tauri-single-operator-recovery-guide.md`를 추가해 `scripts/install_*.sh|bat --check`, `scripts/run_*.sh|bat` 재실행, `artifacts/tauri-lifecycle/<ts-os-pid>/` 로그 확인 경로를 고정
-
-
-- 2026-02-28: WBS 9.1/스캐폴딩 상태 정합성 재정렬
-  - 9.1 하위 항목 4건 완료 상태를 재확인하고 9.1 헤더 체크 상태를 `[x]`로 정렬
-  - Tauri 앱 스캐폴딩 실재 여부를 점검한 결과, 현 저장소에는 `src-tauri/` 디렉터리·Tauri 의존성·`tauri` CLI 실행 경로가 없음
-  - 따라서 WBS 9.x는 "lifecycle PoC 자동화(9.1 일부) 완료"와 "앱 패키징 스캐폴딩 미도입" 상태를 분리해 관리
-
-
-- 2026-04-01: WBS 9.3 패키징/보안 기준선 확정
-  - `docs/tauri-packaging-security-baseline.md`: `tauri.conf.json` allowlist/CSP/파일·프레임 최소 권한 정책 고정
-  - `RECORDROUTE_*` 환경변수 주입 경로, 모델 경로, 비밀 마스킹/비노출 전략 확정
-  - `engine_manager` 기반 종료(`shutdown`)/장애 재시작/업그레이드 재진입 상태 정합성(`Booting/Ready/Degraded/Stopping/Stopped`) 명시
-
-
-- 2026-02-27: WBS 9.4 설치/배포 자동화 통합 완료
-  - `docs/tauri-install-deploy-unified-flow.md`: 설치 게이트(`--check`)→빌드/패키징→실행 검증→업데이트 단일 사용자 플로우 고정
-  - `README.md`, `docs/deployment-asset-policy.md`에 빌드 산출물 포함/제외(`frontend/dist`, `target/release`, `target/**` 중간 산출물 제외) 정책 동기화
-  - Tauri installer/업데이트 진입 전 `scripts/install_*.sh|bat --check` PASS를 필수 조건으로 명시
-- 2026-02-25: WBS 8.0 설치/실행 자동화 스크립트 완료(READY)
-  - `scripts/install_windows.bat`, `scripts/install_unix.sh`: 기본 모델 env 검증, 누락 시 중단, 모델 파일 확인/미존재 시 중단 또는 pull 선택지 제공
-  - 설치 단계 자동화: 프론트 의존성 설치 + 프론트 빌드 + Rust release 빌드 통합
-  - `scripts/run_windows.bat`, `scripts/run_unix.sh`: Rust 서버와 프론트 개발 서버 동시 기동 스크립트 제공
-
-- 2026-02-25: Tauri 전환 상태 점검(현황 재검증)
-  - 완료 확인: `frontend/src/runtime/endpoints.ts`에서 `resolveApiBaseUrl`/`resolveWebSocketUrl` + `VITE_TAURI_BACKEND_URL` fallback이 구현되어 9.1 선행 과제 1건만 완료
-  - 미완료 확인: Tauri lifecycle 기동/종료(오케스트레이터/Swagger), 다중 OS 포트 충돌 검증, 로그 수집 경로 정렬은 미착수
-  - 보안/배포 미완료: 패키징/릴리스 smoke gate(9.4~9.5) 미확정
-
-- 2026-02-25: WBS 9.0 Tauri 전환 선행 작업(프론트 런타임 엔드포인트 정책) 착수
-  - `frontend/src/runtime/endpoints.ts` 추가: 웹/데스크톱 런타임을 구분해 API base/WS URL 결정 로직을 단일화
-  - `VITE_API_BASE_URL`, `VITE_WS_URL` 우선 정책 유지 + `VITE_TAURI_BACKEND_URL` 단일 오버라이드 경로 추가
-  - Tauri 프로토콜(`tauri:`, `asset:`)에서는 기본 `127.0.0.1:8080` fallback을 사용해 PoC 단계의 연결 불확실성을 축소
-
-- 2026-02-24: WBS 7.4 운영 점검 정례화 정책 수립 완료 (7.4.1~7.4.4)
-  - `docs/operations/weekly-drill/README.md`: 주기/역할/시나리오별 PASS/FAIL 기준/완료 조건 고정
-  - `docs/operations/weekly-drill/_template.md`: 주간 점검 결과 템플릿 생성
-  - `docs/operations-runbook-scenarios.md` 섹션 7-1 저장 경로를 `docs/operations/weekly-drill/`로 정렬
-  - 4주 점검 일정(2026-03-02, 03-09, 03-16, 03-30) 실행 완료
-  - 7.4.5 완료 조건 달성: 4회 누적/시나리오 빈도/근거 지표/액션 관리 충족
-
-- 2026-02-23: Phase E-1 길이/예산 기반 job timeout 산정식 1차 반영
-  - `POST /jobs?engine=stt&audio_ms=<ms>` 입력 시 `job_timeout = clamp((audio_ms * per_audio_sec_ms / 1000) + buffer_ms, min, max)` 산식으로 timeout budget 계산
-  - timeout 파라미터는 환경변수(`RECORDROUTE_JOB_TIMEOUT_MIN_SECS`, `RECORDROUTE_JOB_TIMEOUT_MAX_SECS`, `RECORDROUTE_STT_TIMEOUT_PER_AUDIO_SEC_MS`, `RECORDROUTE_STT_TIMEOUT_BUFFER_MS`)로 제어
-  - 워커가 요청별 timeout budget을 사용하도록 조정하고 기존 timeout 회귀 테스트 통과 확인
-
-- 2026-02-24: WBS 7.2 모델 manifest 정책 및 `.gitignore` 운영 검증 반영
-  - `.gitignore`를 `vendor` 소스 추적 + 빌드 산출물 제외 정책으로 정렬
-  - `models/**` raw 데이터 제외 + `manifest.yml|yaml|json` 메타데이터 추적 예외 규칙 반영
-  - `docs/deployment-asset-policy.md` 체크포인트(정책 반영/manifest 추적) 완료 처리
-
-- 2026-02-24: 운영 점검 시나리오(장애/복구/부하) runbook 문서화
-  - `docs/operations-runbook-scenarios.md`에 장애 주입/복구 판정/부하(429 reason) 점검 절차 및 롤백 기준 추가
-  - WBS 7.3 항목 완료 처리
-
-- 2026-02-23: Phase E-1 whisper-server 추론 책임 한정(변환 책임 제거) 반영
-  - STT 엔진 payload에 `audio_contract`(normalized_by/format/conversion_required=false)를 명시해 변환 책임이 Rust에 있음을 고정
-  - whisper-server는 변환 없이 추론 전용 경로를 사용한다는 계약을 테스트로 검증
-
-- 2026-02-23: Phase C-1 degraded readiness/운영 메트릭 노출 반영
-  - `/readyz`가 용량 리젝션/디스패처 종료 시 `degraded` 상태를 503으로 반환하도록 조정
-  - `/metrics` 엔드포인트에 readiness(ready/degraded), 엔진별 queue/running, 리젝션(engine/reason) 스냅샷 추가
-  - 라우팅 단위 테스트(`readyz degraded`, `metrics`) 추가 및 회귀 검증
-
-- 2026-02-23: Phase B-2 429 사유 분리/리젝션 메트릭 라벨 분리 반영
-  - `POST /jobs` enqueue 실패(Full) 시 `engine_full`/`queue_full` reason을 worker 포화 기준으로 분리
-  - 엔진/사유(`engine`, `reason`) 단위 리젝션 카운터를 오케스트레이터 메모리 지표로 추가
-  - 관련 단위 테스트(사유 분기, 리젝션 카운트) 갱신 및 통과
-
-- 2026-02-24: 상태 전이/에러 코드 설명 문구를 OpenAPI enum 기준으로 고정(문서 드리프트 완화)
-  - `docs/architecture.md`, `docs/rust-cpp-backend-rewrite-plan.md`, `README.md`, `TODO/TODO.md` 상태명 표기를 `queued|running|completed|failed|timeout|canceled|rejected`로 교차 점검/정렬
-  - 상태 전이와 에러 코드 설명은 OpenAPI enum을 단일 기준 텍스트로 유지
-
-- 2026-02-23: OpenAPI/API 계약 Rust 목표 엔드포인트 정렬 상태 확인 및 WBS 반영
-  - 당시 판정 기준 OpenAPI 버전(커밋): `225c316`
-  - `docs/openapi.yaml`, `docs/swagger/openapi.yaml` 기준 엔드포인트가 `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`로 정렬됨을 재검증
-  - 잡 상태/에러 코드(enum)가 Rust 오케스트레이터 구현 계약(`queued|running|completed|failed|timeout|canceled|rejected`, `invalid_job_id`, `queue_full|engine_full` 등)과 일치함을 확인
-  - WBS `1.2 OpenAPI/API 계약 재정렬` 항목 완료 처리
-
-- 2026-02-24: WBS 1.2(OpenAPI/API 계약 재정렬) 재검토 상태로 환원
-  - 당시 판정 기준 OpenAPI 버전(커밋): `78020f1`
-  - 구현 라우트/파라미터와 OpenAPI 간 1:1 매핑 검증 대상 엔드포인트 세트를 `/healthz`, `/readyz`, `/metrics`, `POST /jobs`, `GET /jobs/{job_id}`로 고정하고 증적 부족으로 완료 판정을 보류
-  - 재완료 조건: Rust 구현 라우트/파라미터 ↔ OpenAPI path/param의 1:1 매핑 확인 체크리스트 통과
-  - 판정 체크리스트 기준 문서: `docs/openapi-wbs-1.2-recompletion-gate.md`
-  - 후속 태스크: CI에 정적 계약 점검(필수 path/param 존재 + path-param 명칭 일치 검사 스크립트) 도입
-  - 증적 규칙: 회차 로그에 CI 정적 계약 점검 스크립트 산출물 링크/경로(`artifacts/contracts/<run-id>/contract-drift-report.json` 등)를 첨부
-
-- 2026-02-25: WBS 1.2(OpenAPI/API 계약 재정렬) 재완료 판정
-  - 수동 대조 증적 문서: `docs/openapi-impl-path-param-manual-checklist.md`
-  - 정적 계약 점검: `scripts/check_contract_drift.py`, `src/bin/check_contract_drift.rs`
-  - CI 워크플로: `.github/workflows/contract-drift.yml`, `.github/workflows/contract-drift-check.yml`
-  - 산출물 경로 규칙: `artifacts/contracts/${run_id}/contract-drift-report.json`
-
-- 2026-02-27: WBS 1.2(OpenAPI/API 계약 재정렬) 재검토 항목 점검 완료
-  - `python scripts/check_contract_drift.py --spec docs/openapi.yaml --spec docs/swagger/openapi.yaml --report artifacts/contracts/local/contract-drift-report.json` 실행 PASS
-  - `cargo run --quiet --bin check_contract_drift` 실행 PASS
-  - `docs/openapi-impl-path-param-manual-checklist.md` 기준 1:1 매핑(`POST /jobs` query `engine`,`audio_ms`, `GET /jobs/{job_id}` path-param `job_id`) PASS
-  - 주간 점검/CI 정적 점검 활성 상태(`docs/operations/weekly-drill/README.md`, `.github/workflows/contract-drift*.yml`) 확인
-
-- 2026-02-22: Phase B-1 엔진별 큐 수용량/배압(429) 스켈레톤 도입
-  - `POST /jobs?engine=<stt|summarize|embed>` 라우팅 추가(기본값 `stt`)
-  - 엔진별 bounded capacity 기반 큐 포화 시 `429 + queue_full|engine_full` 반환
-  - 엔진별 큐 포화가 다른 큐 접수에는 영향을 주지 않는 단위 테스트 추가
-- 2026-02-22: Phase A+ 잡 API 스켈레톤 도입
-  - `POST /jobs`에서 `202 + job_id` 반환 구현
-  - `GET /jobs/{job_id}` 인메모리 조회(초기 상태 `queued`) 구현
-  - 향후 엔진별 큐/실행기 연동 전까지 오케스트레이터 스켈레톤 상태 유지
-- 2026-02-22: Phase A 최소 HTTP 서버 도입
-  - `tokio::net::TcpListener` 기반 API 서버 바인딩(`:18000` 기본값) 구현
-  - `/healthz`, `/readyz` 엔드포인트 및 readiness 상태 코드 분리 반영
-  - 환경변수(`RECORDROUTE_API_HOST`, `RECORDROUTE_API_PORT`) 기반 최소 설정 로더 도입
-- 2026-02-22: Rust 오케스트레이터 스캐폴딩 반영 확인
-  - 루트 `Cargo.toml` + `src/main.rs` 존재
-  - `tokio` 런타임/`tracing` 초기화 및 bootstrap 로그 출력 구현
-  - 아직 HTTP API 라우팅, 엔진 오케스트레이션, 큐/슈퍼비전은 미구현
-- 2026-02-22: 전환 문서 동기화
-  - `TODO/TODO.md` 상태를 코드베이스 기준으로 재정렬
-  - `docs/rust-cpp-backend-rewrite-plan.md`를 "현재 상태/다음 단계" 중심으로 갱신
+- 구현 기준 정리: `docs/implementation-notes.md`
+- WBS 변경 이력/이력성 로그: `README.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`
+- 정적 계약 점검 이력: `docs/openapi-wbs-1.2-recompletion-gate.md`, `docs/openapi-impl-path-param-manual-checklist.md`, `.github/workflows/contract-drift*.yml`, `artifacts/contracts/**`
 
 ## 현재 구현 스냅샷 (코드 기준)
 
