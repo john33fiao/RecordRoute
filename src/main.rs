@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    env,
     future::Future,
     io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
@@ -18,10 +17,12 @@ use tokio::sync::mpsc;
 use tracing_subscriber::{fmt as tracing_fmt, EnvFilter};
 
 mod audio;
+mod config;
 mod domain;
 mod engine_manager;
 mod workers;
 
+pub(crate) use config::AppConfig;
 use domain::{JobId, JobStore};
 use engine_manager::{EngineManager, EngineManagerConfig, EngineProcessSpec};
 use workers::build_dispatchers;
@@ -87,41 +88,6 @@ pub(crate) struct JobRequest {
     pub(crate) queue_depth_guard: Option<QueueDepthGuard>,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct AppConfig {
-    host: String,
-    api_port: u16,
-    stt_queue_capacity: usize,
-    summarize_queue_capacity: usize,
-    embed_queue_capacity: usize,
-    stt_concurrency: usize,
-    summarize_concurrency: usize,
-    embed_concurrency: usize,
-    engine_timeout_secs: u64,
-    pub(crate) job_timeout_secs: u64,
-    pub(crate) job_timeout_min_secs: u64,
-    pub(crate) job_timeout_max_secs: u64,
-    pub(crate) stt_timeout_per_audio_sec_ms: u64,
-    pub(crate) stt_timeout_buffer_ms: u64,
-    engine_connect_timeout_ms: u64,
-    engine_retry_count: usize,
-    engine_base_backoff_ms: u64,
-    stt_engine_url: String,
-    summarize_engine_url: String,
-    embed_engine_url: String,
-    engine_supervision_enabled: bool,
-    stt_engine_command: String,
-    stt_engine_args: Vec<String>,
-    summarize_engine_command: String,
-    summarize_engine_args: Vec<String>,
-    embed_engine_command: String,
-    embed_engine_args: Vec<String>,
-    engine_startup_timeout_secs: u64,
-    engine_readiness_poll_ms: u64,
-    engine_shutdown_grace_secs: u64,
-    engine_restart_backoff_base_ms: u64,
-    engine_restart_backoff_max_ms: u64,
-}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -183,91 +149,6 @@ impl Drop for QueueDepthGuard {
     }
 }
 
-impl AppConfig {
-    pub(crate) fn from_env() -> Self {
-        let host = env::var("RECORDROUTE_API_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-        let api_port = env::var("RECORDROUTE_API_PORT")
-            .ok()
-            .and_then(|value| value.parse::<u16>().ok())
-            .unwrap_or(18_000);
-
-        Self {
-            host,
-            api_port,
-            stt_queue_capacity: read_usize_env("RECORDROUTE_STT_QUEUE_CAPACITY", 1_024),
-            summarize_queue_capacity: read_usize_env("RECORDROUTE_SUMMARIZE_QUEUE_CAPACITY", 1_024),
-            embed_queue_capacity: read_usize_env("RECORDROUTE_EMBED_QUEUE_CAPACITY", 1_024),
-            stt_concurrency: read_usize_env("RECORDROUTE_STT_CONCURRENCY", 2),
-            summarize_concurrency: read_usize_env("RECORDROUTE_SUMMARIZE_CONCURRENCY", 2),
-            embed_concurrency: read_usize_env("RECORDROUTE_EMBED_CONCURRENCY", 2),
-            engine_timeout_secs: read_u64_env("RECORDROUTE_ENGINE_TIMEOUT_SECS", 60),
-            job_timeout_secs: read_u64_env("RECORDROUTE_JOB_TIMEOUT_SECS", 120),
-            job_timeout_min_secs: read_u64_env("RECORDROUTE_JOB_TIMEOUT_MIN_SECS", 30),
-            job_timeout_max_secs: read_u64_env("RECORDROUTE_JOB_TIMEOUT_MAX_SECS", 900),
-            stt_timeout_per_audio_sec_ms: read_u64_env(
-                "RECORDROUTE_STT_TIMEOUT_PER_AUDIO_SEC_MS",
-                1_500,
-            ),
-            stt_timeout_buffer_ms: read_u64_env("RECORDROUTE_STT_TIMEOUT_BUFFER_MS", 5_000),
-            engine_connect_timeout_ms: read_u64_env("RECORDROUTE_ENGINE_CONNECT_TIMEOUT_MS", 1_500),
-            engine_retry_count: read_usize_env("RECORDROUTE_ENGINE_RETRY_COUNT", 1),
-            engine_base_backoff_ms: read_u64_env("RECORDROUTE_ENGINE_BACKOFF_MS", 200),
-            stt_engine_url: env::var("RECORDROUTE_STT_ENGINE_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:18103/infer".to_string()),
-            summarize_engine_url: env::var("RECORDROUTE_SUMMARIZE_ENGINE_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:18101/infer".to_string()),
-            embed_engine_url: env::var("RECORDROUTE_EMBED_ENGINE_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:18102/infer".to_string()),
-            engine_supervision_enabled: env::var("RECORDROUTE_ENGINE_SUPERVISION_ENABLED")
-                .ok()
-                .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-                .unwrap_or(false),
-            stt_engine_command: env::var("RECORDROUTE_STT_ENGINE_COMMAND")
-                .unwrap_or_else(|_| "whisper-server".to_string()),
-            stt_engine_args: read_csv_env("RECORDROUTE_STT_ENGINE_ARGS"),
-            summarize_engine_command: env::var("RECORDROUTE_SUMMARIZE_ENGINE_COMMAND")
-                .unwrap_or_else(|_| "llama-text".to_string()),
-            summarize_engine_args: read_csv_env("RECORDROUTE_SUMMARIZE_ENGINE_ARGS"),
-            embed_engine_command: env::var("RECORDROUTE_EMBED_ENGINE_COMMAND")
-                .unwrap_or_else(|_| "llama-embed".to_string()),
-            embed_engine_args: read_csv_env("RECORDROUTE_EMBED_ENGINE_ARGS"),
-            engine_startup_timeout_secs: read_u64_env(
-                "RECORDROUTE_ENGINE_STARTUP_TIMEOUT_SECS",
-                20,
-            ),
-            engine_readiness_poll_ms: read_u64_env("RECORDROUTE_ENGINE_READINESS_POLL_MS", 500),
-            engine_shutdown_grace_secs: read_u64_env("RECORDROUTE_ENGINE_SHUTDOWN_GRACE_SECS", 5),
-            engine_restart_backoff_base_ms: read_u64_env(
-                "RECORDROUTE_ENGINE_RESTART_BACKOFF_BASE_MS",
-                500,
-            ),
-            engine_restart_backoff_max_ms: read_u64_env(
-                "RECORDROUTE_ENGINE_RESTART_BACKOFF_MAX_MS",
-                15_000,
-            ),
-        }
-    }
-
-    fn api_addr(&self) -> Result<SocketAddr, std::net::AddrParseError> {
-        format!("{}:{}", self.host, self.api_port).parse()
-    }
-
-    pub(crate) fn queue_capacity(&self, engine: EngineKind) -> usize {
-        match engine {
-            EngineKind::Stt => self.stt_queue_capacity,
-            EngineKind::Summarize => self.summarize_queue_capacity,
-            EngineKind::Embed => self.embed_queue_capacity,
-        }
-    }
-
-    pub(crate) fn concurrency(&self, engine: EngineKind) -> usize {
-        match engine {
-            EngineKind::Stt => self.stt_concurrency,
-            EngineKind::Summarize => self.summarize_concurrency,
-            EngineKind::Embed => self.embed_concurrency,
-        }
-    }
-}
 
 impl RejectionMetrics {
     fn new() -> Self {
@@ -396,7 +277,7 @@ async fn main() {
 }
 
 async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let config = AppConfig::from_env();
+    let config = AppConfig::from_env()?;
     let addr = config.api_addr()?;
     let jobs = Arc::new(JobStore::new());
     let engine_client = Arc::new(HttpEngineClient {
@@ -914,32 +795,6 @@ fn parse_engine_kind(query: Option<&str>) -> Option<EngineKind> {
     None
 }
 
-fn read_usize_env(key: &str, default: usize) -> usize {
-    env::var(key)
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(default)
-}
-
-fn read_u64_env(key: &str, default: u64) -> u64 {
-    env::var(key)
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(default)
-}
-
-fn read_csv_env(key: &str) -> Vec<String> {
-    env::var(key)
-        .ok()
-        .map(|raw| {
-            raw.split(',')
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
-}
 
 async fn sleep_backoff(base: Duration, attempt: usize) {
     let factor = 2u32.saturating_pow(attempt as u32);
@@ -1685,7 +1540,7 @@ mod tests {
             &AppState {
                 ready: true,
                 degraded: Arc::new(AtomicBool::new(false)),
-                config: Arc::new(AppConfig::from_env()),
+                config: Arc::new(AppConfig::from_env().expect("valid config from env")),
                 jobs: store,
                 dispatchers: Arc::new(HashMap::new()),
                 rejection_metrics: Arc::new(RejectionMetrics::new()),
