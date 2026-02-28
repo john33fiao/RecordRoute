@@ -683,6 +683,34 @@ fn route_request_with_body(request_line: &str, body: &[u8], state: &AppState) ->
                 None => json_error_response(404, "job_not_found", "job not found"),
             }
         }
+        ("DELETE", path) if path.starts_with("/jobs/") => {
+            let job_id_raw = path.trim_start_matches("/jobs/");
+            let job_id = match JobId::parse(job_id_raw) {
+                Ok(job_id) => job_id,
+                Err(error) => {
+                    tracing::warn!(
+                        job_id = %sanitize_for_logs(job_id_raw, 24),
+                        reason = error.message(),
+                        "invalid job_id in cancel request"
+                    );
+                    return json_error_response(400, "invalid_job_id", error.message());
+                }
+            };
+
+            if state.jobs.get_job(&job_id).is_none() {
+                return json_error_response(404, "job_not_found", "job not found");
+            }
+
+            state
+                .jobs
+                .mark_canceled(&job_id, "job canceled by client request".to_string());
+            json_response(
+                202,
+                &JobCreatedResponse {
+                    job_id: job_id.as_str(),
+                },
+            )
+        }
         ("GET", _) => json_error_response(404, "not_found", "not found"),
         _ => json_error_response(405, "method_not_allowed", "method not allowed"),
     }
@@ -1320,7 +1348,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn post_jobs_transitions_to_timeout_on_job_timeout() {
+    async fn post_jobs_transitions_to_canceled_on_job_timeout() {
         let client = Arc::new(MockEngineClient {
             fail_with_5xx: Arc::new(AtomicBool::new(false)),
             delay: Duration::from_millis(30),
@@ -1332,11 +1360,35 @@ mod tests {
         let response = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
         let created_job_id = extract_job_id(&response);
 
-        wait_for_status(&state, &created_job_id, JobStatus::Timeout).await;
+        wait_for_status(&state, &created_job_id, JobStatus::Canceled).await;
 
         let get_response = route_request(&format!("GET /jobs/{created_job_id} HTTP/1.1"), &state);
-        assert!(get_response.contains("\"status\":\"timeout\""));
-        assert!(get_response.contains("\"code\":\"job_timeout\""));
+        assert!(get_response.contains("\"status\":\"canceled\""));
+        assert!(get_response.contains("\"code\":\"job_canceled\""));
+    }
+
+    #[tokio::test]
+    async fn delete_jobs_transitions_to_canceled_on_client_request() {
+        let client = Arc::new(MockEngineClient {
+            fail_with_5xx: Arc::new(AtomicBool::new(false)),
+            delay: Duration::from_millis(120),
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
+        });
+        let state = build_state(8, 1, client);
+
+        let response = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
+        let created_job_id = extract_job_id(&response);
+
+        let cancel_response =
+            route_request(&format!("DELETE /jobs/{created_job_id} HTTP/1.1"), &state);
+        assert!(cancel_response.starts_with("HTTP/1.1 202 Accepted"));
+
+        wait_for_status(&state, &created_job_id, JobStatus::Canceled).await;
+
+        let get_response = route_request(&format!("GET /jobs/{created_job_id} HTTP/1.1"), &state);
+        assert!(get_response.contains("\"status\":\"canceled\""));
+        assert!(get_response.contains("\"code\":\"job_canceled\""));
     }
 
     #[tokio::test]
