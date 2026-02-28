@@ -34,6 +34,7 @@ struct AppState {
     jobs: Arc<JobStore>,
     dispatchers: Arc<HashMap<EngineKind, EngineDispatcher>>,
     rejection_metrics: Arc<RejectionMetrics>,
+    shutdown: Arc<AtomicBool>,
 }
 
 pub(crate) struct EngineDispatcher {
@@ -412,7 +413,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let dispatchers = build_dispatchers(&config, jobs.clone(), engine_client);
 
-    let _engine_manager = if config.engine_supervision_enabled {
+    let engine_manager = if config.engine_supervision_enabled {
         tracing::info!("engine supervision enabled");
         Some(EngineManager::spawn(
             engine_specs_from_config(&config),
@@ -430,11 +431,22 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         jobs,
         dispatchers: Arc::new(dispatchers),
         rejection_metrics: Arc::new(RejectionMetrics::new()),
+        shutdown: Arc::new(AtomicBool::new(false)),
     };
 
     tracing::info!(%addr, "starting RecordRoute API server");
 
-    tokio::task::spawn_blocking(move || run_blocking_server(addr, state)).await??;
+    let server_shutdown = state.shutdown.clone();
+    let server_task =
+        tokio::task::spawn_blocking(move || run_blocking_server(addr, state, server_shutdown));
+
+    server_task.await??;
+    tracing::info!("api server stopped");
+
+    if let Some(engine_manager) = engine_manager {
+        engine_manager.shutdown().await;
+    }
+
     Ok(())
 }
 
@@ -477,19 +489,26 @@ fn supervision_config(config: &AppConfig) -> EngineManagerConfig {
 fn run_blocking_server(
     addr: SocketAddr,
     state: AppState,
+    shutdown: Arc<AtomicBool>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let listener = TcpListener::bind(addr)?;
+    listener.set_nonblocking(true)?;
 
-    for stream in listener.incoming() {
-        match stream {
+    while !shutdown.load(Ordering::Relaxed) {
+        match listener.accept() {
             Ok(socket) => {
-                if let Err(error) = handle_connection(socket, &state) {
+                if let Err(error) = handle_connection(socket.0, &state) {
                     tracing::warn!(error = %error, "request handling failed");
                 }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(50));
             }
             Err(error) => tracing::warn!(error = %error, "incoming connection failed"),
         }
     }
+
+    tracing::info!("api server loop exited");
 
     Ok(())
 }
@@ -564,6 +583,15 @@ fn route_request_with_body(request_line: &str, body: &[u8], state: &AppState) ->
                     },
                     engines,
                     rejections: state.rejection_metrics.snapshot(),
+                },
+            )
+        }
+        ("POST", "/shutdown") => {
+            state.shutdown.store(true, Ordering::Relaxed);
+            json_response(
+                202,
+                &StatusBody {
+                    status: "shutting_down",
                 },
             )
         }
@@ -1150,6 +1178,7 @@ mod tests {
             jobs,
             dispatchers: Arc::new(dispatchers),
             rejection_metrics: Arc::new(RejectionMetrics::new()),
+            shutdown: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -1204,6 +1233,7 @@ mod tests {
             jobs,
             dispatchers: Arc::new(dispatchers),
             rejection_metrics: Arc::new(RejectionMetrics::new()),
+            shutdown: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -1218,6 +1248,21 @@ mod tests {
         let response = route_request("GET /healthz HTTP/1.1", &build_state(8, 1, client));
         assert!(response.starts_with("HTTP/1.1 200 OK"));
         assert!(response.contains("{\"status\":\"ok\"}"));
+    }
+
+    #[tokio::test]
+    async fn shutdown_route_sets_shutdown_flag() {
+        let client = Arc::new(MockEngineClient {
+            fail_with_5xx: Arc::new(AtomicBool::new(false)),
+            delay: Duration::ZERO,
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: Arc::new(AtomicUsize::new(0)),
+        });
+        let state = build_state(8, 1, client);
+
+        let response = route_request("POST /shutdown HTTP/1.1", &state);
+        assert!(response.starts_with("HTTP/1.1 202 Accepted"));
+        assert!(state.shutdown.load(Ordering::Relaxed));
     }
 
     #[tokio::test]
@@ -1644,6 +1689,7 @@ mod tests {
                 jobs: store,
                 dispatchers: Arc::new(HashMap::new()),
                 rejection_metrics: Arc::new(RejectionMetrics::new()),
+                shutdown: Arc::new(AtomicBool::new(false)),
             },
             JobStatus::Completed,
         );
