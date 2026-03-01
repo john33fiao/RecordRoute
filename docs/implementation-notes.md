@@ -28,6 +28,7 @@
 - `/metrics`는 readiness, 엔진별 queue/running, 리젝션 스냅샷을 JSON 형태로 제공한다.
 - 오케스트레이터·Swagger 라이프사이클은 `.github/workflows/tauri-lifecycle-poc.yml` 내 smoke gate에서 기동/종료·포트 충돌·3OS 매트릭스를 포함해 검증한다.
 - 회귀 로그는 `artifacts/tauri-lifecycle/<ts-os-pid>/`에 수집한다.
+- Tauri는 `cfg(debug_assertions)`를 통해 dev에서는 `cargo run`을, prod에서는 `app.shell().sidecar`를 사용해 오케스트레이터와 Swagger를 동시 실행(one-command)한다.
 
 ## 5) 배포/릴리스 방식
 

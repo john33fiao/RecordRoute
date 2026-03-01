@@ -1,0 +1,10 @@
+{
+  "os": "macos",
+  "api_port": 18010,
+  "swagger_port": 14010,
+  "port_conflict_check": "pass",
+  "startup_check": "pass",
+  "runtime_contract_check": "pass",
+  "shutdown_check": "pass",
+  "artifacts_dir": "artifacts/tauri-lifecycle/1772356985-macos-34162"
+}

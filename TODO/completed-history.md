@@ -91,3 +91,11 @@
 
 ### 9.0 Tauri 데스크톱 앱 전환 (부분 완료 항목)
 - 9.1 런타임 endpoint 해석 및 lifecycle probe 자동화 기반은 유지됨(단, 9.0 전체 완료 아님).
+
+### 4.0 잡 모델/오류 계약 (추가 완료)
+- 4.1 확장 잡 상태 전이 계약 재정렬 및 `timeout` 정책 `failed` + `job_timeout`으로 단일화. 일치 여부 정적/수동 체크리스트 완결.
+
+### 9.0 Tauri 데스크톱 앱 전환 (본격 구현)
+- 9.3 패키징/보안 체계 실구현: sidecar/`cargo run` dev vs prod 분기 로직 적용.
+- 9.4 설치/배포 자동화 통합: `src-tauri/build.rs`에 `install_unix.sh --check` 컴파일 게이트 선행 블록 강제 적용.
+- 9.6 완전 동시 실행(one-command): app lifecycle 내에서 orchestrator 와 swagger 서버 동시 구동 및 종료 구현. (dev/prod 분기 포함)

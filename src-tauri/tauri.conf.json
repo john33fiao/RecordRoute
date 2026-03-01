@@ -21,6 +21,12 @@
             "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:18000 ws://127.0.0.1:18000; script-src 'self'"
         }
     },
+    "bundle": {
+        "externalBin": [
+            "bin/recordroute-orchestrator",
+            "bin/swagger_server"
+        ]
+    },
     "plugins": {
         "globalShortcut": {
             "all": false

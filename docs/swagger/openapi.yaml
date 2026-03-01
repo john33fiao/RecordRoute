@@ -131,6 +131,7 @@ components:
         - engine_invalid_json
         - engine_not_configured
         - job_canceled
+        - job_timeout
         - invalid_audio_payload
         - invalid_job_id
         - job_not_found

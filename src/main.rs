@@ -1274,10 +1274,10 @@ mod tests {
         let response = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
         let created_job_id = extract_job_id(&response);
 
-        wait_for_status(&state, &created_job_id, JobStatus::Timeout).await;
+        wait_for_status(&state, &created_job_id, JobStatus::Failed).await;
 
         let get_response = route_request(&format!("GET /jobs/{created_job_id} HTTP/1.1"), &state);
-        assert!(get_response.contains("\"status\":\"timeout\""));
+        assert!(get_response.contains("\"status\":\"failed\""));
         assert!(get_response.contains("\"code\":\"job_timeout\""));
     }
 
