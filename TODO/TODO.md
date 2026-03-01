@@ -36,8 +36,8 @@
   - 미완료: `timeout` 경로가 실제 전이로 사용되지 않으며, 현재 worker timeout은 `mark_canceled`로 수렴해 상태가 `canceled`/`job_canceled`로 종료됨 (`src/workers.rs:132-150`, `src/domain.rs:206-217`)
 - [ ] 4.2 타임아웃 계층 분리 (HTTP vs Job)
   - 미완료: job timeout 초과 시 상태/코드가 `timeout`/`job_timeout`로 표기되지 않고 `canceled`/`job_canceled`로 종료됨 (`src/workers.rs:132-150`, `src/main.rs:1396-1412`)
-- [ ] 4.3 에러 코드/응답 필드 계약 고정
-  - 미완료: 구현에서 발생하는 `invalid_audio_payload` 에러코드가 OpenAPI `ErrorCode` enum에 미포함 (`src/main.rs:614-623`, `docs/openapi.yaml:116-138`)
+- [x] 4.3 에러 코드/응답 필드 계약 고정
+  - 완료 근거: 구현 `invalid_audio_payload` 에러코드를 OpenAPI `ErrorCode` enum(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)에 반영해 계약을 고정했습니다.
 
 ## 6.0 슈퍼비전/운영 안정성
 
