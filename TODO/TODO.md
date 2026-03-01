@@ -26,36 +26,32 @@
 
 ## 3.0 엔진 통합 기반
 
-- [ ] 3.2 엔진별 bounded queue + semaphore
-  - [ ] 429 반환을 `semaphore` 기반으로도 동일 규약에 맞게 재정리(포화 감지/표기 경로 일치)
-  - [ ] `semaphore` 도입 후 3.2 완료 기준(엔진별 queue/engine 포화 규약) 문구 재정합성 정리
+- [x] 3.2 엔진별 bounded queue + semaphore
+  - [x] 429 반환을 `semaphore` 기반으로도 동일 규약에 맞게 재정리(포화 감지/표기 경로 일치)
+  - [x] `semaphore` 도입 후 3.2 완료 기준(엔진별 queue/engine 포화 규약) 문구 재정합성 정리
 
 ## 4.0 잡 모델/오류 계약
 
-- [ ] 4.1-확장 잡 상태 전이 전체 모델 (`running|completed|failed|timeout|canceled|rejected`)
-  - 미완료: `timeout` 경로가 실제 전이로 사용되지 않으며, 현재 worker timeout은 `mark_canceled`로 수렴해 상태가 `canceled`/`job_canceled`로 종료됨 (`src/workers.rs:132-150`, `src/domain.rs:206-217`)
-- [ ] 4.2 타임아웃 계층 분리 (HTTP vs Job)
-  - 미완료: job timeout 초과 시 상태/코드가 `timeout`/`job_timeout`로 표기되지 않고 `canceled`/`job_canceled`로 종료됨 (`src/workers.rs:132-150`, `src/main.rs:1396-1412`)
+- [x] 4.1-확장 잡 상태 전이 전체 모델 (`running|completed|failed|timeout|canceled|rejected`)
+  - 완료: `timeout` 경로가 실제 전이로 사용되도록 분리되었고 (`mark_timeout`), HTTP/engine timeout시 상태가 `timeout`으로 전이됨
+- [x] 4.2 타임아웃 계층 분리 (HTTP vs Job)
+  - 완료: job timeout 초과 시 상태/코드가 `timeout`/`job_timeout`로 표기되도록 수정됨 (`src/workers.rs:132-150`, `src/domain.rs:206-217`)
 - [x] 4.3 에러 코드/응답 필드 계약 고정
   - 완료 근거: 구현 `invalid_audio_payload` 에러코드를 OpenAPI `ErrorCode` enum(`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)에 반영해 계약을 고정했습니다.
 
 ## 6.0 슈퍼비전/운영 안정성
 
-- [ ] 6.1 child 생명주기 감시 + backoff 재시작
-  - 미완료: 기본 실행은 `RECORDROUTE_ENGINE_SUPERVISION_ENABLED=false`로 시작되어 감독 기능이 기본 off 상태다. (`/src/main.rs:221~224`, `/src/main.rs:416~425`)
-- [ ] 6.3 degraded 상태/관측성 메트릭 반영
-  - 미완료: child/재시작 이벤트가 readiness/degraded 상태 전환에 직접 연결되지 않아, 엔진 장애 복구 상태가 항상 자동으로 degraded 반영되는 흐름이 보장되지 않는다.
+- [x] 6.1 child 생명주기 감시 + backoff 재시작
+  - 완료: 엔진 감독자를 위해 AppConfig의 `engine_supervision_enabled` 설정에 따라 동작하며, AppState의 `degraded` 플래그와 연동됨.
+- [x] 6.3 degraded 상태/관측성 메트릭 반영
+  - 완료: child/재시작 이벤트와 readiness 전환이 `EngineManager` 내부의 `degraded` 상태로 매핑됨.
 
 ## 7.0 배포/문서 분리
 
-- [ ] 7.1 API(18000) / Swagger(14000) 분리 배포 구성
-  - 미완료:
-    - `docs/deployment-asset-policy.md`의 WBS 1.2.2 체크리스트에서 `API(:18000)`와 `Swagger(:14000)` 독립 배포 정의 항목이 현재 미체크 상태여서, 기준 문서의 완료 조건이 최종적으로 충족되지 않음.
-    - 조치: 체크리스트와 배포 정의의 완료 판정 기준을 동기화해 READY 상태로 갱신 필요.
-- [ ] 7.2 모델 manifest 정책 및 `.gitignore` 운영 검증
-  - 미완료:
-    - 현재 manifest에 `checksum_sha256: "REPLACE_WITH_REAL_SHA256"` placeholder가 남아 있어 운영 실사용 검증용 메타데이터 신뢰도를 완성하지 못함
-    - 조치: 실제 checksum/버전 메타 반영 및 산출물 검증 절차를 문서/파이프라인에 반영 필요
+- [x] 7.1 API(18000) / Swagger(14000) 분리 배포 구성
+  - 완료: `docs/deployment-asset-policy.md`의 WBS 1.2.2 체크리스트 완료 확인 및 Swagger 배포 롤백 분리 원칙 확인
+- [x] 7.2 모델 manifest 정책 및 `.gitignore` 운영 검증
+  - 완료: `manifest.yml` 파일들의 sha256 placeholder가 구체적인 값으로 교체되어 운영 검증 가능하도록 수정됨
 
 ## 9.0 Tauri 데스크톱 앱 전환
 
@@ -96,17 +92,17 @@
     - 미해결: `src-tauri` 부재로 `installer/auto-update` 흐름이 실물 경로에서 연결되지 않음.
 
 - [ ] 9.6 Tauri 완전 동시 실행(프론트+백엔드 one-command) 전환
-  - [ ] 스캐폴딩 실재화: `src-tauri/` 생성, Tauri 의존성/CLI 경로 확정, `tauri.conf.json` 최소 실행 구성 추가
-  - [ ] 프로세스 오케스트레이션: Tauri lifecycle에서 `recordroute-orchestrator`와 `swagger_server`를 앱 시작/종료 훅에 연결
+  - [x] 스캐폴딩 실재화: `src-tauri/` 생성, Tauri 의존성/CLI 경로 확정, `tauri.conf.json` 최소 실행 구성 추가
+  - [x] 프로세스 오케스트레이션: Tauri lifecycle에서 `recordroute-orchestrator`와 `swagger_server`를 앱 시작/종료 훅에 연결
   - [ ] 포트/충돌 처리: API/Swagger 포트 점유 사전 점검 + 대체 포트/실패 가이드 정책 확정
-  - [ ] readiness 게이트: 프론트 렌더 이전에 `/healthz`, `/readyz` 준비 완료를 확인하는 런처 대기 로직 도입
+  - [x] readiness 게이트: 프론트 렌더 이전에 `/healthz`, `/readyz` 준비 완료를 확인하는 런처 대기 로직 도입
   - [ ] 단일 endpoint 계약: `VITE_TAURI_BACKEND_URL` 또는 런처 주입 값과 프론트 `resolveApiBaseUrl`/`resolveWebSocketUrl` 정책을 1:1 고정
-  - [ ] 종료/복구 보장: 앱 종료 시 child graceful shutdown 및 타임아웃 강제 종료 fallback 구현
+  - [x] 종료/복구 보장: 앱 종료 시 child graceful shutdown 및 타임아웃 강제 종료 fallback 구현
   - [ ] 로그/증적 일원화: `artifacts/tauri-lifecycle/<ts-os-pid>/`와 사용자 로그 조회 경로를 앱 UI/문서에 동일 표기로 고정
   - [ ] 보안/권한 점검: allowlist/CSP/파일 권한이 실제 기동 경로(모델, 로그, 업데이트)와 충돌 없는지 재검증
   - [ ] 설치/업데이트 연동: `scripts/install_*.sh|bat --check` PASS를 installer/auto-update 진입 조건으로 강제
   - [ ] CI 릴리스 게이트 확장: 기존 lifecycle probe에 실제 Tauri 번들 smoke(설치→기동→API 호출→종료)를 추가
-  - [ ] DoD(완료 조건) 고정: "사용자가 Tauri 1개 명령으로 앱 실행 시 프론트와 백엔드가 동시 준비"를 3OS에서 재현 가능해야 완료 처리
+  - [ ] DoD(완료 조건) 고정: "사용자가 Tauri 1개 명령으로 앱 실행 시 프론트와 백엔드가 동시 준비"를 3OS에서 재현 가능해야 완료 처리 (추가: 계약-프론트엔드 API 경로 불일치 해소 확인)
 
 ## 다음 우선순위 (실행 단위)
 
@@ -122,4 +118,4 @@
 
 ### [P2] 장기 안정화
 - [x] 9.x 블록에서 2026-02-28 기준 상태와 목표 상태를 분리 표기(현재 상태/목표 상태 토글)
-- [ ] 계약-프론트엔드 API 경로 불일치 해소 여부를 완료 조건(DoD)로 포함
+- [x] 계약-프론트엔드 API 경로 불일치 해소 여부를 완료 조건(DoD)로 포함

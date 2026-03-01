@@ -301,11 +301,14 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let dispatchers = build_dispatchers(&config, jobs.clone(), engine_client);
 
+    let state_degraded_flag = Arc::new(AtomicBool::new(false));
+
     let engine_manager = if config.engine_supervision_enabled {
         tracing::info!("engine supervision enabled");
         Some(EngineManager::spawn(
             engine_specs_from_config(&config),
             supervision_config(&config),
+            state_degraded_flag.clone(),
         ))
     } else {
         tracing::info!("engine supervision disabled");
@@ -314,7 +317,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let state = AppState {
         ready: true,
-        degraded: Arc::new(AtomicBool::new(false)),
+        degraded: state_degraded_flag,
         config: Arc::new(config.clone()),
         jobs,
         dispatchers: Arc::new(dispatchers),
@@ -1259,7 +1262,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn post_jobs_transitions_to_canceled_on_job_timeout() {
+    async fn post_jobs_transitions_to_timeout_on_job_timeout() {
         let client = Arc::new(MockEngineClient {
             fail_with_5xx: Arc::new(AtomicBool::new(false)),
             delay: Duration::from_millis(30),
@@ -1271,11 +1274,11 @@ mod tests {
         let response = route_request("POST /jobs?engine=stt HTTP/1.1", &state);
         let created_job_id = extract_job_id(&response);
 
-        wait_for_status(&state, &created_job_id, JobStatus::Canceled).await;
+        wait_for_status(&state, &created_job_id, JobStatus::Timeout).await;
 
         let get_response = route_request(&format!("GET /jobs/{created_job_id} HTTP/1.1"), &state);
-        assert!(get_response.contains("\"status\":\"canceled\""));
-        assert!(get_response.contains("\"code\":\"job_canceled\""));
+        assert!(get_response.contains("\"status\":\"timeout\""));
+        assert!(get_response.contains("\"code\":\"job_timeout\""));
     }
 
     #[tokio::test]

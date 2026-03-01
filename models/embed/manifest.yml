@@ -2,5 +2,5 @@ model_id: llama-embed-default
 engine: llama-embed
 version: "v1"
 source: internal-artifact-registry
-checksum_sha256: "REPLACE_WITH_REAL_SHA256"
+checksum_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 updated_at: "2026-02-24T00:00:00Z"

@@ -10,6 +10,7 @@ use tokio::{
     sync::watch,
     task::JoinHandle,
 };
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
 
 #[derive(Clone, Debug)]
 pub struct EngineProcessSpec {
@@ -36,7 +37,11 @@ pub struct EngineManagerConfig {
 }
 
 impl EngineManager {
-    pub fn spawn(specs: Vec<EngineProcessSpec>, config: EngineManagerConfig) -> Self {
+    pub fn spawn(
+        specs: Vec<EngineProcessSpec>,
+        config: EngineManagerConfig,
+        degraded: Arc<AtomicBool>,
+    ) -> Self {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
         let tasks = specs
@@ -44,8 +49,9 @@ impl EngineManager {
             .map(|spec| {
                 let mut rx = shutdown_rx.clone();
                 let cfg = config.clone();
+                let deg = degraded.clone();
                 tokio::spawn(async move {
-                    supervise_engine(spec, cfg, &mut rx).await;
+                    supervise_engine(spec, cfg, &mut rx, deg).await;
                 })
             })
             .collect();
@@ -67,6 +73,7 @@ async fn supervise_engine(
     spec: EngineProcessSpec,
     config: EngineManagerConfig,
     shutdown_rx: &mut watch::Receiver<bool>,
+    degraded: Arc<AtomicBool>,
 ) {
     let mut restart_attempt = 0usize;
 
@@ -86,10 +93,12 @@ async fn supervise_engine(
 
                 match wait_for_readiness(&spec, &config, shutdown_rx).await {
                     Ok(true) => {
+                        degraded.store(false, Ordering::Relaxed);
                         tracing::info!(engine = spec.name, "engine readiness passed");
                         restart_attempt = 0;
                     }
                     Ok(false) => {
+                        degraded.store(true, Ordering::Relaxed);
                         tracing::info!(
                             engine = spec.name,
                             "engine shutdown requested during startup"
@@ -98,6 +107,7 @@ async fn supervise_engine(
                         return;
                     }
                     Err(error) => {
+                        degraded.store(true, Ordering::Relaxed);
                         tracing::warn!(engine = spec.name, error = %error, "engine readiness failed");
                         let _ = graceful_shutdown(&spec, &mut child, config.shutdown_grace).await;
                         backoff_sleep(&spec, &config, restart_attempt, shutdown_rx).await;
@@ -113,6 +123,7 @@ async fn supervise_engine(
                         return;
                     }
                     status = child.wait() => {
+                        degraded.store(true, Ordering::Relaxed);
                         match status {
                             Ok(exit) => tracing::warn!(engine = spec.name, exit = %exit, "engine exited unexpectedly"),
                             Err(error) => tracing::warn!(engine = spec.name, error = %error, "failed waiting engine process"),
@@ -123,6 +134,7 @@ async fn supervise_engine(
                 }
             }
             Err(error) => {
+                degraded.store(true, Ordering::Relaxed);
                 tracing::error!(engine = spec.name, error = %error, "engine spawn failed");
                 backoff_sleep(&spec, &config, restart_attempt, shutdown_rx).await;
                 restart_attempt = restart_attempt.saturating_add(1);

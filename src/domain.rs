@@ -44,6 +44,7 @@ pub(crate) enum JobStatus {
     Failed,
     Canceled,
     Rejected,
+    Timeout,
 }
 
 #[derive(Debug)]
@@ -212,6 +213,19 @@ impl JobStore {
                 job.finished_at_ms = Some(now_ms());
                 job.error = Some(JobError {
                     code: "job_canceled",
+                    message: message.clone(),
+                });
+            }
+        });
+    }
+
+    pub(crate) fn mark_timeout(&self, job_id: &JobId, message: String) {
+        self.transition(job_id, |job| {
+            if job.status == JobStatus::Running {
+                job.status = JobStatus::Timeout;
+                job.finished_at_ms = Some(now_ms());
+                job.error = Some(JobError {
+                    code: "job_timeout",
                     message: message.clone(),
                 });
             }

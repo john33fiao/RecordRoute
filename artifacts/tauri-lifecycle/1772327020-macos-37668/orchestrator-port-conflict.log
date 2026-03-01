@@ -1,0 +1,7 @@
+[2m2026-03-01T01:03:42.027657Z[0m [32m INFO[0m [2mrecordroute_orchestrator[0m[2m:[0m engine supervision disabled
+[2m2026-03-01T01:03:42.028001Z[0m [32m INFO[0m [2mrecordroute_orchestrator[0m[2m:[0m starting RecordRoute API server [3maddr[0m[2m=[0m127.0.0.1:18010
+[2m2026-03-01T01:03:42.028220Z[0m [31mERROR[0m [2mrecordroute_orchestrator[0m[2m:[0m server terminated with error [3merror[0m[2m=[0mAddress already in use (os error 48)
+[2m2026-03-01T01:03:42.028232Z[0m [32m INFO[0m [2mrecordroute_orchestrator::workers[0m[2m:[0m worker channel closed [3mengine[0m[2m=[0m"embed" [3mworker_index[0m[2m=[0m0
+[2m2026-03-01T01:03:42.028248Z[0m [32m INFO[0m [2mrecordroute_orchestrator::workers[0m[2m:[0m worker channel closed [3mengine[0m[2m=[0m"stt" [3mworker_index[0m[2m=[0m1
+[2m2026-03-01T01:03:42.028220Z[0m [32m INFO[0m [2mrecordroute_orchestrator::workers[0m[2m:[0m worker channel closed [3mengine[0m[2m=[0m"summarize" [3mworker_index[0m[2m=[0m1
+[2m2026-03-01T01:03:42.028325Z[0m [32m INFO[0m [2mrecordroute_orchestrator::workers[0m[2m:[0m worker channel closed [3mengine[0m[2m=[0m"embed" [3mworker_index[0m[2m=[0m1

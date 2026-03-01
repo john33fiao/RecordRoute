@@ -147,10 +147,10 @@ pub fn spawn_worker_pool(
                     }
                     Err(_) => {
                         let latency_ms = start.elapsed().as_millis() as u64;
-                        jobs.mark_canceled(
+                        jobs.mark_timeout(
                             &request.job_id,
                             format!(
-                                "job canceled after timeout budget exceeded: {} ms",
+                                "job timed out after timeout budget exceeded: {} ms",
                                 timeout_budget.as_millis()
                             ),
                         );
@@ -158,10 +158,10 @@ pub fn spawn_worker_pool(
                             job_id = %request.job_id.safe_for_logs(),
                             engine = engine.as_str(),
                             worker_index,
-                            status_transition = "running->canceled",
+                            status_transition = "running->timeout",
                             latency_ms,
-                            error_code = "job_canceled",
-                            "job canceled due to timeout budget"
+                            error_code = "job_timeout",
+                            "job timed out due to timeout budget"
                         );
                     }
                 }
