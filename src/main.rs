@@ -13,7 +13,7 @@ use std::{
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 use tracing_subscriber::{fmt as tracing_fmt, EnvFilter};
 
 mod audio;
@@ -43,6 +43,11 @@ pub(crate) struct EngineDispatcher {
     pub(crate) queue_depth: Arc<AtomicUsize>,
     pub(crate) queue_capacity: usize,
     pub(crate) worker_count: usize,
+    /// Semaphore with `worker_count` permits. Each worker acquires one permit
+    /// before calling the engine and releases it when done. `available_permits() == 0`
+    /// means all engine slots are busy (`engine_full`); any available permits mean
+    /// the queue is the binding constraint (`queue_full`).
+    pub(crate) engine_semaphore: Arc<Semaphore>,
 }
 
 #[derive(Debug)]
@@ -70,6 +75,8 @@ struct EngineMetrics {
     queue_capacity: usize,
     worker_count: usize,
     running: usize,
+    /// Number of workers currently holding an engine semaphore permit (active engine calls).
+    engine_active: usize,
 }
 
 #[derive(Serialize)]
@@ -451,6 +458,9 @@ fn route_request_with_body(request_line: &str, body: &[u8], state: &AppState) ->
                             queue_capacity: dispatcher.queue_capacity,
                             worker_count: dispatcher.worker_count,
                             running: state.jobs.running_count(*engine),
+                            engine_active: dispatcher.worker_count.saturating_sub(
+                                dispatcher.engine_semaphore.available_permits(),
+                            ),
                         })
                 })
                 .collect();
@@ -532,7 +542,7 @@ fn route_request_with_body(request_line: &str, body: &[u8], state: &AppState) ->
                 }
                 Err(QueueEnqueueError::Full) => {
                     state.degraded.store(true, Ordering::Relaxed);
-                    let reason = rejection_reason_for_full(engine, dispatcher, &state.jobs);
+                    let reason = rejection_reason_for_full(dispatcher);
                     let rejection_count = state.rejection_metrics.increment(engine, reason);
                     state
                         .jobs
@@ -697,13 +707,14 @@ fn query_u64(query: &str, key: &str) -> Option<u64> {
         .and_then(|v| v.parse::<u64>().ok())
 }
 
-fn rejection_reason_for_full(
-    engine: EngineKind,
-    dispatcher: &EngineDispatcher,
-    jobs: &JobStore,
-) -> &'static str {
-    let running = jobs.running_count(engine);
-    if running >= dispatcher.worker_count {
+/// Determines whether a 429 rejection is due to the engine being saturated
+/// (`engine_full`) or the bounded queue being full (`queue_full`).
+///
+/// Uses the per-engine semaphore as the authoritative source: if no permits
+/// are available, all workers are actively executing engine calls (`engine_full`);
+/// otherwise the queue is the binding constraint (`queue_full`).
+fn rejection_reason_for_full(dispatcher: &EngineDispatcher) -> &'static str {
+    if dispatcher.engine_semaphore.available_permits() == 0 {
         "engine_full"
     } else {
         "queue_full"
@@ -1365,28 +1376,26 @@ mod tests {
 
     #[test]
     fn full_rejection_reason_distinguishes_queue_vs_engine_pressure() {
-        let jobs = JobStore::new();
-        let queued_job = jobs.create_queued_job(EngineKind::Stt);
-
+        // Semaphore has available permits → queue is the binding constraint.
         let queue_pressure_dispatcher = EngineDispatcher {
             sender: tokio::sync::mpsc::channel(1).0,
             queue_depth: Arc::new(AtomicUsize::new(1)),
             queue_capacity: 1,
             worker_count: 2,
+            engine_semaphore: Arc::new(Semaphore::new(2)),
         };
-        let queue_reason =
-            rejection_reason_for_full(EngineKind::Stt, &queue_pressure_dispatcher, &jobs);
+        let queue_reason = rejection_reason_for_full(&queue_pressure_dispatcher);
         assert_eq!(queue_reason, "queue_full");
 
-        jobs.mark_running(&queued_job.job_id);
+        // Semaphore has 0 available permits → all engine slots are busy.
         let engine_pressure_dispatcher = EngineDispatcher {
             sender: tokio::sync::mpsc::channel(1).0,
             queue_depth: Arc::new(AtomicUsize::new(1)),
             queue_capacity: 1,
             worker_count: 1,
+            engine_semaphore: Arc::new(Semaphore::new(0)),
         };
-        let engine_reason =
-            rejection_reason_for_full(EngineKind::Stt, &engine_pressure_dispatcher, &jobs);
+        let engine_reason = rejection_reason_for_full(&engine_pressure_dispatcher);
         assert_eq!(engine_reason, "engine_full");
     }
 
