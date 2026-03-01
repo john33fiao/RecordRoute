@@ -66,3 +66,28 @@
 - `src/audio.rs` 정규화 유틸 연동 정리 (`normalize_to_wav_mono_16k`, `collect_mono_f32_from_f32`, `linear_resample`, `build_wav_mono_i16` 호출 경로 정리)
 - `JobStatus::Canceled` 및 `mark_canceled` 취소 흐름 정리 (`frontend` 취소 이벤트/timeout 연동)
 - `EngineManager::shutdown` 종료 경로 정리 (`src/engine_manager.rs`와 종료 플래그 경로 연동)
+
+## 2026-03 코드베이스 재점검 이관
+
+아래 항목은 코드베이스 재검증 후 TODO에서 완료 이력으로 이관했습니다.
+
+### 1.0 아키텍처/계약 정합성
+- 1.2 OpenAPI/API 계약 재정렬(재검토) — OpenAPI 이중 스펙 및 계약 드리프트 워크플로 유지 확인.
+
+### 3.0 엔진 통합 기반
+- 3.2 엔진별 bounded queue + semaphore — semaphore 기반 포화 감지/429 규약 분기 확인.
+
+### 4.0 잡 모델/오류 계약
+- 4.2 타임아웃 계층 분리 (HTTP vs Job) — `job_timeout` 코드 및 timeout budget 경로 확인.
+- 4.3 에러 코드/응답 필드 계약 고정 — `invalid_audio_payload` OpenAPI enum 반영 유지 확인.
+
+### 6.0 슈퍼비전/운영 안정성
+- 6.1 child 생명주기 감시 + backoff 재시작 — supervision 토글 및 degraded 연동 확인.
+- 6.3 degraded 상태/관측성 메트릭 반영 — readiness/degraded 응답 경로 확인.
+
+### 7.0 배포/문서 분리
+- 7.1 API/Swagger 분리 배포 구성 근거 문서 유지 확인.
+- 7.2 모델 manifest 정책 및 `.gitignore` 운영 검증 반영 확인.
+
+### 9.0 Tauri 데스크톱 앱 전환 (부분 완료 항목)
+- 9.1 런타임 endpoint 해석 및 lifecycle probe 자동화 기반은 유지됨(단, 9.0 전체 완료 아님).
