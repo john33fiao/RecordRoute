@@ -28,6 +28,7 @@
 - 4.2 타임아웃 계층 분리의 HTTP/job 예산 계산 분리 근거 항목
   - `engine_connect_timeout`, `engine_request_timeout`, `audio_ms` 기반 예산 계산 근거가 코드에 존재.
 - 4.3 에러 코드/응답 필드 계약 포맷 고정 (`ErrorBody { code, message }`) (`src/main.rs`, OpenAPI 스키마)
+- 4.3 추가 정합성: `invalid_audio_payload` 에러코드를 OpenAPI `ErrorCode` enum에 반영해 구현/문서 계약을 일치시킴 (`docs/openapi.yaml`, `docs/swagger/openapi.yaml`)
 
 ### 5.0 오디오 전처리/처리량 정책
 - 5.1 `symphonia` 기반 오디오 정규화 (16kHz/16-bit mono WAV)
