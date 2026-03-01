@@ -10,14 +10,15 @@
 ## 우선 확인 순서
 
 1. `AGENTS.md`
-2. `README.md`
-3. `docs/architecture.md`
-4. `docs/rust-cpp-backend-rewrite-plan.md`
-5. `docs/deployment-asset-policy.md`
-6. `docs/main-rs-modularization-guide.md` (`main.rs` 분할 가이드)
-7. `TODO/TODO.md`
-8. 레거시는 별도 보관소/브랜치에서만 취급 (현 저장소 `deprecated/` 없음)
-9. 사용자 조작 매뉴얼: `docs/user-operation-manual.md`
+2. `README.md` (프로덕트 사용 방법)
+3. `docs/technical-architecture-and-operations.md` (기술 개요)
+4. `docs/architecture.md`
+5. `docs/rust-cpp-backend-rewrite-plan.md`
+6. `docs/deployment-asset-policy.md`
+7. `docs/main-rs-modularization-guide.md` (`main.rs` 분할 가이드)
+8. `TODO/TODO.md`
+9. 레거시는 별도 보관소/브랜치에서만 취급 (현 저장소 `deprecated/` 없음)
+10. 사용자 조작 매뉴얼: `docs/user-operation-manual.md`
 
 ## 현재 프로젝트 전제
 

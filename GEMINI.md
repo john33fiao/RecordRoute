@@ -40,7 +40,8 @@
 ## 우선 참조
 
 - 기준 규칙: `AGENTS.md`
-- 사용자 개요: `README.md`
+- 사용자 개요: `README.md` (프로덕트 사용 방법)
+- 기술 개요: `docs/technical-architecture-and-operations.md`
 - 사용자 조작 매뉴얼: `docs/user-operation-manual.md`
 - 아키텍처 기준선: `docs/architecture.md`
 - 전환 설계: `docs/rust-cpp-backend-rewrite-plan.md`

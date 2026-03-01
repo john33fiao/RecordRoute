@@ -34,6 +34,7 @@ Tauri 패키징/보안 기준은 `docs/tauri-packaging-security-baseline.md`를 
 Tauri 설치/배포 통합 플로우 기준은 `docs/tauri-install-deploy-unified-flow.md`를 참조합니다.
 `main.rs` 분할/모듈화 실무 기준은 `docs/main-rs-modularization-guide.md`를 참조합니다.
 최종 사용자 조작 절차는 `docs/user-operation-manual.md`를 참조합니다.
+README 기술 분리 문서는 `docs/technical-architecture-and-operations.md`를 참조합니다.
 운영 점검 정례화 정책은 `docs/operations/weekly-drill/README.md`를 참조합니다.
 WBS 1.2 재완료 게이트(구현 라우트/파라미터 ↔ OpenAPI path/param 1:1 매핑) 기준은 `docs/openapi-wbs-1.2-recompletion-gate.md`를 단일 체크리스트로 참조합니다.
 7.4.5 완료 조건 누적 추적은 `docs/operations/weekly-drill/STATUS.md`를 기준으로 갱신합니다.
