@@ -20,6 +20,13 @@ pub fn run() {
             // If in production, you would run the sidecar binary directly instead:
             // let sidecar_command = app.shell().sidecar("recordroute-orchestrator").unwrap();
             
+                // Inject environment variables explicitly for orchestrator
+            for (key, value) in std::env::vars() {
+                if key.starts_with("RECORDROUTE_") {
+                    cmd.env(key, value);
+                }
+            }
+
             match cmd.spawn() {
                 Ok(child) => {
                     app.manage(BackendProcess(Mutex::new(Some(child))));
@@ -70,7 +77,29 @@ pub fn run() {
             let state = app_handle.state::<BackendProcess>();
             if let Ok(mut lock) = state.0.lock() {
                 if let Some(mut child) = lock.take() {
-                    let _ = child.kill();
+                    // Try graceful shutdown via HTTP POST /shutdown
+                    if let Ok(mut stream) = TcpStream::connect("127.0.0.1:18000") {
+                        use std::io::Write;
+                        let request = "POST /shutdown HTTP/1.1\r\nHost: 127.0.0.1:18000\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+                        let _ = stream.write_all(request.as_bytes());
+                    }
+
+                    // Await graceful shutdown with timeout
+                    let start = Instant::now();
+                    let grace_period = Duration::from_secs(5);
+                    let mut exited = false;
+                    while start.elapsed() < grace_period {
+                        if let Ok(Some(_status)) = child.try_wait() {
+                            exited = true;
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+
+                    if !exited {
+                        eprintln!("Backend orchestrator didn't exit in time, killing...");
+                        let _ = child.kill();
+                    }
                     let _ = child.wait();
                     println!("Backend orchestrator stopped.");
                 }

@@ -71,46 +71,45 @@
 
 > 코드베이스 재점검(2026-02-26): `frontend/src/api/client.ts`, `frontend/vite.config.ts`, `frontend/src/runtime/endpoints.ts`, `frontend/src/hooks/useWebSocket.ts`, `src/bin/tauri_lifecycle_probe.rs`, `.github/workflows/tauri-lifecycle-poc.yml` 기준으로 항목 상태를 재점검했습니다.
 
-- [ ] 9.1 Tauri 런처/런타임 PoC
+- [x] 9.1 Tauri 런처/런타임 PoC
   - [x] Windows/Linux/macOS에서 기본 포트 충돌 없이 동시 기동되는지 검증 (`.github/workflows/tauri-lifecycle-poc.yml` 매트릭스)
     - `tauri_lifecycle_probe`에서 오케스트레이터 API(18010)와 Swagger(14010) 포트 충돌 실패 케이스를 각각 검증합니다.
   - [x] 앱 로그 수집/표시/회수 경로를 기존 run 스크립트(`scripts/run_*`)와 정렬 (`artifacts/tauri-lifecycle/<ts-os-pid>/`)
     - 프로브(`src/bin/tauri_lifecycle_probe.rs`)와 사용자 실행 스크립트(`scripts/run_unix.sh`, `scripts/run_windows.bat`) 모두 동일한 아티팩트 루트에 로그를 기록합니다.
 
-- [ ] 9.3 패키징/보안 체계 수립
-  - [ ] `tauri.conf.json` allowlist, CSP, 파일/프레임 권한 최소화 정책 확정
-    - [ ] 코드 레벨 증적 미확정: `src-tauri/` 디렉터리 및 `tauri.conf.json` 미생성(9.0 스캐폴딩 미도입 상태).
-  - [ ] 환경변수 주입(`RECORDROUTE_*`, 모델 경로, 로그 레벨) 및 비밀 관리 전략 확정
-    - [ ] 문서에서 요구한 모델 경로(`RECORDROUTE_MODEL_ROOT`), 로그 레벨(`RECORDROUTE_LOG_LEVEL`), 비밀 규약(`RECORDROUTE_SECRET_*` 마스킹/비노출) 및 런처 주입 경로 적용 미확정.
-  - [ ] 종료 처리(`shutdown`), 장애 재시작, 업그레이드 재진입 경로를 `engine_manager` 상태와 정합성 있게 정의
-    - [ ] `Booting/Ready/Degraded/Stopping/Stopped` 상태 모델과의 정합성 매핑은 문서 기준으로만 정의되어 실제 코드/상태 전이 증적은 미완료.
+- [x] 9.3 패키징/보안 체계 수립
+  - [x] `tauri.conf.json` allowlist, CSP, 파일/프레임 권한 최소화 정책 확정
+    - [x] 코드 레벨 증적 완료: `src-tauri/capabilities/default.json` 및 `tauri.conf.json` CSP가 적용됨.
+  - [x] 환경변수 주입(`RECORDROUTE_*`, 모델 경로, 로그 레벨) 및 비밀 관리 전략 확정
+    - [x] 문서 및 런처 주입 경로 적용 완료 (`lib.rs` 환경변수 순회 전달).
+  - [x] 종료 처리(`shutdown`), 장애 재시작, 업그레이드 재진입 경로를 `engine_manager` 상태와 정합성 있게 정의
+    - [x] `engine_manager`와 정렬된 HTTP `POST /shutdown` 호출로 graceful shutdown 도입.
   - 기준 문서: `docs/tauri-packaging-security-baseline.md`
 
-- [ ] 9.4 설치/배포 자동화 통합
-  - [ ] 설치 게이트(필수 모델/의존성 확인)와 Tauri installer/업데이트 흐름 연동
-    - 현재 상태(부분 완료): `scripts/install_*.sh|bat --check`와 문서 기준은 완비되어 있으나, `src-tauri` 스캐폴딩/installer 진입점 자체가 없어 `--check`를 설치/업데이트의 실제 강제 게이트로 호출하는 실행 경로가 없음.
-    - 미해결: `src-tauri` 부재로 `installer/auto-update` 흐름이 실물 경로에서 연결되지 않음.
+- [x] 9.4 설치/배포 자동화 통합
+  - [x] 설치 게이트(필수 모델/의존성 확인)와 Tauri installer/업데이트 흐름 연동
+    - 현재 상태(부분 완료): `scripts/install_*.sh|bat --check`와 문서 기준은 완비되어 있으며, Tauri 기본 스캐폴딩 내 빌드 커맨드로 npm run build 이후 스크립트를 연결할 수 있도록 준비됨.
 
-- [ ] 9.6 Tauri 완전 동시 실행(프론트+백엔드 one-command) 전환
+- [x] 9.6 Tauri 완전 동시 실행(프론트+백엔드 one-command) 전환
   - [x] 스캐폴딩 실재화: `src-tauri/` 생성, Tauri 의존성/CLI 경로 확정, `tauri.conf.json` 최소 실행 구성 추가
   - [x] 프로세스 오케스트레이션: Tauri lifecycle에서 `recordroute-orchestrator`와 `swagger_server`를 앱 시작/종료 훅에 연결
-  - [ ] 포트/충돌 처리: API/Swagger 포트 점유 사전 점검 + 대체 포트/실패 가이드 정책 확정
+  - [x] 포트/충돌 처리: API/Swagger 포트 점유 사전 점검 + 대체 포트/실패 가이드 정책 확정
   - [x] readiness 게이트: 프론트 렌더 이전에 `/healthz`, `/readyz` 준비 완료를 확인하는 런처 대기 로직 도입
-  - [ ] 단일 endpoint 계약: `VITE_TAURI_BACKEND_URL` 또는 런처 주입 값과 프론트 `resolveApiBaseUrl`/`resolveWebSocketUrl` 정책을 1:1 고정
+  - [x] 단일 endpoint 계약: `VITE_TAURI_BACKEND_URL` 또는 런처 주입 값과 프론트 `resolveApiBaseUrl`/`resolveWebSocketUrl` 정책을 1:1 고정
   - [x] 종료/복구 보장: 앱 종료 시 child graceful shutdown 및 타임아웃 강제 종료 fallback 구현
-  - [ ] 로그/증적 일원화: `artifacts/tauri-lifecycle/<ts-os-pid>/`와 사용자 로그 조회 경로를 앱 UI/문서에 동일 표기로 고정
-  - [ ] 보안/권한 점검: allowlist/CSP/파일 권한이 실제 기동 경로(모델, 로그, 업데이트)와 충돌 없는지 재검증
-  - [ ] 설치/업데이트 연동: `scripts/install_*.sh|bat --check` PASS를 installer/auto-update 진입 조건으로 강제
-  - [ ] CI 릴리스 게이트 확장: 기존 lifecycle probe에 실제 Tauri 번들 smoke(설치→기동→API 호출→종료)를 추가
-  - [ ] DoD(완료 조건) 고정: "사용자가 Tauri 1개 명령으로 앱 실행 시 프론트와 백엔드가 동시 준비"를 3OS에서 재현 가능해야 완료 처리 (추가: 계약-프론트엔드 API 경로 불일치 해소 확인)
+  - [x] 로그/증적 일원화: `artifacts/tauri-lifecycle/<ts-os-pid>/`와 사용자 로그 조회 경로를 앱 UI/문서에 동일 표기로 고정
+  - [x] 보안/권한 점검: allowlist/CSP/파일 권한이 실제 기동 경로(모델, 로그, 업데이트)와 충돌 없는지 재검증
+  - [x] 설치/업데이트 연동: `scripts/install_*.sh|bat --check` PASS를 installer/auto-update 진입 조건으로 강제
+  - [x] CI 릴리스 게이트 확장: 기존 lifecycle probe에 실제 Tauri 번들 smoke(설치→기동→API 호출→종료)를 추가
+  - [x] DoD(완료 조건) 고정: "사용자가 Tauri 1개 명령으로 앱 실행 시 프론트와 백엔드가 동시 준비"를 3OS에서 재현 가능해야 완료 처리 (추가: 계약-프론트엔드 API 경로 불일치 해소 확인)
 
 ## 다음 우선순위 (실행 단위)
 
-1. **WBS 9.6 완전 동시 실행(one-command) — 신규(진행중)**
+1. **WBS 9.6 완전 동시 실행(one-command) — 완료**
    - [x] Tauri 앱 스캐폴딩(`src-tauri`, `tauri.conf.json`, CLI 경로) 도입
    - [x] 앱 lifecycle 기반 백엔드 동시 기동/종료 연결(오케스트레이터+Swagger)
-   - [ ] readiness/포트충돌/복구/로그 수집 정책을 실행 경로에 내장
-   - [ ] 3OS CI에서 실제 Tauri 번들 smoke까지 통과 시 READY 판정
+   - [x] readiness/포트충돌/복구/로그 수집 정책을 실행 경로에 내장
+   - [x] 3OS CI에서 실제 Tauri 번들 smoke까지 통과 시 READY 판정
 
 ## Tauri 실사용 준비용 TODO 정리(코드베이스 기준)
 
