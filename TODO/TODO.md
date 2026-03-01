@@ -62,12 +62,10 @@
 > 코드베이스 재점검(2026-02-26): `frontend/src/api/client.ts`, `frontend/vite.config.ts`, `frontend/src/runtime/endpoints.ts`, `frontend/src/hooks/useWebSocket.ts`, `src/bin/tauri_lifecycle_probe.rs`, `.github/workflows/tauri-lifecycle-poc.yml` 기준으로 항목 상태를 재점검했습니다.
 
 - [ ] 9.1 Tauri 런처/런타임 PoC
-  - [ ] Windows/Linux/macOS에서 기본 포트 충돌 없이 동시 기동되는지 검증 (`.github/workflows/tauri-lifecycle-poc.yml` 매트릭스)
-    - `tauri_lifecycle_probe`에서 오케스트레이터 API 포트 충돌(18010/기본값)에 대한 실패 케이스 검증은 완료됨.
-    - Swagger 포트(14010) 충돌/경합 검증이 별도 항목으로 없습니다.
-  - [ ] 앱 로그 수집/표시/회수 경로를 기존 run 스크립트(`scripts/run_*`)와 정렬 (`artifacts/tauri-lifecycle/<ts-os-pid>/`)
-    - 프로브(`src/bin/tauri_lifecycle_probe.rs`)는 `artifacts/tauri-lifecycle/<ts-os-pid>/`에 로그·요약 저장을 수행.
-    - 기존 `scripts/run_unix.sh`, `scripts/run_windows.bat`는 로그 파일 아티팩트 수집 기능이 없어 사용자 실행 경로와 정렬되지 않음.
+  - [x] Windows/Linux/macOS에서 기본 포트 충돌 없이 동시 기동되는지 검증 (`.github/workflows/tauri-lifecycle-poc.yml` 매트릭스)
+    - `tauri_lifecycle_probe`에서 오케스트레이터 API(18010)와 Swagger(14010) 포트 충돌 실패 케이스를 각각 검증합니다.
+  - [x] 앱 로그 수집/표시/회수 경로를 기존 run 스크립트(`scripts/run_*`)와 정렬 (`artifacts/tauri-lifecycle/<ts-os-pid>/`)
+    - 프로브(`src/bin/tauri_lifecycle_probe.rs`)와 사용자 실행 스크립트(`scripts/run_unix.sh`, `scripts/run_windows.bat`) 모두 동일한 아티팩트 루트에 로그를 기록합니다.
 
 - [ ] 9.3 패키징/보안 체계 수립
   - [ ] `tauri.conf.json` allowlist, CSP, 파일/프레임 권한 최소화 정책 확정
