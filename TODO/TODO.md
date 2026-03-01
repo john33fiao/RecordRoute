@@ -59,6 +59,20 @@
 
 ## 9.0 Tauri 데스크톱 앱 전환
 
+### 9.x 상태 구분 (2026-02-28 재점검 기준)
+
+#### 현재 상태 (As-Is)
+
+- 프론트 런타임 endpoint 해석 로직(`resolveApiBaseUrl`, `resolveWebSocketUrl`)과 `VITE_TAURI_BACKEND_URL` fallback은 적용됨.
+- `src/bin/tauri_lifecycle_probe.rs`, `.github/workflows/tauri-lifecycle-poc.yml`를 통해 lifecycle/포트 충돌/3OS 매트릭스 검증 및 로그 아티팩트 수집 경로(`artifacts/tauri-lifecycle/<ts-os-pid>/`)는 자동화됨.
+- `src-tauri/`, `tauri.conf.json`이 부재하여 실제 Tauri 앱 스캐폴딩/패키징/설치·업데이트 연결 경로는 미구현 상태.
+
+#### 목표 상태 (To-Be)
+
+- Tauri one-command 실행 시 프론트와 백엔드(오케스트레이터+Swagger)가 readiness 확인 후 동시 준비.
+- installer/auto-update 경로에서 `scripts/install_*.sh|bat --check`를 강제 게이트로 적용.
+- 보안/권한(allowlist/CSP/파일 권한), lifecycle 종료/복구, 로그/증적 경로를 실제 실행 경로 기준으로 고정.
+
 > 코드베이스 재점검(2026-02-26): `frontend/src/api/client.ts`, `frontend/vite.config.ts`, `frontend/src/runtime/endpoints.ts`, `frontend/src/hooks/useWebSocket.ts`, `src/bin/tauri_lifecycle_probe.rs`, `.github/workflows/tauri-lifecycle-poc.yml` 기준으로 항목 상태를 재점검했습니다.
 
 - [ ] 9.1 Tauri 런처/런타임 PoC
@@ -107,5 +121,5 @@
 - 우선순위 정렬: [P0] 기본 실행 불가 요소 우선, [P1] 기능/운영 연동, [P2] 문서/운영 정합성
 
 ### [P2] 장기 안정화
-- [ ] 9.x 블록에서 2026-02-28 기준 상태와 목표 상태를 분리 표기(현재 상태/목표 상태 토글)
+- [x] 9.x 블록에서 2026-02-28 기준 상태와 목표 상태를 분리 표기(현재 상태/목표 상태 토글)
 - [ ] 계약-프론트엔드 API 경로 불일치 해소 여부를 완료 조건(DoD)로 포함
