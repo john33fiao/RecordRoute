@@ -1,0 +1,29 @@
+{
+    "$schema": "https://schema.tauri.app/2/tauri.conf.json",
+    "productName": "RecordRoute",
+    "version": "0.1.0",
+    "identifier": "com.recordroute.app",
+    "build": {
+        "beforeDevCommand": "npm run dev",
+        "beforeBuildCommand": "npm run build",
+        "devUrl": "http://localhost:5173",
+        "frontendDist": "../frontend/dist"
+    },
+    "app": {
+        "windows": [
+            {
+                "title": "RecordRoute",
+                "width": 1200,
+                "height": 800
+            }
+        ],
+        "security": {
+            "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:18000 ws://127.0.0.1:18000; script-src 'self'"
+        }
+    },
+    "plugins": {
+        "globalShortcut": {
+            "all": false
+        }
+    }
+}

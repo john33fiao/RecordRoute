@@ -110,9 +110,9 @@
 
 ## 다음 우선순위 (실행 단위)
 
-1. **WBS 9.6 완전 동시 실행(one-command) — 신규(미착수)**
-   - [ ] Tauri 앱 스캐폴딩(`src-tauri`, `tauri.conf.json`, CLI 경로) 도입
-   - [ ] 앱 lifecycle 기반 백엔드 동시 기동/종료 연결(오케스트레이터+Swagger)
+1. **WBS 9.6 완전 동시 실행(one-command) — 신규(진행중)**
+   - [x] Tauri 앱 스캐폴딩(`src-tauri`, `tauri.conf.json`, CLI 경로) 도입
+   - [x] 앱 lifecycle 기반 백엔드 동시 기동/종료 연결(오케스트레이터+Swagger)
    - [ ] readiness/포트충돌/복구/로그 수집 정책을 실행 경로에 내장
    - [ ] 3OS CI에서 실제 Tauri 번들 smoke까지 통과 시 READY 판정
 

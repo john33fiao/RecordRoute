@@ -48,9 +48,18 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install dependencies (Ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
       - name: Build required binaries
         run: cargo build --bins
 
+      - name: Build Tauri app (Smoke Test)
+        run: cd src-tauri && cargo build
+        
       - name: Run lifecycle probe (orchestrator + swagger)
         run: cargo run --quiet --bin tauri_lifecycle_probe
 
