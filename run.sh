@@ -220,6 +220,16 @@ echo "PyTorch 상태 확인:"
 # Ollama 서버 상태 확인 및 시작 (provider가 ollama인 경우에만)
 if [ "$NEED_OLLAMA" = "true" ]; then
     OLLAMA_BASE_URL_VALUE="${OLLAMA_BASE_URL:-http://localhost:11434}"
+    OLLAMA_HOST_VALUE="${OLLAMA_HOST:-$OLLAMA_BASE_URL_VALUE}"
+    OLLAMA_BASE_URL_NORMALIZED="${OLLAMA_BASE_URL_VALUE%/}"
+    OLLAMA_HOST_NORMALIZED="${OLLAMA_HOST_VALUE%/}"
+
+    if [ "$OLLAMA_HOST_NORMALIZED" != "$OLLAMA_BASE_URL_NORMALIZED" ]; then
+        echo "경고: OLLAMA_HOST(${OLLAMA_HOST_NORMALIZED})와 OLLAMA_BASE_URL(${OLLAMA_BASE_URL_NORMALIZED})가 다릅니다."
+        echo "Ollama 통신은 OLLAMA_BASE_URL(${OLLAMA_BASE_URL_NORMALIZED}) 기준으로 고정합니다."
+    fi
+    export OLLAMA_HOST="$OLLAMA_BASE_URL_NORMALIZED"
+
     OLLAMA_VERSION_URL="${OLLAMA_BASE_URL_VALUE%/}/api/version"
     echo "Ollama provider가 활성화되어 서버 상태를 확인합니다..."
     if ! curl -s "$OLLAMA_VERSION_URL" > /dev/null 2>&1; then

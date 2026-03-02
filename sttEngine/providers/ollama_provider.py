@@ -3,9 +3,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Sequence
 
+import logging
 import numpy as np
 
-from ..ollama_utils import ensure_ollama_server, safe_ollama_call
+from ..ollama_utils import ensure_ollama_server, get_ollama_base_url, safe_ollama_call
 from .base import ProviderRequestError
 from .embedding_provider import BaseEmbeddingProvider
 from .llm_provider import BaseLLMProvider
@@ -17,7 +18,7 @@ class OllamaLLMProvider(BaseLLMProvider):
             import ollama
         except ImportError as exc:
             raise ProviderRequestError("ollama 패키지가 설치되지 않았습니다.") from exc
-        return ollama
+        return ollama.Client(host=get_ollama_base_url())
 
     def chat(
         self,
@@ -77,7 +78,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             import ollama
         except ImportError as exc:
             raise ProviderRequestError("ollama 패키지가 설치되지 않았습니다.") from exc
-        return ollama
+        return ollama.Client(host=get_ollama_base_url())
 
     def embed(self, text: str, *, model: str) -> np.ndarray:
         ollama = self._load_ollama()
@@ -90,10 +91,20 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         return np.array(embedding, dtype=np.float32)
 
     def _request_embedding(self, ollama: Any, *, text: str, model: str) -> Any:
+        if hasattr(ollama, "embeddings"):
+            try:
+                return safe_ollama_call(ollama.embeddings, model=model, prompt=text)
+            except Exception as exc:
+                # 일부 환경에서는 /api/embeddings 대신 /api/embed를 사용하는 클라이언트/서버 조합이 있습니다.
+                # 먼저 /api/embeddings로 시도하고 실패하면 /api/embed로 폴백합니다.
+                if hasattr(ollama, "embed"):
+                    logging.getLogger(__name__).warning(
+                        "Ollama embeddings 호출 실패, embed API로 폴백합니다: %s", exc
+                    )
+                    return safe_ollama_call(ollama.embed, model=model, input=text)
+                raise
         if hasattr(ollama, "embed"):
             return safe_ollama_call(ollama.embed, model=model, input=text)
-        if hasattr(ollama, "embeddings"):
-            return safe_ollama_call(ollama.embeddings, model=model, prompt=text)
         raise ProviderRequestError("현재 ollama 클라이언트에서 임베딩 API를 찾을 수 없습니다.")
 
     @staticmethod
