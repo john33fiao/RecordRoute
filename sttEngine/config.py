@@ -137,8 +137,19 @@ def _resolve_db_path(path_value: str, base_dir: Path) -> Optional[Path]:
 
 
 def _normalize_db_folder_env(path_value: str) -> str:
-    """DB_FOLDER_PATH 값의 앞뒤 공백만 제거하고 따옴표는 보존."""
-    return path_value.strip() if path_value else path_value
+    """환경변수로 받은 DB 폴더 경로에서 외부 인용부호만 제거."""
+    if not path_value:
+        return path_value
+
+    normalized = path_value.strip()
+
+    while len(normalized) >= 2 and (
+        (normalized[0] == normalized[-1] == '"')
+        or (normalized[0] == normalized[-1] == "'")
+    ):
+        normalized = normalized[1:-1].strip()
+
+    return normalized
 
 
 def _ensure_directory_accessible(path: Path, *, create_if_missing: bool = True) -> bool:
