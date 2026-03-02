@@ -8,7 +8,9 @@ STT 및 요약 텍스트를 Obsidian Vault에 자동으로 전송하는 기능 �
 
 import asyncio
 import os
+import shlex
 from datetime import datetime
+import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any
 from mcp import ClientSession, StdioServerParameters
@@ -34,7 +36,7 @@ class ObsidianMCPIntegration:
         self.enabled = requested_enabled
         self.server_path = os.getenv("OBSIDIAN_MCP_SERVER_PATH")
         self.api_key = os.getenv("OBSIDIAN_API_KEY")
-        self.vault_folder = os.getenv("OBSIDIAN_VAULT_FOLDER", "RecordRoute")
+        self.vault_folder = self._normalize_vault_folder(os.getenv("OBSIDIAN_VAULT_FOLDER", "RecordRoute"))
 
         # 설정 검증
         if self.enabled:
@@ -44,6 +46,70 @@ class ObsidianMCPIntegration:
             if not self.api_key:
                 print("[Obsidian MCP] WARNING: OBSIDIAN_API_KEY가 설정되지 않았습니다.")
                 self.enabled = False
+
+        # 경로 정규화 결과 로그
+        if self.enabled and self.server_path:
+            resolved = self._resolve_server_path(self.server_path)
+            if resolved:
+                if Path(resolved).is_file() and os.access(resolved, os.X_OK):
+                    print(f"[Obsidian MCP] server_path resolved: {resolved}")
+                else:
+                    print(f"[Obsidian MCP] WARNING: MCP 서버 경로 접근 또는 실행 권한 문제: {self.server_path}")
+                    self.enabled = False
+            else:
+                print(f"[Obsidian MCP] WARNING: MCP 서버 경로를 해석할 수 없습니다: {self.server_path}")
+                self.enabled = False
+
+    @staticmethod
+    def _normalize_server_path(raw_path: str) -> str:
+        """환경변수에 들어온 MCP 경로 문자열을 정규화합니다."""
+        if raw_path is None:
+            return ""
+        return os.path.expanduser(os.path.expandvars(raw_path.strip().strip("'").strip('"')))
+
+    @staticmethod
+    def _normalize_vault_folder(raw_folder: str) -> str:
+        if not raw_folder:
+            return "RecordRoute"
+        return os.path.expanduser(os.path.expandvars(str(raw_folder).strip().strip("'").strip('"')))
+
+    @staticmethod
+    def _resolve_server_path(raw_path: str) -> str:
+        """
+        MCP 실행 파일 경로를 해석합니다.
+        - 환경변수 확장/사용자 홈 확장
+        - shlex split로 명령+인자 분리 시 첫 토큰만 해석
+        - 상대 경로를 현재 작업 디렉터리와 프로젝트 루트에서 보정
+        - PATH 탐색(명령만 지정한 경우) 지원
+        """
+        base_dir = Path(__file__).resolve().parents[1]
+        parts = shlex.split(raw_path)
+        if not parts:
+            return ""
+
+        command = ObsidianMCPIntegration._normalize_server_path(parts[0])
+        candidate_paths = [Path(command)]
+
+        if not candidate_paths[0].is_absolute():
+            candidate_paths.append((Path.cwd() / command).resolve())
+            candidate_paths.append((base_dir / command).resolve())
+
+        for candidate in candidate_paths:
+            if candidate.exists():
+                return str(candidate)
+
+        which_path = shutil.which(command)
+        return which_path or ""
+
+    @staticmethod
+    def _split_server_command(raw_path: str) -> tuple[str, list[str]]:
+        """
+        MCP 서버 경로/명령어를 실제 command/args로 분리합니다.
+        """
+        parts = shlex.split(raw_path.strip())
+        if not parts:
+            return "", []
+        return parts[0], parts[1:]
 
     def _generate_frontmatter(self, filename: str, uuid: str, created_at: datetime) -> str:
         """
@@ -75,18 +141,29 @@ aliases:
         """MCP 서버 파라미터 생성"""
         # Windows 경로 정규화
         import platform
-        server_path = self.server_path
+        command, args = self._split_server_command(self.server_path or "")
+        server_path = self._resolve_server_path(command)
+
+        if not server_path:
+            raise FileNotFoundError(f"MCP 서버 경로를 찾을 수 없습니다: {self.server_path}")
+
+        if not Path(server_path).is_file():
+            raise FileNotFoundError(f"MCP 서버 실행 파일이 아닙니다: {server_path}")
+        if not os.access(server_path, os.X_OK):
+            raise PermissionError(f"MCP 서버 실행 권한이 없습니다: {server_path}")
+
         if platform.system() == "Windows":
             # Windows 경로를 정규화 (백슬래시 유지)
             server_path = os.path.normpath(server_path)
 
         return StdioServerParameters(
             command=server_path,
-            args=[],
+            args=args,
             env={
                 "OBSIDIAN_API_KEY": self.api_key,
                 "PATH": os.getenv("PATH", "")
-            }
+            },
+            cwd=Path(server_path).parent
         )
 
     async def _file_exists(self, session: ClientSession, original_filename: str) -> bool:
@@ -102,7 +179,7 @@ aliases:
         """
         # 원본 파일명에서 확장자 제거하고 .md 추가
         filename_without_ext = Path(original_filename).stem
-        filename = f"{self.vault_folder}/{filename_without_ext}.md"
+        filename = str(Path(self.vault_folder) / f"{filename_without_ext}.md")
         try:
             await session.call_tool("get_vault_file", {"filename": filename})
             return True
@@ -143,7 +220,7 @@ aliases:
 
         # 원본 파일명에서 확장자 제거하고 .md 추가
         filename_without_ext = Path(original_filename).stem
-        filename = f"{self.vault_folder}/{filename_without_ext}.md"
+        filename = str(Path(self.vault_folder) / f"{filename_without_ext}.md")
 
         try:
             server_params = await self._get_server_params()
@@ -188,6 +265,14 @@ aliases:
             error_msg = f"MCP 서버를 찾을 수 없습니다: {self.server_path}"
             print(f"[Obsidian MCP] ✗ {error_msg}")
             print(f"[Obsidian MCP] 힌트: OBSIDIAN_MCP_SERVER_PATH 환경변수를 확인하세요.")
+            return {
+                "success": False,
+                "message": error_msg,
+                "action": "failed"
+            }
+        except PermissionError as e:
+            error_msg = f"MCP 서버 실행 권한이 없습니다: {self.server_path} ({str(e)})"
+            print(f"[Obsidian MCP] ✗ {error_msg}")
             return {
                 "success": False,
                 "message": error_msg,
@@ -241,7 +326,7 @@ aliases:
 
         # 원본 파일명에서 확장자 제거하고 .md 추가
         filename_without_ext = Path(original_filename).stem
-        filename = f"{self.vault_folder}/{filename_without_ext}.md"
+        filename = str(Path(self.vault_folder) / f"{filename_without_ext}.md")
 
         try:
             server_params = await self._get_server_params()
@@ -287,6 +372,14 @@ aliases:
             error_msg = f"MCP 서버를 찾을 수 없습니다: {self.server_path}"
             print(f"[Obsidian MCP] ✗ {error_msg}")
             print(f"[Obsidian MCP] 힌트: OBSIDIAN_MCP_SERVER_PATH 환경변수를 확인하세요.")
+            return {
+                "success": False,
+                "message": error_msg,
+                "action": "failed"
+            }
+        except PermissionError as e:
+            error_msg = f"MCP 서버 실행 권한이 없습니다: {self.server_path} ({str(e)})"
+            print(f"[Obsidian MCP] ✗ {error_msg}")
             return {
                 "success": False,
                 "message": error_msg,
