@@ -18,6 +18,8 @@ fi
 
 if [ "${START_OLLAMA:-0}" = "1" ]; then
   if command -v ollama >/dev/null 2>&1; then
+    : "${OLLAMA_KEEP_ALIVE:=1m}"
+    export OLLAMA_KEEP_ALIVE
     echo "[docker] ollama serve를 백그라운드로 시작합니다."
     nohup ollama serve >/tmp/ollama.log 2>&1 &
   else

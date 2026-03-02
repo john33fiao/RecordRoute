@@ -54,6 +54,12 @@ services:
     profiles: ["ollama"]
     ports:
       - "11434:11434"
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-}
+    command:
+      - sh
+      - -lc
+      - if [ -z "$OLLAMA_KEEP_ALIVE" ]; then export OLLAMA_KEEP_ALIVE=1m; fi; exec ollama serve
     volumes:
       - ollama_data:/root/.ollama
 

@@ -15,6 +15,14 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
     echo "[DEBUG] PYANNOTE_TOKEN이 로드되었습니다."
 fi
 
+# Ollama 기본 keep-alive(환경변수 미설정 시 기본값 1m 적용)
+if [ -z "${OLLAMA_KEEP_ALIVE:-}" ]; then
+    OLLAMA_KEEP_ALIVE="1m"
+else
+    OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE}"
+fi
+export OLLAMA_KEEP_ALIVE
+
 # Provider 설정 정규화
 LLM_PROVIDER_VALUE="${LLM_PROVIDER:-ollama}"
 EMBEDDING_PROVIDER_VALUE="${EMBEDDING_PROVIDER:-$LLM_PROVIDER_VALUE}"

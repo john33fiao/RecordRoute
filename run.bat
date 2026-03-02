@@ -24,6 +24,8 @@ if exist "%SCRIPT_DIR%\.env" (
     echo [DEBUG] PYANNOTE_TOKEN이 로드되었습니다.
 )
 
+if not defined OLLAMA_KEEP_ALIVE set "OLLAMA_KEEP_ALIVE=1m"
+
 REM Provider 설정 정규화
 set "LLM_PROVIDER_VALUE=!LLM_PROVIDER!"
 if "!LLM_PROVIDER_VALUE!"=="" set "LLM_PROVIDER_VALUE=ollama"

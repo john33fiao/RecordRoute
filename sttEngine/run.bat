@@ -17,6 +17,8 @@ if exist ".env" (
     echo [DEBUG] 환경변수가 로드되었습니다.
 )
 
+if not defined OLLAMA_KEEP_ALIVE set "OLLAMA_KEEP_ALIVE=1m"
+
 REM 가상환경의 Python 실행 파일 경로
 set "VENV_PYTHON=%SCRIPT_DIR%venv\Scripts\python.exe"
 
