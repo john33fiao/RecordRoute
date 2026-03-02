@@ -59,13 +59,32 @@ class OllamaLLMProvider(BaseLLMProvider):
     def list_models(self) -> List[str]:
         ollama = self._load_ollama()
         models = safe_ollama_call(ollama.list)
-        items = models.get("models", []) if isinstance(models, dict) else []
+        payload: Any = models
+        if hasattr(payload, "model_dump"):
+            payload = payload.model_dump()
+
+        if isinstance(payload, Mapping):
+            payload = dict(payload)
+            items = payload.get("models", [])
+        else:
+            items = getattr(payload, "models", [])
+
         names: list[str] = []
         for model in items:
-            if isinstance(model, dict):
-                name = model.get("name")
-                if name:
-                    names.append(name)
+            name = None
+            if isinstance(model, str):
+                name = model
+            elif isinstance(model, Mapping):
+                name = model.get("name") or model.get("model")
+            elif hasattr(model, "name"):
+                name = getattr(model, "name")
+            elif hasattr(model, "model"):
+                name = getattr(model, "model")
+            else:
+                name = None
+
+            if name:
+                names.append(str(name))
         return names
 
     def healthcheck(self) -> tuple[bool, str]:

@@ -10,6 +10,24 @@ from ...providers.factory import get_llm_provider
 from ..destructive_guard import check_destructive_api_access, reject_destructive_api_request
 
 
+EMBEDDING_NAME_HINTS = (
+    "bge",
+    "embed",
+    "embedding",
+    "e5",
+    "jina",
+    "gte",
+    "mxbai",
+    "nomic",
+    "sentence",
+)
+
+
+def _is_embedding_like_model(model_name: str) -> bool:
+    lowered = (model_name or "").lower()
+    return any(hint in lowered for hint in EMBEDDING_NAME_HINTS)
+
+
 def _serve_available_models(handler, provider_name: str | None = None) -> None:
     try:
         provider_aliases = {
@@ -42,6 +60,20 @@ def _serve_available_models(handler, provider_name: str | None = None) -> None:
                 provider_status[resolved_provider] = {'ok': False, 'message': str(provider_exc)}
 
         models = provider_models.get(requested_provider, [])
+        models_by_task = {
+            "summary": list(dict.fromkeys(models)),
+            "embedding": list(dict.fromkeys(models)),
+        }
+
+        if requested_provider == "ollama" and models:
+            embedding_hint = [m for m in models if _is_embedding_like_model(m)]
+            if embedding_hint:
+                models_by_task["embedding"] = list(dict.fromkeys(embedding_hint))
+                summary_hint = [m for m in models if m not in models_by_task["embedding"]]
+                if summary_hint:
+                    models_by_task["summary"] = list(dict.fromkeys(summary_hint))
+                elif models_by_task["summary"]:
+                    models_by_task["summary"] = models_by_task["summary"]
 
         from ...workflow.summarize import DEFAULT_MODEL
         from ...config import get_default_model
@@ -50,6 +82,7 @@ def _serve_available_models(handler, provider_name: str | None = None) -> None:
             'models': models,
             'models_by_provider': provider_models,
             'provider_status': provider_status,
+            'models_by_task': models_by_task,
             'default': {
                 'whisper': 'large-v3-turbo',
                 'summarize': DEFAULT_MODEL,

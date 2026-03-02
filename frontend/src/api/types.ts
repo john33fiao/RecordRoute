@@ -204,6 +204,10 @@ export interface ModelsResponse {
     embedding: string;
     provider?: 'ollama' | 'llamacpp';
   };
+  models_by_task?: {
+    summary: string[];
+    embedding: string[];
+  };
   models_by_provider?: Partial<Record<'ollama' | 'llamacpp', string[]>>;
   provider_status?: Partial<Record<'ollama' | 'llamacpp', { ok: boolean; message: string }>>;
 }

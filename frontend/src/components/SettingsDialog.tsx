@@ -20,6 +20,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [localSettings, setLocalSettings] = useState(modelSettings);
   const [darkMode, setDarkMode] = useState(theme === 'dark');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [summaryModels, setSummaryModels] = useState<string[]>([]);
+  const [embeddingModels, setEmbeddingModels] = useState<string[]>([]);
   const [defaults, setDefaults] = useState<{ whisper: string; summarize: string; embedding: string; provider?: 'ollama' | 'llamacpp' } | null>(null);
 
   const selectedProvider = (localSettings?.provider || localSettings?.llm_provider || defaults?.provider || 'ollama') as 'ollama' | 'llamacpp';
@@ -31,24 +33,33 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       setDarkMode(theme === 'dark');
       api.getModels(requestedProvider).then(data => {
         const models = data.models || [];
+        const modelsByTask = data.models_by_task || {};
+        const dedup = (items: string[]) => Array.from(new Set((items || []).filter(Boolean)));
         const fetchedDefaults = data.default;
         setAvailableModels(models);
+        setSummaryModels(dedup(modelsByTask.summary || models));
+        setEmbeddingModels(dedup(modelsByTask.embedding || models));
         setDefaults(fetchedDefaults);
         setLocalSettings(prev => {
           if (!prev) {
             return prev;
           }
+          const summaryDefault = dedup(modelsByTask.summary || models)[0] || models[0] || '';
+          const embeddingDefault = dedup(modelsByTask.embedding || models)[0] || models[0] || '';
           return {
             ...prev,
             provider: prev.provider || prev.llm_provider || fetchedDefaults?.provider,
             llm_provider: prev.llm_provider || prev.provider || fetchedDefaults?.provider,
-            summarize: prev.summarize || fetchedDefaults?.summarize || models[0] || '',
-            embedding: prev.embedding || fetchedDefaults?.embedding || models[0] || '',
+            summarize: prev.summarize || fetchedDefaults?.summarize || summaryDefault,
+            embedding: prev.embedding || fetchedDefaults?.embedding || embeddingDefault,
           };
         });
       }).catch(() => { });
     }
   }, [open, modelSettings, theme, requestedProvider]);
+
+  const summarySelectModels = summaryModels.length ? summaryModels : availableModels;
+  const embeddingSelectModels = embeddingModels.length ? embeddingModels : availableModels;
 
   const handleSave = () => {
     setTheme(darkMode ? 'dark' : 'light');
@@ -126,7 +137,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 <SelectValue placeholder="모델 선택..." />
               </SelectTrigger>
               <SelectContent className={theme === 'dark' ? 'bg-slate-800 border-slate-700' : ''}>
-                {availableModels.map(m => (
+                {summarySelectModels.map(m => (
                   <SelectItem key={m} value={m}>{m}{m === defaults?.summarize ? ' (기본값)' : ''}</SelectItem>
                 ))}
               </SelectContent>
@@ -140,7 +151,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 <SelectValue placeholder="모델 선택..." />
               </SelectTrigger>
               <SelectContent className={theme === 'dark' ? 'bg-slate-800 border-slate-700' : ''}>
-                {availableModels.map(m => (
+                {embeddingSelectModels.map(m => (
                   <SelectItem key={m} value={m}>{m}{m === defaults?.embedding ? ' (기본값)' : ''}</SelectItem>
                 ))}
               </SelectContent>
