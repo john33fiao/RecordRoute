@@ -136,6 +136,11 @@ def _resolve_db_path(path_value: str, base_dir: Path) -> Optional[Path]:
         return None
 
 
+def _normalize_db_folder_env(path_value: str) -> str:
+    """DB_FOLDER_PATH 값의 앞뒤 공백만 제거하고 따옴표는 보존."""
+    return path_value.strip() if path_value else path_value
+
+
 def _ensure_directory_accessible(path: Path, *, create_if_missing: bool = True) -> bool:
     """경로가 디렉터리로 접근 가능한지 확인
 
@@ -160,13 +165,15 @@ def _ensure_directory_accessible(path: Path, *, create_if_missing: bool = True) 
 
 def get_db_base_path(base_dir: Optional[Path] = None) -> Path:
     """환경변수 기반 DB 폴더 경로 반환 (접근 불가 시 기본값 생성 후 사용)"""
+    project_root = get_project_root()
     if base_dir is None:
-        base_dir = get_project_root()
+        base_dir = project_root
 
-    env_value = os.getenv("DB_FOLDER_PATH")
+    env_value = _normalize_db_folder_env(os.getenv("DB_FOLDER_PATH") or "")
 
     if env_value:
-        env_path = _resolve_db_path(env_value, base_dir)
+        # DB_FOLDER_PATH 환경변수 값은 프로젝트 코드베이스 기준 상대 경로로 해석.
+        env_path = _resolve_db_path(env_value, project_root)
         if env_path:
             if _ensure_directory_accessible(env_path, create_if_missing=False):
                 return env_path

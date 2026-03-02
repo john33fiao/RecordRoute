@@ -36,6 +36,105 @@ fi
 # 가상환경의 Python 실행 파일 경로
 VENV_PYTHON="$SCRIPT_DIR/venv/bin/python"
 
+trim_space() {
+    printf '%s' "$1" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+PLATFORM_SUFFIX="UNIX"
+case "$(uname -s)" in
+    *MINGW*|*MSYS*|*CYGWIN*|*Windows*)
+        PLATFORM_SUFFIX="WINDOWS"
+        ;;
+esac
+
+TRANSCRIBE_MODEL_KEY="TRANSCRIBE_MODEL_${PLATFORM_SUFFIX}"
+SUMMARY_MODEL_KEY="SUMMARY_MODEL_${PLATFORM_SUFFIX}"
+EMBEDDING_MODEL_KEY="EMBEDDING_MODEL_${PLATFORM_SUFFIX}"
+
+if [ -f "$VENV_PYTHON" ] && [ -f "$SCRIPT_DIR/sttEngine/config.py" ]; then
+    IFS='|' read -r DEFAULT_TRANSCRIBE_MODEL DEFAULT_SUMMARY_MODEL DEFAULT_EMBEDDING_MODEL < <(
+        "$VENV_PYTHON" - <<'PY'
+from sttEngine.config import get_default_model
+
+print(f"{get_default_model('TRANSCRIBE')}|{get_default_model('SUMMARY')}|{get_default_model('EMBEDDING')}")
+PY
+    )
+else
+    DEFAULT_TRANSCRIBE_MODEL="large-v3-turbo"
+    DEFAULT_SUMMARY_MODEL="gpt-oss:20b"
+    DEFAULT_EMBEDDING_MODEL="bge-m3:latest"
+fi
+
+get_env_model() {
+    local os_key="$1"
+    local legacy_key="$2"
+    local fallback="$3"
+
+    local v="${!os_key}"
+    if [ -n "${!os_key+x}" ] && [ -n "$(trim_space "$v")" ]; then
+        echo "$(trim_space "$v")"
+        return
+    fi
+
+    if [ -n "$legacy_key" ] && [ -n "${!legacy_key+x}" ] && [ -n "$(trim_space "${!legacy_key}")" ]; then
+        echo "$(trim_space "${!legacy_key}")"
+        return
+    fi
+
+    if [ -n "$fallback" ]; then
+        echo "$fallback"
+    fi
+}
+
+SUMMARY_MODEL_RESOLVED="$(get_env_model "$SUMMARY_MODEL_KEY" "SUMMARY_MODEL" "$DEFAULT_SUMMARY_MODEL")"
+EMBEDDING_MODEL_RESOLVED="$(get_env_model "$EMBEDDING_MODEL_KEY" "EMBEDDING_MODEL" "$DEFAULT_EMBEDDING_MODEL")"
+
+check_ollama_models() {
+    local models=()
+    models=("$@")
+
+    if [ "${#models[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    if ! command -v ollama > /dev/null 2>&1; then
+        echo "오류: ollama 명령어를 찾을 수 없습니다."
+        return 1
+    fi
+
+    local installed
+    installed="$(ollama list 2>/dev/null | awk 'NR>1 {print $1}')"
+    if [ -z "$installed" ]; then
+        echo "오류: Ollama 모델 목록을 읽지 못했습니다. Ollama 서버가 실행 중인지 확인하세요."
+        return 1
+    fi
+
+    local missing=0
+    local seen=""
+
+    for model in "${models[@]}"; do
+        if [ -z "$model" ]; then
+            echo "오류: 필요 모델명이 비어 있습니다. .env에서 SUMMARY_MODEL 또는 EMBEDDING_MODEL 값을 확인하세요."
+            missing=1
+            continue
+        fi
+
+        if printf '%s\n' "$seen" | grep -Fxq "$model"; then
+            continue
+        fi
+        seen="${seen}$model\n"
+
+        if printf '%s\n' "$installed" | grep -Fxq "$model"; then
+            echo "✓ Ollama 모델 확인됨: $model"
+        else
+            echo "오류: Ollama에 모델이 없습니다: $model"
+            missing=1
+        fi
+    done
+
+    [ "$missing" -eq 0 ]
+}
+
 # 가상환경 존재 확인
 if [ ! -f "$VENV_PYTHON" ]; then
     echo "오류: 가상환경(venv)을 찾을 수 없습니다."
@@ -145,6 +244,24 @@ if [ "$NEED_OLLAMA" = "true" ]; then
     fi
 else
     echo "Ollama provider가 비활성화되어 서버 자동 시작을 건너뜁니다."
+fi
+
+if [ "$NEED_OLLAMA" = "true" ]; then
+    echo "Ollama 필수 모델 존재 여부를 확인합니다..."
+    OLLAMA_CHECK_MODELS=()
+
+    if [ "$LLM_PROVIDER_VALUE" = "ollama" ] && [ -n "$SUMMARY_MODEL_RESOLVED" ]; then
+        OLLAMA_CHECK_MODELS+=("$SUMMARY_MODEL_RESOLVED")
+    fi
+    if [ "$EMBEDDING_PROVIDER_VALUE" = "ollama" ] && [ -n "$EMBEDDING_MODEL_RESOLVED" ]; then
+        OLLAMA_CHECK_MODELS+=("$EMBEDDING_MODEL_RESOLVED")
+    fi
+
+    if ! check_ollama_models "${OLLAMA_CHECK_MODELS[@]}"; then
+        echo "필수 Ollama 모델이 준비되지 않았습니다. 서버를 시작하지 않고 종료합니다."
+        echo "설치 명령: ollama pull <모델명>"
+        exit 1
+    fi
 fi
 
 # Cloudflare Tunnel 상태 확인 및 시작
