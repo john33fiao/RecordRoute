@@ -229,10 +229,19 @@ def update_filename(record_id: str, new_filename: str) -> None:
     save_upload_history(history)
 
 
-def generate_and_store_title_summary(record_id: str, file_path: Path, model: str | None = None) -> None:
+def generate_and_store_title_summary(
+    record_id: str,
+    file_path: Path,
+    model: str | None = None,
+    provider_name: str | None = None,
+) -> None:
     """Generate one-line summary and store it."""
     try:
-        summary = generate_one_line_summary(file_path, model=model)
+        summary = generate_one_line_summary(
+            file_path,
+            model=model,
+            provider_name=provider_name,
+        )
         update_title_summary(record_id, summary)
     except Exception as e:
         print(f"One-line summary generation failed: {e}")

@@ -736,7 +736,12 @@ def run_workflow(
                 file_path_str = to_record_path(summary_file)
                 update_task_completion(record_id, "summary", file_path_str)
                 if source_text_path:
-                    generate_and_store_title_summary(record_id, source_text_path, summarize_model)
+                    generate_and_store_title_summary(
+                        record_id,
+                        source_text_path,
+                        summarize_model,
+                        (model_settings or {}).get("provider") or (model_settings or {}).get("llm_provider"),
+                    )
             record_step_metric("summary", "completed", summary_started_at)
 
     except Exception as exc:  # pragma: no cover
