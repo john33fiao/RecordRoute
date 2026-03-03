@@ -37,18 +37,13 @@ REM 1. Check Python
 echo Step 0: Checking Python installation...
 
 set PY_CMD=
-where py >nul 2>&1
+where python3 >nul 2>&1
 if !errorlevel! equ 0 (
-    set "PY_CMD=py -3"
+    set "PY_CMD=python3"
 ) else (
     where python >nul 2>&1
     if !errorlevel! equ 0 (
-        set PY_CMD=python
-    ) else (
-        where python3 >nul 2>&1
-        if !errorlevel! equ 0 (
-            set PY_CMD=python3
-        )
+        set "PY_CMD=python"
     )
 )
 
@@ -81,7 +76,7 @@ if exist "%SCRIPT_DIR%\venv" (
         rmdir /s /q "%SCRIPT_DIR%\venv"
 
         if exist "%SCRIPT_DIR%\venv" (
-            echo venv 사용 중인 Python 프로세스를 종료한 뒤 삭제를 재시도합니다...
+        echo venv 사용 중인 Python 프로세스를 종료한 뒤 삭제를 재시도합니다...
             powershell -NoProfile -ExecutionPolicy Bypass -Command "$venv=(Resolve-Path '%SCRIPT_DIR%\venv').Path; Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($venv, [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
             timeout /t 1 /nobreak >nul
             rmdir /s /q "%SCRIPT_DIR%\venv"
@@ -140,14 +135,6 @@ if not exist "%SCRIPT_DIR%\venv\Scripts\python.exe" (
     exit /b 1
 )
 
-if not exist "%SCRIPT_DIR%\venv\pyvenv.cfg" (
-    echo.
-    echo [오류] pyvenv.cfg를 찾을 수 없습니다. 가상환경이 손상되었을 수 있습니다.
-    echo.
-    pause
-    exit /b 1
-)
-
 set VENV_PYTHON=%SCRIPT_DIR%\venv\Scripts\python.exe
 
 echo 가상환경이 성공적으로 생성되었습니다.
@@ -192,22 +179,26 @@ if /i "!NEED_OLLAMA!"=="true" if exist "%SCRIPT_DIR%\requirements-ollama.txt" (
 REM 3.5 PyTorch Verification
 echo Step 2.5: Verifying PyTorch...
 
-"!VENV_PYTHON!" -c "import torch; print('PyTorch: ' + torch.__version__); print('CUDA available: ' + str(torch.cuda.is_available()))" >nul 2>&1
-
-if !errorlevel! equ 0 (
-    echo PyTorch가 설치되어 있습니다.
+if "%OS%"=="Windows_NT" (
+    echo PyTorch는 현재 Windows 환경에서 자동 설치를 수행하지 않습니다.
+    "!VENV_PYTHON!" -c "import torch; print('PyTorch: ' + torch.__version__); print('CUDA available: ' + str(torch.cuda.is_available() if hasattr(torch, 'cuda') else False))" 2>nul || echo [경고] PyTorch 확인에 실패했거나 설치되지 않았습니다.
 ) else (
-    echo PyTorch가 설치되지 않았거나 CUDA 지원이 없습니다.
-    echo CUDA 지원을 포함한 PyTorch를 설치하고 있습니다...
-    "!VENV_PYTHON!" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio
-    
+    set "TORCH_CUDA_AVAILABLE="
+    "!VENV_PYTHON!" -c "import torch; print(f'PyTorch: {torch.__version__}'); torch.cuda.is_available() and print('CUDA available')" >"%TEMP%\recordroute_torch_check.txt" 2>nul
     if !errorlevel! neq 0 (
-        echo [경고] CUDA 빌드 설치에 실패했습니다. 기본 빌드를 설치합니다...
-        "!VENV_PYTHON!" -m pip install --upgrade torch torchvision torchaudio
+        echo CUDA available not detected. Attempting to install PyTorch with CUDA support...
+        "!VENV_PYTHON!" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu118 torch torchvision torchaudio
+    ) else (
+        findstr /r "CUDA available" "%TEMP%\recordroute_torch_check.txt" >nul
+        if !errorlevel! neq 0 (
+            echo CUDA not available or PyTorch not installed with CUDA support.
+            echo Attempting to install PyTorch with CUDA support...
+            "!VENV_PYTHON!" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu118 torch torchvision torchaudio
+        )
     )
+    del /q "%TEMP%\recordroute_torch_check.txt" 2>nul
+    "!VENV_PYTHON!" -c "import torch; print('PyTorch: ' + torch.__version__); print('CUDA available: ' + str(torch.cuda.is_available() if hasattr(torch, 'cuda') else False))" 2>nul || echo [경고] PyTorch 확인에 실패했거나 설치되지 않았습니다.
 )
-
-"!VENV_PYTHON!" -c "import torch; print('PyTorch: ' + torch.__version__); print('CUDA available: ' + str(torch.cuda.is_available()))" 2>nul || echo [경고] PyTorch 확인에 실패했거나 설치되지 않았습니다.
 echo.
 
 REM 4. Ollama Check
@@ -298,4 +289,3 @@ echo run.bat를 실행하여 서버를 시작할 수 있습니다.
 echo.
 
 endlocal
-pause

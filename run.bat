@@ -1,25 +1,20 @@
 @echo off
 chcp 65001 > nul
-setlocal enabledelayedexpansion
+setlocal EnableExtensions EnableDelayedExpansion
 
 REM RecordRoute 웹서버 실행 스크립트 (Windows)
 
 REM 스크립트 디렉토리 설정
 set "SCRIPT_DIR=%~dp0"
-set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 
 REM .env 파일에서 환경변수 로드
 if exist "%SCRIPT_DIR%\.env" (
     echo .env 파일에서 환경변수를 로드합니다.
-    for /f "usebackq tokens=*" %%a in ("%SCRIPT_DIR%\.env") do (
+    for /f "usebackq eol=# delims=" %%a in ("%SCRIPT_DIR%\.env") do (
         set "line=%%a"
-        REM 주석 라인 제외
-        if not "!line:~0,1!"=="#" (
-            REM 빈 라인 제외
-            if not "!line!"=="" (
-                set "%%a"
-            )
-        )
+        if /i "!line:~0,7!"=="export " set "line=!line:~7!"
+        if not "!line!"=="" set "!line!"
     )
     echo [DEBUG] PYANNOTE_TOKEN이 로드되었습니다.
 )
@@ -27,36 +22,57 @@ if exist "%SCRIPT_DIR%\.env" (
 if not defined OLLAMA_KEEP_ALIVE set "OLLAMA_KEEP_ALIVE=1m"
 
 REM Provider 설정 정규화
-set "LLM_PROVIDER_VALUE=!LLM_PROVIDER!"
-if "!LLM_PROVIDER_VALUE!"=="" set "LLM_PROVIDER_VALUE=ollama"
-set "EMBEDDING_PROVIDER_VALUE=!EMBEDDING_PROVIDER!"
-if "!EMBEDDING_PROVIDER_VALUE!"=="" set "EMBEDDING_PROVIDER_VALUE=!LLM_PROVIDER_VALUE!"
-if /i "!LLM_PROVIDER_VALUE!"=="ollama" (
+set "LLM_PROVIDER_VALUE=%LLM_PROVIDER%"
+if "%LLM_PROVIDER_VALUE%"=="" set "LLM_PROVIDER_VALUE=ollama"
+set "EMBEDDING_PROVIDER_VALUE=%EMBEDDING_PROVIDER%"
+if "%EMBEDDING_PROVIDER_VALUE%"=="" set "EMBEDDING_PROVIDER_VALUE=%LLM_PROVIDER_VALUE%"
+if /i "%LLM_PROVIDER_VALUE%"=="ollama" (
     set "NEED_OLLAMA=true"
-) else if /i "!EMBEDDING_PROVIDER_VALUE!"=="ollama" (
+) else if /i "%EMBEDDING_PROVIDER_VALUE%"=="ollama" (
     set "NEED_OLLAMA=true"
 ) else (
     set "NEED_OLLAMA=false"
 )
 
-REM 가상환경의 Python 실행 파일 경로
 set "VENV_PYTHON=%SCRIPT_DIR%\venv\Scripts\python.exe"
 
-REM 웹서버 스크립트 경로
-set "WEB_SERVER=%SCRIPT_DIR%\sttEngine\server.py"
+set "PLATFORM_SUFFIX=WINDOWS"
+set "TRANSCRIBE_MODEL_KEY=TRANSCRIBE_MODEL_%PLATFORM_SUFFIX%"
+set "SUMMARY_MODEL_KEY=SUMMARY_MODEL_%PLATFORM_SUFFIX%"
+set "EMBEDDING_MODEL_KEY=EMBEDDING_MODEL_%PLATFORM_SUFFIX%"
+
+set "DEFAULT_TRANSCRIBE_MODEL=large-v3-turbo"
+set "DEFAULT_SUMMARY_MODEL=gpt-oss:20b"
+set "DEFAULT_EMBEDDING_MODEL=bge-m3:latest"
+
+if exist "%VENV_PYTHON%" if exist "%SCRIPT_DIR%\sttEngine\config.py" (
+    for /f "tokens=1,2,3 delims=|" %%a in ('"%VENV_PYTHON%" -c "from sttEngine.config import get_default_model; print('|'.join([get_default_model('TRANSCRIBE'), get_default_model('SUMMARY'), get_default_model('EMBEDDING')]))"') do (
+        set "DEFAULT_TRANSCRIBE_MODEL=%%a"
+        set "DEFAULT_SUMMARY_MODEL=%%b"
+        set "DEFAULT_EMBEDDING_MODEL=%%c"
+    )
+)
+
+call set "SUMMARY_MODEL_RESOLVED=%%%SUMMARY_MODEL_KEY%%%"
+if "%SUMMARY_MODEL_RESOLVED%"=="" (
+    call set "SUMMARY_MODEL_RESOLVED=%%SUMMARY_MODEL%%"
+    if "%SUMMARY_MODEL_RESOLVED%"=="" (
+        set "SUMMARY_MODEL_RESOLVED=%DEFAULT_SUMMARY_MODEL%"
+    )
+)
+
+call set "EMBEDDING_MODEL_RESOLVED=%%%EMBEDDING_MODEL_KEY%%%"
+if "%EMBEDDING_MODEL_RESOLVED%"=="" (
+    call set "EMBEDDING_MODEL_RESOLVED=%%EMBEDDING_MODEL%%"
+    if "%EMBEDDING_MODEL_RESOLVED%"=="" (
+        set "EMBEDDING_MODEL_RESOLVED=%DEFAULT_EMBEDDING_MODEL%"
+    )
+)
 
 REM 가상환경 존재 확인
 if not exist "%VENV_PYTHON%" (
-    echo 오류: 가상환경^(venv^)을 찾을 수 없습니다.
+    echo 오류: 가상환경(venv)을 찾을 수 없습니다.
     echo 먼저 setup.bat 스크립트를 실행하여 가상환경을 설정하세요.
-    pause
-    exit /b 1
-)
-
-REM 웹서버 스크립트 존재 확인
-if not exist "%WEB_SERVER%" (
-    echo 오류: 웹서버 스크립트^(server.py^)를 찾을 수 없습니다.
-    pause
     exit /b 1
 )
 
@@ -66,19 +82,16 @@ set "REQUIREMENTS_STATE_FILE=%SCRIPT_DIR%\venv\.requirements_hash"
 
 if exist "%REQUIREMENTS_FILE%" (
     echo 필요한 파이썬 패키지를 확인합니다...
-    
-    REM 현재 requirements.txt 해시 계산
+
     "%VENV_PYTHON%" -c "import hashlib, pathlib, sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())" "%REQUIREMENTS_FILE%" > "%TEMP%\req_hash.tmp"
     set /p REQ_HASH=<"%TEMP%\req_hash.tmp"
     del "%TEMP%\req_hash.tmp"
-    
-    REM 기존 해시 읽기
+
     set "INSTALLED_HASH="
     if exist "%REQUIREMENTS_STATE_FILE%" (
         set /p INSTALLED_HASH=<"%REQUIREMENTS_STATE_FILE%"
     )
-    
-    REM 해시 비교 및 설치
+
     if not "!REQ_HASH!"=="!INSTALLED_HASH!" (
         echo 의존성을 설치/업데이트합니다...
         "%VENV_PYTHON%" -m pip install -r "%REQUIREMENTS_FILE%"
@@ -107,11 +120,11 @@ if exist "%ROOT_REQ_FILE%" (
     )
 )
 
-REM Ollama optional requirements 확인
+REM Ollama optional requirements 설치
 set "OLLAMA_REQ_FILE=%SCRIPT_DIR%\requirements-ollama.txt"
-if /i "!NEED_OLLAMA!"=="true" if exist "!OLLAMA_REQ_FILE!" (
+if /i "%NEED_OLLAMA%"=="true" if exist "%OLLAMA_REQ_FILE%" (
     echo Ollama provider가 활성화되어 선택 의존성을 확인합니다...
-    "%VENV_PYTHON%" -m pip install -r "!OLLAMA_REQ_FILE!" > nul 2>&1
+    "%VENV_PYTHON%" -m pip install -r "%OLLAMA_REQ_FILE%" > nul 2>&1
     if !ERRORLEVEL! equ 0 (
         echo Ollama 선택 의존성 확인 완료.
     ) else (
@@ -122,19 +135,17 @@ if /i "!NEED_OLLAMA!"=="true" if exist "!OLLAMA_REQ_FILE!" (
 REM PyTorch CUDA 버전 확인 및 설치
 echo PyTorch 상태를 확인합니다...
 
-REM PyTorch가 설치되어 있는지 확인
-"%VENV_PYTHON%" -c "import torch" > nul 2>&1
+"%VENV_PYTHON%" -c "import torch; print('Torch:', torch.__version__); print('CUDA available:', torch.cuda.is_available())" > nul 2>&1
 if !ERRORLEVEL! neq 0 (
-    echo PyTorch가 설치되지 않았습니다. CUDA 빌드를 설치합니다 ^(cu124^)...
+    echo PyTorch가 설치되지 않았습니다. CUDA 빌드를 설치합니다 (cu124)...
     "%VENV_PYTHON%" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio 2>nul
     if !ERRORLEVEL! neq 0 (
         "%VENV_PYTHON%" -m pip install --upgrade torch torchvision torchaudio
     )
 ) else (
-    REM CPU 빌드 확인
     "%VENV_PYTHON%" -c "import torch; exit(0 if '+cpu' in torch.__version__ else 1)" 2>nul
     if !ERRORLEVEL! equ 0 (
-        echo CPU 빌드 PyTorch 감지 → CUDA 빌드로 교체합니다 ^(cu124^)...
+        echo CPU 빌드 PyTorch 감지 → CUDA 빌드로 교체합니다 (cu124)...
         "%VENV_PYTHON%" -m pip uninstall -y torch torchvision torchaudio > nul 2>&1
         "%VENV_PYTHON%" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio 2>nul
         if !ERRORLEVEL! neq 0 (
@@ -145,19 +156,30 @@ if !ERRORLEVEL! neq 0 (
     )
 )
 
-REM PyTorch 버전 정보 출력
 echo PyTorch 상태 확인:
-"%VENV_PYTHON%" -c "import torch; print('Torch:', torch.__version__); print('CUDA available:', torch.cuda.is_available())" 2>nul
-if !ERRORLEVEL! neq 0 (
-    echo ^(PyTorch 정보를 가져올 수 없습니다^)
-)
+"%VENV_PYTHON%" -c "import torch; print('Torch:', torch.__version__); print('CUDA available:', torch.cuda.is_available())" 2>nul || echo (PyTorch 정보를 가져올 수 없습니다)
 
 REM Ollama 서버 상태 확인 및 시작 (provider가 ollama인 경우에만)
-if /i "!NEED_OLLAMA!"=="true" (
-    set "OLLAMA_BASE_URL_VALUE=!OLLAMA_BASE_URL!"
-    if "!OLLAMA_BASE_URL_VALUE!"=="" set "OLLAMA_BASE_URL_VALUE=http://localhost:11434"
+if /i "%NEED_OLLAMA%"=="true" (
+    set "OLLAMA_BASE_URL_VALUE=%OLLAMA_BASE_URL%"
+    if "%OLLAMA_BASE_URL_VALUE%"=="" set "OLLAMA_BASE_URL_VALUE=http://localhost:11434"
+    set "OLLAMA_HOST_VALUE=%OLLAMA_HOST%"
+    if "%OLLAMA_HOST_VALUE%"=="" set "OLLAMA_HOST_VALUE=%OLLAMA_BASE_URL_VALUE%"
+
+    set "OLLAMA_BASE_URL_NORMALIZED=%OLLAMA_BASE_URL_VALUE%"
+    set "OLLAMA_HOST_NORMALIZED=%OLLAMA_HOST_VALUE%"
+    call :trim_trailing_slash OLLAMA_BASE_URL_NORMALIZED
+    call :trim_trailing_slash OLLAMA_HOST_NORMALIZED
+
+    if /i "%OLLAMA_HOST_NORMALIZED%" neq "%OLLAMA_BASE_URL_NORMALIZED%" (
+        echo 경고: OLLAMA_HOST(%OLLAMA_HOST_NORMALIZED%)와 OLLAMA_BASE_URL(%OLLAMA_BASE_URL_NORMALIZED%)가 다릅니다.
+        echo Ollama 통신은 OLLAMA_BASE_URL(%OLLAMA_BASE_URL_NORMALIZED%) 기준으로 고정합니다.
+    )
+    set "OLLAMA_HOST=%OLLAMA_BASE_URL_NORMALIZED%"
+    set "OLLAMA_VERSION_URL=%OLLAMA_BASE_URL_NORMALIZED%/api/version"
+
     echo Ollama provider가 활성화되어 서버 상태를 확인합니다...
-    curl -s !OLLAMA_BASE_URL_VALUE!/api/version > nul 2>&1
+    curl -s "%OLLAMA_VERSION_URL%" > nul 2>&1
     if !ERRORLEVEL! neq 0 (
         echo Ollama 서버가 실행되지 않았습니다. 자동으로 시작합니다...
         where ollama > nul 2>&1
@@ -166,7 +188,7 @@ if /i "!NEED_OLLAMA!"=="true" (
             echo Ollama 서버를 시작했습니다.
             echo 서버 시작을 기다리는 중...
             timeout /t 3 /nobreak > nul
-            curl -s !OLLAMA_BASE_URL_VALUE!/api/version > nul 2>&1
+            curl -s "%OLLAMA_VERSION_URL%" > nul 2>&1
             if !ERRORLEVEL! equ 0 (
                 echo Ollama 서버가 성공적으로 시작되었습니다.
             ) else (
@@ -183,10 +205,24 @@ if /i "!NEED_OLLAMA!"=="true" (
     echo Ollama provider가 비활성화되어 서버 자동 시작을 건너뜁니다.
 )
 
+if /i "%NEED_OLLAMA%"=="true" (
+    echo Ollama 필수 모델 존재 여부를 확인합니다...
+    set "OLLAMA_CHECK_MODELS="
+    if /i "%LLM_PROVIDER_VALUE%"=="ollama" if defined SUMMARY_MODEL_RESOLVED if not "%SUMMARY_MODEL_RESOLVED%"=="" set "OLLAMA_CHECK_MODELS=%OLLAMA_CHECK_MODELS% %SUMMARY_MODEL_RESOLVED%"
+    if /i "%EMBEDDING_PROVIDER_VALUE%"=="ollama" if defined EMBEDDING_MODEL_RESOLVED if not "%EMBEDDING_MODEL_RESOLVED%"=="" set "OLLAMA_CHECK_MODELS=%OLLAMA_CHECK_MODELS% %EMBEDDING_MODEL_RESOLVED%"
+
+    call :check_ollama_models %OLLAMA_CHECK_MODELS%
+    if !ERRORLEVEL! neq 0 (
+        echo 필수 Ollama 모델이 준비되지 않았습니다. 서버를 시작하지 않고 종료합니다.
+        echo 설치 명령: ollama pull <모델명>
+        exit /b 1
+    )
+)
+
 REM Cloudflare Tunnel 상태 확인 및 시작
-if /i "!TUNNEL_ENABLED!"=="true" (
+if /i "%TUNNEL_ENABLED%"=="true" (
     echo Cloudflare Tunnel이 활성화되어 있습니다. 상태를 확인합니다...
-    
+
     REM cloudflared 설치 확인
     where cloudflared > nul 2>&1
     if !ERRORLEVEL! neq 0 (
@@ -196,7 +232,7 @@ if /i "!TUNNEL_ENABLED!"=="true" (
         echo.
     ) else (
         REM 터널 토큰 확인
-        if "!CLOUDFLARE_TUNNEL_TOKEN!"=="" (
+        if "%CLOUDFLARE_TUNNEL_TOKEN%"=="" (
             echo 경고: CLOUDFLARE_TUNNEL_TOKEN이 설정되지 않았습니다.
             echo .env 파일에 CLOUDFLARE_TUNNEL_TOKEN을 설정해주세요.
             echo.
@@ -207,18 +243,11 @@ if /i "!TUNNEL_ENABLED!"=="true" (
                 echo Cloudflare Tunnel이 이미 실행 중입니다.
             ) else (
                 echo Cloudflare Tunnel을 시작합니다...
-                
-                REM .cloudflared 디렉토리 생성
                 if not exist "%SCRIPT_DIR%\.cloudflared" mkdir "%SCRIPT_DIR%\.cloudflared"
-                
-                REM 백그라운드에서 cloudflared 실행
-                start /B cloudflared tunnel --config "%SCRIPT_DIR%\.cloudflared\config.yml" run --token "!CLOUDFLARE_TUNNEL_TOKEN!" > "%SCRIPT_DIR%\.cloudflared\tunnel.log" 2>&1
+                start /B cloudflared tunnel --config "%SCRIPT_DIR%\.cloudflared\config.yml" run --token "%CLOUDFLARE_TUNNEL_TOKEN%" > "%SCRIPT_DIR%\.cloudflared\tunnel.log" 2>&1
                 echo Cloudflare Tunnel을 시작했습니다.
-                
-                REM 터널 시작을 위해 잠시 대기
+
                 timeout /t 2 /nobreak > nul
-                
-                REM 터널 시작 확인
                 tasklist /FI "IMAGENAME eq cloudflared.exe" 2>nul | find /I "cloudflared.exe" > nul
                 if !ERRORLEVEL! equ 0 (
                     echo ✓ Cloudflare Tunnel이 성공적으로 시작되었습니다.
@@ -231,7 +260,7 @@ if /i "!TUNNEL_ENABLED!"=="true" (
         )
     )
 ) else (
-    echo Cloudflare Tunnel이 비활성화되어 있습니다. ^(TUNNEL_ENABLED=false^)
+    echo Cloudflare Tunnel이 비활성화되어 있습니다. (TUNNEL_ENABLED=false)
 )
 echo.
 
@@ -255,30 +284,9 @@ if not exist "%SCRIPT_DIR%\frontend\dist" (
     )
 )
 
-REM 웹서버 실행
 echo 가상환경의 파이썬으로 웹서버를 실행합니다...
-REM HOST/PORT는 실행 안정성을 위해 안전 기본값으로 고정
-set "HOST=127.0.0.1"
-set "PORT=8080"
-
-REM 기본 포트 사용 가능 여부 확인 (권한/예약/점유 충돌 시 18080으로 대체)
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$port=8080; $listener=[System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse('127.0.0.1'),$port); try { $listener.Start(); $listener.Stop(); exit 0 } catch { exit 1 }" > nul 2>&1
-if !ERRORLEVEL! neq 0 (
-    echo 경고: 포트 8080을 사용할 수 없어 포트 18080으로 대체합니다.
-    set "PORT=18080"
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$port=18080; $listener=[System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse('127.0.0.1'),$port); try { $listener.Start(); $listener.Stop(); exit 0 } catch { exit 1 }" > nul 2>&1
-    if !ERRORLEVEL! neq 0 (
-        echo 오류: 포트 8080과 18080 모두 사용할 수 없습니다.
-        echo 사용 가능한 포트를 확인한 뒤 다시 실행하세요.
-        pause
-        exit /b 1
-    )
-)
-
-set "SERVER_URL=http://localhost:!PORT!"
-
-echo 서버 URL: !SERVER_URL!
-echo ^(웹브라우저에서 !SERVER_URL! 에 접속하세요^)
+echo 서버 URL: http://localhost:8080
+echo (웹브라우저에서 http://localhost:8080 에 접속하세요)
 echo.
 
 cd /d "%SCRIPT_DIR%"
@@ -289,9 +297,79 @@ echo.
 if !EXIT_CODE! equ 0 (
     echo 서버가 정상적으로 종료되었습니다.
 ) else (
-    echo 서버가 오류와 함께 종료되었습니다. ^(오류코드: !EXIT_CODE!^)
+    echo 서버가 오류와 함께 종료되었습니다. (오류코드: !EXIT_CODE!)
     echo 오류 상세 내용을 확인하세요.
 )
 
-pause
+exit /b !EXIT_CODE!
 endlocal
+
+:trim_trailing_slash
+set "trim_name=%~1"
+set "trim_value=!%trim_name%!"
+
+:trim_trailing_slash_loop
+if "%trim_value:~-1%"=="/" (
+    set "trim_value=%trim_value:~0,-1%"
+    goto trim_trailing_slash_loop
+)
+
+set "%trim_name%=%trim_value%"
+exit /b 0
+
+:check_ollama_models
+setlocal EnableExtensions EnableDelayedExpansion
+set "models=%*"
+
+if "%models%"=="" (
+    endlocal
+    exit /b 0
+)
+
+where ollama > nul 2>&1
+if !ERRORLEVEL! neq 0 (
+    echo 오류: ollama 명령어를 찾을 수 없습니다.
+    endlocal
+    exit /b 1
+)
+
+set "installed_models="
+for /f "skip=1 tokens=1" %%m in ('ollama list 2^>nul') do (
+    set "installed_models=!installed_models!;%%m;"
+)
+
+if "%installed_models%"=="" (
+    echo 오류: Ollama 모델 목록을 읽지 못했습니다. Ollama 서버가 실행 중인지 확인하세요.
+    endlocal
+    exit /b 1
+)
+
+set "missing=0"
+set "seen="
+for %%m in (%models%) do (
+    set "model=%%m"
+    if "!model!"=="" (
+        echo 오류: 필요 모델명이 비어 있습니다. .env에서 SUMMARY_MODEL 또는 EMBEDDING_MODEL 값을 확인하세요.
+        set "missing=1"
+    ) else (
+        echo !seen! | findstr /L /C:";!model!;" > nul
+        if !ERRORLEVEL! neq 0 (
+            set "seen=!seen!;!model!;"
+            echo !installed_models! | findstr /L /C:";!model!;" > nul
+            if !ERRORLEVEL! equ 0 (
+                echo ✓ Ollama 모델 확인됨: !model!
+            ) else (
+                echo 오류: Ollama에 모델이 없습니다: !model!
+                set "missing=1"
+            )
+        )
+    )
+)
+
+if "!missing!"=="1" (
+    endlocal
+    exit /b 1
+)
+
+endlocal
+exit /b 0
