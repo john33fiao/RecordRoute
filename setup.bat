@@ -1,20 +1,24 @@
 @echo off
+chcp 65001 >nul
 REM RecordRoute Setup Script for Windows
 REM ======================================
 
-setlocal enabledelayedexpansion
+setlocal EnableExtensions
+setlocal EnableDelayedExpansion
 
 REM Set directory to where the script is
-cd /d "%~dp0" || exit /b 1
-set SCRIPT_DIR=%cd%
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 
-REM Provider 설정 정규화(.env 기준)
+REM Load .env and apply provider values
 if exist "%SCRIPT_DIR%\.env" (
-    for /f "usebackq tokens=*" %%a in ("%SCRIPT_DIR%\.env") do (
-        set "line=%%a"
-        if not "!line:~0,1!"=="#" if not "!line!"=="" set "%%a"
+    for /f "usebackq eol=# delims=" %%L in ("%SCRIPT_DIR%\.env") do (
+        set "line=%%L"
+        if /i "!line:~0,7!"=="export " set "line=!line:~7!"
+        if not "!line!"=="" set "!line!"
     )
 )
+
 set "LLM_PROVIDER_VALUE=!LLM_PROVIDER!"
 if "!LLM_PROVIDER_VALUE!"=="" set "LLM_PROVIDER_VALUE=ollama"
 set "EMBEDDING_PROVIDER_VALUE=!EMBEDDING_PROVIDER!"
@@ -37,13 +41,40 @@ REM 1. Check Python
 echo Step 0: Checking Python installation...
 
 set PY_CMD=
-where python3 >nul 2>&1
-if !errorlevel! equ 0 (
-    set "PY_CMD=python3"
-) else (
-    where python >nul 2>&1
+set PY_VER=
+set CURRENT_PY_VER=
+
+set CURRENT_PY_VER=
+for /f "delims=" %%V in ('python3 --version 2^>^&1') do set "CURRENT_PY_VER=%%V"
+if not "!CURRENT_PY_VER!"=="" (
+    echo !CURRENT_PY_VER! | findstr /r /c:"^Python [0-9]" >nul 2>&1
     if !errorlevel! equ 0 (
-        set "PY_CMD=python"
+        set "PY_CMD=python3"
+        set "PY_VER=!CURRENT_PY_VER!"
+    )
+)
+
+if not defined PY_CMD (
+    set CURRENT_PY_VER=
+    for /f "delims=" %%V in ('python --version 2^>^&1') do set "CURRENT_PY_VER=%%V"
+    if not "!CURRENT_PY_VER!"=="" (
+        echo !CURRENT_PY_VER! | findstr /r /c:"^Python [0-9]" >nul 2>&1
+        if !errorlevel! equ 0 (
+            set "PY_CMD=python"
+            set "PY_VER=!CURRENT_PY_VER!"
+        )
+    )
+)
+
+if not defined PY_CMD (
+    set CURRENT_PY_VER=
+    for /f "delims=" %%V in ('py -3 --version 2^>^&1') do set "CURRENT_PY_VER=%%V"
+    if not "!CURRENT_PY_VER!"=="" (
+        echo !CURRENT_PY_VER! | findstr /r /c:"^Python [0-9]" >nul 2>&1
+        if !errorlevel! equ 0 (
+            set "PY_CMD=py -3"
+            set "PY_VER=!CURRENT_PY_VER!"
+        )
     )
 )
 
@@ -58,7 +89,11 @@ if "!PY_CMD!"=="" (
 )
 
 echo Python 버전:
-!PY_CMD! --version
+if defined PY_VER (
+    echo !PY_VER!
+) else (
+    !PY_CMD! --version
+)
 echo.
 
 REM 2. Virtual Environment
@@ -67,9 +102,7 @@ echo.
 
 if exist "%SCRIPT_DIR%\venv" (
     echo 기존 가상환경이 발견되었습니다.
-    setlocal disableDelayedExpansion
     set /p response="기존 가상환경을 삭제하고 다시 생성하시겠습니까? (y/n): "
-    setlocal enabledelayedexpansion
     
     if /i "!response!"=="y" (
         echo 기존 venv를 삭제하고 있습니다...
@@ -181,7 +214,8 @@ echo Step 2.5: Verifying PyTorch...
 
 if "%OS%"=="Windows_NT" (
     echo PyTorch는 현재 Windows 환경에서 자동 설치를 수행하지 않습니다.
-    "!VENV_PYTHON!" -c "import torch; print('PyTorch: ' + torch.__version__); print('CUDA available: ' + str(torch.cuda.is_available() if hasattr(torch, 'cuda') else False))" 2>nul || echo [경고] PyTorch 확인에 실패했거나 설치되지 않았습니다.
+    "!VENV_PYTHON!" -c "import torch; print('PyTorch: ' + torch.__version__); print('CUDA available: ' + str(torch.cuda.is_available() if hasattr(torch, 'cuda') else False))" 2>nul
+    if !errorlevel! neq 0 echo [경고] PyTorch 확인에 실패했거나 설치되지 않았습니다.
 ) else (
     set "TORCH_CUDA_AVAILABLE="
     "!VENV_PYTHON!" -c "import torch; print(f'PyTorch: {torch.__version__}'); torch.cuda.is_available() and print('CUDA available')" >"%TEMP%\recordroute_torch_check.txt" 2>nul
@@ -197,7 +231,8 @@ if "%OS%"=="Windows_NT" (
         )
     )
     del /q "%TEMP%\recordroute_torch_check.txt" 2>nul
-    "!VENV_PYTHON!" -c "import torch; print('PyTorch: ' + torch.__version__); print('CUDA available: ' + str(torch.cuda.is_available() if hasattr(torch, 'cuda') else False))" 2>nul || echo [경고] PyTorch 확인에 실패했거나 설치되지 않았습니다.
+    "!VENV_PYTHON!" -c "import torch; print('PyTorch: ' + torch.__version__); print('CUDA available: ' + str(torch.cuda.is_available() if hasattr(torch, 'cuda') else False))" 2>nul
+    if !errorlevel! neq 0 echo [경고] PyTorch 확인에 실패했거나 설치되지 않았습니다.
 )
 echo.
 
