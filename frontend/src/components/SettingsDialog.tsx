@@ -33,7 +33,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       setDarkMode(theme === 'dark');
       api.getModels(requestedProvider).then(data => {
         const models = data.models || [];
-        const modelsByTask = data.models_by_task || {};
+        const modelsByTask = data.models_by_task || { summary: [], embedding: [] };
         const dedup = (items: string[]) => Array.from(new Set((items || []).filter(Boolean)));
         const fetchedDefaults = data.default;
         setAvailableModels(models);
