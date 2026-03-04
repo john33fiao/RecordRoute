@@ -14,7 +14,11 @@ if exist "%SCRIPT_DIR%\.env" (
     for /f "usebackq eol=# delims=" %%a in ("%SCRIPT_DIR%\.env") do (
         set "line=%%a"
         if /i "!line:~0,7!"=="export " set "line=!line:~7!"
-        if not "!line!"=="" set "!line!"
+        if not "!line!"=="" (
+            for /f "tokens=1* delims==" %%b in ("!line!") do (
+                if not "%%c"=="" set "%%b=%%c"
+            )
+        )
     )
     echo [DEBUG] PYANNOTE_TOKEN이 로드되었습니다.
 )
@@ -45,14 +49,6 @@ set "DEFAULT_TRANSCRIBE_MODEL=large-v3-turbo"
 set "DEFAULT_SUMMARY_MODEL=gpt-oss:20b"
 set "DEFAULT_EMBEDDING_MODEL=bge-m3:latest"
 
-if exist "%VENV_PYTHON%" if exist "%SCRIPT_DIR%\sttEngine\config.py" (
-    for /f "tokens=1,2,3 delims=|" %%a in ('"%VENV_PYTHON%" -c "from sttEngine.config import get_default_model; print('|'.join([get_default_model('TRANSCRIBE'), get_default_model('SUMMARY'), get_default_model('EMBEDDING')]))"') do (
-        set "DEFAULT_TRANSCRIBE_MODEL=%%a"
-        set "DEFAULT_SUMMARY_MODEL=%%b"
-        set "DEFAULT_EMBEDDING_MODEL=%%c"
-    )
-)
-
 call set "SUMMARY_MODEL_RESOLVED=%%%SUMMARY_MODEL_KEY%%%"
 if "%SUMMARY_MODEL_RESOLVED%"=="" (
     call set "SUMMARY_MODEL_RESOLVED=%%SUMMARY_MODEL%%"
@@ -71,38 +67,21 @@ if "%EMBEDDING_MODEL_RESOLVED%"=="" (
 
 REM 가상환경 존재 확인
 if not exist "%VENV_PYTHON%" (
-    echo 오류: 가상환경(venv)을 찾을 수 없습니다.
+    echo 오류: 가상환경 venv 를 찾을 수 없습니다.
     echo 먼저 setup.bat 스크립트를 실행하여 가상환경을 설정하세요.
     exit /b 1
 )
 
 REM 의존성 확인 및 설치
 set "REQUIREMENTS_FILE=%SCRIPT_DIR%\sttEngine\requirements.txt"
-set "REQUIREMENTS_STATE_FILE=%SCRIPT_DIR%\venv\.requirements_hash"
 
 if exist "%REQUIREMENTS_FILE%" (
     echo 필요한 파이썬 패키지를 확인합니다...
-
-    "%VENV_PYTHON%" -c "import hashlib, pathlib, sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())" "%REQUIREMENTS_FILE%" > "%TEMP%\req_hash.tmp"
-    set /p REQ_HASH=<"%TEMP%\req_hash.tmp"
-    del "%TEMP%\req_hash.tmp"
-
-    set "INSTALLED_HASH="
-    if exist "%REQUIREMENTS_STATE_FILE%" (
-        set /p INSTALLED_HASH=<"%REQUIREMENTS_STATE_FILE%"
-    )
-
-    if not "!REQ_HASH!"=="!INSTALLED_HASH!" (
-        echo 의존성을 설치/업데이트합니다...
-        "%VENV_PYTHON%" -m pip install -r "%REQUIREMENTS_FILE%"
-        if !ERRORLEVEL! equ 0 (
-            echo !REQ_HASH!> "%REQUIREMENTS_STATE_FILE%"
-            echo 필요한 패키지가 준비되었습니다.
-        ) else (
-            echo 경고: 의존성 설치에 실패했습니다. 설치 로그를 확인하고 다시 시도하세요.
-        )
+    "%VENV_PYTHON%" -m pip install -r "%REQUIREMENTS_FILE%" > nul 2>&1
+    if !ERRORLEVEL! equ 0 (
+        echo 필요한 패키지가 준비되었습니다.
     ) else (
-        echo 필요한 파이썬 패키지가 이미 설치되어 있습니다.
+        echo 경고: 의존성 설치에 실패했습니다. 설치 로그를 확인하고 다시 시도하세요.
     )
 ) else (
     echo 경고: requirements.txt 파일을 찾을 수 없습니다.
@@ -133,31 +112,7 @@ if /i "%NEED_OLLAMA%"=="true" if exist "%OLLAMA_REQ_FILE%" (
 )
 
 REM PyTorch CUDA 버전 확인 및 설치
-echo PyTorch 상태를 확인합니다...
-
-"%VENV_PYTHON%" -c "import torch; print('Torch:', torch.__version__); print('CUDA available:', torch.cuda.is_available())" > nul 2>&1
-if !ERRORLEVEL! neq 0 (
-    echo PyTorch가 설치되지 않았습니다. CUDA 빌드를 설치합니다 (cu124)...
-    "%VENV_PYTHON%" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio 2>nul
-    if !ERRORLEVEL! neq 0 (
-        "%VENV_PYTHON%" -m pip install --upgrade torch torchvision torchaudio
-    )
-) else (
-    "%VENV_PYTHON%" -c "import torch; exit(0 if '+cpu' in torch.__version__ else 1)" 2>nul
-    if !ERRORLEVEL! equ 0 (
-        echo CPU 빌드 PyTorch 감지 → CUDA 빌드로 교체합니다 (cu124)...
-        "%VENV_PYTHON%" -m pip uninstall -y torch torchvision torchaudio > nul 2>&1
-        "%VENV_PYTHON%" -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio 2>nul
-        if !ERRORLEVEL! neq 0 (
-            "%VENV_PYTHON%" -m pip install --upgrade torch torchvision torchaudio
-        )
-    ) else (
-        echo PyTorch CUDA 빌드 또는 호환 빌드가 감지되었습니다.
-    )
-)
-
-echo PyTorch 상태 확인:
-"%VENV_PYTHON%" -c "import torch; print('Torch:', torch.__version__); print('CUDA available:', torch.cuda.is_available())" 2>nul || echo (PyTorch 정보를 가져올 수 없습니다)
+echo PyTorch 런타임 점검은 건너뜁니다. 필요 시 setup.bat를 실행하세요.
 
 REM Ollama 서버 상태 확인 및 시작 (provider가 ollama인 경우에만)
 if /i "%NEED_OLLAMA%"=="true" (
@@ -172,14 +127,13 @@ if /i "%NEED_OLLAMA%"=="true" (
     call :trim_trailing_slash OLLAMA_HOST_NORMALIZED
 
     if /i "%OLLAMA_HOST_NORMALIZED%" neq "%OLLAMA_BASE_URL_NORMALIZED%" (
-        echo 경고: OLLAMA_HOST(%OLLAMA_HOST_NORMALIZED%)와 OLLAMA_BASE_URL(%OLLAMA_BASE_URL_NORMALIZED%)가 다릅니다.
-        echo Ollama 통신은 OLLAMA_BASE_URL(%OLLAMA_BASE_URL_NORMALIZED%) 기준으로 고정합니다.
+        echo 경고: OLLAMA_HOST=%OLLAMA_HOST_NORMALIZED% 와 OLLAMA_BASE_URL=%OLLAMA_BASE_URL_NORMALIZED% 가 다릅니다.
+        echo Ollama 통신은 OLLAMA_BASE_URL=%OLLAMA_BASE_URL_NORMALIZED% 기준으로 고정합니다.
     )
     set "OLLAMA_HOST=%OLLAMA_BASE_URL_NORMALIZED%"
-    set "OLLAMA_VERSION_URL=%OLLAMA_BASE_URL_NORMALIZED%/api/version"
 
     echo Ollama provider가 활성화되어 서버 상태를 확인합니다...
-    curl -s "%OLLAMA_VERSION_URL%" > nul 2>&1
+    ollama list > nul 2>&1
     if !ERRORLEVEL! neq 0 (
         echo Ollama 서버가 실행되지 않았습니다. 자동으로 시작합니다...
         where ollama > nul 2>&1
@@ -188,7 +142,7 @@ if /i "%NEED_OLLAMA%"=="true" (
             echo Ollama 서버를 시작했습니다.
             echo 서버 시작을 기다리는 중...
             timeout /t 3 /nobreak > nul
-            curl -s "%OLLAMA_VERSION_URL%" > nul 2>&1
+            ollama list > nul 2>&1
             if !ERRORLEVEL! equ 0 (
                 echo Ollama 서버가 성공적으로 시작되었습니다.
             ) else (
@@ -214,7 +168,7 @@ if /i "%NEED_OLLAMA%"=="true" (
     call :check_ollama_models %OLLAMA_CHECK_MODELS%
     if !ERRORLEVEL! neq 0 (
         echo 필수 Ollama 모델이 준비되지 않았습니다. 서버를 시작하지 않고 종료합니다.
-        echo 설치 명령: ollama pull <모델명>
+        echo 설치 명령 예시: ollama pull 모델명
         exit /b 1
     )
 )
@@ -260,7 +214,7 @@ if /i "%TUNNEL_ENABLED%"=="true" (
         )
     )
 ) else (
-    echo Cloudflare Tunnel이 비활성화되어 있습니다. (TUNNEL_ENABLED=false)
+    echo Cloudflare Tunnel이 비활성화되어 있습니다. TUNNEL_ENABLED=false
 )
 echo.
 
@@ -284,20 +238,41 @@ if not exist "%SCRIPT_DIR%\frontend\dist" (
     )
 )
 
+set "PORT_FALLBACK_ALLOWED=false"
+set "START_PORT=%PORT%"
+if not defined START_PORT (
+    set "START_PORT=8080"
+    set "PORT_FALLBACK_ALLOWED=true"
+) else if "%START_PORT%"=="8080" (
+    set "PORT_FALLBACK_ALLOWED=true"
+)
+set "PORT=%START_PORT%"
+
 echo 가상환경의 파이썬으로 웹서버를 실행합니다...
-echo 서버 URL: http://localhost:8080
-echo (웹브라우저에서 http://localhost:8080 에 접속하세요)
+echo 서버 URL: http://localhost:!PORT!
+echo 웹브라우저에서 http://localhost:!PORT! 에 접속하세요.
 echo.
 
 cd /d "%SCRIPT_DIR%"
 "%VENV_PYTHON%" -m sttEngine.server
 set EXIT_CODE=!ERRORLEVEL!
 
+if !EXIT_CODE! neq 0 if /i "%PORT_FALLBACK_ALLOWED%"=="true" if "%PORT%"=="8080" (
+    echo.
+    echo 포트 8080 바인딩에 실패했습니다. 포트 18080으로 재시도합니다.
+    set "PORT=18080"
+    echo 서버 URL: http://localhost:!PORT!
+    echo 웹브라우저에서 http://localhost:!PORT! 에 접속하세요.
+    echo.
+    "%VENV_PYTHON%" -m sttEngine.server
+    set EXIT_CODE=!ERRORLEVEL!
+)
+
 echo.
 if !EXIT_CODE! equ 0 (
     echo 서버가 정상적으로 종료되었습니다.
 ) else (
-    echo 서버가 오류와 함께 종료되었습니다. (오류코드: !EXIT_CODE!)
+    echo 서버가 오류와 함께 종료되었습니다. 오류코드: !EXIT_CODE!
     echo 오류 상세 내용을 확인하세요.
 )
 
