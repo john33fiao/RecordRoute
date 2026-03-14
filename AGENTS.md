@@ -27,9 +27,12 @@
   - 백엔드: `Dockerfile.backend`
   - 프론트엔드: `Dockerfile.frontend`
 - 핵심 HTTP 라우팅: `sttEngine/http_api/handler.py` + 라우트 모듈(`sttEngine/http_api/routes/*`)
+  - `/process`, `/history`, `/progress`는 `sttEngine/server/routes/*` 계층에서 처리
   - 파일/정적 서빙: `sttEngine/http_api/routes/file_routes.py`
   - 유사문서 응답 조합: `sttEngine/http_api/routes/similar_documents.py`
 - 워크플로우 실행: `sttEngine/http_api/workflow.py`
+- `/process` payload 정규화/검증: `sttEngine/server/services/file_service.py`
+- 작업 큐 실행: `sttEngine/server/tasks/queue.py`
 - Provider 추상화: `sttEngine/providers/*` + 호환 래퍼 `sttEngine/llm_provider.py`
 - 프론트엔드: React + Vite (`frontend/src/*`)
 - 레거시 UI: `frontend/legacy/*` (프론트 빌드 실패 시 fallback)
@@ -82,7 +85,7 @@ GET
   - `/api/similarity-graph`는 `min_similarity/max_neighbors/max_nodes/sampling/neighbor_strategy(auto|exact|lsh)` + 필터(`doc_types`, `start_date`, `end_date`, `keyword`)를 지원
   - 응답 `meta`는 `sampling`, `neighbor_strategy(requested/effective)`, `filters`, `incremental(...)` 진단 정보를 포함
 - `/similar/<uuid_or_path>`, `/models`
-  - `/models` 응답은 `models`(요청 provider 기준) + `models_by_provider` + `provider_status` + `default.provider`를 포함
+  - `/models` 응답은 `models`(요청 provider 기준) + `models_by_provider` + `provider_status` + `models_by_task(summary|embedding)` + `default.provider`를 포함
   - 선택 쿼리: `provider=ollama|llamacpp` (미지정 시 `LLM_PROVIDER` 기준)
 - `/cache/stats`, `/cache/cleanup`, `/metrics/workflow`
 
@@ -119,8 +122,10 @@ POST
 
 주의:
 - 백엔드 기준 요약 step 키는 `summary`
+- `summarize` step 입력은 서버에서 `summary`로 alias 정규화됩니다.
 - STT 모델 키는 `whisper`
 - `steps`는 서버에서 소문자/중복 제거 정규화 후 처리됨(순서 유지)
+- 재시도 제어 필드 `retry_mode`(기본 `new_task`)와 `retry_of_task_id`를 전달할 수 있습니다.
 - `model_settings.provider`(또는 `llm_provider`)로 교정/요약 LLM provider 선택 가능 (`ollama` 기본, `llamacpp` 지원)
 - `model_settings.diarization_provider` 기본값은 `pyannote`이며 미지정/빈 값이면 자동 적용됩니다.
 - `model_settings.num_speakers`, `min_speakers`, `max_speakers`는 정수(1~20)만 허용되며 `min_speakers <= max_speakers` 제약을 검증합니다.
@@ -134,6 +139,7 @@ POST
 
 ## 6. 수정 시 우선 확인할 파일
 - 라우트/핸들러: `sttEngine/http_api/handler.py`, `sttEngine/http_api/routes/file_routes.py`
+- 서버 라우트/서비스: `sttEngine/server/routes/process.py`, `sttEngine/server/routes/history.py`, `sttEngine/server/routes/progress.py`, `sttEngine/server/services/file_service.py`
 - 워크플로우: `sttEngine/http_api/workflow.py`
 - Provider: `sttEngine/providers/*`, `sttEngine/llm_provider.py`
 - 에러 매핑: `sttEngine/server/services/errors.py`
