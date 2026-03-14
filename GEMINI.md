@@ -7,7 +7,7 @@
 - 구조/실행/API/테스트 기준: `AGENTS.md`
 - 사용자/운영 문서: `README.md`
 - 작업 백로그: `TODO/TODO.md`, `TODO/GUI.md`, `TODO/llama-migration.md`, `TODO/rust-migration.md`, `TODO/DOCKER_OPENAPI_DEPLOY_PLAN.md`
-- 백엔드 핵심: `sttEngine/http_api/handler.py`, `sttEngine/http_api/workflow.py`
+- 백엔드 핵심: `sttEngine/http_api/handler.py`, `sttEngine/server/routes/process.py`, `sttEngine/server/routes/history.py`, `sttEngine/server/routes/progress.py`, `sttEngine/http_api/workflow.py`, `sttEngine/server/services/file_service.py`
 - 프론트 핵심: `frontend/src/*`
 
 ## 문서 점검
@@ -21,6 +21,8 @@
 1. 백엔드 라우트/스키마 변경 시 `frontend/src/api/client.ts`와 `frontend/src/api/types.ts` 동기화
 2. 경로 처리 시 `sttEngine/http_api/paths.py` 유틸 사용
 3. 실패 응답은 `error`, `error_code`, `retryable`, `failed_step` 규약 유지
+4. `/process` step 입력의 `summarize`는 서버에서 `summary`로 정규화되며, `retry_mode`/`retry_of_task_id`를 지원
+5. `/models` 응답의 `models_by_task(summary|embedding)` 필드까지 함께 확인
 
 ## 권장 검증
 
