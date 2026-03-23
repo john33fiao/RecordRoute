@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict
 
-from .llm_provider import map_llm_options, normalize_provider_name
-from .providers.factory import get_llm_provider
+from .llm_provider import chat_completion, map_llm_options, normalize_provider_name
 from .workflow.summarize import DEFAULT_MODEL, read_text_with_fallback
+
+LOGGER = logging.getLogger(__name__)
+_MAX_SOURCE_CHARS = 4000
+
+
+class OneLineSummaryError(RuntimeError):
+    """Raised when the one-line summary could not be generated."""
 
 
 def _extract_summary_line(response: Dict[str, Any]) -> str:
@@ -27,10 +34,31 @@ def _extract_summary_line(response: Dict[str, Any]) -> str:
         return ""
 
     for line in raw_text.strip().splitlines():
-        stripped = line.strip()
-        if stripped:
+        stripped = line.strip().lstrip("-*•0123456789. ")
+        if stripped and not stripped.lower().startswith("요약:"):
             return stripped
+        if stripped:
+            return stripped.removeprefix("요약:").strip()
     return ""
+
+
+def build_one_line_summary_prompt(text: str) -> str:
+    """Build a compact prompt tailored for list-title summaries."""
+    source = (text or "").strip()
+    if not source:
+        raise OneLineSummaryError("한줄요약 입력 텍스트가 비어 있습니다.")
+
+    return (
+        "당신은 문서 목록에 표시할 제목형 한줄요약을 작성합니다.\n"
+        "규칙:\n"
+        "- 반드시 한국어 한 줄만 출력합니다.\n"
+        "- 30~60자 내외로 작성합니다.\n"
+        "- 불렛, 번호, 따옴표, 접두어(예: 요약:)를 쓰지 않습니다.\n"
+        "- 핵심 주제를 제목처럼 간결하게 표현합니다.\n\n"
+        "원문:\n"
+        f"{source[:_MAX_SOURCE_CHARS]}"
+    )
+
 
 
 def generate_one_line_summary(file_path: Path, model: str | None = None, provider_name: str | None = None) -> str:
@@ -42,18 +70,31 @@ def generate_one_line_summary(file_path: Path, model: str | None = None, provide
         provider_name: Optional provider override (`ollama`/`llamacpp`).
 
     Returns:
-        A one-line summary string. Returns empty string when provider response is empty.
+        A one-line summary string.
+
+    Raises:
+        OneLineSummaryError: When the provider response is empty or malformed.
     """
     text = read_text_with_fallback(file_path)
-    prompt = "다음 텍스트를 한 줄로 한국어로 요약해 주세요:\n" + text[:4000]
+    prompt = build_one_line_summary_prompt(text)
 
     resolved_provider = normalize_provider_name(provider_name)
-    provider = get_llm_provider(resolved_provider)
-    options = map_llm_options({"temperature": 0}, provider_name=resolved_provider)
-
-    response = provider.generate(
-        model=model or DEFAULT_MODEL,
-        prompt=prompt,
-        options=options,
+    options = map_llm_options(
+        {
+            "temperature": 0,
+            "max_tokens": 120,
+        },
+        provider_name=resolved_provider,
     )
-    return _extract_summary_line(response)
+
+    response = chat_completion(
+        model=model or DEFAULT_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        options=options,
+        provider_name=resolved_provider,
+    )
+    summary_line = _extract_summary_line(response)
+    if not summary_line:
+        LOGGER.warning("한줄요약 응답이 비어 있습니다: provider=%s model=%s", resolved_provider, model or DEFAULT_MODEL)
+        raise OneLineSummaryError("한줄요약 응답이 비어 있습니다.")
+    return summary_line

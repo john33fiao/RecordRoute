@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
 from datetime import datetime
 from pathlib import Path
 
-from ..one_line_summary import generate_one_line_summary
+from ..one_line_summary import OneLineSummaryError, generate_one_line_summary
 from .history import load_upload_history, save_upload_history
 from .paths import FILE_REGISTRY_FILE, normalize_record_path, resolve_record_path
 
@@ -229,19 +230,33 @@ def update_filename(record_id: str, new_filename: str) -> None:
     save_upload_history(history)
 
 
+LOGGER = logging.getLogger(__name__)
+
+
 def generate_and_store_title_summary(
     record_id: str,
     file_path: Path,
     model: str | None = None,
     provider_name: str | None = None,
-) -> None:
+) -> str:
     """Generate one-line summary and store it."""
     try:
         summary = generate_one_line_summary(
             file_path,
             model=model,
             provider_name=provider_name,
-        )
+        ).strip()
+        if not summary:
+            raise OneLineSummaryError("한줄요약 결과가 비어 있습니다.")
         update_title_summary(record_id, summary)
+        return summary
     except Exception as e:
-        print(f"One-line summary generation failed: {e}")
+        LOGGER.warning(
+            "One-line summary generation failed: record_id=%s file_path=%s provider=%s model=%s error=%s",
+            record_id,
+            file_path,
+            provider_name,
+            model,
+            e,
+        )
+        raise
