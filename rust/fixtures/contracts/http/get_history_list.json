@@ -5,24 +5,39 @@
   "headers": {},
   "body": null,
   "expected_status": 200,
-  "expected_body": {
-    "items": [
-      {
-        "record_id": "__RECORD_ID__",
-        "file_path": "DB/uploads/__UPLOAD_ID__/meeting.m4a",
-        "filename": "meeting.m4a",
-        "status": "completed",
-        "uploaded_at": "__TIMESTAMP__"
+  "expected_body": [
+    {
+      "id": "__RECORD_ID__",
+      "timestamp": "__TIMESTAMP__",
+      "filename": "meeting.m4a",
+      "file_type": "audio",
+      "duration": "00:05:00",
+      "file_path": "DB/uploads/__UPLOAD_ID__/meeting.m4a",
+      "completed_tasks": {
+        "embedding": false,
+        "stt": true,
+        "summary": true
+      },
+      "download_links": {
+        "stt": "/download/__UUID_OR_PATH__"
+      },
+      "title_summary": "회의 요약",
+      "file_hash": "sha256:meeting",
+      "deleted": false,
+      "deleted_at": null,
+      "deleted_assets": {},
+      "info": {
+        "source": "fixture"
       }
-    ]
-  },
+    }
+  ],
   "normalization_rules": [
     "record_id -> __RECORD_ID__",
     "upload UUID -> __UPLOAD_ID__",
     "timestamps -> __TIMESTAMP__"
   ],
   "invariants": [
-    "Returns JSON array/object payload used by frontend history view.",
+    "Returns JSON array payload used by frontend history view.",
     "Stored file paths remain DB/... aliases, never host absolute paths."
   ]
 }

@@ -5,17 +5,16 @@
   "headers": {},
   "body": null,
   "expected_status": 200,
-  "expected_body": {
-    "tasks": [
-      {
-        "task_id": "__TASK_ID__",
-        "stage": "summary",
-        "message": "running",
-        "progress_percent": 66,
-        "eta_seconds": 12
-      }
-    ]
-  },
+  "expected_body": [
+    {
+      "task_id": "__TASK_ID__",
+      "message": "Summarizing transcript",
+      "stage": "summary",
+      "progress_percent": 66,
+      "eta_seconds": 12,
+      "error": null
+    }
+  ],
   "normalization_rules": [
     "task_id -> __TASK_ID__"
   ],

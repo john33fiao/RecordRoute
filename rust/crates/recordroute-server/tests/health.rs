@@ -6,9 +6,10 @@ use tower::util::ServiceExt;
 
 #[tokio::test]
 async fn health_endpoint_returns_expected_contract() {
-    let app = app(AppState {
-        config: AppConfig::from_env_iter([("DB_FOLDER_PATH", "DB"), ("MODEL_ROOT_PATH", "models")]),
-    });
+    let app = app(AppState::from_config(AppConfig::from_env_iter([
+        ("DB_FOLDER_PATH", "DB"),
+        ("MODEL_ROOT_PATH", "models"),
+    ])));
 
     let response = app
         .oneshot(

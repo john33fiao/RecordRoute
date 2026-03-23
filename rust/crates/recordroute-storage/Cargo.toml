@@ -6,3 +6,8 @@ license.workspace = true
 
 [dependencies]
 recordroute-core = { path = "../recordroute-core" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

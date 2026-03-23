@@ -135,7 +135,7 @@
 - [x] 모델 경로 해석 규칙 구현
   - `MODEL_ROOT_PATH` 기본값 `./models`
   - 기존 `WHISPER_MODEL_DIR`, `LLAMA_CPP_MODEL_PATH` 하위 호환 처리
-- [ ] 공통 에러 타입 및 API 에러 응답 매퍼 구현
+- [x] 공통 에러 타입 및 API 에러 응답 매퍼 구현
 - [x] 구조화 로그 초기화 구현
 - [x] health endpoint 구현
 
@@ -145,34 +145,35 @@
 - [x] Rust integration test harness 생성
 
 ### Exit Criteria
-- [ ] `cargo test`가 최소 skeleton 수준에서 통과
-- [ ] `GET /health` 동작
-- [ ] config/path/error 기반 모듈 테스트 통과
+- [x] `cargo test`가 최소 skeleton 수준에서 통과
+- [x] `GET /health` 동작
+- [x] config/path/error 기반 모듈 테스트 통과
 
 이번 스프린트 메모:
 - 첫 스프린트는 **workspace 뼈대 + config/path/health 최소 실행 경로**까지 구현했습니다.
 - `recordroute-storage`, `recordroute-workflow`, `recordroute-models`, `recordroute-search`, `recordroute-cli`는 현재 책임 경계를 고정하기 위한 placeholder 수준이며, 다음 스프린트에서 실제 기능을 채웁니다.
+- 두 번째 스프린트에서는 **P2 읽기 기초층**으로 `history/tasks/progress/segments/download`와 storage loader/contract test를 구현했습니다.
 
 ---
 
 ## P2 — 읽기/조회 API 및 데이터 호환
 
 ### 데이터 읽기
-- [ ] `upload_history.json` 읽기 구현
-- [ ] `file_registry.json` 읽기 구현
+- [x] `upload_history.json` 읽기 구현
+- [x] `file_registry.json` 읽기 구현
 - [ ] `vector_store/index.json` 읽기 구현
 - [ ] 현행 벡터 파일 로딩 구현
-- [ ] segments sidecar 읽기 구현
+- [x] segments sidecar 읽기 구현
 
 ### 조회 API 구현
 - [ ] `GET /`
 - [ ] `GET /assets/*`
-- [ ] `GET /health`
-- [ ] `GET /history`
-- [ ] `GET /tasks`
-- [ ] `GET /progress/{task_id}`
-- [ ] `GET /segments/{file_identifier}`
-- [ ] `GET /download/{uuid_or_path}`
+- [x] `GET /health`
+- [x] `GET /history`
+- [x] `GET /tasks`
+- [x] `GET /progress/{task_id}`
+- [x] `GET /segments/{file_identifier}`
+- [x] `GET /download/{uuid_or_path}`
 - [ ] `GET /file_search`
 - [ ] `GET /search`
 - [ ] `GET /api/similarity-graph`
