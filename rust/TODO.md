@@ -37,7 +37,7 @@
 
 ## 상태 정의
 - `P0`: 구현 시작 전에 반드시 고정하거나 문서화해야 하는 항목
-- `P1`: 초기 Rust skeleton과 계약 고정
+- `P1`: 초기 Rust skeleton
 - `P2`: 읽기/조회 API 및 데이터 호환
 - `P3`: 쓰기 API, 워크플로우, 모델 연동
 - `P4`: 설치/빌드/배포 전환
@@ -91,12 +91,25 @@
   - 허용되는 변경은 Rust API 계약에 맞춘 최소한의 client/config/type 조정
 - [x] 기존 `DB/...` alias와 JSON 포맷 유지 시점 결정
   - 최소 1차 Rust cutover 완료 시점까지 유지
-- [ ] 현행 프론트 사용 API와 payload를 fixture로 동결
-- [ ] diarization 제외 정책을 프론트/클라이언트 계약 테스트에 반영
+- [x] 현행 프론트 사용 API와 payload를 fixture로 동결
+  - 기준 위치: `rust/fixtures/contracts/http`, `rust/fixtures/contracts/ws`, `rust/fixtures/contracts/meta/manifest.json`
+  - 범위: 프론트 사용 API + 핵심 고위험 계약
+- [x] diarization 제외 정책을 프론트/클라이언트 계약 테스트에 반영
+  - `POST /process` fixture에 `summarize -> summary` 정규화와 `diarize.status=skipped` payload 반영
+  - `/ws` error frame fixture에 `failed_step=diarize`, `error_code`, `retryable`, nested `error` 객체 반영
+- [x] Rust 1차 task registry를 memory-only로 고정
+- [x] 정적 서빙 전략을 direct serving + proxy compatibility로 고정
+- [x] hybrid contract capture harness 추가
+  - `rust/scripts/capture_contracts.py`
+  - 재생성 2회 byte-stable 검증 포함
+- [x] 계약 인벤토리 문서 추가
+  - `rust/docs/api-contract.md`
+- [x] P0 범위 밖 엔드포인트 명시
+  - `/file_search`, `/similar/{uuid_or_path}`, `/api/documents/metadata`, `/cache/stats`, `/cache/cleanup`, `/metrics/workflow`
 
 ### Exit Criteria
-- [ ] `rust/SPEC.md`와 `rust/TODO.md`가 동일한 1차 전제를 공유
-- [ ] 현행 프론트 기준 API/WS 계약 fixture 확보
+- [x] `rust/SPEC.md`와 `rust/TODO.md`가 동일한 1차 전제를 공유
+- [x] 현행 프론트 기준 API/WS 계약 fixture 확보
 - [ ] “구현 시작 가능” 체크리스트에서 미정 항목이 Windows prerequisite 정도로 축소
 
 ---
@@ -127,8 +140,8 @@
 - [ ] health endpoint 구현
 
 ### 테스트 기반
-- [ ] API contract fixture 디렉터리 설계
-- [ ] Python 현행 응답 캡처용 baseline fixture 생성
+- [x] API contract fixture 디렉터리 설계
+- [x] Python 현행 응답 캡처용 baseline fixture 생성
 - [ ] Rust integration test harness 생성
 
 ### Exit Criteria

@@ -1,0 +1,23 @@
+{
+  "method": "POST",
+  "path": "/update_stt_text",
+  "query": {},
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "record_id": "__RECORD_ID__",
+    "text": "수정된 전사문"
+  },
+  "expected_status": 200,
+  "expected_body": {
+    "success": true,
+    "record_id": "__RECORD_ID__"
+  },
+  "normalization_rules": [
+    "record_id -> __RECORD_ID__"
+  ],
+  "invariants": [
+    "Manual STT text edits remain addressable by record_id."
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "method": "GET",
+  "path": "/tasks",
+  "query": {},
+  "headers": {},
+  "body": null,
+  "expected_status": 200,
+  "expected_body": {
+    "tasks": [
+      {
+        "task_id": "__TASK_ID__",
+        "stage": "summary",
+        "message": "running",
+        "progress_percent": 66,
+        "eta_seconds": 12
+      }
+    ]
+  },
+  "normalization_rules": [
+    "task_id -> __TASK_ID__"
+  ],
+  "invariants": [
+    "Task registry is memory-only for the first Rust cut.",
+    "progress_percent and eta_seconds stay visible in list responses when present."
+  ]
+}

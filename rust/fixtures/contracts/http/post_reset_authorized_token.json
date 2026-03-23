@@ -1,0 +1,24 @@
+{
+  "method": "POST",
+  "path": "/reset",
+  "query": {},
+  "headers": {
+    "content-type": "application/json",
+    "x-recordroute-admin-token": "__ADMIN_TOKEN__"
+  },
+  "body": {
+    "record_id": "__RECORD_ID__"
+  },
+  "expected_status": 200,
+  "expected_body": {
+    "success": true,
+    "record_id": "__RECORD_ID__"
+  },
+  "normalization_rules": [
+    "record_id -> __RECORD_ID__",
+    "admin token -> __ADMIN_TOKEN__"
+  ],
+  "invariants": [
+    "Header token auth unlocks destructive route in safe mode."
+  ]
+}

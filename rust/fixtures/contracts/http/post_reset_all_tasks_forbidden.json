@@ -1,0 +1,19 @@
+{
+  "method": "POST",
+  "path": "/reset_all_tasks",
+  "query": {},
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {},
+  "expected_status": 403,
+  "expected_body": {
+    "error": "Forbidden",
+    "error_code": "destructive_api_protected",
+    "retryable": false
+  },
+  "normalization_rules": [],
+  "invariants": [
+    "reset_all_tasks shares the same destructive guard contract."
+  ]
+}

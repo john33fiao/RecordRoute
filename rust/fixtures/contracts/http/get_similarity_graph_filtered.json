@@ -1,0 +1,49 @@
+{
+  "method": "GET",
+  "path": "/api/similarity-graph",
+  "query": {
+    "min_similarity": "0.65",
+    "max_neighbors": "8",
+    "max_nodes": "50",
+    "sampling": "frontier",
+    "neighbor_strategy": "auto",
+    "doc_types": "audio,note",
+    "keyword": "회의"
+  },
+  "headers": {},
+  "body": null,
+  "expected_status": 200,
+  "expected_body": {
+    "nodes": [
+      {
+        "id": "__NODE_ID__",
+        "label": "meeting.m4a"
+      }
+    ],
+    "edges": [],
+    "meta": {
+      "sampling": "frontier",
+      "neighbor_strategy": {
+        "requested": "auto",
+        "effective": "exact"
+      },
+      "filters": {
+        "doc_types": [
+          "audio",
+          "note"
+        ],
+        "keyword": "회의"
+      },
+      "incremental": {
+        "enabled": false
+      }
+    }
+  },
+  "normalization_rules": [
+    "node ids -> __NODE_ID__"
+  ],
+  "invariants": [
+    "meta echoes sampling, neighbor strategy, filters, and incremental diagnostics.",
+    "Filter serialization remains stable for frontend graph tooling."
+  ]
+}

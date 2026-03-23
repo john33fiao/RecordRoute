@@ -1,0 +1,46 @@
+{
+  "path": "/ws",
+  "query": {},
+  "frames": [
+    {
+      "task_id": "__TASK_ID__",
+      "message": "Queued",
+      "stage": "queued",
+      "error_code": null,
+      "retryable": null,
+      "failed_step": null,
+      "progress_percent": 0,
+      "eta_seconds": null,
+      "error": null
+    },
+    {
+      "task_id": "__TASK_ID__",
+      "message": "Summarizing transcript",
+      "stage": "summary",
+      "error_code": null,
+      "retryable": null,
+      "failed_step": null,
+      "progress_percent": 66,
+      "eta_seconds": 12,
+      "error": null
+    },
+    {
+      "task_id": "__TASK_ID__",
+      "message": "Completed",
+      "stage": "completed",
+      "error_code": null,
+      "retryable": null,
+      "failed_step": null,
+      "progress_percent": 100,
+      "eta_seconds": 0,
+      "error": null
+    }
+  ],
+  "normalization_rules": [
+    "task_id -> __TASK_ID__"
+  ],
+  "invariants": [
+    "Frames are ordered and append-only per task.",
+    "progress_percent, eta_seconds, and error fields are preserved on every frame."
+  ]
+}
