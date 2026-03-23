@@ -117,37 +117,41 @@
 ## P1 — Rust workspace skeleton
 
 ### 저장소 구조
-- [ ] `rust/Cargo.toml` workspace 생성
-- [ ] crate 생성
-  - [ ] `recordroute-core`
-  - [ ] `recordroute-storage`
-  - [ ] `recordroute-server`
-  - [ ] `recordroute-workflow`
-  - [ ] `recordroute-models`
-  - [ ] `recordroute-search`
-  - [ ] `recordroute-cli`
-- [ ] 공통 lint/fmt 설정 추가 (`rustfmt.toml`, `clippy.toml` 필요 시)
+- [x] `rust/Cargo.toml` workspace 생성
+- [x] crate 생성
+  - [x] `recordroute-core`
+  - [x] `recordroute-storage`
+  - [x] `recordroute-server`
+  - [x] `recordroute-workflow`
+  - [x] `recordroute-models`
+  - [x] `recordroute-search`
+  - [x] `recordroute-cli`
+- [x] 공통 lint/fmt 설정 추가 (`rustfmt.toml`, `clippy.toml` 필요 시)
 
 ### 공통 기반
-- [ ] typed config 로더 구현
-- [ ] path alias (`DB/...`) 변환 모듈 구현
-- [ ] `DB_FOLDER_PATH` 해석 규칙과 기본값 호환 구현
-- [ ] 모델 경로 해석 규칙 구현
+- [x] typed config 로더 구현
+- [x] path alias (`DB/...`) 변환 모듈 구현
+- [x] `DB_FOLDER_PATH` 해석 규칙과 기본값 호환 구현
+- [x] 모델 경로 해석 규칙 구현
   - `MODEL_ROOT_PATH` 기본값 `./models`
   - 기존 `WHISPER_MODEL_DIR`, `LLAMA_CPP_MODEL_PATH` 하위 호환 처리
 - [ ] 공통 에러 타입 및 API 에러 응답 매퍼 구현
-- [ ] 구조화 로그 초기화 구현
-- [ ] health endpoint 구현
+- [x] 구조화 로그 초기화 구현
+- [x] health endpoint 구현
 
 ### 테스트 기반
 - [x] API contract fixture 디렉터리 설계
 - [x] Python 현행 응답 캡처용 baseline fixture 생성
-- [ ] Rust integration test harness 생성
+- [x] Rust integration test harness 생성
 
 ### Exit Criteria
 - [ ] `cargo test`가 최소 skeleton 수준에서 통과
 - [ ] `GET /health` 동작
 - [ ] config/path/error 기반 모듈 테스트 통과
+
+이번 스프린트 메모:
+- 첫 스프린트는 **workspace 뼈대 + config/path/health 최소 실행 경로**까지 구현했습니다.
+- `recordroute-storage`, `recordroute-workflow`, `recordroute-models`, `recordroute-search`, `recordroute-cli`는 현재 책임 경계를 고정하기 위한 placeholder 수준이며, 다음 스프린트에서 실제 기능을 채웁니다.
 
 ---
 
