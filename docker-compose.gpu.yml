@@ -1,8 +1,0 @@
-services:
-  backend:
-    gpus: all
-    environment:
-      WORKFLOW_DEVICE: auto
-
-  ollama:
-    gpus: all
