@@ -1,0 +1,183 @@
+{
+  "version": 1,
+  "phase": "P0",
+  "generated_by": "rust/scripts/capture_contracts.py",
+  "decisions": {
+    "task_registry": "memory-only",
+    "static_serving": "direct-serving-with-proxy-compatibility",
+    "fixture_scope": "frontend-used-api-plus-high-risk-contracts",
+    "capture_mode": "hybrid"
+  },
+  "directories": {
+    "http": "rust/fixtures/contracts/http",
+    "ws": "rust/fixtures/contracts/ws",
+    "meta": "rust/fixtures/contracts/meta"
+  },
+  "included_endpoints": {
+    "get": [
+      "/history",
+      "/tasks",
+      "/progress/{task_id}",
+      "/segments/{file_identifier}",
+      "/download/{uuid_or_path}",
+      "/search",
+      "/api/similarity-graph",
+      "/models"
+    ],
+    "post": [
+      "/upload",
+      "/process",
+      "/cancel",
+      "/reset",
+      "/reset_all_tasks",
+      "/update_filename",
+      "/update_stt_text",
+      "/check_existing_stt",
+      "/reset_summary_embedding",
+      "/similar",
+      "/delete",
+      "/delete_records",
+      "/shutdown"
+    ],
+    "ws": [
+      "/ws"
+    ]
+  },
+  "excluded_endpoints": [
+    "/file_search",
+    "/similar/{uuid_or_path}",
+    "/api/documents/metadata",
+    "/cache/stats",
+    "/cache/cleanup",
+    "/metrics/workflow"
+  ],
+  "http_cases": [
+    {
+      "file": "rust/fixtures/contracts/http/get_history_list.json",
+      "capture": "server",
+      "endpoint": "/history"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/get_tasks_memory_registry.json",
+      "capture": "server",
+      "endpoint": "/tasks"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/get_progress_task.json",
+      "capture": "server",
+      "endpoint": "/progress/__TASK_ID__"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/get_segments_sidecar.json",
+      "capture": "server",
+      "endpoint": "/segments/__FILE_ID__"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/get_download_file.json",
+      "capture": "server",
+      "endpoint": "/download/__UUID_OR_PATH__"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/get_search_normalized_v2.json",
+      "capture": "server",
+      "endpoint": "/search"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/get_similarity_graph_filtered.json",
+      "capture": "server",
+      "endpoint": "/api/similarity-graph"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/get_models_default_provider.json",
+      "capture": "handler",
+      "endpoint": "/models"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/get_models_llamacpp_query.json",
+      "capture": "handler",
+      "endpoint": "/models"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/post_upload_success.json",
+      "capture": "server",
+      "endpoint": "/upload"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/post_process_step_normalization.json",
+      "capture": "server",
+      "endpoint": "/process"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/post_cancel_task.json",
+      "capture": "server",
+      "endpoint": "/cancel"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/post_reset_forbidden_safe_mode.json",
+      "capture": "handler",
+      "endpoint": "/reset"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/post_reset_authorized_token.json",
+      "capture": "handler",
+      "endpoint": "/reset"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/post_reset_all_tasks_forbidden.json",
+      "capture": "handler",
+      "endpoint": "/reset_all_tasks"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/post_update_filename.json",
+      "capture": "handler",
+      "endpoint": "/update_filename"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/post_update_stt_text.json",
+      "capture": "handler",
+      "endpoint": "/update_stt_text"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/post_check_existing_stt.json",
+      "capture": "handler",
+      "endpoint": "/check_existing_stt"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/post_reset_summary_embedding_session.json",
+      "capture": "handler",
+      "endpoint": "/reset_summary_embedding"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/post_similar_documents.json",
+      "capture": "handler",
+      "endpoint": "/similar"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/post_delete_forbidden_safe_mode.json",
+      "capture": "handler",
+      "endpoint": "/delete"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/post_delete_records_authorized.json",
+      "capture": "handler",
+      "endpoint": "/delete_records"
+    },
+    {
+      "file": "rust/fixtures/contracts/http/post_shutdown_authorized.json",
+      "capture": "handler",
+      "endpoint": "/shutdown"
+    }
+  ],
+  "ws_cases": [
+    {
+      "file": "rust/fixtures/contracts/ws/progress_success.json",
+      "capture": "server",
+      "endpoint": "/ws"
+    },
+    {
+      "file": "rust/fixtures/contracts/ws/progress_error.json",
+      "capture": "server",
+      "endpoint": "/ws"
+    }
+  ]
+}

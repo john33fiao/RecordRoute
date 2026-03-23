@@ -1,0 +1,24 @@
+{
+  "method": "POST",
+  "path": "/check_existing_stt",
+  "query": {},
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "record_id": "__RECORD_ID__"
+  },
+  "expected_status": 200,
+  "expected_body": {
+    "record_id": "__RECORD_ID__",
+    "exists": true,
+    "stt_text_path": "DB/uploads/__UPLOAD_ID__/meeting.txt"
+  },
+  "normalization_rules": [
+    "record_id -> __RECORD_ID__",
+    "upload id -> __UPLOAD_ID__"
+  ],
+  "invariants": [
+    "Existing STT checks return DB alias paths when materialized."
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "method": "POST",
+  "path": "/reset",
+  "query": {},
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "record_id": "__RECORD_ID__"
+  },
+  "expected_status": 403,
+  "expected_body": {
+    "error": "Forbidden",
+    "error_code": "destructive_api_protected",
+    "retryable": false
+  },
+  "normalization_rules": [
+    "record_id -> __RECORD_ID__"
+  ],
+  "invariants": [
+    "Destructive routes are blocked by default safe mode without credentials."
+  ]
+}

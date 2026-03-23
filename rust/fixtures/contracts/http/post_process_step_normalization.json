@@ -1,0 +1,46 @@
+{
+  "method": "POST",
+  "path": "/process",
+  "query": {},
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "file_path": "DB/uploads/__UPLOAD_ID__/meeting.txt",
+    "task_id": "__TASK_ID__",
+    "steps": [
+      "STT",
+      "summarize",
+      "summary",
+      "DIARIZE"
+    ],
+    "model_settings": {
+      "provider": "ollama",
+      "summarize": "gpt-oss:20b"
+    }
+  },
+  "expected_status": 202,
+  "expected_body": {
+    "task_id": "__TASK_ID__",
+    "steps": [
+      "stt",
+      "summary",
+      "diarize"
+    ],
+    "results": {
+      "diarize": {
+        "status": "skipped",
+        "reason": "non_audio_input",
+        "input_file_type": "text",
+        "segments": []
+      }
+    }
+  },
+  "normalization_rules": [
+    "step names lower-cased and deduplicated with summarize -> summary alias"
+  ],
+  "invariants": [
+    "summarize aliases to summary.",
+    "Non-audio diarize returns skipped payload instead of transport failure."
+  ]
+}

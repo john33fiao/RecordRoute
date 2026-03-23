@@ -1,0 +1,28 @@
+{
+  "method": "GET",
+  "path": "/history",
+  "query": {},
+  "headers": {},
+  "body": null,
+  "expected_status": 200,
+  "expected_body": {
+    "items": [
+      {
+        "record_id": "__RECORD_ID__",
+        "file_path": "DB/uploads/__UPLOAD_ID__/meeting.m4a",
+        "filename": "meeting.m4a",
+        "status": "completed",
+        "uploaded_at": "__TIMESTAMP__"
+      }
+    ]
+  },
+  "normalization_rules": [
+    "record_id -> __RECORD_ID__",
+    "upload UUID -> __UPLOAD_ID__",
+    "timestamps -> __TIMESTAMP__"
+  ],
+  "invariants": [
+    "Returns JSON array/object payload used by frontend history view.",
+    "Stored file paths remain DB/... aliases, never host absolute paths."
+  ]
+}

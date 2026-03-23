@@ -1,0 +1,25 @@
+{
+  "method": "POST",
+  "path": "/upload",
+  "query": {},
+  "headers": {
+    "content-type": "multipart/form-data; boundary=__BOUNDARY__"
+  },
+  "body": {
+    "filename": "meeting.m4a",
+    "content_type": "audio/mp4"
+  },
+  "expected_status": 200,
+  "expected_body": {
+    "record_id": "__RECORD_ID__",
+    "file_path": "DB/uploads/__UPLOAD_ID__/meeting.m4a",
+    "filename": "meeting.m4a"
+  },
+  "normalization_rules": [
+    "multipart boundary -> __BOUNDARY__",
+    "record/upload ids normalized"
+  ],
+  "invariants": [
+    "Upload response returns DB alias path for subsequent /process calls."
+  ]
+}

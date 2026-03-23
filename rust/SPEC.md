@@ -57,27 +57,20 @@ rust/
 ├── AGENTS.md
 ├── SPEC.md
 ├── TODO.md
-├── Cargo.toml                # workspace
-├── crates/
-│   ├── recordroute-server/   # HTTP/WebSocket/API 서버
-│   ├── recordroute-core/     # 도메인 모델, 에러, config, path
-│   ├── recordroute-workflow/ # process orchestration
-│   ├── recordroute-storage/  # DB JSON/파일/인덱스 접근
-│   ├── recordroute-search/   # 검색/유사도/벡터 인덱스
-│   ├── recordroute-models/   # whisper.cpp / llama.cpp 래퍼
-│   └── recordroute-cli/      # setup/check/bootstrap CLI
-├── vendor/
-│   ├── whisper.cpp/          # git submodule
-│   └── llama.cpp/            # git submodule
+├── fixtures/
+│   └── contracts/
+│       ├── http/
+│       ├── ws/
+│       └── meta/
 ├── scripts/
-│   ├── bootstrap.ps1
-│   ├── bootstrap.sh
-│   └── verify-models.md
+│   └── capture_contracts.py
 └── docs/
     ├── api-contract.md
     ├── storage-layout.md
     └── migration-plan.md
 ```
+
+> 참고: 위 트리는 **P0 기준 실제 존재/우선 생성 대상**을 먼저 반영합니다. `Cargo.toml`, crates, vendor submodule, bootstrap 스크립트는 이번 단계 범위 밖이며 P1 이후에 추가합니다.
 
 ### 3.2 런타임 구성
 - **API 서버**: `axum` 권장
@@ -119,15 +112,9 @@ Rust 1차 버전은 아래 엔드포인트를 우선 지원해야 한다.
 - `GET /progress/{task_id}`
 - `GET /segments/{file_identifier}`
 - `GET /download/{uuid_or_path}`
-- `GET /file_search`
 - `GET /search`
 - `GET /api/similarity-graph`
-- `GET /api/documents/metadata`
-- `GET /similar/{uuid_or_path}`
 - `GET /models`
-- `GET /cache/stats`
-- `GET /cache/cleanup`
-- `GET /metrics/workflow`
 
 ### 쓰기/작업
 - `POST /upload`
@@ -148,6 +135,20 @@ Rust 1차 버전은 아래 엔드포인트를 우선 지원해야 한다.
 ### 실시간
 - WebSocket 진행 이벤트 (`ws://.../ws` 또는 현행과 호환되는 경로)
 
+### 4.1.1 P0 fixture 동결 범위
+이번 단계에서 실제 fixture로 동결하는 범위는 다음과 같다.
+- GET: `/history`, `/tasks`, `/progress/{task_id}`, `/segments/{file_identifier}`, `/download/{uuid_or_path}`, `/search`, `/api/similarity-graph`, `/models`
+- POST: `/upload`, `/process`, `/cancel`, `/reset`, `/reset_all_tasks`, `/update_filename`, `/update_stt_text`, `/check_existing_stt`, `/reset_summary_embedding`, `/similar`, `/delete`, `/delete_records`, `/shutdown`
+- WebSocket: `/ws` progress frame
+
+이번 단계에서 fixture를 만들지 않는 P0 범위 밖 엔드포인트:
+- `GET /file_search`
+- `GET /similar/{uuid_or_path}`
+- `GET /api/documents/metadata`
+- `GET /cache/stats`
+- `GET /cache/cleanup`
+- `GET /metrics/workflow`
+
 ## 4.2 계약 호환 규칙
 다음 계약은 **초기 Rust 이행의 고정 조건**으로 본다.
 - `/process`의 `steps`는 소문자/중복 제거 정규화 유지
@@ -159,6 +160,25 @@ Rust 1차 버전은 아래 엔드포인트를 우선 지원해야 한다.
 - `DB/...` 경로 alias 계약 유지
 - `DB_FOLDER_PATH` 환경변수 우선 해석 규칙 유지
 - 파괴적 API safe mode와 token/session 보호 규칙 유지
+- Rust 1차 task registry는 **memory-only**로 유지
+- `/` 및 `/assets/*` 정적 서빙은 **Rust 서버 직접 서빙 + 프록시 호환**을 기본 계약으로 유지
+- fixture 저장 전 generated id, timestamp, localhost port, temp path, OS 절대경로, 동적 URL 조각은 정규화
+
+## 4.3 계약 fixture 자산
+P0 계약 동결 기준물은 아래 경로를 단일 진실 공급원으로 사용한다.
+- `rust/fixtures/contracts/http/*.json`
+- `rust/fixtures/contracts/ws/*.json`
+- `rust/fixtures/contracts/meta/manifest.json`
+- `rust/docs/api-contract.md`
+- `rust/scripts/capture_contracts.py`
+
+규칙:
+- HTTP fixture는 케이스별 JSON 1파일이며 `method`, `path`, `query`, `headers`, `body`, `expected_status`, `expected_body`, `normalization_rules`, `invariants`를 유지한다.
+- WebSocket fixture는 ordered `frames[]` 배열을 사용하며 각 frame은 `task_id`, `message`, `stage`, `error_code`, `retryable`, `failed_step`, `progress_percent`, `eta_seconds`, `error` 필드를 보존한다.
+- capture 방식은 **hybrid**다.
+  - ephemeral HTTP/WS 서버로 재현 가능한 케이스는 server capture
+  - `models`, destructive safe-mode guard처럼 논리 중심 케이스는 handler/unit-test 패턴 재사용
+- fixture drift는 사양 변경으로 간주하며, 의도적이면 fixture와 `rust/SPEC.md`, `rust/TODO.md`를 같은 변경에서 함께 갱신한다.
 
 ---
 
@@ -300,9 +320,6 @@ Rust 1차 버전은 아래 엔드포인트를 우선 지원해야 한다.
 이 섹션은 “계획이 충분히 구체적인가?”를 검증하는 핵심 체크리스트다.
 
 ### 9.1 아직 결정해야 하는 것
-- 현행 프론트가 실제로 호출하는 API/WS payload fixture를 어디까지 동결할지
-- task registry를 메모리 only로 둘지, 재시작 복구 메타를 일부 파일로 남길지
-- `/` 및 `/assets/*` 정적 서빙을 Rust 서버가 직접 맡을지, 배포별 프록시/프론트 서버에 위임할지
 - Windows에서 native dependency 설치 가이드를 어느 수준까지 자동화할지
 - 모델 존재 검증을 단순 파일 존재로 끝낼지, 해시/manifest 검증까지 포함할지
 
@@ -324,8 +341,9 @@ Rust 1차 버전은 아래 엔드포인트를 우선 지원해야 한다.
 ## 10. 권장 마이그레이션 단계
 
 ### Phase 0 — 계약 고정
-- 현행 Python API/파일 포맷을 테스트로 고정
-- 특히 `/process`, `/search`, `/progress`, `/models`, `destructive safe mode` 계약 스냅샷화
+- 현행 Python API/파일 포맷을 fixture와 문서로 고정
+- `rust/fixtures/contracts/` + `rust/docs/api-contract.md` + `rust/scripts/capture_contracts.py`를 단일 기준으로 유지
+- 특히 `/process`, `/search`, `/progress`, `/models`, `destructive safe mode`, `/ws` progress frame 계약을 스냅샷화
 
 ### Phase 1 — Rust skeleton
 - `rust/` workspace 생성
@@ -379,7 +397,7 @@ Rust 1차 버전은 아래 엔드포인트를 우선 지원해야 한다.
 
 ## 12. 현재 계획에 대한 평가
 
-현재 방향성은 **구현 착수 가능한 수준에 가까워졌고**, 이제 남은 일은 계약 fixture와 bootstrap 세부사항을 닫는 것이다.
+현재 방향성은 **P0 계약 동결 기준이 생긴 상태**이며, 다음 단계는 이 fixture를 기준으로 Rust workspace와 서버 skeleton을 시작하는 것이다.
 
 ### 이미 좋은 점
 - Python 제거라는 목표가 분명하다.
@@ -387,10 +405,9 @@ Rust 1차 버전은 아래 엔드포인트를 우선 지원해야 한다.
 - submodule 포함, 프로세스 래퍼 전략, 수동 모델 검증 정책이 명확하다.
 
 ### 아직 더 구체화가 필요한 점
-- 현행 프론트가 실제로 쓰는 API/WS payload fixture를 수집해야 한다.
 - `setup.bat`의 Windows prerequisite 점검 범위를 실제 스크립트 수준으로 내려야 한다.
-- diarization `skipped` payload를 테스트 fixture까지 확정해야 한다.
-- 정적 파일 서빙 책임과 release packaging 구조를 닫아야 한다.
+- 모델 검증을 단순 존재 확인에서 어디까지 강화할지 결정해야 한다.
+- release packaging 구조를 P4 수준까지 세분화해야 한다.
 
 ### 결론
-이 문서 기준으로는 **“1차 원칙 확정 + 계약 동결 작업 필요”** 상태다. 즉, Rust workspace와 API skeleton 구현을 시작하되, `TODO.md`의 P0 잔여 항목인 fixture 고정과 bootstrap 세부사항을 병행해서 닫는 것이 맞다.
+이 문서 기준으로는 **“1차 원칙 확정 + P0 계약 동결 완료”** 상태다. 다음 단계는 추측이 아니라 `rust/fixtures/contracts/`와 `rust/docs/api-contract.md`를 기준으로 Rust workspace와 API skeleton을 여는 것이다.

@@ -1,0 +1,43 @@
+{
+  "method": "GET",
+  "path": "/models",
+  "query": {
+    "provider": "llamacpp"
+  },
+  "headers": {},
+  "body": null,
+  "expected_status": 200,
+  "expected_body": {
+    "models": [
+      "/models/default_model.gguf"
+    ],
+    "models_by_provider": {
+      "ollama": [
+        "gpt-oss:20b"
+      ],
+      "llamacpp": [
+        "/models/default_model.gguf"
+      ]
+    },
+    "provider_status": {
+      "ollama": "available",
+      "llamacpp": "available"
+    },
+    "models_by_task": {
+      "summary": [
+        "/models/default_model.gguf"
+      ],
+      "embedding": [
+        "/models/default_model.gguf"
+      ]
+    },
+    "default": {
+      "provider": "ollama"
+    }
+  },
+  "normalization_rules": [],
+  "invariants": [
+    "provider query switches the top-level models list without removing models_by_provider.",
+    "Provider query semantics are frozen for frontend selector behavior."
+  ]
+}
