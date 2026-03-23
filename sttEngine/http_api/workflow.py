@@ -736,12 +736,20 @@ def run_workflow(
                 file_path_str = to_record_path(summary_file)
                 update_task_completion(record_id, "summary", file_path_str)
                 if source_text_path:
-                    generate_and_store_title_summary(
-                        record_id,
-                        source_text_path,
-                        summarize_model,
-                        (model_settings or {}).get("provider") or (model_settings or {}).get("llm_provider"),
-                    )
+                    try:
+                        generate_and_store_title_summary(
+                            record_id,
+                            source_text_path,
+                            summarize_model,
+                            (model_settings or {}).get("provider") or (model_settings or {}).get("llm_provider"),
+                        )
+                    except Exception as title_summary_error:
+                        if task_id:
+                            update_task_progress(
+                                task_id,
+                                f"한줄요약 생성 실패(요약 결과는 저장됨): {title_summary_error}",
+                                stage=TaskStage.SUMMARY,
+                            )
             record_step_metric("summary", "completed", summary_started_at)
 
     except Exception as exc:  # pragma: no cover

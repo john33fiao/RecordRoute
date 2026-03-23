@@ -86,6 +86,80 @@ def test_workflow_passes_provider_to_correct_and_summary(monkeypatch, tmp_path: 
     assert called["summary"]["provider_name"] == "llamacpp"
 
 
+
+
+def test_workflow_summary_generates_title_summary_as_byproduct(monkeypatch, tmp_path: Path, temp_workflow_dirs):
+    upload_dir = tmp_path / "uploads" / "task-title-summary"
+    upload_dir.mkdir(parents=True)
+    source = upload_dir / "note.txt"
+    source.write_text("테스트 텍스트", encoding="utf-8")
+
+    history_state = [{"id": "record-1", "title_summary": "", "completed_tasks": {}, "download_links": {}}]
+
+    monkeypatch.setattr("sttEngine.http_api.workflow.summarize_text_mapreduce", lambda **_kwargs: "구조화 요약 결과")
+    monkeypatch.setattr("sttEngine.http_api.workflow.save_output", lambda content, path, as_json=False: path.write_text(content, encoding="utf-8"))
+    monkeypatch.setattr("sttEngine.http_api.workflow.send_summary_to_obsidian_sync", lambda **_kwargs: {"success": False, "message": "disabled"})
+    monkeypatch.setattr("sttEngine.http_api.workflow.update_task_progress", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("sttEngine.http_api.workflow.clear_task_progress", lambda _id: None)
+    monkeypatch.setattr("sttEngine.http_api.workflow.is_task_cancelled", lambda _id: False)
+    monkeypatch.setattr("sttEngine.http_api.workflow.load_upload_history", lambda: history_state)
+
+    stored: dict[str, object] = {}
+
+    def fake_generate_and_store_title_summary(record_id, file_path, model=None, provider_name=None):
+        stored["record_id"] = record_id
+        stored["file_path"] = file_path
+        stored["model"] = model
+        stored["provider_name"] = provider_name
+        history_state[0]["title_summary"] = "후처리 한줄요약"
+        return "후처리 한줄요약"
+
+    monkeypatch.setattr("sttEngine.http_api.workflow.generate_and_store_title_summary", fake_generate_and_store_title_summary)
+    monkeypatch.setattr("sttEngine.http_api.workflow.update_task_completion", lambda *_args, **_kwargs: "file-uuid")
+
+    result = run_workflow(
+        source,
+        ["summary"],
+        record_id="record-1",
+        task_id="task-title-summary",
+        model_settings={"provider": "llamacpp", "summarize": "model.gguf"},
+    )
+
+    assert result["summary"].endswith("note.summary.md")
+    assert stored["record_id"] == "record-1"
+    assert stored["file_path"].name == "note.md"
+    assert "whisper_output" in str(stored["file_path"])
+    assert stored["model"] == "model.gguf"
+    assert stored["provider_name"] == "llamacpp"
+    assert history_state[0]["title_summary"] == "후처리 한줄요약"
+
+
+def test_workflow_title_summary_failure_keeps_summary_success(monkeypatch, tmp_path: Path, temp_workflow_dirs):
+    upload_dir = tmp_path / "uploads" / "task-title-summary-fail"
+    upload_dir.mkdir(parents=True)
+    source = upload_dir / "note.txt"
+    source.write_text("테스트 텍스트", encoding="utf-8")
+
+    progress_messages: list[str] = []
+
+    monkeypatch.setattr("sttEngine.http_api.workflow.summarize_text_mapreduce", lambda **_kwargs: "구조화 요약 결과")
+    monkeypatch.setattr("sttEngine.http_api.workflow.save_output", lambda content, path, as_json=False: path.write_text(content, encoding="utf-8"))
+    monkeypatch.setattr("sttEngine.http_api.workflow.send_summary_to_obsidian_sync", lambda **_kwargs: {"success": False, "message": "disabled"})
+    monkeypatch.setattr("sttEngine.http_api.workflow.update_task_progress", lambda _id, msg, **_kwargs: progress_messages.append(msg))
+    monkeypatch.setattr("sttEngine.http_api.workflow.clear_task_progress", lambda _id: None)
+    monkeypatch.setattr("sttEngine.http_api.workflow.is_task_cancelled", lambda _id: False)
+    monkeypatch.setattr("sttEngine.http_api.workflow.update_task_completion", lambda *_args, **_kwargs: "file-uuid")
+    monkeypatch.setattr(
+        "sttEngine.http_api.workflow.generate_and_store_title_summary",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("llm timeout")),
+    )
+
+    result = run_workflow(source, ["summary"], record_id="record-2", task_id="task-title-summary-fail")
+
+    assert result["summary"].endswith("note.summary.md")
+    assert not any(msg.startswith("요약 생성 실패:") for msg in progress_messages)
+    assert any("한줄요약 생성 실패(요약 결과는 저장됨): llm timeout" == msg for msg in progress_messages)
+
 def test_workflow_diarization_failure_contract_returns_standard_error_fields(monkeypatch):
     progress_payloads: list[dict[str, object]] = []
 
