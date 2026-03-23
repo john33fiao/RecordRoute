@@ -1,0 +1,8 @@
+[package]
+name = "recordroute-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+recordroute-core = { path = "../recordroute-core" }

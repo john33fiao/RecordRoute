@@ -72,6 +72,35 @@ rust/
 
 > 참고: 위 트리는 **P0 기준 실제 존재/우선 생성 대상**을 먼저 반영합니다. `Cargo.toml`, crates, vendor submodule, bootstrap 스크립트는 이번 단계 범위 밖이며 P1 이후에 추가합니다.
 
+### 3.1.1 P1 skeleton 반영 상태 (2026-03-23)
+현재 `rust/`에는 아래 workspace/crate skeleton이 추가되었습니다.
+
+```text
+rust/
+├── Cargo.toml
+├── rustfmt.toml
+├── clippy.toml
+└── crates/
+    ├── recordroute-core/
+    ├── recordroute-storage/
+    ├── recordroute-server/
+    ├── recordroute-workflow/
+    ├── recordroute-models/
+    ├── recordroute-search/
+    └── recordroute-cli/
+```
+
+crate 책임 경계 초안:
+- `recordroute-core`: typed config, path alias, 공통 에러/기초 타입
+- `recordroute-storage`: DB JSON/sidecar 파일 접근 계층
+- `recordroute-server`: axum app, router, middleware, API 계약 테스트 진입점
+- `recordroute-workflow`: `/process` 파이프라인 orchestration
+- `recordroute-models`: `whisper.cpp`/`llama.cpp` wrapper와 모델 검증
+- `recordroute-search`: search/history/similarity 조회 로직
+- `recordroute-cli`: `doctor`, `bootstrap`, `verify-models` 같은 운영용 CLI
+
+현재 구현 범위는 `recordroute-core`의 config/path 기초, `recordroute-server`의 `GET /health`, 그리고 최소 integration test harness까지다. 다른 crate는 의존 경계만 고정한 placeholder 상태로 유지한다.
+
 ### 3.2 런타임 구성
 - **API 서버**: `axum` 권장
   - 이유: Tokio 생태계와의 결합, Tower middleware, WebSocket 지원, 타입 안전성.
