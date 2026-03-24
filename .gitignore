@@ -13,8 +13,9 @@ __pycache__/
 *.pyo
 *.pyd
 
-# 내장 DB 제외
-DB
+# Runtime artifacts
+db/
+.build/
 
 # Frontend build artifacts
 frontend/node_modules/
