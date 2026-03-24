@@ -11,6 +11,7 @@
 
 ## 2. 우선 확인할 파일
 
+- [`docs/architecture.md`](./docs/architecture.md): 현재 코드베이스 구조, 런타임 구성, 구현 상태 스냅샷
 - `rust/src/lib.rs`: 앱 부트스트랩, 설정 로드, DB 연결, migration 실행, 워커 시작
 - `rust/src/api/mod.rs`: 공개 HTTP 엔드포인트와 요청 검증
 - `rust/src/jobs.rs`: 큐 polling, 재시도, 실패 처리
@@ -155,5 +156,8 @@
 
 ## 11. 얇은 참조 문서 정책
 
+- 코드베이스 구조와 구현 상태는 [`docs/architecture.md`](./docs/architecture.md)에 기록한다.
+- `AGENTS.md`는 운영 원칙과 작업 규칙 중심으로 유지하고, 장문의 구현 설명은 [`docs/architecture.md`](./docs/architecture.md)를 참조한다.
 - `GEMINI.md`와 `CLAUDE.md`는 이 문서를 복제하지 않는다.
+- `GEMINI.md`와 `CLAUDE.md`는 `AGENTS.md`와 [`docs/architecture.md`](./docs/architecture.md)를 함께 가리키되, 중복 규칙을 추가하지 않는다.
 - 기본 지침 변경은 `AGENTS.md`만 수정하고, 나머지 문서는 참조 관계만 유지한다.
