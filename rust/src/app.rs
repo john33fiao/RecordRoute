@@ -22,6 +22,7 @@ enum CliCommand {
     Ffmpeg { input: Option<PathBuf> },
     Stt,
     Summary,
+    PrepareLlamaModel,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,6 +96,9 @@ pub fn main_cli() -> Result<(), String> {
             let summary = run_summary_with_repo_root(&repo_root, &mut reader, &mut writer)?;
             print_summary_run_summary(&summary, &mut writer)?;
         }
+        CliCommand::PrepareLlamaModel => {
+            prepare_llama_model_with_repo_root(&repo_root)?;
+        }
     }
 
     Ok(())
@@ -119,10 +123,17 @@ fn resolve_cli_command(
         [mode, ..] if mode == OsStr::new("summary") => {
             Err("summary mode does not accept additional arguments".to_string())
         }
+        [mode] if mode == OsStr::new("prepare-llama-model") => Ok(CliCommand::PrepareLlamaModel),
+        [mode, ..] if mode == OsStr::new("prepare-llama-model") => {
+            Err("prepare-llama-model mode does not accept additional arguments".to_string())
+        }
         [path] => Ok(CliCommand::Ffmpeg {
             input: Some(PathBuf::from(path)),
         }),
-        _ => Err("usage: recordroute_rust [ffmpeg <input>|stt|summary|<input>]".to_string()),
+        _ => Err(
+            "usage: recordroute_rust [ffmpeg <input>|stt|summary|prepare-llama-model|<input>]"
+                .to_string(),
+        ),
     }
 }
 
@@ -298,6 +309,7 @@ pub fn run_summary_with_repo_root(
 
     let selected = select_summary_candidate(&candidates, reader, writer)?;
     let toolchain = LlamaToolchain::discover(repo_root)?;
+    toolchain.ensure_model()?;
     let summary_dir = selected.job_dir.join("summary");
     fs::create_dir_all(&summary_dir).map_err(|error| {
         format!(
@@ -326,6 +338,11 @@ pub fn run_summary_with_repo_root(
         summary_dir,
         summary_file,
     })
+}
+
+pub fn prepare_llama_model_with_repo_root(repo_root: &Path) -> Result<(), String> {
+    let toolchain = LlamaToolchain::discover(repo_root)?;
+    toolchain.ensure_model()
 }
 
 fn run_summary_from_completed_job(job: JobRecord) -> Result<RunSummary, String> {
@@ -916,6 +933,17 @@ mod tests {
     }
 
     #[test]
+    fn resolves_prepare_llama_model_command() {
+        let args = vec![OsString::from("prepare-llama-model")];
+        let mut reader = Cursor::new(Vec::<u8>::new());
+        let mut output = Vec::new();
+
+        let command = resolve_cli_command(&args, &mut reader, &mut output).expect("command");
+
+        assert_eq!(command, CliCommand::PrepareLlamaModel);
+    }
+
+    #[test]
     fn summary_command_rejects_extra_arguments() {
         let args = vec![OsString::from("summary"), OsString::from("extra")];
         let mut reader = Cursor::new(Vec::<u8>::new());
@@ -924,6 +952,23 @@ mod tests {
         let error = resolve_cli_command(&args, &mut reader, &mut output).expect_err("should fail");
 
         assert_eq!(error, "summary mode does not accept additional arguments");
+    }
+
+    #[test]
+    fn prepare_llama_model_command_rejects_extra_arguments() {
+        let args = vec![
+            OsString::from("prepare-llama-model"),
+            OsString::from("extra"),
+        ];
+        let mut reader = Cursor::new(Vec::<u8>::new());
+        let mut output = Vec::new();
+
+        let error = resolve_cli_command(&args, &mut reader, &mut output).expect_err("should fail");
+
+        assert_eq!(
+            error,
+            "prepare-llama-model mode does not accept additional arguments"
+        );
     }
 
     #[test]
@@ -1456,6 +1501,51 @@ mod tests {
     }
 
     #[test]
+    fn prepare_llama_model_downloads_default_hugging_face_repo() {
+        let _guard = env_lock().lock().expect("env lock");
+        unsafe {
+            std::env::remove_var("RECORDROUTE_LLAMA_MODEL");
+            std::env::set_var("HF_TOKEN", "prepare-token");
+        }
+
+        let repo_root = temp_workspace();
+        let llama_bin = repo_root
+            .join(".build/llama")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("bin");
+        let llama_log = repo_root.join("llama-prepare.log");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        fs::create_dir_all(&llama_bin).expect("llama bin");
+
+        write_build_script(&repo_root.join("scripts/build_llama.sh"));
+        write_fake_llama_cli(
+            &llama_bin.join("llama-cli"),
+            &llama_log,
+            &repo_root.join("unused-prompt.txt"),
+            false,
+        );
+
+        prepare_llama_model_with_repo_root(&repo_root).expect("prepare llama model");
+
+        unsafe {
+            std::env::remove_var("RECORDROUTE_LLAMA_MODEL");
+            std::env::remove_var("HF_TOKEN");
+        }
+
+        let cached_model = repo_root
+            .join("models/llama/hf")
+            .join("ggml-org__gemma-3-4b-it-GGUF.gguf");
+        assert!(cached_model.is_file());
+
+        let llama_log = fs::read_to_string(llama_log).expect("llama log");
+        assert!(llama_log.contains("-hf"));
+        assert!(llama_log.contains("ggml-org/gemma-3-4b-it-GGUF"));
+        assert!(llama_log.contains("-m"));
+        assert!(llama_log.contains(cached_model.to_string_lossy().as_ref()));
+        assert!(llama_log.contains("HF_TOKEN=prepare-token"));
+    }
+
+    #[test]
     fn load_repo_env_reads_only_dot_env() {
         let _guard = env_lock().lock().expect("env lock");
         let repo_root = temp_workspace();
@@ -1565,7 +1655,7 @@ mod tests {
             )
         } else {
             format!(
-                "#!/bin/sh\ntouch '{log}'\nout=''\nprompt=''\nnext=''\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\n  if [ \"$next\" = 'o' ]; then\n    out=\"$arg\"\n    next=''\n    continue\n  fi\n  if [ \"$next\" = 'f' ]; then\n    prompt=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -o)\n      next='o'\n      ;;\n    -f)\n      next='f'\n      ;;\n  esac\ndone\nprintf 'HF_TOKEN=%s\\n' \"${{HF_TOKEN:-}}\" >> '{log}'\nif [ -n \"$prompt\" ]; then\n  cat \"$prompt\" > '{prompt_capture}'\nfi\nmkdir -p \"$(dirname \"$out\")\"\nprintf 'synthetic summary' > \"$out\"\n"
+                "#!/bin/sh\ntouch '{log}'\nout=''\nprompt=''\nmodel=''\nnext=''\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\n  if [ \"$next\" = 'o' ]; then\n    out=\"$arg\"\n    next=''\n    continue\n  fi\n  if [ \"$next\" = 'f' ]; then\n    prompt=\"$arg\"\n    next=''\n    continue\n  fi\n  if [ \"$next\" = 'm' ]; then\n    model=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -o)\n      next='o'\n      ;;\n    -f)\n      next='f'\n      ;;\n    -m)\n      next='m'\n      ;;\n  esac\ndone\nprintf 'HF_TOKEN=%s\\n' \"${{HF_TOKEN:-}}\" >> '{log}'\nif [ -n \"$prompt\" ]; then\n  cat \"$prompt\" > '{prompt_capture}'\nfi\nif [ -n \"$model\" ]; then\n  mkdir -p \"$(dirname \"$model\")\"\n  printf 'synthetic model' > \"$model\"\nfi\nif [ -n \"$out\" ]; then\n  mkdir -p \"$(dirname \"$out\")\"\n  printf 'synthetic summary' > \"$out\"\nfi\n"
             )
         };
         fs::write(path, script).expect("llama script");
