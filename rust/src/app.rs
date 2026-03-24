@@ -3,6 +3,7 @@ use crate::ffmpeg::{
     run_conversion,
 };
 use crate::index::{IndexStore, JobOutputs, JobProbe, JobRecord, JobSplitOutput};
+use crate::llama::{Toolchain as LlamaToolchain, run_summary_generation};
 use crate::whisper::{Toolchain as WhisperToolchain, run_transcription};
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -20,6 +21,7 @@ const RUN_ID_FORMAT: &[time::format_description::FormatItem<'static>] =
 enum CliCommand {
     Ffmpeg { input: Option<PathBuf> },
     Stt,
+    Summary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +30,14 @@ struct SttCandidate {
     source_file_name: String,
     job_dir: PathBuf,
     audio_files: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SummaryCandidate {
+    job_id: String,
+    source_file_name: String,
+    job_dir: PathBuf,
+    transcript_files: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,8 +61,17 @@ pub struct SttRunSummary {
     pub transcripts: Vec<SttTranscriptOutput>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SummaryRunSummary {
+    pub job_id: String,
+    pub job_dir: PathBuf,
+    pub summary_dir: PathBuf,
+    pub summary_file: PathBuf,
+}
+
 pub fn main_cli() -> Result<(), String> {
     let repo_root = repo_root()?;
+    load_repo_env(&repo_root)?;
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -71,6 +90,10 @@ pub fn main_cli() -> Result<(), String> {
         CliCommand::Stt => {
             let summary = run_stt_with_repo_root(&repo_root, &mut reader, &mut writer)?;
             print_stt_summary(&summary, &mut writer)?;
+        }
+        CliCommand::Summary => {
+            let summary = run_summary_with_repo_root(&repo_root, &mut reader, &mut writer)?;
+            print_summary_run_summary(&summary, &mut writer)?;
         }
     }
 
@@ -92,10 +115,14 @@ fn resolve_cli_command(
         [mode, ..] if mode == OsStr::new("stt") => {
             Err("stt mode does not accept additional arguments".to_string())
         }
+        [mode] if mode == OsStr::new("summary") => Ok(CliCommand::Summary),
+        [mode, ..] if mode == OsStr::new("summary") => {
+            Err("summary mode does not accept additional arguments".to_string())
+        }
         [path] => Ok(CliCommand::Ffmpeg {
             input: Some(PathBuf::from(path)),
         }),
-        _ => Err("usage: recordroute_rust [ffmpeg <input>|stt|<input>]".to_string()),
+        _ => Err("usage: recordroute_rust [ffmpeg <input>|stt|summary|<input>]".to_string()),
     }
 }
 
@@ -104,6 +131,7 @@ fn prompt_for_mode(reader: &mut dyn BufRead, writer: &mut dyn Write) -> Result<C
         writeln!(writer, "Select mode:").map_err(|error| error.to_string())?;
         writeln!(writer, "1. ffmpeg 작업").map_err(|error| error.to_string())?;
         writeln!(writer, "2. stt 작업").map_err(|error| error.to_string())?;
+        writeln!(writer, "3. summary 작업").map_err(|error| error.to_string())?;
         write!(writer, "Enter number: ").map_err(|error| error.to_string())?;
         writer.flush().map_err(|error| error.to_string())?;
 
@@ -111,8 +139,9 @@ fn prompt_for_mode(reader: &mut dyn BufRead, writer: &mut dyn Write) -> Result<C
         match line.trim() {
             "1" => return Ok(CliCommand::Ffmpeg { input: None }),
             "2" => return Ok(CliCommand::Stt),
+            "3" => return Ok(CliCommand::Summary),
             _ => {
-                writeln!(writer, "Invalid selection. Enter 1 or 2.")
+                writeln!(writer, "Invalid selection. Enter 1, 2, or 3.")
                     .map_err(|error| error.to_string())?;
             }
         }
@@ -256,6 +285,49 @@ pub fn run_stt_with_repo_root(
     })
 }
 
+pub fn run_summary_with_repo_root(
+    repo_root: &Path,
+    reader: &mut dyn BufRead,
+    writer: &mut dyn Write,
+) -> Result<SummaryRunSummary, String> {
+    let index_store = IndexStore::new(repo_root);
+    let candidates = collect_summary_candidates(&index_store)?;
+    if candidates.is_empty() {
+        return Err("no job folders with transcription files found in db/index.json".to_string());
+    }
+
+    let selected = select_summary_candidate(&candidates, reader, writer)?;
+    let toolchain = LlamaToolchain::discover(repo_root)?;
+    let summary_dir = selected.job_dir.join("summary");
+    fs::create_dir_all(&summary_dir).map_err(|error| {
+        format!(
+            "failed to create summary directory {}: {error}",
+            summary_dir.display()
+        )
+    })?;
+
+    let summary_file = summary_output_path(&summary_dir, &selected.source_file_name)?;
+    let prompt_file = summary_prompt_file_path(&summary_dir, &selected.source_file_name)?;
+    let prompt = build_summary_prompt(&selected.transcript_files)?;
+    fs::write(&prompt_file, prompt).map_err(|error| {
+        format!(
+            "failed to write summary prompt {}: {error}",
+            prompt_file.display()
+        )
+    })?;
+
+    let generation_result = run_summary_generation(&toolchain, &prompt_file, &summary_file);
+    let _ = fs::remove_file(&prompt_file);
+    generation_result?;
+
+    Ok(SummaryRunSummary {
+        job_id: selected.job_id,
+        job_dir: selected.job_dir,
+        summary_dir,
+        summary_file,
+    })
+}
+
 fn run_summary_from_completed_job(job: JobRecord) -> Result<RunSummary, String> {
     let merged_mono_wav = job.outputs.merged_mono_wav.clone().ok_or_else(|| {
         format!(
@@ -313,6 +385,32 @@ fn collect_stt_candidates(index_store: &IndexStore) -> Result<Vec<SttCandidate>,
     Ok(candidates)
 }
 
+fn collect_summary_candidates(index_store: &IndexStore) -> Result<Vec<SummaryCandidate>, String> {
+    let mut candidates = Vec::new();
+
+    for job in index_store.list_jobs()? {
+        let job_dir = PathBuf::from(&job.job_dir);
+        if !job_dir.is_dir() {
+            continue;
+        }
+
+        let stt_dir = job_dir.join("stt");
+        let transcript_files = transcript_text_files(&stt_dir)?;
+        if transcript_files.is_empty() {
+            continue;
+        }
+
+        candidates.push(SummaryCandidate {
+            job_id: job.job_id,
+            source_file_name: job.source_file_name,
+            job_dir,
+            transcript_files,
+        });
+    }
+
+    Ok(candidates)
+}
+
 fn select_stt_candidate(
     candidates: &[SttCandidate],
     reader: &mut dyn BufRead,
@@ -335,6 +433,44 @@ fn select_stt_candidate(
         writer.flush().map_err(|error| error.to_string())?;
 
         let line = read_line(reader, "failed to read stt folder selection")?;
+        match line.trim().parse::<usize>() {
+            Ok(selection) if selection >= 1 && selection <= candidates.len() => {
+                return Ok(candidates[selection - 1].clone());
+            }
+            _ => {
+                writeln!(
+                    writer,
+                    "Invalid selection. Enter a number between 1 and {}.",
+                    candidates.len()
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        }
+    }
+}
+
+fn select_summary_candidate(
+    candidates: &[SummaryCandidate],
+    reader: &mut dyn BufRead,
+    writer: &mut dyn Write,
+) -> Result<SummaryCandidate, String> {
+    loop {
+        writeln!(writer, "Select summary folder:").map_err(|error| error.to_string())?;
+        for (index, candidate) in candidates.iter().enumerate() {
+            writeln!(
+                writer,
+                "{}. {} | {} | {}",
+                index + 1,
+                candidate.job_id,
+                candidate.source_file_name,
+                candidate.job_dir.display()
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        write!(writer, "Enter number: ").map_err(|error| error.to_string())?;
+        writer.flush().map_err(|error| error.to_string())?;
+
+        let line = read_line(reader, "failed to read summary folder selection")?;
         match line.trim().parse::<usize>() {
             Ok(selection) if selection >= 1 && selection <= candidates.len() => {
                 return Ok(candidates[selection - 1].clone());
@@ -377,6 +513,34 @@ fn supported_audio_files(job_dir: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(audio_files)
 }
 
+fn transcript_text_files(stt_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    if !stt_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut transcript_files = Vec::new();
+    for entry in fs::read_dir(stt_dir).map_err(|error| {
+        format!(
+            "failed to read stt directory {}: {error}",
+            stt_dir.display()
+        )
+    })? {
+        let entry = entry.map_err(|error| {
+            format!(
+                "failed to inspect stt directory entry {}: {error}",
+                stt_dir.display()
+            )
+        })?;
+        let path = entry.path();
+        if path.is_file() && is_transcript_text_file(&path) {
+            transcript_files.push(path);
+        }
+    }
+
+    transcript_files.sort();
+    Ok(transcript_files)
+}
+
 fn is_supported_audio_file(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|extension| extension.to_str()),
@@ -388,6 +552,13 @@ fn is_supported_audio_file(path: &Path) -> bool {
     )
 }
 
+fn is_transcript_text_file(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some(extension) if extension.eq_ignore_ascii_case("txt")
+    )
+}
+
 fn transcript_output_path(stt_dir: &Path, audio_file: &Path) -> Result<PathBuf, String> {
     let stem = audio_file.file_stem().ok_or_else(|| {
         format!(
@@ -396,6 +567,64 @@ fn transcript_output_path(stt_dir: &Path, audio_file: &Path) -> Result<PathBuf, 
         )
     })?;
     Ok(stt_dir.join(stem).with_extension("txt"))
+}
+
+fn summary_output_path(summary_dir: &Path, source_file_name: &str) -> Result<PathBuf, String> {
+    Ok(summary_dir
+        .join(source_file_stem(source_file_name)?)
+        .with_extension("txt"))
+}
+
+fn summary_prompt_file_path(summary_dir: &Path, source_file_name: &str) -> Result<PathBuf, String> {
+    let mut file_name = OsString::from(".");
+    file_name.push(source_file_stem(source_file_name)?);
+    file_name.push(".prompt.txt");
+    Ok(summary_dir.join(file_name))
+}
+
+fn source_file_stem(source_file_name: &str) -> Result<OsString, String> {
+    Path::new(source_file_name)
+        .file_stem()
+        .map(OsStr::to_os_string)
+        .ok_or_else(|| format!("source file does not have a valid file stem: {source_file_name}"))
+}
+
+fn build_summary_prompt(transcript_files: &[PathBuf]) -> Result<String, String> {
+    let mut prompt = String::from(
+        "당신은 회의 녹취를 정리하는 한국어 회의록 작성 도우미다.\n\
+다음 입력은 동일한 오디오를 채널별로 분리해 생성한 STT 결과이며, 파일마다 중복된 문장이 포함될 수 있다.\n\
+아래 규칙을 지켜 하나의 일관된 회의록으로 요약하라.\n\
+- 여러 파일에 겹치는 내용은 병합하고 중복 표현은 제거한다.\n\
+- 확인할 수 없는 내용은 추측하거나 보강하지 않는다.\n\
+- 출력은 반드시 한국어 평문으로만 작성한다.\n\
+- 섹션 제목은 정확히 다음 4개를 사용한다: 개요, 핵심 논의, 결정/합의, 후속 조치.\n\
+- 채널별 파일명을 나열하는 대신 실제 논의 내용을 중심으로 정리한다.\n",
+    );
+
+    for transcript_file in transcript_files {
+        let label = transcript_file
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                format!(
+                    "transcript file does not have a valid file name: {}",
+                    transcript_file.display()
+                )
+            })?;
+        let content = fs::read_to_string(transcript_file).map_err(|error| {
+            format!(
+                "failed to read transcript file {}: {error}",
+                transcript_file.display()
+            )
+        })?;
+
+        prompt.push_str("\n\n[");
+        prompt.push_str(label);
+        prompt.push_str("]\n");
+        prompt.push_str(content.trim());
+    }
+
+    Ok(prompt)
 }
 
 fn print_run_summary(summary: &RunSummary, writer: &mut dyn Write) -> Result<(), String> {
@@ -436,6 +665,21 @@ fn print_stt_summary(summary: &SttRunSummary, writer: &mut dyn Write) -> Result<
         )
         .map_err(|error| error.to_string())?;
     }
+
+    Ok(())
+}
+
+fn print_summary_run_summary(
+    summary: &SummaryRunSummary,
+    writer: &mut dyn Write,
+) -> Result<(), String> {
+    writeln!(writer, "job_id: {}", summary.job_id).map_err(|error| error.to_string())?;
+    writeln!(writer, "job_dir: {}", summary.job_dir.display())
+        .map_err(|error| error.to_string())?;
+    writeln!(writer, "summary_dir: {}", summary.summary_dir.display())
+        .map_err(|error| error.to_string())?;
+    writeln!(writer, "summary_file: {}", summary.summary_file.display())
+        .map_err(|error| error.to_string())?;
 
     Ok(())
 }
@@ -503,6 +747,17 @@ fn repo_root() -> Result<PathBuf, String> {
         .ok_or_else(|| "failed to resolve repository root".to_string())
 }
 
+fn load_repo_env(repo_root: &Path) -> Result<(), String> {
+    let env_path = repo_root.join(".env");
+    if !env_path.is_file() {
+        return Ok(());
+    }
+
+    dotenvy::from_path(&env_path)
+        .map_err(|error| format!("failed to load {}: {error}", env_path.display()))?;
+    Ok(())
+}
+
 fn build_run_id() -> Result<String, String> {
     let timestamp = OffsetDateTime::now_utc()
         .format(RUN_ID_FORMAT)
@@ -525,6 +780,7 @@ mod tests {
     use super::*;
     use crate::ffmpeg::Toolchain as FfmpegToolchain;
     use crate::index::IndexStore;
+    use crate::test_support::env_lock;
     use std::fs::{self, File};
     use std::io::Cursor;
 
@@ -633,7 +889,7 @@ mod tests {
         assert!(
             String::from_utf8(output)
                 .expect("utf8")
-                .contains("Invalid selection. Enter 1 or 2.")
+                .contains("Invalid selection. Enter 1, 2, or 3.")
         );
     }
 
@@ -646,6 +902,43 @@ mod tests {
         let error = resolve_cli_command(&args, &mut reader, &mut output).expect_err("should fail");
 
         assert_eq!(error, "stt mode does not accept additional arguments");
+    }
+
+    #[test]
+    fn resolves_summary_command() {
+        let args = vec![OsString::from("summary")];
+        let mut reader = Cursor::new(Vec::<u8>::new());
+        let mut output = Vec::new();
+
+        let command = resolve_cli_command(&args, &mut reader, &mut output).expect("command");
+
+        assert_eq!(command, CliCommand::Summary);
+    }
+
+    #[test]
+    fn summary_command_rejects_extra_arguments() {
+        let args = vec![OsString::from("summary"), OsString::from("extra")];
+        let mut reader = Cursor::new(Vec::<u8>::new());
+        let mut output = Vec::new();
+
+        let error = resolve_cli_command(&args, &mut reader, &mut output).expect_err("should fail");
+
+        assert_eq!(error, "summary mode does not accept additional arguments");
+    }
+
+    #[test]
+    fn prompts_for_summary_mode_when_selected() {
+        let mut reader = Cursor::new(b"3\n".to_vec());
+        let mut output = Vec::new();
+
+        let command = resolve_cli_command(&[], &mut reader, &mut output).expect("command");
+
+        assert_eq!(command, CliCommand::Summary);
+        assert!(
+            String::from_utf8(output)
+                .expect("utf8")
+                .contains("3. summary 작업")
+        );
     }
 
     #[test]
@@ -1002,6 +1295,201 @@ mod tests {
         );
     }
 
+    #[test]
+    fn run_summary_processes_transcript_files_in_selected_job_dir() {
+        let _guard = env_lock().lock().expect("env lock");
+        unsafe {
+            std::env::remove_var("RECORDROUTE_LLAMA_MODEL");
+            std::env::set_var("HF_TOKEN", "summary-token");
+        }
+
+        let repo_root = temp_workspace();
+        let selected_job_dir = repo_root.join("db/job-1");
+        let ignored_job_dir = repo_root.join("db/job-2");
+        let llama_bin = repo_root
+            .join(".build/llama")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("bin");
+        let llama_log = repo_root.join("llama-args.log");
+        let prompt_capture = repo_root.join("llama-prompt.txt");
+        fs::create_dir_all(selected_job_dir.join("stt")).expect("selected stt dir");
+        fs::create_dir_all(ignored_job_dir.join("stt")).expect("ignored stt dir");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        fs::create_dir_all(&llama_bin).expect("llama bin");
+
+        fs::write(
+            selected_job_dir.join("stt/channel_01.txt"),
+            "화자 A가 일정과 비용을 설명했다.",
+        )
+        .expect("channel 01");
+        fs::write(
+            selected_job_dir.join("stt/channel_02.txt"),
+            "화자 B가 일정과 비용을 다시 확인했다.",
+        )
+        .expect("channel 02");
+        fs::write(
+            selected_job_dir.join("stt/mono_mix.txt"),
+            "전체 대화에서 다음 주 방문과 견적 검토가 언급되었다.",
+        )
+        .expect("mono mix");
+        fs::write(ignored_job_dir.join("stt/notes.md"), "ignore").expect("ignored");
+
+        write_build_script(&repo_root.join("scripts/build_llama.sh"));
+        write_fake_llama_cli(
+            &llama_bin.join("llama-cli"),
+            &llama_log,
+            &prompt_capture,
+            false,
+        );
+
+        let store = IndexStore::new(&repo_root);
+        store
+            .insert_job(JobRecord::new(
+                "job-1".to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+                PathBuf::from("/tmp/input.wav"),
+                selected_job_dir.clone(),
+            ))
+            .expect("insert selected job");
+        store
+            .insert_job(JobRecord::new(
+                "job-2".to_string(),
+                "2026-01-01T00:00:01Z".to_string(),
+                PathBuf::from("/tmp/other.wav"),
+                ignored_job_dir,
+            ))
+            .expect("insert ignored job");
+
+        let mut reader = Cursor::new(b"1\n".to_vec());
+        let mut output = Vec::new();
+
+        let summary =
+            run_summary_with_repo_root(&repo_root, &mut reader, &mut output).expect("summary run");
+
+        unsafe { std::env::remove_var("HF_TOKEN") };
+
+        assert_eq!(summary.job_id, "job-1");
+        assert_eq!(
+            summary.summary_file,
+            selected_job_dir.join("summary/input.txt")
+        );
+        assert!(summary.summary_dir.is_dir());
+        assert_eq!(
+            fs::read_to_string(&summary.summary_file).expect("summary file"),
+            "synthetic summary"
+        );
+        assert!(!summary.summary_dir.join(".input.prompt.txt").exists());
+
+        let prompt = fs::read_to_string(prompt_capture).expect("prompt capture");
+        assert!(prompt.contains("[channel_01.txt]"));
+        assert!(prompt.contains("[channel_02.txt]"));
+        assert!(prompt.contains("[mono_mix.txt]"));
+        assert!(prompt.contains("개요"));
+        assert!(prompt.contains("후속 조치"));
+        assert!(prompt.contains("화자 A가 일정과 비용을 설명했다."));
+
+        let llama_log = fs::read_to_string(llama_log).expect("llama log");
+        assert!(llama_log.contains("--single-turn"));
+        assert!(llama_log.contains("-hf"));
+        assert!(llama_log.contains("ggml-org/gemma-3-4b-it-GGUF"));
+        assert!(llama_log.contains("HF_TOKEN=summary-token"));
+    }
+
+    #[test]
+    fn run_summary_uses_local_model_path_when_file_exists() {
+        let _guard = env_lock().lock().expect("env lock");
+
+        let repo_root = temp_workspace();
+        let selected_job_dir = repo_root.join("db/job-1");
+        let llama_bin = repo_root
+            .join(".build/llama")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("bin");
+        let llama_log = repo_root.join("llama-local.log");
+        let prompt_capture = repo_root.join("llama-local-prompt.txt");
+        let model_path = repo_root.join("models/llama/custom.gguf");
+        fs::create_dir_all(selected_job_dir.join("stt")).expect("selected stt dir");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        fs::create_dir_all(&llama_bin).expect("llama bin");
+        fs::create_dir_all(model_path.parent().expect("parent")).expect("models dir");
+
+        fs::write(
+            selected_job_dir.join("stt/mono_mix.txt"),
+            "현장 방문 일정을 논의했다.",
+        )
+        .expect("mono mix");
+        fs::write(&model_path, "model").expect("model");
+
+        write_build_script(&repo_root.join("scripts/build_llama.sh"));
+        write_fake_llama_cli(
+            &llama_bin.join("llama-cli"),
+            &llama_log,
+            &prompt_capture,
+            false,
+        );
+
+        unsafe { std::env::set_var("RECORDROUTE_LLAMA_MODEL", "models/llama/custom.gguf") };
+
+        let store = IndexStore::new(&repo_root);
+        store
+            .insert_job(JobRecord::new(
+                "job-1".to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+                PathBuf::from("/tmp/input.wav"),
+                selected_job_dir,
+            ))
+            .expect("insert selected job");
+
+        let mut reader = Cursor::new(b"1\n".to_vec());
+        let mut output = Vec::new();
+
+        let summary =
+            run_summary_with_repo_root(&repo_root, &mut reader, &mut output).expect("summary run");
+
+        unsafe { std::env::remove_var("RECORDROUTE_LLAMA_MODEL") };
+
+        assert!(summary.summary_file.is_file());
+        let llama_log = fs::read_to_string(llama_log).expect("llama log");
+        assert!(llama_log.contains("-m"));
+        assert!(llama_log.contains(model_path.to_string_lossy().as_ref()));
+        assert!(!llama_log.contains("-hf"));
+    }
+
+    #[test]
+    fn load_repo_env_reads_only_dot_env() {
+        let _guard = env_lock().lock().expect("env lock");
+        let repo_root = temp_workspace();
+
+        unsafe {
+            std::env::remove_var("RECORDROUTE_TEST_DOTENV_LOADED");
+            std::env::remove_var("RECORDROUTE_TEST_DOTENV_IGNORED");
+        }
+
+        fs::write(
+            repo_root.join(".env"),
+            "RECORDROUTE_TEST_DOTENV_LOADED=from-dotenv\n",
+        )
+        .expect("env");
+        fs::write(
+            repo_root.join(".env.example"),
+            "RECORDROUTE_TEST_DOTENV_IGNORED=from-example\n",
+        )
+        .expect("env example");
+
+        load_repo_env(&repo_root).expect("dotenv load");
+
+        assert_eq!(
+            std::env::var("RECORDROUTE_TEST_DOTENV_LOADED").expect("loaded"),
+            "from-dotenv"
+        );
+        assert!(std::env::var("RECORDROUTE_TEST_DOTENV_IGNORED").is_err());
+
+        unsafe {
+            std::env::remove_var("RECORDROUTE_TEST_DOTENV_LOADED");
+            std::env::remove_var("RECORDROUTE_TEST_DOTENV_IGNORED");
+        }
+    }
+
     fn temp_workspace() -> PathBuf {
         let path = std::env::temp_dir().join(format!("recordroute-{}", Uuid::now_v7()));
         fs::create_dir_all(&path).expect("temp workspace");
@@ -1065,6 +1553,22 @@ mod tests {
             )
         };
         fs::write(path, script).expect("whisper script");
+        make_executable(path);
+    }
+
+    fn write_fake_llama_cli(path: &Path, log_path: &Path, prompt_capture_path: &Path, fail: bool) {
+        let log = log_path.display();
+        let prompt_capture = prompt_capture_path.display();
+        let script = if fail {
+            format!(
+                "#!/bin/sh\ntouch '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\ndone\nprintf 'HF_TOKEN=%s\\n' \"${{HF_TOKEN:-}}\" >> '{log}'\nprintf 'synthetic llama failure' >&2\nexit 1\n"
+            )
+        } else {
+            format!(
+                "#!/bin/sh\ntouch '{log}'\nout=''\nprompt=''\nnext=''\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\n  if [ \"$next\" = 'o' ]; then\n    out=\"$arg\"\n    next=''\n    continue\n  fi\n  if [ \"$next\" = 'f' ]; then\n    prompt=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -o)\n      next='o'\n      ;;\n    -f)\n      next='f'\n      ;;\n  esac\ndone\nprintf 'HF_TOKEN=%s\\n' \"${{HF_TOKEN:-}}\" >> '{log}'\nif [ -n \"$prompt\" ]; then\n  cat \"$prompt\" > '{prompt_capture}'\nfi\nmkdir -p \"$(dirname \"$out\")\"\nprintf 'synthetic summary' > \"$out\"\n"
+            )
+        };
+        fs::write(path, script).expect("llama script");
         make_executable(path);
     }
 

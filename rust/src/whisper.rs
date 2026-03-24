@@ -181,15 +181,52 @@ pub fn run_transcription(
 fn resolve_model_path(repo_root: &Path) -> PathBuf {
     match std::env::var_os(MODEL_ENV_VAR) {
         Some(path) if !path.is_empty() => {
-            let path = PathBuf::from(path);
-            if path.is_absolute() {
-                path
-            } else {
-                repo_root.join(path)
-            }
+            resolve_model_override_path(repo_root, PathBuf::from(path))
         }
         _ => repo_root.join(DEFAULT_MODEL_RELATIVE_PATH),
     }
+}
+
+fn resolve_model_override_path(repo_root: &Path, configured: PathBuf) -> PathBuf {
+    let explicit_path = if configured.is_absolute() {
+        configured.clone()
+    } else {
+        repo_root.join(&configured)
+    };
+    if explicit_path.is_file() {
+        return explicit_path;
+    }
+
+    let file_name = configured
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    if file_name.is_empty() {
+        return explicit_path;
+    }
+
+    let normalized_name = normalized_model_file_name(file_name);
+    let normalized_parent = if configured.is_absolute() {
+        explicit_path.parent().map(Path::to_path_buf)
+    } else if configured.components().count() > 1 {
+        explicit_path.parent().map(Path::to_path_buf)
+    } else {
+        Some(repo_root.join("models/whisper"))
+    };
+
+    match normalized_parent {
+        Some(parent) => parent.join(normalized_name),
+        None => explicit_path,
+    }
+}
+
+fn normalized_model_file_name(file_name: &str) -> String {
+    let stem = file_name
+        .strip_suffix(".bin")
+        .unwrap_or(file_name)
+        .strip_prefix("ggml-")
+        .unwrap_or(file_name.strip_suffix(".bin").unwrap_or(file_name));
+    format!("ggml-{stem}.bin")
 }
 
 fn infer_model_name(model_path: &Path) -> Option<String> {
@@ -232,13 +269,7 @@ fn executable_name(name: &str) -> OsString {
 mod tests {
     use super::*;
     use std::fs;
-    use std::sync::{Mutex, OnceLock};
     use uuid::Uuid;
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     #[test]
     fn discovers_toolchain_with_default_model_path() {
@@ -279,7 +310,7 @@ mod tests {
 
     #[test]
     fn discover_uses_env_override_for_relative_model_path() {
-        let _guard = env_lock().lock().expect("env lock");
+        let _guard = crate::test_support::env_lock().lock().expect("env lock");
         let repo_root = temp_workspace();
         let build_bin = repo_root
             .join(".build/whisper")
@@ -308,6 +339,42 @@ mod tests {
         unsafe { std::env::remove_var(MODEL_ENV_VAR) };
 
         assert_eq!(toolchain.model_path, repo_root.join("custom/ggml-base.bin"));
+    }
+
+    #[test]
+    fn discover_normalizes_shorthand_relative_model_path() {
+        let _guard = crate::test_support::env_lock().lock().expect("env lock");
+        let repo_root = temp_workspace();
+        let build_bin = repo_root
+            .join(".build/whisper")
+            .join(target_dir_name())
+            .join("bin");
+        fs::create_dir_all(&build_bin).expect("build bin");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("models dir");
+        write_executable(
+            &build_bin.join(executable_name("whisper-cli")),
+            "#!/bin/sh\nexit 0\n",
+        );
+        fs::write(
+            repo_root.join("scripts/build_whisper.sh"),
+            "#!/bin/sh\nexit 0\n",
+        )
+        .expect("build script");
+        fs::write(
+            repo_root.join("whisper.cpp/models/download-ggml-model.sh"),
+            "#!/bin/sh\nexit 0\n",
+        )
+        .expect("download script");
+
+        unsafe { std::env::set_var(MODEL_ENV_VAR, "models/whisper/large-v3-turbo") };
+        let toolchain = Toolchain::discover(&repo_root).expect("toolchain");
+        unsafe { std::env::remove_var(MODEL_ENV_VAR) };
+
+        assert_eq!(
+            toolchain.model_path,
+            repo_root.join("models/whisper/ggml-large-v3-turbo.bin")
+        );
     }
 
     #[test]

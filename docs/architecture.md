@@ -229,7 +229,7 @@ db/
 
 `whisper.cpp`도 FFmpeg와 같은 방향으로 통합되어 있다. Rust 바이너리가 `whisper.cpp` 라이브러리를 직접 링크하거나 FFI로 호출하지 않고, 프로젝트 내부에 빌드된 `whisper-cli` 실행 파일을 래핑해서 사용한다.
 
-현재 Whisper 통합의 핵심 지점은 다음 3개다.
+현재 Whisper 통합의 핵심 지점은 다음 4개다.
 
 1. `scripts/build_whisper.sh`
    로컬 머신에서 사용할 `whisper-cli` 바이너리를 `.build/whisper/<os>-<arch>/bin` 아래에 빌드한다.
@@ -237,6 +237,8 @@ db/
    빌드된 `whisper-cli` 위치를 찾고, 모델 경로를 해석하고, 필요한 경우 모델 다운로드를 수행한 뒤 실제 STT 명령행을 실행하는 얇은 래퍼다.
 3. `rust/src/app.rs`
    CLI 모드 선택, `db/index.json` 기반 job 폴더 선택, `stt/` 디렉터리 생성, 폴더 내 오디오 파일 일괄 STT 실행을 오케스트레이션한다.
+4. `.env`
+   CLI 시작 시 자동 로드되며 `RECORDROUTE_WHISPER_MODEL` 같은 런타임 설정을 제공한다.
 
 핵심은 FFmpeg와 동일하게 "프로젝트 내부에 준비된 Whisper CLI 툴체인을 고정된 경로에서 찾아 실행하는 것"이다.
 
@@ -247,20 +249,21 @@ db/
 ```mermaid
 flowchart LR
     A["CLI entrypoint (`rust/src/main.rs`)"] --> B["`main_cli()`"]
-    B --> C{"arg-based mode?"}
-    C -->|"ffmpeg <input>"| D["Existing FFmpeg flow"]
-    C -->|"stt"| E["STT flow"]
-    C -->|"no args"| F["Prompt: `1. ffmpeg` / `2. stt`"]
-    F --> D
-    F --> E
-    E --> G["`IndexStore::list_jobs()`"]
-    G --> H["Filter existing `job_dir` with supported audio files"]
-    H --> I["Prompt numbered folder selection"]
-    I --> J["`Whisper Toolchain::discover()`"]
-    J --> K["Local `whisper-cli` in `.build/whisper/<target>/bin`"]
-    J --> L["Model path resolution + optional download"]
-    E --> M["`run_transcription()` per audio file"]
-    M --> N["`db/<job_id>/stt/*.txt`"]
+    B --> C["Load repo `.env`"]
+    C --> D{"arg-based mode?"}
+    D -->|"ffmpeg <input>"| E["Existing FFmpeg flow"]
+    D -->|"stt"| F["STT flow"]
+    D -->|"no args"| G["Prompt: `1. ffmpeg` / `2. stt` / `3. summary`"]
+    G --> E
+    G --> F
+    F --> H["`IndexStore::list_jobs()`"]
+    H --> I["Filter existing `job_dir` with supported audio files"]
+    I --> J["Prompt numbered folder selection"]
+    J --> K["`Whisper Toolchain::discover()`"]
+    K --> L["Local `whisper-cli` in `.build/whisper/<target>/bin`"]
+    K --> M["Model path resolution + optional download"]
+    F --> N["`run_transcription()` per audio file"]
+    N --> O["`db/<job_id>/stt/*.txt`"]
 ```
 
 이 모델의 특징은 다음과 같다.
@@ -301,6 +304,9 @@ flowchart LR
 - 모델 경로 우선순위:
   - `RECORDROUTE_WHISPER_MODEL`
   - 기본값 `models/whisper/ggml-base.bin`
+- shorthand 지원:
+  - `models/whisper/large-v3-turbo` 같은 값도 허용한다.
+  - 이 경우 내부적으로 `models/whisper/ggml-large-v3-turbo.bin` 형태로 정규화해 해석한다.
 - 툴체인이 없으면 빌드 스크립트 경로를 포함한 에러를 반환한다.
 
 즉, Rust 쪽은 Whisper도 "이미 준비된 CLI 실행 파일 + 모델 파일" 조합으로 취급한다.
@@ -312,12 +318,19 @@ flowchart LR
 - 설정된 모델 파일이 이미 있으면 그대로 사용한다.
 - 모델 파일이 없으면 `whisper.cpp/models/download-ggml-model.sh`를 실행해 다운로드를 시도한다.
 - 다운로드 대상 디렉터리는 모델 파일의 부모 디렉터리다.
-- 현재 자동 다운로드가 지원되는 경로 패턴은 `ggml-<model>.bin` 파일명 규칙을 따르는 경우다.
+- 환경변수에 shorthand가 들어온 경우에도 실제 다운로드 대상 파일명은 `ggml-<model>.bin` 규칙으로 정규화된다.
 
 예를 들어 기본 설정이면 아래 위치가 사용된다.
 
 ```text
 models/whisper/ggml-base.bin
+```
+
+또는 아래처럼 shorthand를 써도 같은 방식으로 해석된다.
+
+```text
+RECORDROUTE_WHISPER_MODEL=models/whisper/large-v3-turbo
+-> models/whisper/ggml-large-v3-turbo.bin
 ```
 
 즉, 기본 동작은 "repo-local model cache"를 유지하되, 없으면 자동으로 채워 넣는 방식이다.
@@ -351,17 +364,18 @@ whisper-cli \
 
 STT 실행 순서는 `rust/src/app.rs`에서 관리한다.
 
-1. CLI 인자를 해석한다.
-2. 인자가 없으면 콘솔에서 `1. ffmpeg 작업`, `2. stt 작업`을 숫자로 묻는다.
-3. `stt` 모드가 선택되면 `db/index.json`의 전체 job을 읽는다.
-4. 각 job에 대해 `job_dir`가 실제 디렉터리인지 확인한다.
-5. `job_dir` 바로 아래에서 지원 오디오 파일만 수집한다.
+1. CLI 시작 시 repo root 아래 `.env`를 자동 로드한다.
+2. CLI 인자를 해석한다.
+3. 인자가 없으면 콘솔에서 `1. ffmpeg 작업`, `2. stt 작업`, `3. summary 작업`을 숫자로 묻는다.
+4. `stt` 모드가 선택되면 `db/index.json`의 전체 job을 읽는다.
+5. 각 job에 대해 `job_dir`가 실제 디렉터리인지 확인한다.
+6. `job_dir` 바로 아래에서 지원 오디오 파일만 수집한다.
    - 현재 지원 확장자: `wav`, `mp3`, `flac`, `ogg`
-6. 오디오 파일이 하나 이상 있는 job만 선택 후보로 표시한다.
-7. 콘솔에 번호, `job_id`, 원본 파일명, 폴더 경로를 출력하고 숫자 입력을 받는다.
-8. 선택된 `job_dir` 아래에 `stt/` 디렉터리를 만든다.
-9. 각 오디오 파일마다 `run_transcription()`을 한 번씩 실행한다.
-10. 성공하면 `stt/<audio-basename>.txt`가 생성된다.
+7. 오디오 파일이 하나 이상 있는 job만 선택 후보로 표시한다.
+8. 콘솔에 번호, `job_id`, 원본 파일명, 폴더 경로를 출력하고 숫자 입력을 받는다.
+9. 선택된 `job_dir` 아래에 `stt/` 디렉터리를 만든다.
+10. 각 오디오 파일마다 `run_transcription()`을 한 번씩 실행한다.
+11. 성공하면 `stt/<audio-basename>.txt`가 생성된다.
 
 즉, STT 모드는 "index를 조회해 기존 job 폴더를 선택하고, 그 폴더 안의 오디오 파일들을 일괄 후처리"하는 구조다.
 
@@ -373,10 +387,12 @@ STT 실행 순서는 `rust/src/app.rs`에서 관리한다.
   - FFmpeg 변환을 즉시 실행
 - `recordroute_rust stt`
   - STT 폴더 선택 흐름을 즉시 실행
+- `recordroute_rust summary`
+  - summary 폴더 선택 흐름을 즉시 실행
 - `recordroute_rust <input>`
   - 기존 호환성을 위해 bare input은 FFmpeg 입력 파일로 해석
 - `recordroute_rust`
-  - 모드 선택 프롬프트를 띄운다
+  - `ffmpeg` / `stt` / `summary` 모드 선택 프롬프트를 띄운다
 
 즉, STT 추가 이후에도 기존 FFmpeg 단일 파일 진입 방식은 유지된다.
 
@@ -418,8 +434,8 @@ db/
 - 모델 없음
   - 설정된 모델 파일이 없으면 다운로드를 시도
   - 다운로드 스크립트가 없거나 다운로드 실패 시 에러 반환
-- 잘못된 모델 경로 규칙
-  - 모델이 없고 파일명이 `ggml-<model>.bin` 형태가 아니면 자동 다운로드 대상 모델명을 추론할 수 없어 실패
+- 모델 경로 정규화 실패
+  - 파일명이 비어 있거나 부모 디렉터리를 결정할 수 없으면 기대한 다운로드 대상 경로를 만들 수 없어 실패할 수 있다
 - 후보 폴더 없음
   - `db/index.json` 안에 실제 오디오 파일을 가진 `job_dir`가 하나도 없으면 실패
 - `whisper-cli` 실패
@@ -448,10 +464,217 @@ db/
 정리하면:
 
 - 준비: `scripts/build_whisper.sh`가 로컬 `whisper-cli`를 만든다.
+- 설정: `.env`가 `RECORDROUTE_WHISPER_MODEL`을 공급한다.
 - 발견: `Toolchain::discover()`가 고정된 설치 경로와 모델 경로를 찾는다.
-- 모델 보장: `ensure_model()`이 필요 시 `models/whisper/ggml-base.bin`을 다운로드한다.
+- 모델 보장: `ensure_model()`이 필요 시 기본 경로나 shorthand 설정을 정규화한 경로에 모델을 다운로드한다.
 - 선택: `run_stt_with_repo_root()`가 `db/index.json`을 읽어 후보 폴더를 구성한다.
 - 변환: `run_transcription()`이 파일별 `whisper-cli` 실행을 구성한다.
 - 저장: 결과는 각 job 디렉터리 아래 `stt/*.txt`로 저장된다.
 
 따라서 현재 RecordRoute의 Whisper 연동도 FFmpeg와 동일하게 "서브모듈 직접 통합"이 아니라 "프로젝트 로컬 Whisper CLI를 사용하는 Rust wrapper architecture"라고 보는 것이 정확하다.
+
+## llama.cpp Architecture
+
+### Overview
+
+`llama.cpp`도 FFmpeg와 Whisper와 같은 패턴으로 통합되어 있다. Rust 바이너리가 `libllama`를 직접 링크하거나 FFI로 호출하지 않고, 프로젝트 내부에 빌드된 `llama-cli` 실행 파일을 래핑해서 요약 작업에 사용한다.
+
+요약 기능의 실제 통합 지점은 다음 4개다.
+
+1. `scripts/build_llama.sh`
+   로컬 머신에서 사용할 `llama-cli` 바이너리를 `.build/llama/<os>-<arch>/bin` 아래에 빌드한다.
+2. `rust/src/llama.rs`
+   빌드된 `llama-cli` 위치를 찾고, 모델 설정을 해석하고, 실제 요약 명령행을 실행하는 얇은 래퍼다.
+3. `rust/src/app.rs`
+   `summary` 모드 선택, `db/index.json` 기반 폴더 선택, 프롬프트 구성, `summary/` 디렉터리 생성, 결과 저장을 오케스트레이션한다.
+4. `.env`
+   CLI 시작 시 자동 로드되며 `RECORDROUTE_LLAMA_MODEL`, `HF_TOKEN` 같은 요약 관련 환경변수를 제공한다.
+
+핵심은 "llama.cpp 라이브러리 API 직접 연동"이 아니라, "프로젝트 내부에 빌드된 `llama-cli`를 고정된 경로에서 찾아 subprocess로 실행"하는 것이다.
+
+### Integration Model
+
+현재 구조는 아래와 같다.
+
+```mermaid
+flowchart LR
+    A["CLI entrypoint (`rust/src/main.rs`)"] --> B["`main_cli()`"]
+    B --> C["Load repo `.env`"]
+    C --> D["`summary` mode in `rust/src/app.rs`"]
+    D --> E["`IndexStore::list_jobs()` from `db/index.json`"]
+    E --> F["Eligible folders with `stt/*.txt`"]
+    F --> G["Numeric folder selection"]
+    G --> H["`llama::Toolchain::discover()`"]
+    H --> I["Local `llama-cli` in `.build/llama/<target>/bin`"]
+    G --> J["Combined prompt file from `stt/*.txt`"]
+    J --> K["`run_summary_generation()`"]
+    K --> L["`db/<job_id>/summary/<source-stem>.txt`"]
+```
+
+이 모델의 특징은 다음과 같다.
+
+- Rust 바이너리는 `llama.cpp` 라이브러리를 직접 호출하지 않는다.
+- 요약은 전부 `std::process::Command` 기반의 외부 프로세스 실행으로 이루어진다.
+- 런타임은 시스템 PATH의 `llama-cli`를 쓰지 않고, 프로젝트가 빌드한 로컬 바이너리만 사용한다.
+- `db/index.json`은 여전히 "선택 후보 인덱스" 역할만 하고, 요약 결과 자체는 파일 시스템에만 저장된다.
+
+### Components
+
+#### 1. Build script
+
+`scripts/build_llama.sh`는 Llama 툴체인을 현재 OS / CPU 아키텍처 기준 디렉터리에 준비한다.
+
+- 타깃 경로 계산: `.build/llama/<platform_os>-<platform_arch>/bin`
+- 캐시 동작: 이미 `llama-cli` 실행 파일이 있으면 바로 그 경로를 출력하고 종료
+- 빌드 방식: `cmake -S llama.cpp -B .build/.../build`
+- 빌드 대상: `llama-cli`
+- 주요 옵션:
+  - `-DBUILD_SHARED_LIBS=OFF`
+  - `-DLLAMA_BUILD_TOOLS=ON`
+  - `-DLLAMA_BUILD_TESTS=OFF`
+  - `-DLLAMA_BUILD_SERVER=OFF`
+  - `-DLLAMA_BUILD_EXAMPLES=OFF`
+
+의미상 이 스크립트는 "llama.cpp 서브모듈 관리"가 아니라 "런타임이 사용할 로컬 `llama-cli` 준비"를 담당한다.
+
+#### 2. Toolchain wrapper
+
+`rust/src/llama.rs`의 `Toolchain`은 요약 연동의 진입점이다.
+
+- `Toolchain::discover(repo_root)`
+  - `scripts/build_llama.sh` 위치를 저장한다.
+  - `.build/llama/<target>/bin/llama-cli`
+  - 실행 파일이 없으면 빌드 스크립트 경로를 포함한 에러를 반환한다.
+- 모델 해석
+  - `RECORDROUTE_LLAMA_MODEL`이 설정되지 않으면 기본값 `ggml-org/gemma-3-4b-it-GGUF`를 사용한다.
+  - 설정값이 실제 파일이면 `-m <path>`로 호출한다.
+  - 설정값이 실제 파일이 아니면 Hugging Face repo로 간주하고 `-hf <repo>`로 호출한다.
+- 인증
+  - `HF_TOKEN`은 child process 환경으로 그대로 전달되며, gated/private Hugging Face 모델 접근에 사용된다.
+
+즉, Rust 쪽은 Llama를 "이미 준비된 CLI 실행 파일 + 환경변수 기반 모델 설정"으로 취급한다.
+
+#### 3. Prompt builder
+
+요약 프롬프트는 `rust/src/app.rs`에서 만든다.
+
+- 대상: 선택된 job 디렉터리의 `stt/*.txt`
+- 정렬: 파일명을 기준으로 lexicographic sort
+- 포함 방식:
+  - `[channel_01.txt]`
+  - `[channel_02.txt]`
+  - `[mono_mix.txt]`
+- 고정 지시:
+  - 동일 오디오의 중복 STT를 병합
+  - 추측 금지
+  - 한국어 회의록 형식
+  - 섹션: `개요`, `핵심 논의`, `결정/합의`, `후속 조치`
+
+프롬프트는 길이 안전성을 위해 명령행 문자열이 아니라 임시 파일로 만들어 `llama-cli -f <prompt-file>`에 전달한다.
+
+#### 4. Generation wrapper
+
+`run_summary_generation()`은 `llama-cli` 명령행을 조립해서 단일 요약 텍스트를 생성한다.
+
+개념적 실행 형태는 아래와 같다.
+
+```bash
+llama-cli \
+  --single-turn \
+  --simple-io \
+  --no-display-prompt \
+  --log-disable \
+  -n 1024 \
+  -hf ggml-org/gemma-3-4b-it-GGUF \
+  -f <prompt-file> \
+  -o <summary-file>
+```
+
+로컬 GGUF 파일이 지정된 경우에는 `-hf` 대신 `-m <path>`가 사용된다.
+
+### Application Flow
+
+실제 실행 순서는 `rust/src/app.rs`에서 관리한다.
+
+1. CLI 시작 시 repo root 아래 `.env`를 자동 로드한다.
+2. `summary` 모드가 선택되면 `db/index.json`의 전체 job을 읽는다.
+3. 각 job에 대해 `job_dir/stt` 안의 `.txt` 파일 존재 여부를 확인한다.
+4. 전사 파일이 있는 폴더만 후보로 보여주고 숫자 입력으로 하나를 선택한다.
+5. `llama::Toolchain::discover()`로 로컬 `llama-cli`를 찾는다.
+6. 선택된 job 아래 `summary/` 디렉터리를 만든다.
+7. `stt/*.txt` 전체를 읽어 하나의 프롬프트 파일로 합친다.
+8. `run_summary_generation()`으로 요약을 실행한다.
+9. 성공하면 프롬프트 임시 파일을 지우고 `summary/<source-stem>.txt`만 남긴다.
+
+즉, Llama 호출은 독립 함수이지만, 운영 문맥에서는 "후보 폴더 선택 -> 프롬프트 합성 -> 요약 생성 -> summary 저장" 순서의 job 후처리 로직 안에서 실행된다.
+
+### Output Layout
+
+요약이 성공하면 결과는 선택된 job 디렉터리 아래에 저장된다.
+
+```text
+db/
+  <job_id>/
+    stt/
+      channel_01.txt
+      channel_02.txt
+      mono_mix.txt
+    summary/
+      input.txt
+```
+
+파일명 규칙은 원본 오디오 파일 basename의 stem을 그대로 사용하고 확장자만 `.txt`로 바꾼다.
+
+예:
+
+- `input.wav` -> `summary/input.txt`
+- `meeting.m4a` -> `summary/meeting.txt`
+
+중요한 점은 요약 산출물도 현재 `db/index.json`에 기록되지 않는다는 것이다. 인덱스는 선택 후보를 제공할 뿐이며, 요약 결과 추적은 파일 경로 자체가 담당한다.
+
+### Failure Handling
+
+현재 Llama 계층의 실패 처리는 다음과 같다.
+
+- 툴체인 없음
+  - `.build/.../llama-cli`가 없으면 즉시 실패
+  - 에러 메시지에 `scripts/build_llama.sh` 경로를 포함
+- 후보 폴더 없음
+  - `db/index.json` 안에 실제 `stt/*.txt`가 있는 `job_dir`가 하나도 없으면 실패
+- 프롬프트 파일 생성 실패
+  - `summary/` 아래 임시 프롬프트 파일을 만들지 못하면 실패
+- `llama-cli` 실패
+  - stderr/stdout를 수집해 상위로 전달
+  - 부분 생성된 summary 파일이 있으면 삭제
+- 출력 파일 누락
+  - `llama-cli`가 성공 종료했더라도 최종 요약 파일이 없으면 실패
+
+현재 요약도 index 상태를 갱신하지 않으므로, 실패 기록은 콘솔 반환값에 남고 파일 시스템 산출물만 결과 상태를 표현한다.
+
+### Current Boundaries
+
+현재 구현 범위는 명확하다.
+
+- Llama는 외부 CLI 프로세스로만 사용한다.
+- `llama.cpp` 라이브러리 API를 직접 사용하지 않는다.
+- 시스템 PATH의 `llama-cli`를 사용하지 않는다.
+- 자동 Hugging Face 다운로드는 `llama.cpp` 기본 동작에 맡기고, 별도 다운로드 래퍼는 만들지 않는다.
+- 요약 대상은 `db/index.json`에 있는 job 디렉터리 중 실제 `stt/*.txt`가 있는 폴더다.
+- 프롬프트는 단일 패스이며, chunking/multi-pass summarization은 아직 없다.
+- 요약 결과는 `db/index.json`에 기록하지 않는다.
+
+### Summary
+
+현재 아키텍처에서 Llama는 "프로젝트 내부에 빌드해 둔 `llama-cli` + env 기반 모델 설정"이며, Rust 애플리케이션은 이를 얇은 프로세스 래퍼로 감싸서 사용한다.
+
+정리하면:
+
+- 준비: `scripts/build_llama.sh`가 로컬 `llama-cli`를 만든다.
+- 설정: `.env`가 `RECORDROUTE_LLAMA_MODEL`, `HF_TOKEN`을 공급한다.
+- 발견: `Toolchain::discover()`가 고정된 설치 경로와 모델 소스를 해석한다.
+- 선택: `run_summary_with_repo_root()`가 `db/index.json`을 읽어 `stt/*.txt`가 있는 후보를 구성한다.
+- 프롬프트: transcript 파일들을 하나로 합쳐 회의록 지시문과 함께 prompt file을 만든다.
+- 생성: `run_summary_generation()`이 `llama-cli` 실행을 구성한다.
+- 저장: 결과는 각 job 디렉터리 아래 `summary/<source-stem>.txt`로 저장된다.
+
+따라서 현재 RecordRoute의 Llama 연동도 FFmpeg, Whisper와 동일하게 "프로젝트 로컬 Llama CLI를 사용하는 Rust wrapper architecture"라고 보는 것이 정확하다.
