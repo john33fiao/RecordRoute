@@ -227,7 +227,9 @@ fn ensure_hugging_face_model(
     })?;
     let existing_downloads = gguf_files_in(&download_cache_dir)?;
 
-    if let Ok(downloaded_model) = detect_downloaded_model_file(&download_cache_dir, &BTreeSet::new()) {
+    if let Ok(downloaded_model) =
+        detect_downloaded_model_file(&download_cache_dir, &BTreeSet::new())
+    {
         finalize_downloaded_model(&downloaded_model, cache_path)?;
         return Ok(());
     }
@@ -261,7 +263,9 @@ fn ensure_hugging_face_model(
             return Ok(());
         }
 
-        if let Ok(downloaded_model) = detect_downloaded_model_file(&download_cache_dir, &existing_downloads) {
+        if let Ok(downloaded_model) =
+            detect_downloaded_model_file(&download_cache_dir, &existing_downloads)
+        {
             let _ = child.kill();
             let _ = child.wait();
             finalize_downloaded_model(&downloaded_model, cache_path)?;
@@ -291,7 +295,8 @@ fn ensure_hugging_face_model(
             return Ok(());
         }
 
-        let downloaded_model = detect_downloaded_model_file(&download_cache_dir, &existing_downloads)?;
+        let downloaded_model =
+            detect_downloaded_model_file(&download_cache_dir, &existing_downloads)?;
         finalize_downloaded_model(&downloaded_model, cache_path)?;
         return Ok(());
     }
@@ -329,12 +334,20 @@ fn hf_download_cache_dir(toolchain: &Toolchain, repo: &str) -> PathBuf {
                 .join(".cache")
                 .join(cache_key(repo))
         })
-        .unwrap_or_else(|| PathBuf::from(HF_CACHE_RELATIVE_DIR).join(".cache").join(cache_key(repo)))
+        .unwrap_or_else(|| {
+            PathBuf::from(HF_CACHE_RELATIVE_DIR)
+                .join(".cache")
+                .join(cache_key(repo))
+        })
 }
 
 fn gguf_files_in(dir: &Path) -> Result<BTreeSet<PathBuf>, String> {
-    let entries = fs::read_dir(dir)
-        .map_err(|error| format!("failed to read llama cache directory {}: {error}", dir.display()))?;
+    let entries = fs::read_dir(dir).map_err(|error| {
+        format!(
+            "failed to read llama cache directory {}: {error}",
+            dir.display()
+        )
+    })?;
     let mut files = BTreeSet::new();
 
     for entry in entries {
@@ -345,7 +358,11 @@ fn gguf_files_in(dir: &Path) -> Result<BTreeSet<PathBuf>, String> {
             )
         })?;
         let path = entry.path();
-        if path.extension().is_some_and(|extension| extension == "gguf") && path.is_file() {
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "gguf")
+            && path.is_file()
+        {
             files.insert(path);
         }
     }
@@ -358,11 +375,7 @@ fn detect_downloaded_model_file(
     existing_downloads: &BTreeSet<PathBuf>,
 ) -> Result<PathBuf, String> {
     let downloads = gguf_files_in(download_cache_dir)?;
-    if let Some(path) = downloads
-        .difference(existing_downloads)
-        .next()
-        .cloned()
-    {
+    if let Some(path) = downloads.difference(existing_downloads).next().cloned() {
         return Ok(path);
     }
 
@@ -407,10 +420,16 @@ fn extract_summary_text(stdout: &str, prompt: &str) -> String {
 }
 
 fn find_summary_start(text: &str) -> Option<usize> {
-    ["\n## 회의록", "\n**개요**", "\n개요", "\n**핵심 논의**", "\n핵심 논의"]
-        .iter()
-        .filter_map(|marker| text.find(marker).map(|index| index + 1))
-        .min()
+    [
+        "\n## 회의록",
+        "\n**개요**",
+        "\n개요",
+        "\n**핵심 논의**",
+        "\n핵심 논의",
+    ]
+    .iter()
+    .filter_map(|marker| text.find(marker).map(|index| index + 1))
+    .min()
 }
 
 fn normalize_summary_text(text: &str) -> String {
