@@ -7,20 +7,20 @@
 - 실제 애플리케이션 코드는 `rust/` 아래의 `record-route-api`다.
 - 루트의 `ffmpeg/`, `llama.cpp/`, `whisper.cpp/`는 `.gitmodules`에 등록된 외부 서브모듈이다.
 - 명시적 요청이 없는 한 기능 수정은 `rust/`에 한정하고, 서브모듈 코드는 수정하지 않는다.
-- 런타임 구조는 `Axum API + Postgres + 백그라운드 워커 + HTTP sidecar(whisper, llama summary, llama embedding)` 조합이다.
+- 런타임 구조는 `Axum API + SQLite + 백그라운드 워커 + HTTP sidecar(whisper, llama summary, llama embedding)` 조합이다.
 
 ## 2. 우선 확인할 파일
 
 - [`docs/architecture.md`](./docs/architecture.md): 현재 코드베이스 구조, 런타임 구성, 구현 상태 스냅샷
-- `rust/src/lib.rs`: 앱 부트스트랩, 설정 로드, DB 연결, migration 실행, 워커 시작
+- `rust/src/lib.rs`: 앱 부트스트랩, 설정 로드, SQLite 초기화, 워커 시작
 - `rust/src/api/mod.rs`: 공개 HTTP 엔드포인트와 요청 검증
 - `rust/src/jobs.rs`: 큐 polling, 재시도, 실패 처리
 - `rust/src/pipeline.rs`: ffmpeg 변환, 전사, 요약, 임베딩 파이프라인
-- `rust/src/storage.rs`: 파일 저장, 업로드 검증, Postgres 쿼리, pgvector 검색
+- `rust/src/storage.rs`: 파일 저장, 업로드 검증, SQLite 쿼리, FTS 검색, artifact similarity
 - `rust/src/sidecar_clients.rs`: whisper/llama sidecar HTTP 계약
 - `rust/src/models.rs`: 상태 enum, API 직렬화 타입
-- `rust/migrations/0001_initial.sql`: 현재 스키마 기준점
 - `rust/tests/mock_integration.rs`: 빠른 통합 테스트
+- `rust/tests/sqlite_repository.rs`: SQLite 저장소/검색 검증
 - `rust/tests/real_sidecar_smoke.rs`: 실사이드카 연동용 ignored smoke placeholder
 - `rust/.env.example`: 로컬 실행용 설정 템플릿
 
@@ -34,8 +34,9 @@
 4. whisper sidecar는 최초 한 번 `POST /load`로 모델을 적재하고, 이후 `POST /inference`로 `vjson` 응답을 받는다.
 5. summary sidecar는 `POST /v1/chat/completions`를 호출하고 `{title, abstract, bullet_points}` JSON만 받아야 한다.
 6. embedding sidecar는 `POST /v1/embeddings`를 호출하고 float 벡터를 받아야 한다.
-7. transcript, summary, embedding을 저장한 뒤 job을 완료 처리한다.
+7. transcript, summary, embedding artifact를 저장한 뒤 job을 완료 처리한다.
 8. `GET /v1/search`는 임베딩 생성이 실패하면 키워드 검색만으로 자동 fallback한다.
+9. 검색 시 similarity는 각 recording의 `artifacts/embedding.json`을 읽어 계산한다.
 
 ## 4. 파일/아티팩트 구조
 
@@ -49,16 +50,16 @@
 
 ## 5. DB와 검색
 
-- `recordings`: 원본 메타데이터, transcript, summary JSON, 상태, `search_document` TSVECTOR 저장
+- `recordings`: 원본 메타데이터, transcript, summary JSON, 상태, `has_embedding`, `embedding_dim` 저장
 - `jobs`: recording당 1개 job, attempt 수와 retry 시점 저장
-- `recording_embeddings`: 첫 임베딩 저장 시 동적으로 생성된다
-- `vector` extension이 필요하다
+- `recordings_fts`: SQLite FTS5 virtual table
 
 중요한 제약:
 
-- 임베딩 테이블의 차원 수는 첫 저장 시점의 벡터 길이로 고정된다.
-- 다른 차원의 embedding 모델로 교체하면 현재 구현은 런타임 에러를 낸다.
-- 검색 SQL은 키워드 검색과 cosine similarity를 함께 사용한다.
+- 설계는 단일 인스턴스 로컬 실행을 기준으로 한다.
+- similarity는 artifact full-scan 기반이라 초기 소규모 데이터셋에 맞춘 구현이다.
+- query embedding 차원과 artifact 차원이 다르면 해당 recording만 similarity 계산에서 제외한다.
+- 검색은 키워드 검색과 cosine similarity를 함께 사용한다.
 
 ## 6. 환경 변수
 
@@ -66,7 +67,7 @@
 
 - `APP_BIND_ADDR` 기본값: `127.0.0.1:3000`
 - `APP_STORAGE_ROOT` 필수
-- `DATABASE_URL` 필수
+- `APP_DB_PATH` 기본값: `APP_STORAGE_ROOT/record-route.db`
 - `FFMPEG_BIN` 기본값: `ffmpeg`
 - `WHISPER_BASE_URL` 필수
 - `LLAMA_SUMMARY_BASE_URL` 필수
@@ -93,15 +94,14 @@
 
 실행 시 주의:
 
-- 앱 시작 시 DB migration이 자동 실행된다.
-- Postgres와 sidecar endpoint가 먼저 떠 있어야 한다.
-- `real_sidecar_smoke.rs`는 현재 placeholder 수준이라, 실제 E2E 보장은 `mock_integration.rs`보다 약하다.
+- 앱 시작 시 SQLite schema가 자동 보장된다.
+- `APP_STORAGE_ROOT`와 `APP_DB_PATH`는 쓰기 가능해야 한다.
+- sidecar endpoint는 먼저 떠 있어야 한다.
+- `real_sidecar_smoke.rs`는 현재 placeholder 수준이라, 실제 E2E 보장은 `mock_integration.rs`와 `sqlite_repository.rs`보다 약하다.
 
 ## 8. 변경 시 같이 봐야 하는 연동 지점
 
 ### API 응답/요청 필드 변경
-
-아래를 함께 점검한다.
 
 - `rust/src/models.rs`
 - `rust/src/api/mod.rs`
@@ -109,8 +109,6 @@
 - `rust/tests/mock_integration.rs`
 
 ### 처리 단계 변경
-
-아래를 함께 점검한다.
 
 - `rust/src/models.rs`의 `ProcessingStep`, `ProcessingStatus`
 - `rust/src/pipeline.rs`
@@ -120,24 +118,20 @@
 
 ### 업로드 허용 형식 변경
 
-아래를 함께 점검한다.
-
 - `rust/src/storage.rs`의 확장자 검사
 - `rust/src/storage.rs`의 content-type 검사
 - 업로드 API 테스트
 
 ### 임베딩/검색 변경
 
-아래를 함께 점검한다.
-
 - `rust/src/sidecar_clients.rs`
-- `rust/src/storage.rs`의 `ensure_embedding_table_for_dimension`, `save_embedding`, `search_recordings`
-- DB migration 전략
+- `rust/src/storage.rs`의 `save_embedding`, `search_recordings`
+- artifact JSON 형식과 검색 정렬 규칙
 
 ### 스키마 변경
 
-- 이미 배포 가능한 저장소라는 가정으로, 기존 migration을 덮어쓰기보다 신규 migration 추가를 우선한다.
-- 스키마를 바꾸면 SQL row mapping과 테스트 데이터를 반드시 같이 갱신한다.
+- SQLite schema는 `rust/src/storage.rs`에서 초기화된다.
+- 스키마를 바꾸면 row mapping과 테스트 데이터를 반드시 같이 갱신한다.
 
 ## 9. 에이전트 작업 원칙
 
@@ -146,13 +140,13 @@
 - 파이프라인 실패 처리와 retry 동작은 사용자 기능이다. 에러를 삼키지 말고 상태/last_error 갱신 흐름을 유지한다.
 - 검색은 “임베딩이 있으면 hybrid, 실패하면 keyword-only”라는 현재 동작을 깨지 않도록 주의한다.
 - 새 설정값을 추가하면 `rust/src/config.rs`와 `rust/.env.example`를 함께 갱신한다.
-- 테스트를 추가할 때는 가능한 한 `mock_integration.rs`처럼 외부 의존성 없는 빠른 경로를 우선한다.
+- 테스트를 추가할 때는 가능한 한 빠른 경로를 우선한다.
 
 ## 10. 건드리지 말아야 할 것
 
 - 사용자 요청이 없는 `ffmpeg/`, `llama.cpp/`, `whisper.cpp/` 서브모듈 내부 코드
 - `rust/target/` 산출물
-- 임베딩 차원과 search SQL을 고려하지 않은 상태에서의 `recording_embeddings` 스키마 변경
+- artifact 형식과 검색 의미론을 고려하지 않은 상태에서의 `embedding.json` 변경
 
 ## 11. 얇은 참조 문서 정책
 

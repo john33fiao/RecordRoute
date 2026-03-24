@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub bind_addr: SocketAddr,
-    pub database_url: String,
+    pub app_db_path: PathBuf,
     pub app_storage_root: PathBuf,
     pub ffmpeg_bin: String,
     pub whisper_base_url: String,
@@ -33,11 +33,15 @@ impl AppConfig {
             .transpose()
             .context("invalid APP_BIND_ADDR")?
             .unwrap_or_else(|| SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 3000));
+        let app_storage_root = PathBuf::from(required_env("APP_STORAGE_ROOT")?);
+        let app_db_path = env::var("APP_DB_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| app_storage_root.join("record-route.db"));
 
         Ok(Self {
             bind_addr,
-            database_url: required_env("DATABASE_URL")?,
-            app_storage_root: PathBuf::from(required_env("APP_STORAGE_ROOT")?),
+            app_db_path,
+            app_storage_root,
             ffmpeg_bin: env::var("FFMPEG_BIN").unwrap_or_else(|_| "ffmpeg".to_string()),
             whisper_base_url: required_env("WHISPER_BASE_URL")?,
             llama_summary_base_url: required_env("LLAMA_SUMMARY_BASE_URL")?,

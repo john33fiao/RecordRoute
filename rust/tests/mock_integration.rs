@@ -211,7 +211,7 @@ async fn search_falls_back_to_keyword_only_when_embedding_client_fails() {
 fn test_config(storage_root: std::path::PathBuf) -> AppConfig {
     AppConfig {
         bind_addr: "127.0.0.1:3000".parse().unwrap(),
-        database_url: "postgres://unused".to_string(),
+        app_db_path: storage_root.join("record-route.db"),
         app_storage_root: storage_root,
         ffmpeg_bin: "ffmpeg".to_string(),
         whisper_base_url: "http://127.0.0.1:8080".to_string(),
@@ -651,3 +651,4 @@ fn cosine_similarity(left: &[f32], right: &[f32]) -> f32 {
         dot / (left_norm * right_norm)
     }
 }
+

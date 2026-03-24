@@ -10,7 +10,6 @@ pub mod storage;
 use std::sync::Arc;
 
 use anyhow::Context;
-use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -22,7 +21,7 @@ use crate::sidecar_clients::{
     EmbeddingClient, HttpLlamaEmbeddingClient, HttpLlamaSummaryClient, HttpWhisperClient,
     SummaryClient, TranscriptionClient,
 };
-use crate::storage::{LocalFileStore, PostgresRepository, RecordingRepository};
+use crate::storage::{LocalFileStore, RecordingRepository, SqliteRepository};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -39,21 +38,14 @@ pub async fn run() -> anyhow::Result<()> {
     init_tracing();
 
     let config = Arc::new(AppConfig::from_env()?);
-
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&config.database_url)
-        .await
-        .with_context(|| "failed to connect to postgres")?;
-
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .with_context(|| "failed to run database migrations")?;
-
-    let repo: Arc<dyn RecordingRepository> = Arc::new(PostgresRepository::new(pool));
     let file_store = Arc::new(LocalFileStore::new(config.app_storage_root.clone()));
     file_store.ensure_root().await?;
+
+    let repo: Arc<dyn RecordingRepository> = Arc::new(
+        SqliteRepository::new(config.app_db_path.clone(), config.app_storage_root.clone())
+            .await
+            .with_context(|| "failed to initialize sqlite repository")?,
+    );
 
     let transcription_client: Arc<dyn TranscriptionClient> =
         Arc::new(HttpWhisperClient::new(&config));
@@ -107,7 +99,7 @@ pub async fn run() -> anyhow::Result<()> {
 
 fn init_tracing() {
     let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,sqlx=warn,hyper=warn,reqwest=warn"));
+        .unwrap_or_else(|_| EnvFilter::new("info,hyper=warn,reqwest=warn"));
 
     let _ = fmt()
         .with_env_filter(env_filter)

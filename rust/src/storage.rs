@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -5,18 +7,69 @@ use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use axum::extract::multipart::Field;
 use chrono::{DateTime, Utc};
-use pgvector::Vector;
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use serde::Deserialize;
 use serde_json::Value;
-use sqlx::types::Json;
-use sqlx::{FromRow, PgPool};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use tokio::task;
 use uuid::Uuid;
 
 use crate::models::{
     Job, NewRecording, ProcessingStatus, ProcessingStep, Recording, RecordingBundle,
     RecordingListItem, SearchResult, StructuredSummary,
 };
+
+const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+const SQLITE_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS recordings (
+    id TEXT PRIMARY KEY,
+    original_filename TEXT NOT NULL,
+    original_content_type TEXT,
+    file_size_bytes INTEGER NOT NULL,
+    original_rel_path TEXT NOT NULL,
+    wav_rel_path TEXT,
+    language TEXT,
+    transcript TEXT,
+    summary TEXT,
+    summary_canonical_text TEXT,
+    has_embedding INTEGER NOT NULL DEFAULT 0,
+    embedding_dim INTEGER,
+    status TEXT NOT NULL,
+    current_step TEXT NOT NULL,
+    last_error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_recordings_status_created_at
+    ON recordings (status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS jobs (
+    id TEXT PRIMARY KEY,
+    recording_id TEXT NOT NULL UNIQUE REFERENCES recordings(id) ON DELETE CASCADE,
+    status TEXT NOT NULL,
+    step TEXT NOT NULL,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    started_at INTEGER,
+    completed_at INTEGER,
+    next_attempt_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_queue
+    ON jobs (status, next_attempt_at, created_at);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS recordings_fts USING fts5(
+    recording_id UNINDEXED,
+    original_filename,
+    summary_canonical_text,
+    transcript,
+    tokenize = 'unicode61'
+);
+"#;
 
 #[async_trait]
 pub trait RecordingRepository: Send + Sync {
@@ -191,213 +244,270 @@ impl LocalFileStore {
     }
 }
 
-pub struct PostgresRepository {
-    pool: PgPool,
+#[derive(Debug, Clone)]
+struct ArtifactSimilarityEngine {
+    storage_root: PathBuf,
 }
 
-impl PostgresRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+impl ArtifactSimilarityEngine {
+    fn new(storage_root: PathBuf) -> Self {
+        Self { storage_root }
     }
 
-    async fn get_job_by_recording_id(&self, recording_id: Uuid) -> Result<Option<Job>> {
-        let row = sqlx::query_as::<_, JobRow>(
-            r#"
-            SELECT *
-            FROM jobs
-            WHERE recording_id = $1
-            "#,
-        )
-        .bind(recording_id)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        row.map(TryInto::try_into).transpose()
-    }
-
-    async fn update_steps(
+    async fn similarity_for_recording(
         &self,
         recording_id: Uuid,
-        job_id: Uuid,
-        step: ProcessingStep,
-        last_error: Option<&str>,
-    ) -> Result<()> {
-        sqlx::query(
-            r#"
-            UPDATE recordings
-            SET current_step = $2,
-                updated_at = NOW(),
-                last_error = $3
-            WHERE id = $1
-            "#,
-        )
-        .bind(recording_id)
-        .bind(step.as_str())
-        .bind(last_error)
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"
-            UPDATE jobs
-            SET step = $2,
-                updated_at = NOW(),
-                last_error = $3
-            WHERE id = $1
-            "#,
-        )
-        .bind(job_id)
-        .bind(step.as_str())
-        .bind(last_error)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    async fn embedding_table_exists(&self) -> Result<bool> {
-        Ok(sqlx::query_scalar::<_, bool>("SELECT to_regclass('public.recording_embeddings') IS NOT NULL")
-            .fetch_one(&self.pool)
-            .await?)
-    }
-
-    async fn ensure_embedding_table_for_dimension(&self, dimension: usize) -> Result<()> {
-        if self.embedding_table_exists().await? {
-            let type_name = sqlx::query_scalar::<_, String>(
-                r#"
-                SELECT format_type(a.atttypid, a.atttypmod)
-                FROM pg_attribute a
-                JOIN pg_class c ON c.oid = a.attrelid
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = 'public'
-                  AND c.relname = 'recording_embeddings'
-                  AND a.attname = 'embedding'
-                  AND NOT a.attisdropped
-                "#,
-            )
-            .fetch_one(&self.pool)
-            .await?;
-
-            let existing_dimension = type_name
-                .strip_prefix("vector(")
-                .and_then(|value| value.strip_suffix(')'))
-                .ok_or_else(|| anyhow!("unexpected pgvector type `{type_name}`"))?
-                .parse::<usize>()?;
-
-            if existing_dimension != dimension {
-                bail!(
-                    "embedding dimension mismatch: existing table uses {existing_dimension}, request uses {dimension}"
-                );
+        expected_dim: Option<usize>,
+        query_embedding: &[f32],
+    ) -> Option<f32> {
+        let path = self
+            .storage_root
+            .join(recording_id.to_string())
+            .join("artifacts")
+            .join("embedding.json");
+        let bytes = match fs::read(&path).await {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                tracing::warn!("skipping similarity for {}: failed to read {}: {}", recording_id, path.display(), error);
+                return None;
             }
-            return Ok(());
+        };
+
+        let artifact = match serde_json::from_slice::<EmbeddingArtifact>(&bytes) {
+            Ok(artifact) => artifact,
+            Err(error) => {
+                tracing::warn!("skipping similarity for {}: invalid embedding artifact {}: {}", recording_id, path.display(), error);
+                return None;
+            }
+        };
+
+        let dimension = artifact.dimensions.unwrap_or(artifact.embedding.len());
+        if expected_dim.is_some_and(|value| value != dimension) {
+            tracing::warn!(
+                "skipping similarity for {}: db dimension {} does not match artifact dimension {}",
+                recording_id,
+                expected_dim.unwrap_or_default(),
+                dimension
+            );
+            return None;
+        }
+        if dimension != artifact.embedding.len() {
+            tracing::warn!(
+                "skipping similarity for {}: artifact dimension {} does not match vector length {}",
+                recording_id,
+                dimension,
+                artifact.embedding.len()
+            );
+            return None;
+        }
+        if dimension != query_embedding.len() {
+            tracing::warn!(
+                "skipping similarity for {}: query dimension {} does not match artifact dimension {}",
+                recording_id,
+                query_embedding.len(),
+                dimension
+            );
+            return None;
         }
 
-        let create_table = format!(
-            r#"
-            CREATE TABLE IF NOT EXISTS recording_embeddings (
-                recording_id UUID PRIMARY KEY REFERENCES recordings(id) ON DELETE CASCADE,
-                embedding vector({dimension}) NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            "#,
-        );
-        sqlx::query(&create_table).execute(&self.pool).await?;
-        sqlx::query(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_recording_embeddings_cosine
-            ON recording_embeddings USING ivfflat (embedding vector_cosine_ops)
-            WITH (lists = 100)
-            "#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
+        Some(cosine_similarity(query_embedding, &artifact.embedding))
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct EmbeddingArtifact {
+    dimensions: Option<usize>,
+    embedding: Vec<f32>,
+}
+
+pub struct SqliteRepository {
+    db_path: PathBuf,
+    similarity_engine: ArtifactSimilarityEngine,
+}
+
+impl SqliteRepository {
+    pub async fn new(db_path: PathBuf, storage_root: PathBuf) -> Result<Self> {
+        let repository = Self {
+            db_path,
+            similarity_engine: ArtifactSimilarityEngine::new(storage_root),
+        };
+        repository.initialize().await?;
+        Ok(repository)
+    }
+
+    async fn initialize(&self) -> Result<()> {
+        self.with_connection(|connection| {
+            connection.execute_batch(SQLITE_SCHEMA)?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn with_connection<T, F>(&self, func: F) -> Result<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut Connection) -> Result<T> + Send + 'static,
+    {
+        let db_path = self.db_path.clone();
+        task::spawn_blocking(move || {
+            let mut connection = open_sqlite_connection(&db_path)?;
+            func(&mut connection)
+        })
+        .await
+        .context("sqlite task join failed")?
+    }
+}
 #[async_trait]
-impl RecordingRepository for PostgresRepository {
+impl RecordingRepository for SqliteRepository {
     async fn insert_recording_with_job(&self, new_recording: NewRecording) -> Result<(Recording, Job)> {
-        let mut tx = self.pool.begin().await?;
+        let now = now_timestamp();
+        let new_recording_clone = new_recording.clone();
+        self.with_connection(move |connection| {
+            let transaction = connection.transaction()?;
+            let job_id = Uuid::new_v4();
 
-        let recording = sqlx::query_as::<_, RecordingRow>(
-            r#"
-            INSERT INTO recordings (
-                id,
-                original_filename,
-                original_content_type,
-                file_size_bytes,
-                original_rel_path,
-                status,
-                current_step
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING *
-            "#,
-        )
-        .bind(new_recording.id)
-        .bind(&new_recording.original_filename)
-        .bind(&new_recording.original_content_type)
-        .bind(new_recording.file_size_bytes)
-        .bind(&new_recording.original_rel_path)
-        .bind(ProcessingStatus::Queued.as_str())
-        .bind(ProcessingStep::UploadSaved.as_str())
-        .fetch_one(&mut *tx)
-        .await?;
+            transaction.execute(
+                r#"
+                INSERT INTO recordings (
+                    id,
+                    original_filename,
+                    original_content_type,
+                    file_size_bytes,
+                    original_rel_path,
+                    status,
+                    current_step,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                "#,
+                params![
+                    new_recording_clone.id.to_string(),
+                    new_recording_clone.original_filename.clone(),
+                    new_recording_clone.original_content_type.clone(),
+                    new_recording_clone.file_size_bytes,
+                    new_recording_clone.original_rel_path.clone(),
+                    ProcessingStatus::Queued.as_str(),
+                    ProcessingStep::UploadSaved.as_str(),
+                    now,
+                    now,
+                ],
+            )?;
 
-        let job = sqlx::query_as::<_, JobRow>(
-            r#"
-            INSERT INTO jobs (
-                id,
-                recording_id,
-                status,
-                step
-            )
-            VALUES ($1, $2, $3, $4)
-            RETURNING *
-            "#,
-        )
-        .bind(Uuid::new_v4())
-        .bind(new_recording.id)
-        .bind(ProcessingStatus::Queued.as_str())
-        .bind(ProcessingStep::UploadSaved.as_str())
-        .fetch_one(&mut *tx)
-        .await?;
+            transaction.execute(
+                r#"
+                INSERT INTO jobs (
+                    id,
+                    recording_id,
+                    status,
+                    step,
+                    attempt_count,
+                    created_at,
+                    updated_at,
+                    next_attempt_at
+                )
+                VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7)
+                "#,
+                params![
+                    job_id.to_string(),
+                    new_recording_clone.id.to_string(),
+                    ProcessingStatus::Queued.as_str(),
+                    ProcessingStep::UploadSaved.as_str(),
+                    now,
+                    now,
+                    now,
+                ],
+            )?;
 
-        tx.commit().await?;
+            sync_recording_fts(&transaction, new_recording_clone.id)?;
+            transaction.commit()?;
 
-        Ok((recording.try_into()?, job.try_into()?))
+            Ok((
+                Recording {
+                    id: new_recording_clone.id,
+                    original_filename: new_recording_clone.original_filename,
+                    original_content_type: new_recording_clone.original_content_type,
+                    file_size_bytes: new_recording_clone.file_size_bytes,
+                    original_rel_path: new_recording_clone.original_rel_path,
+                    wav_rel_path: None,
+                    language: None,
+                    transcript: None,
+                    summary: None,
+                    summary_canonical_text: None,
+                    status: ProcessingStatus::Queued,
+                    current_step: ProcessingStep::UploadSaved,
+                    last_error: None,
+                    created_at: datetime_from_timestamp(now)?,
+                    updated_at: datetime_from_timestamp(now)?,
+                },
+                Job {
+                    id: job_id,
+                    recording_id: new_recording_clone.id,
+                    status: ProcessingStatus::Queued,
+                    step: ProcessingStep::UploadSaved,
+                    attempt_count: 0,
+                    last_error: None,
+                    created_at: datetime_from_timestamp(now)?,
+                    updated_at: datetime_from_timestamp(now)?,
+                    started_at: None,
+                    completed_at: None,
+                    next_attempt_at: datetime_from_timestamp(now)?,
+                },
+            ))
+        })
+        .await
     }
 
     async fn get_job(&self, job_id: Uuid) -> Result<Option<Job>> {
-        let row = sqlx::query_as::<_, JobRow>("SELECT * FROM jobs WHERE id = $1")
-            .bind(job_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        row.map(TryInto::try_into).transpose()
+        self.with_connection(move |connection| {
+            let row = connection
+                .query_row(
+                    "SELECT * FROM jobs WHERE id = ?1",
+                    params![job_id.to_string()],
+                    job_db_row_from_row,
+                )
+                .optional()?;
+            row.map(TryInto::try_into).transpose()
+        })
+        .await
     }
 
     async fn get_recording(&self, recording_id: Uuid) -> Result<Option<Recording>> {
-        let row = sqlx::query_as::<_, RecordingRow>("SELECT * FROM recordings WHERE id = $1")
-            .bind(recording_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        row.map(TryInto::try_into).transpose()
+        self.with_connection(move |connection| {
+            let row = connection
+                .query_row(
+                    "SELECT * FROM recordings WHERE id = ?1",
+                    params![recording_id.to_string()],
+                    recording_db_row_from_row,
+                )
+                .optional()?;
+            row.map(TryInto::try_into).transpose()
+        })
+        .await
     }
 
     async fn get_recording_bundle(&self, recording_id: Uuid) -> Result<Option<RecordingBundle>> {
         let Some(recording) = self.get_recording(recording_id).await? else {
             return Ok(None);
         };
-        let job = self.get_job_by_recording_id(recording_id).await?;
+        let job = self
+            .with_connection(move |connection| {
+                let row = connection
+                    .query_row(
+                        "SELECT * FROM jobs WHERE recording_id = ?1",
+                        params![recording_id.to_string()],
+                        job_db_row_from_row,
+                    )
+                    .optional()?;
+                row.map(TryInto::try_into).transpose()
+            })
+            .await?;
         Ok(Some(RecordingBundle { recording, job }))
     }
 
     async fn list_recordings(&self, status: Option<ProcessingStatus>) -> Result<Vec<RecordingListItem>> {
-        let rows = if let Some(status) = status {
-            sqlx::query_as::<_, RecordingListRow>(
+        self.with_connection(move |connection| {
+            let sql = if status.is_some() {
                 r#"
                 SELECT
                     id,
@@ -411,15 +521,10 @@ impl RecordingRepository for PostgresRepository {
                     created_at,
                     updated_at
                 FROM recordings
-                WHERE status = $1
+                WHERE status = ?1
                 ORDER BY created_at DESC
-                "#,
-            )
-            .bind(status.as_str())
-            .fetch_all(&self.pool)
-            .await?
-        } else {
-            sqlx::query_as::<_, RecordingListRow>(
+                "#
+            } else {
                 r#"
                 SELECT
                     id,
@@ -434,84 +539,115 @@ impl RecordingRepository for PostgresRepository {
                     updated_at
                 FROM recordings
                 ORDER BY created_at DESC
-                "#,
-            )
-            .fetch_all(&self.pool)
-            .await?
-        };
+                "#
+            };
 
-        rows.into_iter().map(TryInto::try_into).collect()
+            let mut statement = connection.prepare(sql)?;
+            if let Some(status) = status {
+                statement
+                    .query_map(params![status.as_str()], recording_list_db_row_from_row)?
+                    .collect::<std::result::Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect()
+            } else {
+                statement
+                    .query_map([], recording_list_db_row_from_row)?
+                    .collect::<std::result::Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect()
+            }
+        })
+        .await
     }
 
     async fn claim_next_job(&self) -> Result<Option<Job>> {
-        let mut tx = self.pool.begin().await?;
-        let row = sqlx::query_as::<_, JobRow>(
-            r#"
-            WITH next_job AS (
-                SELECT id
-                FROM jobs
-                WHERE status = 'queued'
-                  AND next_attempt_at <= NOW()
-                ORDER BY created_at ASC
-                LIMIT 1
-                FOR UPDATE SKIP LOCKED
-            )
-            UPDATE jobs AS j
-            SET status = 'processing',
-                started_at = COALESCE(j.started_at, NOW()),
-                updated_at = NOW(),
-                attempt_count = j.attempt_count + 1,
-                last_error = NULL
-            FROM next_job
-            WHERE j.id = next_job.id
-            RETURNING j.*
-            "#,
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
+        let now = now_timestamp();
+        self.with_connection(move |connection| {
+            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let row = transaction
+                .query_row(
+                    r#"
+                    SELECT *
+                    FROM jobs
+                    WHERE status = ?1
+                      AND next_attempt_at <= ?2
+                    ORDER BY created_at ASC
+                    LIMIT 1
+                    "#,
+                    params![ProcessingStatus::Queued.as_str(), now],
+                    job_db_row_from_row,
+                )
+                .optional()?;
 
-        let Some(job_row) = row else {
-            tx.commit().await?;
-            return Ok(None);
-        };
+            let Some(mut job_row) = row else {
+                transaction.commit()?;
+                return Ok(None);
+            };
 
-        sqlx::query(
-            r#"
-            UPDATE recordings
-            SET status = $2,
-                updated_at = NOW(),
-                last_error = NULL
-            WHERE id = $1
-            "#,
-        )
-        .bind(job_row.recording_id)
-        .bind(ProcessingStatus::Processing.as_str())
-        .execute(&mut *tx)
-        .await?;
+            let started_at = job_row.started_at.unwrap_or(now);
+            job_row.status = ProcessingStatus::Processing.as_str().to_string();
+            job_row.updated_at = now;
+            job_row.started_at = Some(started_at);
+            job_row.attempt_count += 1;
+            job_row.last_error = None;
 
-        tx.commit().await?;
-        Ok(Some(job_row.try_into()?))
+            transaction.execute(
+                r#"
+                UPDATE jobs
+                SET status = ?2,
+                    started_at = COALESCE(started_at, ?3),
+                    updated_at = ?4,
+                    attempt_count = ?5,
+                    last_error = NULL
+                WHERE id = ?1
+                "#,
+                params![
+                    job_row.id,
+                    ProcessingStatus::Processing.as_str(),
+                    started_at,
+                    now,
+                    job_row.attempt_count,
+                ],
+            )?;
+            transaction.execute(
+                r#"
+                UPDATE recordings
+                SET status = ?2,
+                    updated_at = ?3,
+                    last_error = NULL
+                WHERE id = ?1
+                "#,
+                params![job_row.recording_id, ProcessingStatus::Processing.as_str(), now],
+            )?;
+
+            transaction.commit()?;
+            Ok(Some(job_row.try_into()?))
+        })
+        .await
     }
-
     async fn mark_wav_ready(&self, recording_id: Uuid, job_id: Uuid, wav_rel_path: &str) -> Result<()> {
-        sqlx::query(
-            r#"
-            UPDATE recordings
-            SET wav_rel_path = $2,
-                current_step = $3,
-                updated_at = NOW(),
-                last_error = NULL
-            WHERE id = $1
-            "#,
-        )
-        .bind(recording_id)
-        .bind(wav_rel_path)
-        .bind(ProcessingStep::WavReady.as_str())
-        .execute(&self.pool)
-        .await?;
-
-        self.update_steps(recording_id, job_id, ProcessingStep::WavReady, None)
-            .await
+        let wav_rel_path = wav_rel_path.to_string();
+        self.with_connection(move |connection| {
+            let transaction = connection.transaction()?;
+            let now = now_timestamp();
+            transaction.execute(
+                r#"
+                UPDATE recordings
+                SET wav_rel_path = ?2,
+                    current_step = ?3,
+                    updated_at = ?4,
+                    last_error = NULL
+                WHERE id = ?1
+                "#,
+                params![recording_id.to_string(), wav_rel_path, ProcessingStep::WavReady.as_str(), now],
+            )?;
+            update_steps(&transaction, recording_id, job_id, ProcessingStep::WavReady, None, now)?;
+            transaction.commit()?;
+            Ok(())
+        })
+        .await
     }
 
     async fn save_transcription(
@@ -521,26 +657,35 @@ impl RecordingRepository for PostgresRepository {
         language: Option<&str>,
         transcript: &str,
     ) -> Result<()> {
-        sqlx::query(
-            r#"
-            UPDATE recordings
-            SET language = $2,
-                transcript = $3,
-                current_step = $4,
-                updated_at = NOW(),
-                last_error = NULL
-            WHERE id = $1
-            "#,
-        )
-        .bind(recording_id)
-        .bind(language)
-        .bind(transcript)
-        .bind(ProcessingStep::Transcribed.as_str())
-        .execute(&self.pool)
-        .await?;
-
-        self.update_steps(recording_id, job_id, ProcessingStep::Transcribed, None)
-            .await
+        let language = language.map(str::to_string);
+        let transcript = transcript.to_string();
+        self.with_connection(move |connection| {
+            let transaction = connection.transaction()?;
+            let now = now_timestamp();
+            transaction.execute(
+                r#"
+                UPDATE recordings
+                SET language = ?2,
+                    transcript = ?3,
+                    current_step = ?4,
+                    updated_at = ?5,
+                    last_error = NULL
+                WHERE id = ?1
+                "#,
+                params![
+                    recording_id.to_string(),
+                    language,
+                    transcript,
+                    ProcessingStep::Transcribed.as_str(),
+                    now,
+                ],
+            )?;
+            update_steps(&transaction, recording_id, job_id, ProcessingStep::Transcribed, None, now)?;
+            sync_recording_fts(&transaction, recording_id)?;
+            transaction.commit()?;
+            Ok(())
+        })
+        .await
     }
 
     async fn save_summary(
@@ -550,85 +695,97 @@ impl RecordingRepository for PostgresRepository {
         summary: &StructuredSummary,
         canonical_text: &str,
     ) -> Result<()> {
-        sqlx::query(
-            r#"
-            UPDATE recordings
-            SET summary = $2,
-                summary_canonical_text = $3,
-                current_step = $4,
-                updated_at = NOW(),
-                last_error = NULL
-            WHERE id = $1
-            "#,
-        )
-        .bind(recording_id)
-        .bind(Json(summary))
-        .bind(canonical_text)
-        .bind(ProcessingStep::Summarized.as_str())
-        .execute(&self.pool)
-        .await?;
-
-        self.update_steps(recording_id, job_id, ProcessingStep::Summarized, None)
-            .await
+        let summary_json = serde_json::to_string(summary)?;
+        let canonical_text = canonical_text.to_string();
+        self.with_connection(move |connection| {
+            let transaction = connection.transaction()?;
+            let now = now_timestamp();
+            transaction.execute(
+                r#"
+                UPDATE recordings
+                SET summary = ?2,
+                    summary_canonical_text = ?3,
+                    current_step = ?4,
+                    updated_at = ?5,
+                    last_error = NULL
+                WHERE id = ?1
+                "#,
+                params![
+                    recording_id.to_string(),
+                    summary_json,
+                    canonical_text,
+                    ProcessingStep::Summarized.as_str(),
+                    now,
+                ],
+            )?;
+            update_steps(&transaction, recording_id, job_id, ProcessingStep::Summarized, None, now)?;
+            sync_recording_fts(&transaction, recording_id)?;
+            transaction.commit()?;
+            Ok(())
+        })
+        .await
     }
 
     async fn save_embedding(&self, recording_id: Uuid, embedding: &[f32]) -> Result<()> {
-        self.ensure_embedding_table_for_dimension(embedding.len()).await?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO recording_embeddings (recording_id, embedding)
-            VALUES ($1, $2)
-            ON CONFLICT (recording_id)
-            DO UPDATE SET embedding = EXCLUDED.embedding, updated_at = NOW()
-            "#,
-        )
-        .bind(recording_id)
-        .bind(Vector::from(embedding.to_vec()))
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
+        let dimension = embedding.len() as i64;
+        self.with_connection(move |connection| {
+            connection.execute(
+                r#"
+                UPDATE recordings
+                SET has_embedding = 1,
+                    embedding_dim = ?2,
+                    updated_at = ?3
+                WHERE id = ?1
+                "#,
+                params![recording_id.to_string(), dimension, now_timestamp()],
+            )?;
+            Ok(())
+        })
+        .await
     }
 
     async fn complete_job(&self, recording_id: Uuid, job_id: Uuid) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
-
-        sqlx::query(
-            r#"
-            UPDATE recordings
-            SET status = $2,
-                current_step = $3,
-                updated_at = NOW(),
-                last_error = NULL
-            WHERE id = $1
-            "#,
-        )
-        .bind(recording_id)
-        .bind(ProcessingStatus::Completed.as_str())
-        .bind(ProcessingStep::Embedded.as_str())
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            r#"
-            UPDATE jobs
-            SET status = $2,
-                step = $3,
-                updated_at = NOW(),
-                completed_at = NOW(),
-                last_error = NULL
-            WHERE id = $1
-            "#,
-        )
-        .bind(job_id)
-        .bind(ProcessingStatus::Completed.as_str())
-        .bind(ProcessingStep::Embedded.as_str())
-        .execute(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
-        Ok(())
+        self.with_connection(move |connection| {
+            let transaction = connection.transaction()?;
+            let now = now_timestamp();
+            transaction.execute(
+                r#"
+                UPDATE recordings
+                SET status = ?2,
+                    current_step = ?3,
+                    updated_at = ?4,
+                    last_error = NULL
+                WHERE id = ?1
+                "#,
+                params![
+                    recording_id.to_string(),
+                    ProcessingStatus::Completed.as_str(),
+                    ProcessingStep::Embedded.as_str(),
+                    now,
+                ],
+            )?;
+            transaction.execute(
+                r#"
+                UPDATE jobs
+                SET status = ?2,
+                    step = ?3,
+                    updated_at = ?4,
+                    completed_at = ?5,
+                    last_error = NULL
+                WHERE id = ?1
+                "#,
+                params![
+                    job_id.to_string(),
+                    ProcessingStatus::Completed.as_str(),
+                    ProcessingStep::Embedded.as_str(),
+                    now,
+                    now,
+                ],
+            )?;
+            transaction.commit()?;
+            Ok(())
+        })
+        .await
     }
 
     async fn reschedule_or_fail_job(
@@ -639,71 +796,82 @@ impl RecordingRepository for PostgresRepository {
         max_attempts: i32,
         retry_backoff: Duration,
     ) -> Result<()> {
-        let final_status = if job.attempt_count >= max_attempts {
-            ProcessingStatus::Failed
-        } else {
-            ProcessingStatus::Queued
-        };
+        let job = job.clone();
+        let error = error.to_string();
+        self.with_connection(move |connection| {
+            let final_status = if job.attempt_count >= max_attempts {
+                ProcessingStatus::Failed
+            } else {
+                ProcessingStatus::Queued
+            };
+            let transaction = connection.transaction()?;
+            let now = now_timestamp();
 
-        let mut tx = self.pool.begin().await?;
-        sqlx::query(
-            r#"
-            UPDATE recordings
-            SET status = $2,
-                current_step = $3,
-                updated_at = NOW(),
-                last_error = $4
-            WHERE id = $1
-            "#,
-        )
-        .bind(job.recording_id)
-        .bind(final_status.as_str())
-        .bind(step.as_str())
-        .bind(error)
-        .execute(&mut *tx)
-        .await?;
-
-        if final_status == ProcessingStatus::Failed {
-            sqlx::query(
+            transaction.execute(
                 r#"
-                UPDATE jobs
-                SET status = $2,
-                    step = $3,
-                    updated_at = NOW(),
-                    completed_at = NOW(),
-                    last_error = $4
-                WHERE id = $1
+                UPDATE recordings
+                SET status = ?2,
+                    current_step = ?3,
+                    updated_at = ?4,
+                    last_error = ?5
+                WHERE id = ?1
                 "#,
-            )
-            .bind(job.id)
-            .bind(final_status.as_str())
-            .bind(step.as_str())
-            .bind(error)
-            .execute(&mut *tx)
-            .await?;
-        } else {
-            sqlx::query(
-                r#"
-                UPDATE jobs
-                SET status = $2,
-                    step = $3,
-                    updated_at = NOW(),
-                    next_attempt_at = NOW() + ($4 * interval '1 second'),
-                    last_error = $5
-                WHERE id = $1
-                "#,
-            )
-            .bind(job.id)
-            .bind(final_status.as_str())
-            .bind(step.as_str())
-            .bind(retry_backoff.as_secs() as i64)
-            .bind(error)
-            .execute(&mut *tx)
-            .await?;
-        }
+                params![
+                    job.recording_id.to_string(),
+                    final_status.as_str(),
+                    step.as_str(),
+                    now,
+                    error.clone(),
+                ],
+            )?;
 
-        tx.commit().await?;
-        Ok(())
+            if final_status == ProcessingStatus::Failed {
+                transaction.execute(
+                    r#"
+                    UPDATE jobs
+                    SET status = ?2,
+                        step = ?3,
+                        updated_at = ?4,
+                        completed_at = ?5,
+                        last_error = ?6
+                    WHERE id = ?1
+                    "#,
+                    params![
+                        job.id.to_string(),
+                        final_status.as_str(),
+                        step.as_str(),
+                        now,
+                        now,
+                        error,
+                    ],
+                )?;
+            } else {
+                transaction.execute(
+                    r#"
+                    UPDATE jobs
+                    SET status = ?2,
+                        step = ?3,
+                        updated_at = ?4,
+                        next_attempt_at = ?5,
+                        completed_at = NULL,
+                        last_error = ?6
+                    WHERE id = ?1
+                    "#,
+                    params![
+                        job.id.to_string(),
+                        final_status.as_str(),
+                        step.as_str(),
+                        now,
+                        now + retry_backoff.as_secs() as i64,
+                        error,
+                    ],
+                )?;
+            }
+
+            transaction.commit()?;
+            Ok(())
+        })
+        .await
     }
 
     async fn search_recordings(
@@ -712,73 +880,55 @@ impl RecordingRepository for PostgresRepository {
         query_embedding: Option<&[f32]>,
         limit: i64,
     ) -> Result<Vec<SearchResult>> {
-        let embedding_available = self.embedding_table_exists().await?;
-        let use_embedding = embedding_available && query_embedding.is_some();
+        let query = query.to_string();
+        let keyword_scores = self
+            .with_connection(move |connection| fetch_keyword_scores(connection, &query))
+            .await?;
+        let candidates = self.with_connection(fetch_search_candidates).await?;
 
-        let rows = if use_embedding {
-            let vector = Vector::from(query_embedding.unwrap().to_vec());
-            sqlx::query_as::<_, SearchRow>(
-                r#"
-                SELECT
-                    r.id,
-                    r.original_filename,
-                    r.status,
-                    r.current_step,
-                    NULLIF(LEFT(COALESCE(r.summary_canonical_text, ''), 280), '') AS summary_excerpt,
-                    NULLIF(LEFT(COALESCE(r.transcript, ''), 280), '') AS transcript_excerpt,
-                    (r.search_document @@ plainto_tsquery('simple', $1) OR r.original_filename ILIKE '%' || $1 || '%') AS keyword_hit,
-                    COALESCE(ts_rank(r.search_document, plainto_tsquery('simple', $1)), 0)::REAL AS keyword_score,
-                    CASE
-                        WHEN e.embedding IS NULL THEN NULL
-                        ELSE (1 - (e.embedding <=> $2))::REAL
-                    END AS similarity_score,
-                    r.created_at
-                FROM recordings r
-                LEFT JOIN recording_embeddings e ON e.recording_id = r.id
-                WHERE (r.search_document @@ plainto_tsquery('simple', $1) OR r.original_filename ILIKE '%' || $1 || '%')
-                   OR e.embedding IS NOT NULL
-                ORDER BY keyword_hit DESC, keyword_score DESC, similarity_score DESC NULLS LAST, r.created_at DESC
-                LIMIT $3
-                "#,
-            )
-            .bind(query)
-            .bind(vector)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await?
-        } else {
-            sqlx::query_as::<_, SearchRow>(
-                r#"
-                SELECT
-                    r.id,
-                    r.original_filename,
-                    r.status,
-                    r.current_step,
-                    NULLIF(LEFT(COALESCE(r.summary_canonical_text, ''), 280), '') AS summary_excerpt,
-                    NULLIF(LEFT(COALESCE(r.transcript, ''), 280), '') AS transcript_excerpt,
-                    (r.search_document @@ plainto_tsquery('simple', $1) OR r.original_filename ILIKE '%' || $1 || '%') AS keyword_hit,
-                    COALESCE(ts_rank(r.search_document, plainto_tsquery('simple', $1)), 0)::REAL AS keyword_score,
-                    NULL::REAL AS similarity_score,
-                    r.created_at
-                FROM recordings r
-                WHERE (r.search_document @@ plainto_tsquery('simple', $1) OR r.original_filename ILIKE '%' || $1 || '%')
-                ORDER BY keyword_hit DESC, keyword_score DESC, r.created_at DESC
-                LIMIT $2
-                "#,
-            )
-            .bind(query)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await?
-        };
+        let mut results = Vec::new();
+        for candidate in candidates {
+            let keyword_score = keyword_scores.get(&candidate.id).copied().unwrap_or(0.0);
+            let keyword_hit = keyword_score > 0.0;
+            let similarity_score = match query_embedding {
+                Some(query_embedding) if candidate.has_embedding => {
+                    self.similarity_engine
+                        .similarity_for_recording(
+                            candidate.recording_id()?,
+                            candidate.embedding_dim.map(|value| value as usize),
+                            query_embedding,
+                        )
+                        .await
+                }
+                _ => None,
+            };
 
-        rows.into_iter().map(TryInto::try_into).collect()
+            if !keyword_hit && similarity_score.is_none() {
+                continue;
+            }
+
+            results.push(SearchResult {
+                id: candidate.recording_id()?,
+                original_filename: candidate.original_filename,
+                status: candidate.status.parse()?,
+                current_step: candidate.current_step.parse()?,
+                summary_excerpt: candidate.summary_canonical_text,
+                transcript_excerpt: candidate.transcript,
+                keyword_hit,
+                keyword_score,
+                similarity_score,
+                created_at: datetime_from_timestamp(candidate.created_at)?,
+            });
+        }
+
+        results.sort_by(compare_search_results);
+        results.truncate(limit.max(0) as usize);
+        Ok(results)
     }
 }
-
-#[derive(Debug, FromRow)]
-struct RecordingRow {
-    id: Uuid,
+#[derive(Debug)]
+struct RecordingDbRow {
+    id: String,
     original_filename: String,
     original_content_type: Option<String>,
     file_size_bytes: i64,
@@ -786,21 +936,21 @@ struct RecordingRow {
     wav_rel_path: Option<String>,
     language: Option<String>,
     transcript: Option<String>,
-    summary: Option<Json<StructuredSummary>>,
+    summary: Option<String>,
     summary_canonical_text: Option<String>,
     status: String,
     current_step: String,
     last_error: Option<String>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
+    created_at: i64,
+    updated_at: i64,
 }
 
-impl TryFrom<RecordingRow> for Recording {
+impl TryFrom<RecordingDbRow> for Recording {
     type Error = anyhow::Error;
 
-    fn try_from(value: RecordingRow) -> Result<Self> {
+    fn try_from(value: RecordingDbRow) -> Result<Self> {
         Ok(Self {
-            id: value.id,
+            id: parse_uuid(&value.id)?,
             original_filename: value.original_filename,
             original_content_type: value.original_content_type,
             file_size_bytes: value.file_size_bytes,
@@ -808,115 +958,386 @@ impl TryFrom<RecordingRow> for Recording {
             wav_rel_path: value.wav_rel_path,
             language: value.language,
             transcript: value.transcript,
-            summary: value.summary.map(|value| value.0),
+            summary: parse_summary(value.summary)?,
             summary_canonical_text: value.summary_canonical_text,
             status: value.status.parse()?,
             current_step: value.current_step.parse()?,
             last_error: value.last_error,
-            created_at: value.created_at,
-            updated_at: value.updated_at,
+            created_at: datetime_from_timestamp(value.created_at)?,
+            updated_at: datetime_from_timestamp(value.updated_at)?,
         })
     }
 }
 
-#[derive(Debug, FromRow)]
-struct JobRow {
-    id: Uuid,
-    recording_id: Uuid,
+#[derive(Debug)]
+struct JobDbRow {
+    id: String,
+    recording_id: String,
     status: String,
     step: String,
     attempt_count: i32,
     last_error: Option<String>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-    started_at: Option<DateTime<Utc>>,
-    completed_at: Option<DateTime<Utc>>,
-    next_attempt_at: DateTime<Utc>,
+    created_at: i64,
+    updated_at: i64,
+    started_at: Option<i64>,
+    completed_at: Option<i64>,
+    next_attempt_at: i64,
 }
 
-impl TryFrom<JobRow> for Job {
+impl TryFrom<JobDbRow> for Job {
     type Error = anyhow::Error;
 
-    fn try_from(value: JobRow) -> Result<Self> {
+    fn try_from(value: JobDbRow) -> Result<Self> {
         Ok(Self {
-            id: value.id,
-            recording_id: value.recording_id,
+            id: parse_uuid(&value.id)?,
+            recording_id: parse_uuid(&value.recording_id)?,
             status: value.status.parse()?,
             step: value.step.parse()?,
             attempt_count: value.attempt_count,
             last_error: value.last_error,
-            created_at: value.created_at,
-            updated_at: value.updated_at,
-            started_at: value.started_at,
-            completed_at: value.completed_at,
-            next_attempt_at: value.next_attempt_at,
+            created_at: datetime_from_timestamp(value.created_at)?,
+            updated_at: datetime_from_timestamp(value.updated_at)?,
+            started_at: value.started_at.map(datetime_from_timestamp).transpose()?,
+            completed_at: value.completed_at.map(datetime_from_timestamp).transpose()?,
+            next_attempt_at: datetime_from_timestamp(value.next_attempt_at)?,
         })
     }
 }
 
-#[derive(Debug, FromRow)]
-struct RecordingListRow {
-    id: Uuid,
+#[derive(Debug)]
+struct RecordingListDbRow {
+    id: String,
     original_filename: String,
     status: String,
     current_step: String,
     language: Option<String>,
-    has_transcript: bool,
-    has_summary: bool,
+    has_transcript: i64,
+    has_summary: i64,
     last_error: Option<String>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
+    created_at: i64,
+    updated_at: i64,
 }
 
-impl TryFrom<RecordingListRow> for RecordingListItem {
+impl TryFrom<RecordingListDbRow> for RecordingListItem {
     type Error = anyhow::Error;
 
-    fn try_from(value: RecordingListRow) -> Result<Self> {
+    fn try_from(value: RecordingListDbRow) -> Result<Self> {
         Ok(Self {
-            id: value.id,
+            id: parse_uuid(&value.id)?,
             original_filename: value.original_filename,
             status: value.status.parse()?,
             current_step: value.current_step.parse()?,
             language: value.language,
-            has_transcript: value.has_transcript,
-            has_summary: value.has_summary,
+            has_transcript: value.has_transcript != 0,
+            has_summary: value.has_summary != 0,
             last_error: value.last_error,
-            created_at: value.created_at,
-            updated_at: value.updated_at,
+            created_at: datetime_from_timestamp(value.created_at)?,
+            updated_at: datetime_from_timestamp(value.updated_at)?,
         })
     }
 }
 
-#[derive(Debug, FromRow)]
-struct SearchRow {
-    id: Uuid,
+#[derive(Debug)]
+struct SearchCandidateRow {
+    id: String,
     original_filename: String,
     status: String,
     current_step: String,
-    summary_excerpt: Option<String>,
-    transcript_excerpt: Option<String>,
-    keyword_hit: bool,
-    keyword_score: f32,
-    similarity_score: Option<f32>,
-    created_at: DateTime<Utc>,
+    summary_canonical_text: Option<String>,
+    transcript: Option<String>,
+    has_embedding: bool,
+    embedding_dim: Option<i64>,
+    created_at: i64,
 }
 
-impl TryFrom<SearchRow> for SearchResult {
-    type Error = anyhow::Error;
+impl SearchCandidateRow {
+    fn recording_id(&self) -> Result<Uuid> {
+        parse_uuid(&self.id)
+    }
+}
 
-    fn try_from(value: SearchRow) -> Result<Self> {
-        Ok(Self {
-            id: value.id,
-            original_filename: value.original_filename,
-            status: value.status.parse()?,
-            current_step: value.current_step.parse()?,
-            summary_excerpt: value.summary_excerpt,
-            transcript_excerpt: value.transcript_excerpt,
-            keyword_hit: value.keyword_hit,
-            keyword_score: value.keyword_score,
-            similarity_score: value.similarity_score,
-            created_at: value.created_at,
+fn open_sqlite_connection(path: &Path) -> Result<Connection> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create sqlite parent directory {}", parent.display()))?;
+    }
+
+    let connection = Connection::open(path)
+        .with_context(|| format!("failed to open sqlite database {}", path.display()))?;
+    connection.busy_timeout(SQLITE_BUSY_TIMEOUT)?;
+    connection.execute_batch(
+        "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;",
+    )?;
+    Ok(connection)
+}
+
+fn update_steps(
+    connection: &Connection,
+    recording_id: Uuid,
+    job_id: Uuid,
+    step: ProcessingStep,
+    last_error: Option<&str>,
+    now: i64,
+) -> Result<()> {
+    connection.execute(
+        r#"
+        UPDATE recordings
+        SET current_step = ?2,
+            updated_at = ?3,
+            last_error = ?4
+        WHERE id = ?1
+        "#,
+        params![recording_id.to_string(), step.as_str(), now, last_error],
+    )?;
+    connection.execute(
+        r#"
+        UPDATE jobs
+        SET step = ?2,
+            updated_at = ?3,
+            last_error = ?4
+        WHERE id = ?1
+        "#,
+        params![job_id.to_string(), step.as_str(), now, last_error],
+    )?;
+    Ok(())
+}
+
+fn sync_recording_fts(connection: &Connection, recording_id: Uuid) -> Result<()> {
+    let payload = connection
+        .query_row(
+            r#"
+            SELECT original_filename, summary_canonical_text, transcript
+            FROM recordings
+            WHERE id = ?1
+            "#,
+            params![recording_id.to_string()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )
+        .optional()?;
+
+    connection.execute(
+        "DELETE FROM recordings_fts WHERE recording_id = ?1",
+        params![recording_id.to_string()],
+    )?;
+
+    if let Some((original_filename, summary_canonical_text, transcript)) = payload {
+        connection.execute(
+            r#"
+            INSERT INTO recordings_fts (
+                recording_id,
+                original_filename,
+                summary_canonical_text,
+                transcript
+            )
+            VALUES (?1, ?2, ?3, ?4)
+            "#,
+            params![
+                recording_id.to_string(),
+                original_filename,
+                summary_canonical_text.unwrap_or_default(),
+                transcript.unwrap_or_default(),
+            ],
+        )?;
+    }
+
+    Ok(())
+}
+
+fn fetch_keyword_scores(connection: &Connection, query: &str) -> Result<HashMap<String, f32>> {
+    let mut scores: HashMap<String, f32> = HashMap::new();
+
+    if let Some(fts_query) = build_fts_query(query) {
+        let mut statement = connection.prepare(
+            r#"
+            SELECT recording_id, CAST(-bm25(recordings_fts) AS REAL) AS keyword_score
+            FROM recordings_fts
+            WHERE recordings_fts MATCH ?1
+            "#,
+        )?;
+        let rows = statement.query_map(params![fts_query], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, f32>(1)?))
+        })?;
+
+        for row in rows {
+            let (recording_id, keyword_score) = row?;
+            scores
+                .entry(recording_id)
+                .and_modify(|score| *score = score.max(keyword_score))
+                .or_insert(keyword_score);
+        }
+    }
+
+    let mut like_statement = connection.prepare(
+        r#"
+        SELECT id
+        FROM recordings
+        WHERE lower(original_filename) LIKE '%' || lower(?1) || '%'
+        "#,
+    )?;
+    let like_rows = like_statement.query_map(params![query], |row| row.get::<_, String>(0))?;
+    for row in like_rows {
+        let recording_id = row?;
+        scores
+            .entry(recording_id)
+            .and_modify(|score| *score = score.max(0.25))
+            .or_insert(0.25);
+    }
+
+    Ok(scores)
+}
+
+fn fetch_search_candidates(connection: &mut Connection) -> Result<Vec<SearchCandidateRow>> {
+    let mut statement = connection.prepare(
+        r#"
+        SELECT
+            id,
+            original_filename,
+            status,
+            current_step,
+            summary_canonical_text,
+            transcript,
+            has_embedding,
+            embedding_dim,
+            created_at
+        FROM recordings
+        ORDER BY created_at DESC
+        "#,
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok(SearchCandidateRow {
+            id: row.get(0)?,
+            original_filename: row.get(1)?,
+            status: row.get(2)?,
+            current_step: row.get(3)?,
+            summary_canonical_text: row.get(4)?,
+            transcript: row.get(5)?,
+            has_embedding: row.get::<_, i64>(6)? != 0,
+            embedding_dim: row.get(7)?,
+            created_at: row.get(8)?,
         })
+    })?;
+    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
+fn build_fts_query(query: &str) -> Option<String> {
+    let tokens = query
+        .split_whitespace()
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(|token| format!("\"{}\"", token.replace('"', "\"\"")))
+        .collect::<Vec<_>>();
+
+    if tokens.is_empty() {
+        None
+    } else {
+        Some(tokens.join(" AND "))
+    }
+}
+fn recording_db_row_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordingDbRow> {
+    Ok(RecordingDbRow {
+        id: row.get("id")?,
+        original_filename: row.get("original_filename")?,
+        original_content_type: row.get("original_content_type")?,
+        file_size_bytes: row.get("file_size_bytes")?,
+        original_rel_path: row.get("original_rel_path")?,
+        wav_rel_path: row.get("wav_rel_path")?,
+        language: row.get("language")?,
+        transcript: row.get("transcript")?,
+        summary: row.get("summary")?,
+        summary_canonical_text: row.get("summary_canonical_text")?,
+        status: row.get("status")?,
+        current_step: row.get("current_step")?,
+        last_error: row.get("last_error")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+fn job_db_row_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<JobDbRow> {
+    Ok(JobDbRow {
+        id: row.get("id")?,
+        recording_id: row.get("recording_id")?,
+        status: row.get("status")?,
+        step: row.get("step")?,
+        attempt_count: row.get("attempt_count")?,
+        last_error: row.get("last_error")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+        started_at: row.get("started_at")?,
+        completed_at: row.get("completed_at")?,
+        next_attempt_at: row.get("next_attempt_at")?,
+    })
+}
+
+fn recording_list_db_row_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordingListDbRow> {
+    Ok(RecordingListDbRow {
+        id: row.get("id")?,
+        original_filename: row.get("original_filename")?,
+        status: row.get("status")?,
+        current_step: row.get("current_step")?,
+        language: row.get("language")?,
+        has_transcript: row.get("has_transcript")?,
+        has_summary: row.get("has_summary")?,
+        last_error: row.get("last_error")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+fn parse_summary(raw: Option<String>) -> Result<Option<StructuredSummary>> {
+    raw.map(|value| serde_json::from_str(&value).with_context(|| format!("invalid summary json: {value}")))
+        .transpose()
+}
+
+fn parse_uuid(value: &str) -> Result<Uuid> {
+    Uuid::parse_str(value).with_context(|| format!("invalid uuid `{value}` in sqlite row"))
+}
+
+fn now_timestamp() -> i64 {
+    Utc::now().timestamp()
+}
+
+fn datetime_from_timestamp(value: i64) -> Result<DateTime<Utc>> {
+    DateTime::from_timestamp(value, 0)
+        .ok_or_else(|| anyhow!("invalid sqlite timestamp `{value}`"))
+}
+
+fn compare_search_results(left: &SearchResult, right: &SearchResult) -> Ordering {
+    right
+        .keyword_hit
+        .cmp(&left.keyword_hit)
+        .then_with(|| compare_f32_desc(left.keyword_score, right.keyword_score))
+        .then_with(|| compare_option_f32_desc(left.similarity_score, right.similarity_score))
+        .then_with(|| right.created_at.cmp(&left.created_at))
+}
+
+fn compare_option_f32_desc(left: Option<f32>, right: Option<f32>) -> Ordering {
+    match (left, right) {
+        (Some(left), Some(right)) => compare_f32_desc(left, right),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
+
+fn compare_f32_desc(left: f32, right: f32) -> Ordering {
+    right.partial_cmp(&left).unwrap_or(Ordering::Equal)
+}
+
+fn cosine_similarity(left: &[f32], right: &[f32]) -> f32 {
+    let dot = left.iter().zip(right.iter()).map(|(a, b)| a * b).sum::<f32>();
+    let left_norm = left.iter().map(|value| value * value).sum::<f32>().sqrt();
+    let right_norm = right.iter().map(|value| value * value).sum::<f32>().sqrt();
+    if left_norm == 0.0 || right_norm == 0.0 {
+        0.0
+    } else {
+        dot / (left_norm * right_norm)
     }
 }
 
