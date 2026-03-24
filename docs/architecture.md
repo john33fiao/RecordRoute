@@ -1,6 +1,8 @@
-# FFmpeg Architecture
+# Architecture
 
-## Overview
+## FFmpeg Architecture
+
+### Overview
 
 이 프로젝트에서 FFmpeg는 애플리케이션에 라이브러리로 링크되지 않는다. 현재 구현은 로컬에 빌드된 `ffmpeg` / `ffprobe` 실행 파일을 Rust 코드가 래핑해서 호출하는 구조다.
 
@@ -15,7 +17,7 @@
 
 핵심은 "FFmpeg 소스 트리를 직접 호출하는 것"이 아니라, "프로젝트 내부에 빌드된 FFmpeg CLI 툴체인을 고정된 경로에서 찾아 실행하는 것"이다.
 
-## Integration Model
+### Integration Model
 
 현재 구조는 아래와 같다.
 
@@ -39,9 +41,9 @@ flowchart LR
 - 런타임은 시스템 전역 `ffmpeg`를 찾지 않고, 프로젝트가 빌드한 로컬 툴체인만 사용한다.
 - 입력 분석은 `ffprobe`, 실제 변환은 `ffmpeg`로 역할이 분리되어 있다.
 
-## Components
+### Components
 
-### 1. Build script
+#### 1. Build script
 
 `scripts/build_ffmpeg.sh`는 FFmpeg 툴체인을 현재 OS / CPU 아키텍처 기준 디렉터리에 설치한다.
 
@@ -57,7 +59,7 @@ flowchart LR
 
 의미상 이 스크립트는 "서브모듈 관리"가 아니라 "런타임이 사용할 로컬 CLI 툴체인 준비"를 담당한다.
 
-### 2. Toolchain wrapper
+#### 2. Toolchain wrapper
 
 `rust/src/ffmpeg.rs`의 `Toolchain`은 FFmpeg 연동의 진입점이다.
 
@@ -70,7 +72,7 @@ flowchart LR
 
 즉, Rust 쪽은 FFmpeg를 "빌드 가능한 소스"가 아니라 "이미 준비된 실행 파일 세트"로 취급한다.
 
-### 3. Probe wrapper
+#### 3. Probe wrapper
 
 `probe_audio_input()`은 입력 오디오의 채널 정보를 `ffprobe`로 읽는다.
 
@@ -92,7 +94,7 @@ ffprobe \
 - 실제 채널 수를 기준으로 출력 파일 개수를 결정
 - 변환용 `filter_complex` 문자열을 동적으로 생성
 
-### 4. Conversion wrapper
+#### 4. Conversion wrapper
 
 `run_conversion()`은 `ffmpeg` 명령행을 조립해서 한 번의 실행으로 다음 결과를 만든다.
 
@@ -111,7 +113,7 @@ ffprobe \
 - `-sn`
 - `-dn`
 
-## Filter Graph Strategy
+### Filter Graph Strategy
 
 변환의 핵심은 `build_filter_complex(channels)`가 만드는 필터 그래프다.
 
@@ -132,7 +134,7 @@ ffprobe \
 
 이 방식의 장점은 한 번의 `ffmpeg` 실행으로 필요한 산출물을 모두 생성할 수 있다는 점이다.
 
-## Application Flow
+### Application Flow
 
 실제 실행 순서는 `rust/src/app.rs`에서 관리한다.
 
@@ -150,7 +152,7 @@ ffprobe \
 
 즉, FFmpeg 호출은 독립 함수이지만, 실제 운영 문맥에서는 "완료 결과 재사용 확인 -> miss일 때만 변환" 순서의 job 관리 로직 안에서 수행된다.
 
-## Output Layout
+### Output Layout
 
 작업이 성공하면 산출물은 job 디렉터리에 저장된다.
 
@@ -176,7 +178,7 @@ db/
 
 즉, FFmpeg 래퍼는 단순 변환기 역할만 하고, 실행 이력과 결과 추적 및 완료 결과 재사용 판단은 `IndexStore`가 담당한다.
 
-## Failure Handling
+### Failure Handling
 
 현재 래퍼 계층의 실패 처리는 비교적 명확하다.
 
@@ -193,7 +195,7 @@ db/
 
 이 구조 덕분에 FFmpeg 실행 실패가 애플리케이션 상태 기록과 분리되지 않고, job 상태와 함께 일관되게 남는다.
 
-## Current Boundaries
+### Current Boundaries
 
 현재 구현 범위는 명확하다.
 
@@ -204,7 +206,7 @@ db/
   - 툴체인이 없으면 안내 메시지만 반환한다.
 - 현재 변환 목적은 "채널별 모노 분리 + 전체 모노 믹스 생성"에 한정된다.
 
-## Summary
+### Summary
 
 현재 아키텍처에서 FFmpeg는 "프로젝트 내부에 빌드해 둔 CLI 툴체인"이며, Rust 애플리케이션은 이를 얇은 프로세스 래퍼로 감싸서 사용한다.
 
@@ -221,9 +223,9 @@ db/
 
 ---
 
-# Whisper.cpp Architecture
+## Whisper.cpp Architecture
 
-## Overview
+### Overview
 
 `whisper.cpp`도 FFmpeg와 같은 방향으로 통합되어 있다. Rust 바이너리가 `whisper.cpp` 라이브러리를 직접 링크하거나 FFI로 호출하지 않고, 프로젝트 내부에 빌드된 `whisper-cli` 실행 파일을 래핑해서 사용한다.
 
@@ -238,7 +240,7 @@ db/
 
 핵심은 FFmpeg와 동일하게 "프로젝트 내부에 준비된 Whisper CLI 툴체인을 고정된 경로에서 찾아 실행하는 것"이다.
 
-## Integration Model
+### Integration Model
 
 현재 구조는 아래와 같다.
 
@@ -268,9 +270,9 @@ flowchart LR
 - 런타임은 시스템 PATH의 `whisper-cli`를 사용하지 않고, 프로젝트가 빌드한 로컬 바이너리만 사용한다.
 - STT는 `db/index.json`을 "후보 폴더 인덱스"로 사용하지만, 결과 텍스트는 index에 다시 기록하지 않고 파일 시스템에만 저장한다.
 
-## Components
+### Components
 
-### 1. Build script
+#### 1. Build script
 
 `scripts/build_whisper.sh`는 Whisper 툴체인을 현재 OS / CPU 아키텍처 기준 디렉터리에 준비한다.
 
@@ -287,7 +289,7 @@ flowchart LR
 
 의미상 이 스크립트는 "Whisper 소스를 직접 호출"하는 것이 아니라 "런타임이 사용할 로컬 `whisper-cli` 준비"를 담당한다.
 
-### 2. Toolchain wrapper
+#### 2. Toolchain wrapper
 
 `rust/src/whisper.rs`의 `Toolchain`은 Whisper 연동의 진입점이다.
 
@@ -303,7 +305,7 @@ flowchart LR
 
 즉, Rust 쪽은 Whisper도 "이미 준비된 CLI 실행 파일 + 모델 파일" 조합으로 취급한다.
 
-### 3. Model bootstrap
+#### 3. Model bootstrap
 
 모델 파일은 `Toolchain::ensure_model()`이 관리한다.
 
@@ -320,7 +322,7 @@ models/whisper/ggml-base.bin
 
 즉, 기본 동작은 "repo-local model cache"를 유지하되, 없으면 자동으로 채워 넣는 방식이다.
 
-### 4. Transcription wrapper
+#### 4. Transcription wrapper
 
 `run_transcription()`은 `whisper-cli` 명령행을 조립해서 단일 오디오 파일의 텍스트 산출물을 만든다.
 
@@ -345,7 +347,7 @@ whisper-cli \
 - 콘솔 출력 최소화: `-np`
 - 기존 같은 이름의 `.txt`가 있으면 먼저 제거하고 새 결과로 덮어쓴다.
 
-## Application Flow
+### Application Flow
 
 STT 실행 순서는 `rust/src/app.rs`에서 관리한다.
 
@@ -363,7 +365,7 @@ STT 실행 순서는 `rust/src/app.rs`에서 관리한다.
 
 즉, STT 모드는 "index를 조회해 기존 job 폴더를 선택하고, 그 폴더 안의 오디오 파일들을 일괄 후처리"하는 구조다.
 
-## CLI Boundaries
+### CLI Boundaries
 
 현재 CLI 규칙은 다음과 같다.
 
@@ -378,7 +380,7 @@ STT 실행 순서는 `rust/src/app.rs`에서 관리한다.
 
 즉, STT 추가 이후에도 기존 FFmpeg 단일 파일 진입 방식은 유지된다.
 
-## Output Layout
+### Output Layout
 
 STT가 성공하면 결과는 선택된 job 디렉터리 아래에 저장된다.
 
@@ -406,7 +408,7 @@ db/
 
 중요한 점은 STT 산출물은 현재 `db/index.json`에 기록되지 않는다는 것이다. 인덱스는 선택 후보를 제공할 뿐이며, STT 결과 추적은 파일 시스템 경로 자체가 담당한다.
 
-## Failure Handling
+### Failure Handling
 
 현재 Whisper 계층의 실패 처리는 다음과 같다.
 
@@ -426,7 +428,7 @@ db/
 
 현재 STT는 index 상태를 갱신하지 않으므로, 실패 기록은 콘솔 반환값에 남고 부분적으로 이미 생성된 다른 `.txt` 파일은 그대로 유지될 수 있다.
 
-## Current Boundaries
+### Current Boundaries
 
 현재 구현 범위는 명확하다.
 
@@ -439,7 +441,7 @@ db/
 - 오디오 탐색은 현재 job 디렉터리의 바로 아래 파일만 대상으로 하며, 재귀 탐색은 하지 않는다.
 - STT 결과는 `db/index.json`에 기록하지 않는다.
 
-## Summary
+### Summary
 
 현재 아키텍처에서 Whisper는 "프로젝트 내부에 빌드해 둔 `whisper-cli` + repo-local model cache"이며, Rust 애플리케이션은 이를 얇은 프로세스 래퍼로 감싸서 사용한다.
 
