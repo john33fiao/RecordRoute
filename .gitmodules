@@ -1,3 +1,6 @@
 [submodule "ffmpeg"]
 	path = ffmpeg
 	url = https://github.com/ffmpeg/ffmpeg
+[submodule "llama.cpp"]
+	path = llama.cpp
+	url = https://github.com/ggml-org/llama.cpp.git
