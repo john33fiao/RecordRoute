@@ -23,6 +23,7 @@ frontend/dist/
 frontend/tsconfig.tsbuildinfo
 # Local llama.cpp model assets
 models/
+models/whisper/
 
 # Rust build artifacts
 rust/target/

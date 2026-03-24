@@ -194,6 +194,10 @@ impl IndexStore {
         })
     }
 
+    pub fn list_jobs(&self) -> Result<Vec<JobRecord>, String> {
+        self.with_locked_index_read(|index| Ok(index.jobs.clone()))
+    }
+
     fn with_locked_index(
         &self,
         mutate: impl FnOnce(&mut IndexFile) -> Result<(), String>,

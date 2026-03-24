@@ -1,8 +1,10 @@
 use crate::ffmpeg::{
-    ConversionOutputs, SplitMonoOutput, Toolchain, probe_audio_input, run_conversion,
+    ConversionOutputs, SplitMonoOutput, Toolchain as FfmpegToolchain, probe_audio_input,
+    run_conversion,
 };
 use crate::index::{IndexStore, JobOutputs, JobProbe, JobRecord, JobSplitOutput};
-use std::ffi::OsString;
+use crate::whisper::{Toolchain as WhisperToolchain, run_transcription};
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -14,6 +16,41 @@ use uuid::Uuid;
 const RUN_ID_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[year][month][day]T[hour][minute][second]");
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CliCommand {
+    Ffmpeg { input: Option<PathBuf> },
+    Stt,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SttCandidate {
+    job_id: String,
+    source_file_name: String,
+    job_dir: PathBuf,
+    audio_files: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunSummary {
+    pub job_id: String,
+    pub job_dir: PathBuf,
+    pub outputs: ConversionOutputs,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SttTranscriptOutput {
+    pub source_path: PathBuf,
+    pub text_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SttRunSummary {
+    pub job_id: String,
+    pub job_dir: PathBuf,
+    pub stt_dir: PathBuf,
+    pub transcripts: Vec<SttTranscriptOutput>,
+}
+
 pub fn main_cli() -> Result<(), String> {
     let repo_root = repo_root()?;
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
@@ -22,29 +59,64 @@ pub fn main_cli() -> Result<(), String> {
     let mut reader = stdin.lock();
     let mut writer = stdout.lock();
 
-    let input = resolve_input_path(&args, &mut reader, &mut writer)?;
-    let summary = run_with_repo_root(&repo_root, &input)?;
-
-    writeln!(writer, "job_id: {}", summary.job_id).map_err(|error| error.to_string())?;
-    writeln!(writer, "job_dir: {}", summary.job_dir.display())
-        .map_err(|error| error.to_string())?;
-    writeln!(
-        writer,
-        "merged_mono_wav: {}",
-        summary.outputs.merged_mono_wav.display()
-    )
-    .map_err(|error| error.to_string())?;
-    for split in &summary.outputs.split_mono_wavs {
-        writeln!(
-            writer,
-            "channel_{:02}: {}",
-            split.channel_index,
-            split.path.display()
-        )
-        .map_err(|error| error.to_string())?;
+    match resolve_cli_command(&args, &mut reader, &mut writer)? {
+        CliCommand::Ffmpeg { input } => {
+            let input = match input {
+                Some(input) => input,
+                None => resolve_input_path(&[], &mut reader, &mut writer)?,
+            };
+            let summary = run_with_repo_root(&repo_root, &input)?;
+            print_run_summary(&summary, &mut writer)?;
+        }
+        CliCommand::Stt => {
+            let summary = run_stt_with_repo_root(&repo_root, &mut reader, &mut writer)?;
+            print_stt_summary(&summary, &mut writer)?;
+        }
     }
 
     Ok(())
+}
+
+fn resolve_cli_command(
+    args: &[OsString],
+    reader: &mut dyn BufRead,
+    writer: &mut dyn Write,
+) -> Result<CliCommand, String> {
+    match args {
+        [] => prompt_for_mode(reader, writer),
+        [mode] if mode == OsStr::new("ffmpeg") => Ok(CliCommand::Ffmpeg { input: None }),
+        [mode, input] if mode == OsStr::new("ffmpeg") => Ok(CliCommand::Ffmpeg {
+            input: Some(PathBuf::from(input)),
+        }),
+        [mode] if mode == OsStr::new("stt") => Ok(CliCommand::Stt),
+        [mode, ..] if mode == OsStr::new("stt") => {
+            Err("stt mode does not accept additional arguments".to_string())
+        }
+        [path] => Ok(CliCommand::Ffmpeg {
+            input: Some(PathBuf::from(path)),
+        }),
+        _ => Err("usage: recordroute_rust [ffmpeg <input>|stt|<input>]".to_string()),
+    }
+}
+
+fn prompt_for_mode(reader: &mut dyn BufRead, writer: &mut dyn Write) -> Result<CliCommand, String> {
+    loop {
+        writeln!(writer, "Select mode:").map_err(|error| error.to_string())?;
+        writeln!(writer, "1. ffmpeg 작업").map_err(|error| error.to_string())?;
+        writeln!(writer, "2. stt 작업").map_err(|error| error.to_string())?;
+        write!(writer, "Enter number: ").map_err(|error| error.to_string())?;
+        writer.flush().map_err(|error| error.to_string())?;
+
+        let line = read_line(reader, "failed to read mode selection")?;
+        match line.trim() {
+            "1" => return Ok(CliCommand::Ffmpeg { input: None }),
+            "2" => return Ok(CliCommand::Stt),
+            _ => {
+                writeln!(writer, "Invalid selection. Enter 1 or 2.")
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+    }
 }
 
 pub fn resolve_input_path(
@@ -57,11 +129,7 @@ pub fn resolve_input_path(
             write!(writer, "Input audio path: ").map_err(|error| error.to_string())?;
             writer.flush().map_err(|error| error.to_string())?;
 
-            let mut line = String::new();
-            reader
-                .read_line(&mut line)
-                .map_err(|error| format!("failed to read input path: {error}"))?;
-
+            let line = read_line(reader, "failed to read input path")?;
             let trimmed = line.trim();
             if trimmed.is_empty() {
                 return Err("input path is required".to_string());
@@ -82,7 +150,7 @@ pub fn run_with_repo_root(repo_root: &Path, input: &Path) -> Result<RunSummary, 
         return run_summary_from_completed_job(job);
     }
 
-    let toolchain = Toolchain::discover(repo_root)?;
+    let toolchain = FfmpegToolchain::discover(repo_root)?;
     index_store.ensure_db_dir()?;
 
     let started_at = now_rfc3339()?;
@@ -152,6 +220,47 @@ pub fn run_with_repo_root(repo_root: &Path, input: &Path) -> Result<RunSummary, 
     }
 }
 
+pub fn run_stt_with_repo_root(
+    repo_root: &Path,
+    reader: &mut dyn BufRead,
+    writer: &mut dyn Write,
+) -> Result<SttRunSummary, String> {
+    let index_store = IndexStore::new(repo_root);
+    let candidates = collect_stt_candidates(&index_store)?;
+    if candidates.is_empty() {
+        return Err("no job folders with supported audio files found in db/index.json".to_string());
+    }
+
+    let selected = select_stt_candidate(&candidates, reader, writer)?;
+    let toolchain = WhisperToolchain::discover(repo_root)?;
+    toolchain.ensure_model()?;
+
+    let stt_dir = selected.job_dir.join("stt");
+    fs::create_dir_all(&stt_dir).map_err(|error| {
+        format!(
+            "failed to create stt directory {}: {error}",
+            stt_dir.display()
+        )
+    })?;
+
+    let mut transcripts = Vec::new();
+    for audio_file in &selected.audio_files {
+        let text_path = transcript_output_path(&stt_dir, audio_file)?;
+        run_transcription(&toolchain, audio_file, &text_path)?;
+        transcripts.push(SttTranscriptOutput {
+            source_path: audio_file.clone(),
+            text_path,
+        });
+    }
+
+    Ok(SttRunSummary {
+        job_id: selected.job_id,
+        job_dir: selected.job_dir,
+        stt_dir,
+        transcripts,
+    })
+}
+
 fn run_summary_from_completed_job(job: JobRecord) -> Result<RunSummary, String> {
     let merged_mono_wav = job.outputs.merged_mono_wav.clone().ok_or_else(|| {
         format!(
@@ -182,6 +291,170 @@ fn run_summary_from_completed_job(job: JobRecord) -> Result<RunSummary, String> 
                 .collect(),
         },
     })
+}
+
+fn collect_stt_candidates(index_store: &IndexStore) -> Result<Vec<SttCandidate>, String> {
+    let mut candidates = Vec::new();
+
+    for job in index_store.list_jobs()? {
+        let job_dir = PathBuf::from(&job.job_dir);
+        if !job_dir.is_dir() {
+            continue;
+        }
+
+        let audio_files = supported_audio_files(&job_dir)?;
+        if audio_files.is_empty() {
+            continue;
+        }
+
+        candidates.push(SttCandidate {
+            job_id: job.job_id,
+            source_file_name: job.source_file_name,
+            job_dir,
+            audio_files,
+        });
+    }
+
+    Ok(candidates)
+}
+
+fn select_stt_candidate(
+    candidates: &[SttCandidate],
+    reader: &mut dyn BufRead,
+    writer: &mut dyn Write,
+) -> Result<SttCandidate, String> {
+    loop {
+        writeln!(writer, "Select STT folder:").map_err(|error| error.to_string())?;
+        for (index, candidate) in candidates.iter().enumerate() {
+            writeln!(
+                writer,
+                "{}. {} | {} | {}",
+                index + 1,
+                candidate.job_id,
+                candidate.source_file_name,
+                candidate.job_dir.display()
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        write!(writer, "Enter number: ").map_err(|error| error.to_string())?;
+        writer.flush().map_err(|error| error.to_string())?;
+
+        let line = read_line(reader, "failed to read stt folder selection")?;
+        match line.trim().parse::<usize>() {
+            Ok(selection) if selection >= 1 && selection <= candidates.len() => {
+                return Ok(candidates[selection - 1].clone());
+            }
+            _ => {
+                writeln!(
+                    writer,
+                    "Invalid selection. Enter a number between 1 and {}.",
+                    candidates.len()
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        }
+    }
+}
+
+fn supported_audio_files(job_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut audio_files = Vec::new();
+
+    for entry in fs::read_dir(job_dir).map_err(|error| {
+        format!(
+            "failed to read job directory {}: {error}",
+            job_dir.display()
+        )
+    })? {
+        let entry = entry.map_err(|error| {
+            format!(
+                "failed to inspect job directory entry {}: {error}",
+                job_dir.display()
+            )
+        })?;
+        let path = entry.path();
+        if !path.is_file() || !is_supported_audio_file(&path) {
+            continue;
+        }
+        audio_files.push(path);
+    }
+
+    audio_files.sort();
+    Ok(audio_files)
+}
+
+fn is_supported_audio_file(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some(extension)
+            if extension.eq_ignore_ascii_case("wav")
+                || extension.eq_ignore_ascii_case("mp3")
+                || extension.eq_ignore_ascii_case("flac")
+                || extension.eq_ignore_ascii_case("ogg")
+    )
+}
+
+fn transcript_output_path(stt_dir: &Path, audio_file: &Path) -> Result<PathBuf, String> {
+    let stem = audio_file.file_stem().ok_or_else(|| {
+        format!(
+            "audio file does not have a valid file stem: {}",
+            audio_file.display()
+        )
+    })?;
+    Ok(stt_dir.join(stem).with_extension("txt"))
+}
+
+fn print_run_summary(summary: &RunSummary, writer: &mut dyn Write) -> Result<(), String> {
+    writeln!(writer, "job_id: {}", summary.job_id).map_err(|error| error.to_string())?;
+    writeln!(writer, "job_dir: {}", summary.job_dir.display())
+        .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
+        "merged_mono_wav: {}",
+        summary.outputs.merged_mono_wav.display()
+    )
+    .map_err(|error| error.to_string())?;
+    for split in &summary.outputs.split_mono_wavs {
+        writeln!(
+            writer,
+            "channel_{:02}: {}",
+            split.channel_index,
+            split.path.display()
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn print_stt_summary(summary: &SttRunSummary, writer: &mut dyn Write) -> Result<(), String> {
+    writeln!(writer, "job_id: {}", summary.job_id).map_err(|error| error.to_string())?;
+    writeln!(writer, "job_dir: {}", summary.job_dir.display())
+        .map_err(|error| error.to_string())?;
+    writeln!(writer, "stt_dir: {}", summary.stt_dir.display())
+        .map_err(|error| error.to_string())?;
+    for transcript in &summary.transcripts {
+        writeln!(
+            writer,
+            "{} -> {}",
+            transcript.source_path.display(),
+            transcript.text_path.display()
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn read_line(reader: &mut dyn BufRead, error_context: &str) -> Result<String, String> {
+    let mut line = String::new();
+    let bytes_read = reader
+        .read_line(&mut line)
+        .map_err(|error| format!("{error_context}: {error}"))?;
+    if bytes_read == 0 {
+        return Err(format!("{error_context}: reached end of input"));
+    }
+
+    Ok(line)
 }
 
 fn normalize_input_path(input: &Path) -> Result<PathBuf, String> {
@@ -221,17 +494,10 @@ fn path_to_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-#[derive(Debug)]
-pub struct RunSummary {
-    pub job_id: String,
-    pub job_dir: PathBuf,
-    pub outputs: ConversionOutputs,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ffmpeg::Toolchain;
+    use crate::ffmpeg::Toolchain as FfmpegToolchain;
     use crate::index::IndexStore;
     use std::fs::{self, File};
     use std::io::Cursor;
@@ -273,6 +539,63 @@ mod tests {
         let error = resolve_input_path(&args, &mut reader, &mut output).expect_err("should fail");
 
         assert_eq!(error, "expected exactly one input path");
+    }
+
+    #[test]
+    fn resolves_legacy_input_as_ffmpeg_command() {
+        let args = vec![OsString::from("/tmp/input.wav")];
+        let mut reader = Cursor::new(Vec::<u8>::new());
+        let mut output = Vec::new();
+
+        let command = resolve_cli_command(&args, &mut reader, &mut output).expect("command");
+
+        assert_eq!(
+            command,
+            CliCommand::Ffmpeg {
+                input: Some(PathBuf::from("/tmp/input.wav"))
+            }
+        );
+    }
+
+    #[test]
+    fn prompts_for_mode_when_no_args() {
+        let mut reader = Cursor::new(b"2\n".to_vec());
+        let mut output = Vec::new();
+
+        let command = resolve_cli_command(&[], &mut reader, &mut output).expect("command");
+
+        assert_eq!(command, CliCommand::Stt);
+        assert!(
+            String::from_utf8(output)
+                .expect("utf8")
+                .contains("Select mode:")
+        );
+    }
+
+    #[test]
+    fn retries_invalid_mode_selection() {
+        let mut reader = Cursor::new(b"9\n1\n".to_vec());
+        let mut output = Vec::new();
+
+        let command = resolve_cli_command(&[], &mut reader, &mut output).expect("command");
+
+        assert_eq!(command, CliCommand::Ffmpeg { input: None });
+        assert!(
+            String::from_utf8(output)
+                .expect("utf8")
+                .contains("Invalid selection. Enter 1 or 2.")
+        );
+    }
+
+    #[test]
+    fn stt_command_rejects_extra_arguments() {
+        let args = vec![OsString::from("stt"), OsString::from("extra")];
+        let mut reader = Cursor::new(Vec::<u8>::new());
+        let mut output = Vec::new();
+
+        let error = resolve_cli_command(&args, &mut reader, &mut output).expect_err("should fail");
+
+        assert_eq!(error, "stt mode does not accept additional arguments");
     }
 
     #[test]
@@ -507,6 +830,128 @@ mod tests {
         assert!(!repo_root.join("db/index.json").exists());
     }
 
+    #[test]
+    fn run_stt_processes_audio_files_in_selected_job_dir() {
+        let repo_root = temp_workspace();
+        let selected_job_dir = repo_root.join("db/job-1");
+        let ignored_job_dir = repo_root.join("db/job-2");
+        let whisper_bin = repo_root
+            .join(".build/whisper")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("bin");
+        let whisper_log = repo_root.join("whisper-args.log");
+        let download_log = repo_root.join("download.log");
+        fs::create_dir_all(&selected_job_dir).expect("selected job dir");
+        fs::create_dir_all(&ignored_job_dir).expect("ignored job dir");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(&whisper_bin).expect("whisper bin");
+
+        write_test_wav(&selected_job_dir.join("channel_01.wav"), 1);
+        write_test_wav(&selected_job_dir.join("mono_mix.wav"), 1);
+        fs::write(selected_job_dir.join("notes.txt"), "ignore").expect("notes");
+        fs::write(ignored_job_dir.join("not-audio.txt"), "ignore").expect("ignored");
+
+        write_build_script(&repo_root.join("scripts/build_whisper.sh"));
+        write_fake_whisper_cli(&whisper_bin.join("whisper-cli"), &whisper_log, false);
+        write_fake_download_script(
+            &repo_root.join("whisper.cpp/models/download-ggml-model.sh"),
+            &download_log,
+        );
+
+        let store = IndexStore::new(&repo_root);
+        store
+            .insert_job(JobRecord::new(
+                "job-1".to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+                PathBuf::from("/tmp/input.wav"),
+                selected_job_dir.clone(),
+            ))
+            .expect("insert selected job");
+        store
+            .insert_job(JobRecord::new(
+                "job-2".to_string(),
+                "2026-01-01T00:00:01Z".to_string(),
+                PathBuf::from("/tmp/other.wav"),
+                ignored_job_dir,
+            ))
+            .expect("insert ignored job");
+
+        let mut reader = Cursor::new(b"1\n".to_vec());
+        let mut output = Vec::new();
+
+        let summary =
+            run_stt_with_repo_root(&repo_root, &mut reader, &mut output).expect("stt run");
+
+        assert_eq!(summary.job_id, "job-1");
+        assert_eq!(summary.transcripts.len(), 2);
+        assert!(summary.stt_dir.is_dir());
+        assert!(summary.stt_dir.join("channel_01.txt").is_file());
+        assert!(summary.stt_dir.join("mono_mix.txt").is_file());
+        assert!(
+            fs::read_to_string(download_log)
+                .expect("download log")
+                .contains("base")
+        );
+
+        let whisper_log = fs::read_to_string(whisper_log).expect("whisper log");
+        assert!(whisper_log.contains("-l"));
+        assert!(whisper_log.contains("auto"));
+        assert!(whisper_log.contains("channel_01.wav"));
+        assert!(whisper_log.contains("mono_mix.wav"));
+    }
+
+    #[test]
+    fn run_stt_retries_invalid_folder_selection() {
+        let repo_root = temp_workspace();
+        let selected_job_dir = repo_root.join("db/job-1");
+        let whisper_bin = repo_root
+            .join(".build/whisper")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("bin");
+        fs::create_dir_all(&selected_job_dir).expect("selected job dir");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(repo_root.join("models/whisper")).expect("models dir");
+        fs::create_dir_all(&whisper_bin).expect("whisper bin");
+
+        write_test_wav(&selected_job_dir.join("channel_01.wav"), 1);
+        write_build_script(&repo_root.join("scripts/build_whisper.sh"));
+        write_fake_whisper_cli(
+            &whisper_bin.join("whisper-cli"),
+            &repo_root.join("whisper.log"),
+            false,
+        );
+        write_fake_download_script(
+            &repo_root.join("whisper.cpp/models/download-ggml-model.sh"),
+            &repo_root.join("download.log"),
+        );
+        fs::write(repo_root.join("models/whisper/ggml-base.bin"), "model").expect("model");
+
+        let store = IndexStore::new(&repo_root);
+        store
+            .insert_job(JobRecord::new(
+                "job-1".to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+                PathBuf::from("/tmp/input.wav"),
+                selected_job_dir,
+            ))
+            .expect("insert selected job");
+
+        let mut reader = Cursor::new(b"9\n1\n".to_vec());
+        let mut output = Vec::new();
+
+        let summary =
+            run_stt_with_repo_root(&repo_root, &mut reader, &mut output).expect("stt run");
+
+        assert_eq!(summary.job_id, "job-1");
+        assert!(
+            String::from_utf8(output)
+                .expect("utf8")
+                .contains("Invalid selection. Enter a number between 1 and 1.")
+        );
+    }
+
     fn temp_workspace() -> PathBuf {
         let path = std::env::temp_dir().join(format!("recordroute-{}", Uuid::now_v7()));
         fs::create_dir_all(&path).expect("temp workspace");
@@ -555,6 +1000,30 @@ mod tests {
     fn write_failing_ffmpeg(path: &Path) {
         let script = "#!/bin/sh\nlast=''\nfor arg in \"$@\"; do\n  case \"$arg\" in\n    *.wav)\n      last=\"$arg\"\n      ;;\n  esac\ndone\nif [ -n \"$last\" ]; then\n  mkdir -p \"$(dirname \"$last\")\"\n  : > \"$last\"\nfi\nprintf 'synthetic ffmpeg failure' >&2\nexit 1\n";
         fs::write(path, script).expect("ffmpeg script");
+        make_executable(path);
+    }
+
+    fn write_fake_whisper_cli(path: &Path, log_path: &Path, fail: bool) {
+        let log = log_path.display();
+        let script = if fail {
+            format!(
+                "#!/bin/sh\ntouch '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\ndone\nprintf 'synthetic whisper failure' >&2\nexit 1\n"
+            )
+        } else {
+            format!(
+                "#!/bin/sh\ntouch '{log}'\nout=''\nnext=''\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\n  if [ \"$next\" = 'of' ]; then\n    out=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -of)\n      next='of'\n      ;;\n  esac\ndone\nmkdir -p \"$(dirname \"$out\")\"\nprintf 'synthetic transcript' > \"$out.txt\"\n"
+            )
+        };
+        fs::write(path, script).expect("whisper script");
+        make_executable(path);
+    }
+
+    fn write_fake_download_script(path: &Path, log_path: &Path) {
+        let log = log_path.display();
+        let script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{log}'\nmkdir -p \"$2\"\n: > \"$2/ggml-$1.bin\"\n"
+        );
+        fs::write(path, script).expect("download script");
         make_executable(path);
     }
 
@@ -623,7 +1092,7 @@ mod tests {
         write_fake_ffprobe(&build_bin.join("ffprobe"), 1, Some("mono"));
         write_fake_ffmpeg(&build_bin.join("ffmpeg"), &repo_root.join("ffmpeg.log"));
 
-        let toolchain = Toolchain::discover(&repo_root).expect("toolchain");
+        let toolchain = FfmpegToolchain::discover(&repo_root).expect("toolchain");
 
         assert_eq!(toolchain.ffmpeg_path, build_bin.join("ffmpeg"));
         assert_eq!(toolchain.ffprobe_path, build_bin.join("ffprobe"));

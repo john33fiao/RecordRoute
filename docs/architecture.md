@@ -218,3 +218,238 @@ db/
 - 운영: `run_with_repo_root()`가 job 디렉터리, index, 완료 결과 재사용을 관리한다.
 
 따라서 현재 RecordRoute의 FFmpeg 연동은 "서브모듈 직접 통합"이 아니라 "프로젝트 로컬 FFmpeg CLI를 사용하는 Rust wrapper architecture"라고 보는 것이 정확하다.
+
+---
+
+# Whisper.cpp Architecture
+
+## Overview
+
+`whisper.cpp`도 FFmpeg와 같은 방향으로 통합되어 있다. Rust 바이너리가 `whisper.cpp` 라이브러리를 직접 링크하거나 FFI로 호출하지 않고, 프로젝트 내부에 빌드된 `whisper-cli` 실행 파일을 래핑해서 사용한다.
+
+현재 Whisper 통합의 핵심 지점은 다음 3개다.
+
+1. `scripts/build_whisper.sh`
+   로컬 머신에서 사용할 `whisper-cli` 바이너리를 `.build/whisper/<os>-<arch>/bin` 아래에 빌드한다.
+2. `rust/src/whisper.rs`
+   빌드된 `whisper-cli` 위치를 찾고, 모델 경로를 해석하고, 필요한 경우 모델 다운로드를 수행한 뒤 실제 STT 명령행을 실행하는 얇은 래퍼다.
+3. `rust/src/app.rs`
+   CLI 모드 선택, `db/index.json` 기반 job 폴더 선택, `stt/` 디렉터리 생성, 폴더 내 오디오 파일 일괄 STT 실행을 오케스트레이션한다.
+
+핵심은 FFmpeg와 동일하게 "프로젝트 내부에 준비된 Whisper CLI 툴체인을 고정된 경로에서 찾아 실행하는 것"이다.
+
+## Integration Model
+
+현재 구조는 아래와 같다.
+
+```mermaid
+flowchart LR
+    A["CLI entrypoint (`rust/src/main.rs`)"] --> B["`main_cli()`"]
+    B --> C{"arg-based mode?"}
+    C -->|"ffmpeg <input>"| D["Existing FFmpeg flow"]
+    C -->|"stt"| E["STT flow"]
+    C -->|"no args"| F["Prompt: `1. ffmpeg` / `2. stt`"]
+    F --> D
+    F --> E
+    E --> G["`IndexStore::list_jobs()`"]
+    G --> H["Filter existing `job_dir` with supported audio files"]
+    H --> I["Prompt numbered folder selection"]
+    I --> J["`Whisper Toolchain::discover()`"]
+    J --> K["Local `whisper-cli` in `.build/whisper/<target>/bin`"]
+    J --> L["Model path resolution + optional download"]
+    E --> M["`run_transcription()` per audio file"]
+    M --> N["`db/<job_id>/stt/*.txt`"]
+```
+
+이 모델의 특징은 다음과 같다.
+
+- Rust 바이너리는 `whisper.cpp`의 C API를 직접 사용하지 않는다.
+- Whisper 연동은 전부 `std::process::Command` 기반의 외부 프로세스 실행이다.
+- 런타임은 시스템 PATH의 `whisper-cli`를 사용하지 않고, 프로젝트가 빌드한 로컬 바이너리만 사용한다.
+- STT는 `db/index.json`을 "후보 폴더 인덱스"로 사용하지만, 결과 텍스트는 index에 다시 기록하지 않고 파일 시스템에만 저장한다.
+
+## Components
+
+### 1. Build script
+
+`scripts/build_whisper.sh`는 Whisper 툴체인을 현재 OS / CPU 아키텍처 기준 디렉터리에 준비한다.
+
+- 타깃 경로 계산: `.build/whisper/<platform_os>-<platform_arch>/bin`
+- 캐시 동작: 이미 `whisper-cli` 실행 파일이 있으면 바로 그 경로를 출력하고 종료
+- 빌드 방식: `cmake -S whisper.cpp -B .build/.../build`
+- 빌드 대상: `whisper-cli`
+- 주요 CMake 옵션:
+  - `-DCMAKE_BUILD_TYPE=Release`
+  - `-DBUILD_SHARED_LIBS=OFF`
+  - `-DWHISPER_BUILD_TESTS=OFF`
+  - `-DWHISPER_BUILD_SERVER=OFF`
+  - `-DWHISPER_BUILD_EXAMPLES=ON`
+
+의미상 이 스크립트는 "Whisper 소스를 직접 호출"하는 것이 아니라 "런타임이 사용할 로컬 `whisper-cli` 준비"를 담당한다.
+
+### 2. Toolchain wrapper
+
+`rust/src/whisper.rs`의 `Toolchain`은 Whisper 연동의 진입점이다.
+
+- `Toolchain::discover(repo_root)`
+  - `scripts/build_whisper.sh` 위치를 저장한다.
+  - `whisper.cpp/models/download-ggml-model.sh` 위치를 저장한다.
+  - `.build/whisper/<target>/bin/whisper-cli`
+  - 모델 경로를 함께 해석한다.
+- 모델 경로 우선순위:
+  - `RECORDROUTE_WHISPER_MODEL`
+  - 기본값 `models/whisper/ggml-base.bin`
+- 툴체인이 없으면 빌드 스크립트 경로를 포함한 에러를 반환한다.
+
+즉, Rust 쪽은 Whisper도 "이미 준비된 CLI 실행 파일 + 모델 파일" 조합으로 취급한다.
+
+### 3. Model bootstrap
+
+모델 파일은 `Toolchain::ensure_model()`이 관리한다.
+
+- 설정된 모델 파일이 이미 있으면 그대로 사용한다.
+- 모델 파일이 없으면 `whisper.cpp/models/download-ggml-model.sh`를 실행해 다운로드를 시도한다.
+- 다운로드 대상 디렉터리는 모델 파일의 부모 디렉터리다.
+- 현재 자동 다운로드가 지원되는 경로 패턴은 `ggml-<model>.bin` 파일명 규칙을 따르는 경우다.
+
+예를 들어 기본 설정이면 아래 위치가 사용된다.
+
+```text
+models/whisper/ggml-base.bin
+```
+
+즉, 기본 동작은 "repo-local model cache"를 유지하되, 없으면 자동으로 채워 넣는 방식이다.
+
+### 4. Transcription wrapper
+
+`run_transcription()`은 `whisper-cli` 명령행을 조립해서 단일 오디오 파일의 텍스트 산출물을 만든다.
+
+개념적으로는 아래와 같은 형태다.
+
+```bash
+whisper-cli \
+  -m <model-path> \
+  -f <input-audio> \
+  -l auto \
+  -otxt \
+  -np \
+  -of <output-prefix>
+```
+
+여기서 실제 결과 파일은 `<output-prefix>.txt`다.
+
+현재 고정 동작은 다음과 같다.
+
+- 언어 설정: `auto`
+- 출력 포맷: plain text (`-otxt`)
+- 콘솔 출력 최소화: `-np`
+- 기존 같은 이름의 `.txt`가 있으면 먼저 제거하고 새 결과로 덮어쓴다.
+
+## Application Flow
+
+STT 실행 순서는 `rust/src/app.rs`에서 관리한다.
+
+1. CLI 인자를 해석한다.
+2. 인자가 없으면 콘솔에서 `1. ffmpeg 작업`, `2. stt 작업`을 숫자로 묻는다.
+3. `stt` 모드가 선택되면 `db/index.json`의 전체 job을 읽는다.
+4. 각 job에 대해 `job_dir`가 실제 디렉터리인지 확인한다.
+5. `job_dir` 바로 아래에서 지원 오디오 파일만 수집한다.
+   - 현재 지원 확장자: `wav`, `mp3`, `flac`, `ogg`
+6. 오디오 파일이 하나 이상 있는 job만 선택 후보로 표시한다.
+7. 콘솔에 번호, `job_id`, 원본 파일명, 폴더 경로를 출력하고 숫자 입력을 받는다.
+8. 선택된 `job_dir` 아래에 `stt/` 디렉터리를 만든다.
+9. 각 오디오 파일마다 `run_transcription()`을 한 번씩 실행한다.
+10. 성공하면 `stt/<audio-basename>.txt`가 생성된다.
+
+즉, STT 모드는 "index를 조회해 기존 job 폴더를 선택하고, 그 폴더 안의 오디오 파일들을 일괄 후처리"하는 구조다.
+
+## CLI Boundaries
+
+현재 CLI 규칙은 다음과 같다.
+
+- `recordroute_rust ffmpeg <input>`
+  - FFmpeg 변환을 즉시 실행
+- `recordroute_rust stt`
+  - STT 폴더 선택 흐름을 즉시 실행
+- `recordroute_rust <input>`
+  - 기존 호환성을 위해 bare input은 FFmpeg 입력 파일로 해석
+- `recordroute_rust`
+  - 모드 선택 프롬프트를 띄운다
+
+즉, STT 추가 이후에도 기존 FFmpeg 단일 파일 진입 방식은 유지된다.
+
+## Output Layout
+
+STT가 성공하면 결과는 선택된 job 디렉터리 아래에 저장된다.
+
+```text
+db/
+  <job_id>/
+    mono_mix.wav
+    channel_01.wav
+    channel_02.wav
+    stt/
+      mono_mix.txt
+      channel_01.txt
+      channel_02.txt
+```
+
+파일명 규칙은 단순하다.
+
+- 입력 파일 basename 유지
+- 확장자만 `.txt`로 교체
+
+예:
+
+- `channel_01.wav` -> `stt/channel_01.txt`
+- `mono_mix.wav` -> `stt/mono_mix.txt`
+
+중요한 점은 STT 산출물은 현재 `db/index.json`에 기록되지 않는다는 것이다. 인덱스는 선택 후보를 제공할 뿐이며, STT 결과 추적은 파일 시스템 경로 자체가 담당한다.
+
+## Failure Handling
+
+현재 Whisper 계층의 실패 처리는 다음과 같다.
+
+- 툴체인 없음
+  - `.build/.../whisper-cli`가 없으면 즉시 실패
+  - 에러 메시지에 `scripts/build_whisper.sh` 경로를 포함
+- 모델 없음
+  - 설정된 모델 파일이 없으면 다운로드를 시도
+  - 다운로드 스크립트가 없거나 다운로드 실패 시 에러 반환
+- 잘못된 모델 경로 규칙
+  - 모델이 없고 파일명이 `ggml-<model>.bin` 형태가 아니면 자동 다운로드 대상 모델명을 추론할 수 없어 실패
+- 후보 폴더 없음
+  - `db/index.json` 안에 실제 오디오 파일을 가진 `job_dir`가 하나도 없으면 실패
+- `whisper-cli` 실패
+  - stderr/stdout를 수집해 상위로 전달
+  - 해당 파일의 `.txt`가 생성되지 않으면 전체 STT 실행을 실패로 처리
+
+현재 STT는 index 상태를 갱신하지 않으므로, 실패 기록은 콘솔 반환값에 남고 부분적으로 이미 생성된 다른 `.txt` 파일은 그대로 유지될 수 있다.
+
+## Current Boundaries
+
+현재 구현 범위는 명확하다.
+
+- Whisper는 외부 CLI 프로세스로만 사용한다.
+- `whisper.cpp` 라이브러리 API를 직접 사용하지 않는다.
+- 시스템 PATH의 `whisper-cli`를 사용하지 않는다.
+- 자동 모델 다운로드는 지원하지만, 자동 빌드는 하지 않는다.
+  - 툴체인이 없으면 안내 메시지만 반환한다.
+- STT 대상은 `db/index.json`에 있는 job 디렉터리 중 실제 오디오 파일이 있는 폴더다.
+- 오디오 탐색은 현재 job 디렉터리의 바로 아래 파일만 대상으로 하며, 재귀 탐색은 하지 않는다.
+- STT 결과는 `db/index.json`에 기록하지 않는다.
+
+## Summary
+
+현재 아키텍처에서 Whisper는 "프로젝트 내부에 빌드해 둔 `whisper-cli` + repo-local model cache"이며, Rust 애플리케이션은 이를 얇은 프로세스 래퍼로 감싸서 사용한다.
+
+정리하면:
+
+- 준비: `scripts/build_whisper.sh`가 로컬 `whisper-cli`를 만든다.
+- 발견: `Toolchain::discover()`가 고정된 설치 경로와 모델 경로를 찾는다.
+- 모델 보장: `ensure_model()`이 필요 시 `models/whisper/ggml-base.bin`을 다운로드한다.
+- 선택: `run_stt_with_repo_root()`가 `db/index.json`을 읽어 후보 폴더를 구성한다.
+- 변환: `run_transcription()`이 파일별 `whisper-cli` 실행을 구성한다.
+- 저장: 결과는 각 job 디렉터리 아래 `stt/*.txt`로 저장된다.
+
+따라서 현재 RecordRoute의 Whisper 연동도 FFmpeg와 동일하게 "서브모듈 직접 통합"이 아니라 "프로젝트 로컬 Whisper CLI를 사용하는 Rust wrapper architecture"라고 보는 것이 정확하다.
