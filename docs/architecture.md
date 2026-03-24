@@ -603,11 +603,12 @@ llama-cli \
 2. `summary` 모드가 선택되면 `db/index.json`의 전체 job을 읽는다.
 3. 각 job에 대해 `job_dir/stt` 안의 `.txt` 파일 존재 여부를 확인한다.
 4. 전사 파일이 있는 폴더만 후보로 보여주고 숫자 입력으로 하나를 선택한다.
-5. `llama::Toolchain::discover()`로 로컬 `llama-cli`를 찾는다.
-6. 선택된 job 아래 `summary/` 디렉터리를 만든다.
-7. `stt/*.txt` 전체를 읽어 하나의 프롬프트 파일로 합친다.
-8. `run_summary_generation()`으로 요약을 실행한다.
-9. 성공하면 프롬프트 임시 파일을 지우고 `summary/<source-stem>.md`만 남긴다.
+5. 선택된 job 아래 `summary/<source-stem>.md`가 이미 있으면 그 경로를 그대로 반환하고 종료한다.
+6. 결과 파일이 없을 때만 `llama::Toolchain::discover()`로 로컬 `llama-cli`를 찾는다.
+7. 선택된 job 아래 `summary/` 디렉터리를 만든다.
+8. `stt/*.txt` 전체를 읽어 하나의 프롬프트 파일로 합친다.
+9. `run_summary_generation()`으로 요약을 실행한다.
+10. 성공하면 프롬프트 임시 파일을 지우고 `summary/<source-stem>.md`만 남긴다.
 
 즉, Llama 호출은 독립 함수이지만, 운영 문맥에서는 "후보 폴더 선택 -> 프롬프트 합성 -> 요약 생성 -> summary 저장" 순서의 job 후처리 로직 안에서 실행된다.
 
@@ -634,6 +635,8 @@ db/
 - `meeting.m4a` -> `summary/meeting.md`
 
 중요한 점은 요약 산출물도 현재 `db/index.json`에 기록되지 않는다는 것이다. 인덱스는 선택 후보를 제공할 뿐이며, 요약 결과 추적은 파일 경로 자체가 담당한다.
+
+동일한 job에 대해 같은 summary를 다시 요청하면, 기존 `summary/<source-stem>.md`가 있으면 Llama를 다시 실행하지 않고 그 파일 경로를 그대로 반환한다.
 
 ### Failure Handling
 

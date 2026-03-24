@@ -308,9 +308,19 @@ pub fn run_summary_with_repo_root(
     }
 
     let selected = select_summary_candidate(&candidates, reader, writer)?;
+    let summary_dir = selected.job_dir.join("summary");
+    let summary_file = summary_output_path(&summary_dir, &selected.source_file_name)?;
+    if summary_file.is_file() {
+        return Ok(SummaryRunSummary {
+            job_id: selected.job_id,
+            job_dir: selected.job_dir,
+            summary_dir,
+            summary_file,
+        });
+    }
+
     let toolchain = LlamaToolchain::discover(repo_root)?;
     toolchain.ensure_model()?;
-    let summary_dir = selected.job_dir.join("summary");
     fs::create_dir_all(&summary_dir).map_err(|error| {
         format!(
             "failed to create summary directory {}: {error}",
@@ -318,7 +328,6 @@ pub fn run_summary_with_repo_root(
         )
     })?;
 
-    let summary_file = summary_output_path(&summary_dir, &selected.source_file_name)?;
     let prompt_file = summary_prompt_file_path(&summary_dir, &selected.source_file_name)?;
     let prompt = build_summary_prompt(&selected.transcript_files)?;
     fs::write(&prompt_file, prompt).map_err(|error| {
@@ -1438,6 +1447,47 @@ mod tests {
         assert!(llama_log.contains("-hf"));
         assert!(llama_log.contains("ggml-org/gemma-3-4b-it-GGUF"));
         assert!(llama_log.contains("HF_TOKEN=summary-token"));
+    }
+
+    #[test]
+    fn run_summary_reuses_existing_summary_file_without_llama_toolchain() {
+        let repo_root = temp_workspace();
+        let selected_job_dir = repo_root.join("db/job-1");
+        let existing_summary = selected_job_dir.join("summary/input.md");
+        fs::create_dir_all(selected_job_dir.join("stt")).expect("selected stt dir");
+        fs::create_dir_all(existing_summary.parent().expect("summary dir")).expect("summary dir");
+
+        fs::write(
+            selected_job_dir.join("stt/mono_mix.txt"),
+            "현장 방문 일정을 논의했다.",
+        )
+        .expect("mono mix");
+        fs::write(&existing_summary, "existing summary").expect("existing summary");
+
+        let store = IndexStore::new(&repo_root);
+        store
+            .insert_job(JobRecord::new(
+                "job-1".to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+                PathBuf::from("/tmp/input.wav"),
+                selected_job_dir.clone(),
+            ))
+            .expect("insert selected job");
+
+        let mut reader = Cursor::new(b"1\n".to_vec());
+        let mut output = Vec::new();
+
+        let summary =
+            run_summary_with_repo_root(&repo_root, &mut reader, &mut output).expect("summary run");
+
+        assert_eq!(summary.job_id, "job-1");
+        assert_eq!(summary.summary_dir, selected_job_dir.join("summary"));
+        assert_eq!(summary.summary_file, existing_summary);
+        assert_eq!(
+            fs::read_to_string(&summary.summary_file).expect("summary file"),
+            "existing summary"
+        );
+        assert!(!summary.summary_dir.join(".input.prompt.txt").exists());
     }
 
     #[test]
