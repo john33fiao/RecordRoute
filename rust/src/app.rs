@@ -589,7 +589,7 @@ fn transcript_output_path(stt_dir: &Path, audio_file: &Path) -> Result<PathBuf, 
 fn summary_output_path(summary_dir: &Path, source_file_name: &str) -> Result<PathBuf, String> {
     Ok(summary_dir
         .join(source_file_stem(source_file_name)?)
-        .with_extension("txt"))
+        .with_extension("md"))
 }
 
 fn summary_prompt_file_path(summary_dir: &Path, source_file_name: &str) -> Result<PathBuf, String> {
@@ -1416,7 +1416,7 @@ mod tests {
         assert_eq!(summary.job_id, "job-1");
         assert_eq!(
             summary.summary_file,
-            selected_job_dir.join("summary/input.txt")
+            selected_job_dir.join("summary/input.md")
         );
         assert!(summary.summary_dir.is_dir());
         assert_eq!(
@@ -1540,9 +1540,8 @@ mod tests {
         let llama_log = fs::read_to_string(llama_log).expect("llama log");
         assert!(llama_log.contains("-hf"));
         assert!(llama_log.contains("ggml-org/gemma-3-4b-it-GGUF"));
-        assert!(llama_log.contains("-m"));
-        assert!(llama_log.contains(cached_model.to_string_lossy().as_ref()));
         assert!(llama_log.contains("HF_TOKEN=prepare-token"));
+        assert!(llama_log.contains("LLAMA_CACHE="));
     }
 
     #[test]
@@ -1651,11 +1650,11 @@ mod tests {
         let prompt_capture = prompt_capture_path.display();
         let script = if fail {
             format!(
-                "#!/bin/sh\ntouch '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\ndone\nprintf 'HF_TOKEN=%s\\n' \"${{HF_TOKEN:-}}\" >> '{log}'\nprintf 'synthetic llama failure' >&2\nexit 1\n"
+                "#!/bin/sh\ntouch '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\ndone\nprintf 'HF_TOKEN=%s\\n' \"${{HF_TOKEN:-}}\" >> '{log}'\nprintf 'LLAMA_CACHE=%s\\n' \"${{LLAMA_CACHE:-}}\" >> '{log}'\nprintf 'synthetic llama failure' >&2\nexit 1\n"
             )
         } else {
             format!(
-                "#!/bin/sh\ntouch '{log}'\nout=''\nprompt=''\nmodel=''\nnext=''\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\n  if [ \"$next\" = 'o' ]; then\n    out=\"$arg\"\n    next=''\n    continue\n  fi\n  if [ \"$next\" = 'f' ]; then\n    prompt=\"$arg\"\n    next=''\n    continue\n  fi\n  if [ \"$next\" = 'm' ]; then\n    model=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -o)\n      next='o'\n      ;;\n    -f)\n      next='f'\n      ;;\n    -m)\n      next='m'\n      ;;\n  esac\ndone\nprintf 'HF_TOKEN=%s\\n' \"${{HF_TOKEN:-}}\" >> '{log}'\nif [ -n \"$prompt\" ]; then\n  cat \"$prompt\" > '{prompt_capture}'\nfi\nif [ -n \"$model\" ]; then\n  mkdir -p \"$(dirname \"$model\")\"\n  printf 'synthetic model' > \"$model\"\nfi\nif [ -n \"$out\" ]; then\n  mkdir -p \"$(dirname \"$out\")\"\n  printf 'synthetic summary' > \"$out\"\nfi\n"
+                "#!/bin/sh\ntouch '{log}'\nprompt=''\nmodel=''\nhf_repo=''\nnext=''\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\n  if [ \"$next\" = 'f' ]; then\n    prompt=\"$arg\"\n    next=''\n    continue\n  fi\n  if [ \"$next\" = 'm' ]; then\n    model=\"$arg\"\n    next=''\n    continue\n  fi\n  if [ \"$next\" = 'hf' ]; then\n    hf_repo=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -f)\n      next='f'\n      ;;\n    -m)\n      next='m'\n      ;;\n    -hf)\n      next='hf'\n      ;;\n  esac\ndone\nprintf 'HF_TOKEN=%s\\n' \"${{HF_TOKEN:-}}\" >> '{log}'\nprintf 'LLAMA_CACHE=%s\\n' \"${{LLAMA_CACHE:-}}\" >> '{log}'\nif [ -n \"$prompt\" ]; then\n  cat \"$prompt\" > '{prompt_capture}'\nfi\nif [ -n \"$model\" ]; then\n  mkdir -p \"$(dirname \"$model\")\"\n  printf 'synthetic model' > \"$model\"\nelif [ -n \"$hf_repo\" ] && [ -n \"${{LLAMA_CACHE:-}}\" ]; then\n  mkdir -p \"$LLAMA_CACHE\"\n  printf 'synthetic downloaded model' > \"$LLAMA_CACHE/downloaded-model.gguf\"\nfi\nif [ -n \"$prompt\" ]; then\n  printf 'synthetic summary'\nfi\n"
             )
         };
         fs::write(path, script).expect("llama script");

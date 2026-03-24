@@ -508,7 +508,7 @@ flowchart LR
     H --> I["Local `llama-cli` in `.build/llama/<target>/bin`"]
     G --> J["Combined prompt file from `stt/*.txt`"]
     J --> K["`run_summary_generation()`"]
-    K --> L["`db/<job_id>/summary/<source-stem>.txt`"]
+    K --> L["`db/<job_id>/summary/<source-stem>.md`"]
 ```
 
 이 모델의 특징은 다음과 같다.
@@ -532,7 +532,7 @@ flowchart LR
   - `-DBUILD_SHARED_LIBS=OFF`
   - `-DLLAMA_BUILD_TOOLS=ON`
   - `-DLLAMA_BUILD_TESTS=OFF`
-  - `-DLLAMA_BUILD_SERVER=OFF`
+  - `-DLLAMA_BUILD_SERVER=ON`
   - `-DLLAMA_BUILD_EXAMPLES=OFF`
 
 의미상 이 스크립트는 "llama.cpp 서브모듈 관리"가 아니라 "런타임이 사용할 로컬 `llama-cli` 준비"를 담당한다.
@@ -549,6 +549,9 @@ flowchart LR
   - `RECORDROUTE_LLAMA_MODEL`이 설정되지 않으면 기본값 `ggml-org/gemma-3-4b-it-GGUF`를 사용한다.
   - 설정값이 실제 파일이면 `-m <path>`로 호출한다.
   - 설정값이 실제 파일이 아니면 Hugging Face repo로 간주하고 `-hf <repo>`로 호출한다.
+- 다운로드 캐시
+  - Hugging Face 다운로드는 시스템 전역 캐시 대신 `models/llama/hf/.cache/<repo-key>` 아래에서 진행한다.
+  - 다운로드가 끝나면 최종 모델 파일을 `models/llama/hf/<repo-key>.gguf`로 이동한다.
 - 인증
   - `HF_TOKEN`은 child process 환경으로 그대로 전달되며, gated/private Hugging Face 모델 접근에 사용된다.
 
@@ -585,12 +588,12 @@ llama-cli \
   --no-display-prompt \
   --log-disable \
   -n 1024 \
-  -hf ggml-org/gemma-3-4b-it-GGUF \
+  -m models/llama/hf/ggml-org__gemma-3-4b-it-GGUF.gguf \
   -f <prompt-file> \
-  -o <summary-file>
+  > <summary-file>
 ```
 
-로컬 GGUF 파일이 지정된 경우에는 `-hf` 대신 `-m <path>`가 사용된다.
+실제 구현에서는 `stdout`을 Rust가 받아 후처리한 뒤 summary 파일로 저장한다. `llama-cli`가 배너나 prompt echo를 섞어 출력할 수 있기 때문에, Rust 쪽에서 회의록 본문만 추출해 저장한다.
 
 ### Application Flow
 
@@ -604,7 +607,7 @@ llama-cli \
 6. 선택된 job 아래 `summary/` 디렉터리를 만든다.
 7. `stt/*.txt` 전체를 읽어 하나의 프롬프트 파일로 합친다.
 8. `run_summary_generation()`으로 요약을 실행한다.
-9. 성공하면 프롬프트 임시 파일을 지우고 `summary/<source-stem>.txt`만 남긴다.
+9. 성공하면 프롬프트 임시 파일을 지우고 `summary/<source-stem>.md`만 남긴다.
 
 즉, Llama 호출은 독립 함수이지만, 운영 문맥에서는 "후보 폴더 선택 -> 프롬프트 합성 -> 요약 생성 -> summary 저장" 순서의 job 후처리 로직 안에서 실행된다.
 
@@ -620,15 +623,15 @@ db/
       channel_02.txt
       mono_mix.txt
     summary/
-      input.txt
+      input.md
 ```
 
-파일명 규칙은 원본 오디오 파일 basename의 stem을 그대로 사용하고 확장자만 `.txt`로 바꾼다.
+파일명 규칙은 원본 오디오 파일 basename의 stem을 그대로 사용하고 확장자만 `.md`로 바꾼다.
 
 예:
 
-- `input.wav` -> `summary/input.txt`
-- `meeting.m4a` -> `summary/meeting.txt`
+- `input.wav` -> `summary/input.md`
+- `meeting.m4a` -> `summary/meeting.md`
 
 중요한 점은 요약 산출물도 현재 `db/index.json`에 기록되지 않는다는 것이다. 인덱스는 선택 후보를 제공할 뿐이며, 요약 결과 추적은 파일 경로 자체가 담당한다.
 
@@ -675,6 +678,6 @@ db/
 - 선택: `run_summary_with_repo_root()`가 `db/index.json`을 읽어 `stt/*.txt`가 있는 후보를 구성한다.
 - 프롬프트: transcript 파일들을 하나로 합쳐 회의록 지시문과 함께 prompt file을 만든다.
 - 생성: `run_summary_generation()`이 `llama-cli` 실행을 구성한다.
-- 저장: 결과는 각 job 디렉터리 아래 `summary/<source-stem>.txt`로 저장된다.
+- 저장: 결과는 각 job 디렉터리 아래 `summary/<source-stem>.md`로 저장된다.
 
 따라서 현재 RecordRoute의 Llama 연동도 FFmpeg, Whisper와 동일하게 "프로젝트 로컬 Llama CLI를 사용하는 Rust wrapper architecture"라고 보는 것이 정확하다.
