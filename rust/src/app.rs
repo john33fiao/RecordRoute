@@ -130,14 +130,9 @@ pub fn resolve_input_path(
             writer.flush().map_err(|error| error.to_string())?;
 
             let line = read_line(reader, "failed to read input path")?;
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                return Err("input path is required".to_string());
-            }
-
-            Ok(PathBuf::from(trimmed))
+            parse_input_path_value(line.trim())
         }
-        [path] => Ok(PathBuf::from(path)),
+        [path] => parse_input_path_os(path),
         _ => Err("expected exactly one input path".to_string()),
     }
 }
@@ -457,6 +452,37 @@ fn read_line(reader: &mut dyn BufRead, error_context: &str) -> Result<String, St
     Ok(line)
 }
 
+fn parse_input_path_os(input: &OsStr) -> Result<PathBuf, String> {
+    match input.to_str() {
+        Some(value) => parse_input_path_value(value),
+        None => Ok(PathBuf::from(input)),
+    }
+}
+
+fn parse_input_path_value(input: &str) -> Result<PathBuf, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("input path is required".to_string());
+    }
+
+    Ok(PathBuf::from(strip_wrapping_quotes(trimmed)))
+}
+
+fn strip_wrapping_quotes(input: &str) -> &str {
+    if input.len() < 2 {
+        return input;
+    }
+
+    let bytes = input.as_bytes();
+    let first = bytes[0];
+    let last = bytes[input.len() - 1];
+    if (first == b'\'' && last == b'\'') || (first == b'"' && last == b'"') {
+        &input[1..input.len() - 1]
+    } else {
+        input
+    }
+}
+
 fn normalize_input_path(input: &Path) -> Result<PathBuf, String> {
     if !input.exists() {
         return Err(format!("input file not found: {}", input.display()));
@@ -531,6 +557,18 @@ mod tests {
     }
 
     #[test]
+    fn strips_wrapping_quotes_from_prompt_input() {
+        let args = Vec::<OsString>::new();
+        let mut reader = Cursor::new(b"'/tmp/from-prompt.wav'\n".to_vec());
+        let mut output = Vec::new();
+
+        let path =
+            resolve_input_path(&args, &mut reader, &mut output).expect("prompt should parse");
+
+        assert_eq!(path, PathBuf::from("/tmp/from-prompt.wav"));
+    }
+
+    #[test]
     fn rejects_multiple_paths() {
         let args = vec![OsString::from("one"), OsString::from("two")];
         let mut reader = Cursor::new(Vec::<u8>::new());
@@ -539,6 +577,18 @@ mod tests {
         let error = resolve_input_path(&args, &mut reader, &mut output).expect_err("should fail");
 
         assert_eq!(error, "expected exactly one input path");
+    }
+
+    #[test]
+    fn strips_wrapping_quotes_from_single_path_argument() {
+        let args = vec![OsString::from("\"/tmp/input.mp3\"")];
+        let mut reader = Cursor::new(Vec::<u8>::new());
+        let mut output = Vec::new();
+
+        let path = resolve_input_path(&args, &mut reader, &mut output).expect("path should parse");
+
+        assert_eq!(path, PathBuf::from("/tmp/input.mp3"));
+        assert!(output.is_empty());
     }
 
     #[test]
