@@ -23,11 +23,13 @@
 flowchart LR
     A["CLI entrypoint (`rust/src/main.rs`)"] --> B["`main_cli()`"]
     B --> C["`run_with_repo_root()`"]
-    C --> D["`Toolchain::discover()`"]
-    D --> E["Local binaries in `.build/ffmpeg/<target>/install/bin`"]
-    C --> F["`probe_audio_input()` via `ffprobe`"]
-    C --> G["`run_conversion()` via `ffmpeg`"]
-    C --> H["`db/index.json` + job output files"]
+    C --> D["Reusable completed job lookup in `db/index.json`"]
+    D --> E["Cache hit: return existing output paths"]
+    D --> F["Cache miss: `Toolchain::discover()`"]
+    F --> G["Local binaries in `.build/ffmpeg/<target>/install/bin`"]
+    C --> H["`probe_audio_input()` via `ffprobe`"]
+    C --> I["`run_conversion()` via `ffmpeg`"]
+    C --> J["`db/index.json` + job output files"]
 ```
 
 이 모델의 특징은 다음과 같다.
@@ -136,15 +138,17 @@ ffprobe \
 
 1. 입력 파일 경로를 인자 또는 프롬프트로 받는다.
 2. 입력 경로가 존재하는 파일인지 검증하고 canonical path로 정규화한다.
-3. `Toolchain::discover()`로 로컬 FFmpeg 바이너리를 찾는다.
-4. `db/<job_id>` 작업 디렉터리를 만들고 `db/index.json`에 running 상태를 먼저 기록한다.
-5. `probe_audio_input()`으로 채널 수를 파악한다.
-6. `ConversionOutputs::new()`로 예상 출력 파일 경로를 계산한다.
-7. `run_conversion()`으로 실제 변환을 수행한다.
-8. 성공하면 index를 `completed`로 갱신하고 출력 경로를 저장한다.
-9. 실패하면 부분 생성 파일을 삭제하고 index를 `failed`로 갱신한다.
+3. `db/index.json`에서 같은 `source_path`의 최신 `completed` job을 뒤에서부터 찾는다.
+4. 저장된 출력 파일이 모두 남아 있으면 새 job을 만들지 않고 기존 `job_id`, `job_dir`, 출력 경로를 그대로 반환한다.
+5. 재사용 가능한 완료 job이 없을 때만 `Toolchain::discover()`로 로컬 FFmpeg 바이너리를 찾는다.
+6. `db/<job_id>` 작업 디렉터리를 만들고 `db/index.json`에 running 상태를 먼저 기록한다.
+7. `probe_audio_input()`으로 채널 수를 파악한다.
+8. `ConversionOutputs::new()`로 예상 출력 파일 경로를 계산한다.
+9. `run_conversion()`으로 실제 변환을 수행한다.
+10. 성공하면 index를 `completed`로 갱신하고 출력 경로를 저장한다.
+11. 실패하면 부분 생성 파일을 삭제하고 index를 `failed`로 갱신한다.
 
-즉, FFmpeg 호출은 독립 함수이지만, 실제 운영 문맥에서는 항상 job 관리 로직 안에서 수행된다.
+즉, FFmpeg 호출은 독립 함수이지만, 실제 운영 문맥에서는 "완료 결과 재사용 확인 -> miss일 때만 변환" 순서의 job 관리 로직 안에서 수행된다.
 
 ## Output Layout
 
@@ -168,7 +172,9 @@ db/
 - 출력 파일 경로
 - 실패 메시지
 
-즉, FFmpeg 래퍼는 단순 변환기 역할만 하고, 실행 이력과 결과 추적은 `IndexStore`가 담당한다.
+같은 입력 파일을 다시 요청하면 `IndexStore`가 최신 완료 job부터 거슬러 올라가며 재사용 가능한 출력 세트를 찾는다. 유효한 결과가 있으면 기존 경로만 다시 노출하고, 새 job 디렉터리를 만들지 않는다.
+
+즉, FFmpeg 래퍼는 단순 변환기 역할만 하고, 실행 이력과 결과 추적 및 완료 결과 재사용 판단은 `IndexStore`가 담당한다.
 
 ## Failure Handling
 
@@ -205,9 +211,10 @@ db/
 정리하면:
 
 - 준비: `scripts/build_ffmpeg.sh`가 로컬 바이너리를 만든다.
-- 발견: `Toolchain::discover()`가 고정된 설치 경로를 찾는다.
+- 재사용 확인: `IndexStore`가 canonical input path 기준으로 기존 완료 결과를 찾는다.
+- 발견: cache miss일 때만 `Toolchain::discover()`가 고정된 설치 경로를 찾는다.
 - 분석: `probe_audio_input()`이 `ffprobe` JSON 출력을 파싱한다.
 - 변환: `run_conversion()`이 `filter_complex` 기반 단일 `ffmpeg` 실행을 구성한다.
-- 운영: `run_with_repo_root()`가 job 디렉터리와 index를 관리한다.
+- 운영: `run_with_repo_root()`가 job 디렉터리, index, 완료 결과 재사용을 관리한다.
 
 따라서 현재 RecordRoute의 FFmpeg 연동은 "서브모듈 직접 통합"이 아니라 "프로젝트 로컬 FFmpeg CLI를 사용하는 Rust wrapper architecture"라고 보는 것이 정확하다.

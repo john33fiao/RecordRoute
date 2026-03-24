@@ -109,6 +109,23 @@ impl JobRecord {
     }
 }
 
+impl JobOutputs {
+    fn has_reusable_files(&self) -> bool {
+        let Some(merged_mono_wav) = self.merged_mono_wav.as_deref() else {
+            return false;
+        };
+        if self.split_mono_wavs.is_empty() {
+            return false;
+        }
+
+        Path::new(merged_mono_wav).is_file()
+            && self
+                .split_mono_wavs
+                .iter()
+                .all(|output| Path::new(&output.path).is_file())
+    }
+}
+
 impl IndexStore {
     pub fn new(repo_root: &Path) -> Self {
         let db_dir = repo_root.join("db");
@@ -158,6 +175,25 @@ impl IndexStore {
         })
     }
 
+    pub fn find_reusable_completed_job(
+        &self,
+        source_path: &Path,
+    ) -> Result<Option<JobRecord>, String> {
+        let source_path = source_path.to_string_lossy().into_owned();
+        self.with_locked_index_read(|index| {
+            Ok(index
+                .jobs
+                .iter()
+                .rev()
+                .find(|job| {
+                    job.status == JobStatus::Completed
+                        && job.source_path == source_path
+                        && job.outputs.has_reusable_files()
+                })
+                .cloned())
+        })
+    }
+
     fn with_locked_index(
         &self,
         mutate: impl FnOnce(&mut IndexFile) -> Result<(), String>,
@@ -167,6 +203,19 @@ impl IndexStore {
         let mut index = self.read_index()?;
         mutate(&mut index)?;
         self.write_index(&index)
+    }
+
+    fn with_locked_index_read<T>(
+        &self,
+        read: impl FnOnce(&IndexFile) -> Result<T, String>,
+    ) -> Result<T, String> {
+        if !self.db_dir.exists() {
+            return read(&IndexFile::empty());
+        }
+
+        let _guard = LockGuard::acquire(&self.lock_path)?;
+        let index = self.read_index()?;
+        read(&index)
     }
 
     fn read_index(&self) -> Result<IndexFile, String> {
@@ -239,6 +288,7 @@ impl Drop for LockGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
     use std::path::PathBuf;
     use uuid::Uuid;
 
@@ -283,6 +333,88 @@ mod tests {
             index.jobs[0].error_message.as_deref(),
             Some("synthetic failure")
         );
+    }
+
+    #[test]
+    fn finds_latest_reusable_completed_job() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let source_path = PathBuf::from("/tmp/input.wav");
+
+        let valid_dir = store.job_dir("job-1");
+        fs::create_dir_all(&valid_dir).expect("valid dir");
+        let mut valid_job = JobRecord::new(
+            "job-1".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            source_path.clone(),
+            valid_dir.clone(),
+        );
+        let valid_outputs = JobOutputs {
+            merged_mono_wav: Some(path_to_string(&valid_dir.join("mono_mix.wav"))),
+            split_mono_wavs: vec![JobSplitOutput {
+                channel_index: 1,
+                path: path_to_string(&valid_dir.join("channel_01.wav")),
+            }],
+        };
+        create_file(Path::new(
+            valid_outputs
+                .merged_mono_wav
+                .as_deref()
+                .expect("merged path"),
+        ));
+        create_file(Path::new(&valid_outputs.split_mono_wavs[0].path));
+        valid_job.mark_completed("2026-01-01T00:00:01Z".to_string(), valid_outputs);
+        store.insert_job(valid_job).expect("insert valid job");
+
+        let invalid_dir = store.job_dir("job-2");
+        fs::create_dir_all(&invalid_dir).expect("invalid dir");
+        let mut invalid_job = JobRecord::new(
+            "job-2".to_string(),
+            "2026-01-01T00:00:02Z".to_string(),
+            source_path.clone(),
+            invalid_dir.clone(),
+        );
+        invalid_job.mark_completed(
+            "2026-01-01T00:00:03Z".to_string(),
+            JobOutputs {
+                merged_mono_wav: Some(path_to_string(&invalid_dir.join("mono_mix.wav"))),
+                split_mono_wavs: vec![JobSplitOutput {
+                    channel_index: 1,
+                    path: path_to_string(&invalid_dir.join("channel_01.wav")),
+                }],
+            },
+        );
+        store.insert_job(invalid_job).expect("insert invalid job");
+
+        let mut failed_job = JobRecord::new(
+            "job-3".to_string(),
+            "2026-01-01T00:00:04Z".to_string(),
+            source_path.clone(),
+            store.job_dir("job-3"),
+        );
+        failed_job.mark_failed(
+            "2026-01-01T00:00:05Z".to_string(),
+            "synthetic failure".to_string(),
+        );
+        store.insert_job(failed_job).expect("insert failed job");
+
+        let found = store
+            .find_reusable_completed_job(&source_path)
+            .expect("lookup should succeed")
+            .expect("valid job should be found");
+
+        assert_eq!(found.job_id, "job-1");
+    }
+
+    fn path_to_string(path: &Path) -> String {
+        path.to_string_lossy().into_owned()
+    }
+
+    fn create_file(path: &Path) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("parent dir");
+        }
+        File::create(path).expect("create file");
     }
 
     fn temp_workspace() -> PathBuf {

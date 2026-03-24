@@ -1,4 +1,6 @@
-use crate::ffmpeg::{ConversionOutputs, Toolchain, probe_audio_input, run_conversion};
+use crate::ffmpeg::{
+    ConversionOutputs, SplitMonoOutput, Toolchain, probe_audio_input, run_conversion,
+};
 use crate::index::{IndexStore, JobOutputs, JobProbe, JobRecord, JobSplitOutput};
 use std::ffi::OsString;
 use std::fs;
@@ -74,8 +76,13 @@ pub fn resolve_input_path(
 
 pub fn run_with_repo_root(repo_root: &Path, input: &Path) -> Result<RunSummary, String> {
     let input_path = normalize_input_path(input)?;
-    let toolchain = Toolchain::discover(repo_root)?;
     let index_store = IndexStore::new(repo_root);
+
+    if let Some(job) = index_store.find_reusable_completed_job(&input_path)? {
+        return run_summary_from_completed_job(job);
+    }
+
+    let toolchain = Toolchain::discover(repo_root)?;
     index_store.ensure_db_dir()?;
 
     let started_at = now_rfc3339()?;
@@ -145,6 +152,38 @@ pub fn run_with_repo_root(repo_root: &Path, input: &Path) -> Result<RunSummary, 
     }
 }
 
+fn run_summary_from_completed_job(job: JobRecord) -> Result<RunSummary, String> {
+    let merged_mono_wav = job.outputs.merged_mono_wav.clone().ok_or_else(|| {
+        format!(
+            "reusable completed job is missing merged output path: {}",
+            job.job_id
+        )
+    })?;
+    if job.outputs.split_mono_wavs.is_empty() {
+        return Err(format!(
+            "reusable completed job is missing split output paths: {}",
+            job.job_id
+        ));
+    }
+
+    Ok(RunSummary {
+        job_id: job.job_id,
+        job_dir: PathBuf::from(job.job_dir),
+        outputs: ConversionOutputs {
+            merged_mono_wav: PathBuf::from(merged_mono_wav),
+            split_mono_wavs: job
+                .outputs
+                .split_mono_wavs
+                .into_iter()
+                .map(|output| SplitMonoOutput {
+                    channel_index: output.channel_index,
+                    path: PathBuf::from(output.path),
+                })
+                .collect(),
+        },
+    })
+}
+
 fn normalize_input_path(input: &Path) -> Result<PathBuf, String> {
     if !input.exists() {
         return Err(format!("input file not found: {}", input.display()));
@@ -193,6 +232,7 @@ pub struct RunSummary {
 mod tests {
     use super::*;
     use crate::ffmpeg::Toolchain;
+    use crate::index::IndexStore;
     use std::fs::{self, File};
     use std::io::Cursor;
 
@@ -328,6 +368,131 @@ mod tests {
     }
 
     #[test]
+    fn reuses_completed_outputs_for_same_input() {
+        let repo_root = temp_workspace();
+        let scripts_dir = repo_root.join("scripts");
+        let build_bin = repo_root
+            .join(".build/ffmpeg")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("install/bin");
+        let input = repo_root.join("fixture.wav");
+        let ffmpeg_log = repo_root.join("ffmpeg-args.log");
+        let ffmpeg_count = repo_root.join("ffmpeg-count.txt");
+        fs::create_dir_all(&scripts_dir).expect("scripts dir");
+        fs::create_dir_all(&build_bin).expect("toolchain dir");
+        write_build_script(&scripts_dir.join("build_ffmpeg.sh"));
+        write_fake_ffprobe(&build_bin.join("ffprobe"), 2, Some("stereo"));
+        write_counting_ffmpeg(&build_bin.join("ffmpeg"), &ffmpeg_log, &ffmpeg_count);
+        write_test_wav(&input, 2);
+
+        let first = run_with_repo_root(&repo_root, &input).expect("first run should succeed");
+
+        fs::remove_file(build_bin.join("ffmpeg")).expect("remove ffmpeg");
+        fs::remove_file(build_bin.join("ffprobe")).expect("remove ffprobe");
+
+        let second = run_with_repo_root(&repo_root, &input).expect("second run should reuse");
+
+        assert_eq!(first.job_id, second.job_id);
+        assert_eq!(first.job_dir, second.job_dir);
+        assert_eq!(
+            first.outputs.merged_mono_wav,
+            second.outputs.merged_mono_wav
+        );
+        assert_eq!(
+            first.outputs.split_mono_wavs,
+            second.outputs.split_mono_wavs
+        );
+        assert_eq!(read_run_count(&ffmpeg_count), 1);
+
+        let index = fs::read_to_string(repo_root.join("db/index.json")).expect("index");
+        let parsed: serde_json::Value = serde_json::from_str(&index).expect("valid json");
+        assert_eq!(parsed["jobs"].as_array().expect("jobs array").len(), 1);
+    }
+
+    #[test]
+    fn missing_reusable_output_triggers_new_conversion() {
+        let repo_root = temp_workspace();
+        let scripts_dir = repo_root.join("scripts");
+        let build_bin = repo_root
+            .join(".build/ffmpeg")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("install/bin");
+        let input = repo_root.join("fixture.wav");
+        let ffmpeg_log = repo_root.join("ffmpeg-args.log");
+        let ffmpeg_count = repo_root.join("ffmpeg-count.txt");
+        fs::create_dir_all(&scripts_dir).expect("scripts dir");
+        fs::create_dir_all(&build_bin).expect("toolchain dir");
+        write_build_script(&scripts_dir.join("build_ffmpeg.sh"));
+        write_fake_ffprobe(&build_bin.join("ffprobe"), 2, Some("stereo"));
+        write_counting_ffmpeg(&build_bin.join("ffmpeg"), &ffmpeg_log, &ffmpeg_count);
+        write_test_wav(&input, 2);
+
+        let first = run_with_repo_root(&repo_root, &input).expect("first run should succeed");
+        fs::remove_file(&first.outputs.split_mono_wavs[0].path).expect("remove split output");
+
+        let second =
+            run_with_repo_root(&repo_root, &input).expect("second run should create new job");
+
+        assert_ne!(first.job_id, second.job_id);
+        assert_eq!(read_run_count(&ffmpeg_count), 2);
+        assert!(second.outputs.merged_mono_wav.exists());
+        assert!(second.outputs.split_mono_wavs[0].path.exists());
+        assert!(second.outputs.split_mono_wavs[1].path.exists());
+
+        let index = fs::read_to_string(repo_root.join("db/index.json")).expect("index");
+        let parsed: serde_json::Value = serde_json::from_str(&index).expect("valid json");
+        assert_eq!(parsed["jobs"].as_array().expect("jobs array").len(), 2);
+    }
+
+    #[test]
+    fn reuses_previous_completed_job_when_latest_job_failed() {
+        let repo_root = temp_workspace();
+        let scripts_dir = repo_root.join("scripts");
+        let build_bin = repo_root
+            .join(".build/ffmpeg")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("install/bin");
+        let input = repo_root.join("fixture.wav");
+        let ffmpeg_log = repo_root.join("ffmpeg-args.log");
+        let ffmpeg_count = repo_root.join("ffmpeg-count.txt");
+        fs::create_dir_all(&scripts_dir).expect("scripts dir");
+        fs::create_dir_all(&build_bin).expect("toolchain dir");
+        write_build_script(&scripts_dir.join("build_ffmpeg.sh"));
+        write_fake_ffprobe(&build_bin.join("ffprobe"), 2, Some("stereo"));
+        write_counting_ffmpeg(&build_bin.join("ffmpeg"), &ffmpeg_log, &ffmpeg_count);
+        write_test_wav(&input, 2);
+
+        let first = run_with_repo_root(&repo_root, &input).expect("first run should succeed");
+
+        let store = IndexStore::new(&repo_root);
+        let mut failed_job = JobRecord::new(
+            "job-failed".to_string(),
+            "2026-01-01T00:00:02Z".to_string(),
+            fs::canonicalize(&input).expect("canonical input"),
+            store.job_dir("job-failed"),
+        );
+        failed_job.mark_failed(
+            "2026-01-01T00:00:03Z".to_string(),
+            "synthetic failure".to_string(),
+        );
+        store.insert_job(failed_job).expect("insert failed job");
+
+        fs::remove_file(build_bin.join("ffmpeg")).expect("remove ffmpeg");
+        fs::remove_file(build_bin.join("ffprobe")).expect("remove ffprobe");
+
+        let second = run_with_repo_root(&repo_root, &input).expect("run should reuse old job");
+
+        assert_eq!(second.job_id, first.job_id);
+        assert_eq!(second.job_dir, first.job_dir);
+        assert_eq!(read_run_count(&ffmpeg_count), 1);
+
+        let index = fs::read_to_string(repo_root.join("db/index.json")).expect("index");
+        let parsed: serde_json::Value = serde_json::from_str(&index).expect("valid json");
+        assert_eq!(parsed["jobs"].as_array().expect("jobs array").len(), 2);
+        assert_eq!(parsed["jobs"][1]["status"], "failed");
+    }
+
+    #[test]
     fn missing_toolchain_reports_bootstrap_path() {
         let repo_root = temp_workspace();
         let input = repo_root.join("fixture.wav");
@@ -372,6 +537,16 @@ mod tests {
         let log = log_path.display();
         let script = format!(
             "#!/bin/sh\n: > '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\n  case \"$arg\" in\n    *.wav)\n      mkdir -p \"$(dirname \"$arg\")\"\n      : > \"$arg\"\n      ;;\n  esac\ndone\n"
+        );
+        fs::write(path, script).expect("ffmpeg script");
+        make_executable(path);
+    }
+
+    fn write_counting_ffmpeg(path: &Path, log_path: &Path, count_path: &Path) {
+        let log = log_path.display();
+        let count = count_path.display();
+        let script = format!(
+            "#!/bin/sh\ncount=0\nif [ -f '{count}' ]; then\n  count=$(cat '{count}')\nfi\ncount=$((count + 1))\nprintf '%s' \"$count\" > '{count}'\n: > '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\n  case \"$arg\" in\n    *.wav)\n      mkdir -p \"$(dirname \"$arg\")\"\n      : > \"$arg\"\n      ;;\n  esac\ndone\n"
         );
         fs::write(path, script).expect("ffmpeg script");
         make_executable(path);
@@ -424,6 +599,14 @@ mod tests {
             permissions.set_mode(0o755);
             fs::set_permissions(path, permissions).expect("permissions");
         }
+    }
+
+    fn read_run_count(path: &Path) -> u32 {
+        fs::read_to_string(path)
+            .expect("count file")
+            .trim()
+            .parse()
+            .expect("count should parse")
     }
 
     #[test]
