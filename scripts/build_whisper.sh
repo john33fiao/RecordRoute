@@ -24,6 +24,12 @@ build_root="${repo_root}/.build/whisper/${target}"
 build_dir="${build_root}/build"
 runtime_bin="${build_root}/bin"
 whisper_bin="${runtime_bin}/whisper-cli"
+built_whisper_bin="${build_dir}/bin/whisper-cli"
+
+link_whisper_cli() {
+  mkdir -p "${runtime_bin}"
+  ln -sf "${built_whisper_bin}" "${whisper_bin}"
+}
 
 if [[ ! -d "${source_dir}" ]]; then
   printf 'whisper.cpp source directory not found: %s\n' "${source_dir}" >&2
@@ -31,6 +37,12 @@ if [[ ! -d "${source_dir}" ]]; then
 fi
 
 if [[ -x "${whisper_bin}" ]]; then
+  printf 'whisper_cli=%s\n' "${whisper_bin}"
+  exit 0
+fi
+
+if [[ -x "${built_whisper_bin}" ]]; then
+  link_whisper_cli
   printf 'whisper_cli=%s\n' "${whisper_bin}"
   exit 0
 fi
@@ -48,5 +60,14 @@ cmake -S "${source_dir}" -B "${build_dir}" \
   -DWHISPER_BUILD_EXAMPLES=ON
 
 cmake --build "${build_dir}" --target whisper-cli -j"${jobs}"
+
+if [[ -x "${built_whisper_bin}" ]]; then
+  link_whisper_cli
+fi
+
+if [[ ! -x "${whisper_bin}" ]]; then
+  printf 'whisper-cli binary not found after build: %s\n' "${built_whisper_bin}" >&2
+  exit 1
+fi
 
 printf 'whisper_cli=%s\n' "${whisper_bin}"
