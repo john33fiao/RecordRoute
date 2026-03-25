@@ -29,6 +29,7 @@
 - `GET /jobs/{job_id}/files/{*file_name}`
 
 즉 현재는 ping-only 단계가 아니라, job/task/file 조회·실행 API까지 구현된 상태다.
+다만 입력 진입점은 아직 서버 로컬 경로 기반이며, 동일 PC에서 동작하는 프론트엔드용 업로드 API는 없다.
 
 ## 핵심 동작 요약
 
@@ -104,33 +105,50 @@
 
 ## P0 (운영/클라이언트 사용성에 즉시 필요)
 
-1. STT 본문 조회 API
+1. 파일 업로드 기반 job 생성 API
+   - `POST /jobs/upload`
+   - 요청: `multipart/form-data` (`file`)
+   - 목적: 동일 PC에서 동작하는 웹 프론트엔드/Electron renderer가 선택한 오디오 파일을 localhost 서버에 제출
+   - 동작:
+     - 서버 관리 업로드 디렉터리에 원본 파일 저장
+     - 내부적으로 기존 ffmpeg job 제출/실행 로직 재사용
+     - 기존 `POST /jobs`는 CLI 또는 Electron main process 같은 path 접근 가능한 로컬 진입점으로 유지 가능
+   - 응답 코드:
+     - `200 OK`: 동일 파일의 기존 완료 결과 재사용
+     - `202 Accepted`: 신규 제출 또는 실행 중 작업 deduplicate
+   - 설계 메모:
+     - 이 API는 원격 노드 간 파일 전송용이 아니라 localhost 단일 머신 배포를 위한 UI 진입점이다
+     - 멀티 노드 실행, 외부 스토리지, signed URL 연계는 현재 범위 밖이다
+     - 브라우저 기반 입력에서는 원본 절대경로를 신뢰하기 어려우므로, reuse key는 업로드 임시 경로 대신 별도 기준을 검토해야 한다
+
+2. STT 본문 조회 API
    - `GET /jobs/{job_id}/stt/texts`
    - `GET /jobs/{job_id}/stt/texts/{transcript_id}`
    - 목적: 파일 다운로드 없이 transcript 텍스트를 JSON으로 조회
 
-2. Summary 본문 조회 API
+3. Summary 본문 조회 API
    - `GET /jobs/{job_id}/summary/text`
    - 목적: `summary/result.txt` 내용을 JSON으로 조회
 
 ## P1 (운영 자동화)
 
-3. 모델 준비 API
+4. 모델 준비 API
    - `POST /models/whisper/prepare`
    - `POST /models/llama/prepare`
    - 목적: CLI 의존 없이 서버에서 모델 준비 작업 트리거
 
 ## P2 (확장/성능)
 
-4. 조회 편의 API
+5. 조회 편의 API
    - `GET /jobs/completed`
    - `GET /jobs/by-source?source_path=...`
 
-5. 파일 제공 전략 고도화
+6. 파일 제공 전략 고도화
    - 대용량 응답 최적화(스트리밍/Range 등)
-   - 필요 시 외부 스토리지/서명 URL 연계
+   - 동일 PC 로컬 앱 기준 파일 복사/열람 UX 최적화 검토
+   - 외부 스토리지/서명 URL 연계는 현재 범위 밖
 
-6. 상태 모델 고도화
+7. 상태 모델 고도화
    - task progress/phase 필드 확장
    - 워커 큐 기반 비동기 실행 모델로 확장 가능성 검토
 
@@ -149,6 +167,7 @@
 
 ### 미완료
 
+- [ ] 파일 업로드 기반 job 생성 API (`POST /jobs/upload`)
 - [ ] STT 텍스트 본문 JSON 조회
 - [ ] Summary 텍스트 본문 JSON 조회
 - [ ] 모델 준비 HTTP API
@@ -159,7 +178,12 @@
 
 ## 5) 설계 메모
 
-- 현재 입력 모델은 업로드가 아니라 **서버 로컬 경로(`input_path`) 기반**이다.
+- 배포 가정은 **프론트엔드와 서버가 동일 PC에서 함께 동작하는 단일 머신 구성**이다.
+- 현재 공개 입력 모델은 업로드가 아니라 **서버 로컬 경로(`input_path`) 기반**이다.
+- 웹 프론트엔드/Electron renderer에서 파일 선택 UI를 쓰려면 `multipart/form-data` 기반 업로드 API가 별도로 필요하다.
 - API/CLI는 동일 도메인 로직(`app.rs`, `index.rs`)을 공유한다.
 - 향후 API 추가 시에도 `IndexStore`를 단일 상태 SoT로 유지하고,
   reuse/deduplicate 규칙을 깨지 않도록 우선 검증해야 한다.
+- 업로드 API는 localhost UI 진입점으로 한정하고, 멀티 노드/원격 워커/외부 스토리지 전제는 두지 않는다.
+- 특히 업로드 API는 임시 저장 경로가 매번 달라질 수 있으므로,
+  기존 `source_path` 중심 재사용 규칙을 그대로 복사하지 말고 별도 식별 기준을 설계해야 한다.
