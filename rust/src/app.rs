@@ -2,7 +2,7 @@ use crate::ffmpeg::{
     ConversionOutputs, SplitMonoOutput, Toolchain as FfmpegToolchain, probe_audio_input,
     run_conversion,
 };
-use crate::index::{IndexStore, JobOutputs, JobProbe, JobRecord, JobSplitOutput};
+use crate::index::{IndexStore, JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus};
 use crate::llama::{Toolchain as LlamaToolchain, run_summary_generation};
 use crate::server;
 use crate::whisper::{Toolchain as WhisperToolchain, run_transcription};
@@ -10,6 +10,8 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use time::macros::format_description;
@@ -17,6 +19,7 @@ use uuid::Uuid;
 
 const RUN_ID_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[year][month][day]T[hour][minute][second]");
+const WAIT_FOR_RUNNING_JOB_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CliCommand {
@@ -72,6 +75,34 @@ pub struct SummaryRunSummary {
     pub summary_file: PathBuf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FfmpegJobDisposition {
+    Submitted,
+    Reused,
+    Deduplicated,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FfmpegJobSubmission {
+    pub job: JobRecord,
+    pub input_path: PathBuf,
+    pub disposition: FfmpegJobDisposition,
+}
+
+impl FfmpegJobSubmission {
+    pub fn reused(&self) -> bool {
+        self.disposition == FfmpegJobDisposition::Reused
+    }
+
+    pub fn deduplicated(&self) -> bool {
+        self.disposition == FfmpegJobDisposition::Deduplicated
+    }
+
+    pub fn should_execute(&self) -> bool {
+        self.disposition == FfmpegJobDisposition::Submitted
+    }
+}
+
 pub fn main_cli() -> Result<(), String> {
     let repo_root = repo_root()?;
     load_repo_env(&repo_root)?;
@@ -102,8 +133,8 @@ pub fn main_cli() -> Result<(), String> {
             prepare_llama_model_with_repo_root(&repo_root)?;
         }
         CliCommand::Server => {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_io()
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
                 .build()
                 .map_err(|error| format!("failed to create tokio runtime: {error}"))?;
             runtime.block_on(server::serve())?;
@@ -193,14 +224,43 @@ pub fn resolve_input_path(
 }
 
 pub fn run_with_repo_root(repo_root: &Path, input: &Path) -> Result<RunSummary, String> {
+    let submission = submit_ffmpeg_job(repo_root, input)?;
+
+    match submission.disposition {
+        FfmpegJobDisposition::Reused => run_summary_from_completed_job(submission.job),
+        FfmpegJobDisposition::Submitted => {
+            let job =
+                execute_ffmpeg_job(repo_root, &submission.job.job_id, &submission.input_path)?;
+            run_summary_from_completed_job(job)
+        }
+        FfmpegJobDisposition::Deduplicated => {
+            let job = wait_for_ffmpeg_job_completion(repo_root, &submission.job.job_id)?;
+            run_summary_from_completed_job(job)
+        }
+    }
+}
+
+pub fn submit_ffmpeg_job(repo_root: &Path, input: &Path) -> Result<FfmpegJobSubmission, String> {
     let input_path = normalize_input_path(input)?;
     let index_store = IndexStore::new(repo_root);
 
     if let Some(job) = index_store.find_reusable_completed_job(&input_path)? {
-        return run_summary_from_completed_job(job);
+        return Ok(FfmpegJobSubmission {
+            job,
+            input_path,
+            disposition: FfmpegJobDisposition::Reused,
+        });
     }
 
-    let toolchain = FfmpegToolchain::discover(repo_root)?;
+    if let Some(job) = index_store.find_running_job_by_source(&input_path)? {
+        return Ok(FfmpegJobSubmission {
+            job,
+            input_path,
+            disposition: FfmpegJobDisposition::Deduplicated,
+        });
+    }
+
+    FfmpegToolchain::discover(repo_root)?;
     index_store.ensure_db_dir()?;
 
     let started_at = now_rfc3339()?;
@@ -213,19 +273,47 @@ pub fn run_with_repo_root(repo_root: &Path, input: &Path) -> Result<RunSummary, 
         )
     })?;
 
-    let mut job = JobRecord::new(
-        job_id.clone(),
-        started_at,
-        input_path.clone(),
-        job_dir.clone(),
-    );
+    let job = JobRecord::new(job_id, started_at, input_path.clone(), job_dir);
     index_store.insert_job(job.clone())?;
+
+    Ok(FfmpegJobSubmission {
+        job,
+        input_path,
+        disposition: FfmpegJobDisposition::Submitted,
+    })
+}
+
+pub fn execute_ffmpeg_job(
+    repo_root: &Path,
+    job_id: &str,
+    input_path: &Path,
+) -> Result<JobRecord, String> {
+    let index_store = IndexStore::new(repo_root);
+    let toolchain = FfmpegToolchain::discover(repo_root)?;
+    let mut job = index_store
+        .find_job(job_id)?
+        .ok_or_else(|| format!("job not found in index: {job_id}"))?;
+    let input_path = match normalize_input_path(input_path) {
+        Ok(path) => path,
+        Err(error) => {
+            job.mark_failed(now_rfc3339()?, error.clone());
+            index_store.update_job(job_id, |_| job.clone())?;
+            return Err(error);
+        }
+    };
+    if input_path != PathBuf::from(&job.source_path) {
+        let error = format!("job input path mismatch for {job_id}");
+        job.mark_failed(now_rfc3339()?, error.clone());
+        index_store.update_job(job_id, |_| job.clone())?;
+        return Err(error);
+    }
+    let job_dir = PathBuf::from(&job.job_dir);
 
     let probe = match probe_audio_input(&toolchain, &input_path) {
         Ok(probe) => probe,
         Err(error) => {
             job.mark_failed(now_rfc3339()?, error.clone());
-            index_store.update_job(&job_id, |_| job.clone())?;
+            index_store.update_job(job_id, |_| job.clone())?;
             return Err(error);
         }
     };
@@ -234,39 +322,56 @@ pub fn run_with_repo_root(repo_root: &Path, input: &Path) -> Result<RunSummary, 
         channels: Some(probe.channels),
         channel_layout: probe.channel_layout.clone(),
     };
+    index_store.update_job(job_id, |_| job.clone())?;
 
     let planned_outputs = ConversionOutputs::new(&job_dir, probe.channels);
 
     match run_conversion(&toolchain, &input_path, probe.channels, &planned_outputs) {
         Ok(()) => {
-            job.mark_completed(
-                now_rfc3339()?,
-                JobOutputs {
-                    merged_mono_wav: Some(path_to_string(&planned_outputs.merged_mono_wav)),
-                    split_mono_wavs: planned_outputs
-                        .split_mono_wavs
-                        .iter()
-                        .map(|output| JobSplitOutput {
-                            channel_index: output.channel_index,
-                            path: path_to_string(&output.path),
-                        })
-                        .collect(),
-                },
-            );
-            index_store.update_job(&job_id, |_| job.clone())?;
-
-            Ok(RunSummary {
-                job_id,
-                job_dir,
-                outputs: planned_outputs,
-            })
+            job.mark_completed(now_rfc3339()?, build_job_outputs(&planned_outputs));
+            index_store.update_job(job_id, |_| job.clone())?;
+            Ok(job)
         }
         Err(error) => {
             planned_outputs.cleanup_partial_files();
             job.mark_failed(now_rfc3339()?, error.clone());
-            index_store.update_job(&job_id, |_| job.clone())?;
+            index_store.update_job(job_id, |_| job.clone())?;
             Err(error)
         }
+    }
+}
+
+fn wait_for_ffmpeg_job_completion(repo_root: &Path, job_id: &str) -> Result<JobRecord, String> {
+    let index_store = IndexStore::new(repo_root);
+
+    loop {
+        let job = index_store
+            .find_job(job_id)?
+            .ok_or_else(|| format!("job not found in index: {job_id}"))?;
+
+        match job.status {
+            JobStatus::Running => thread::sleep(WAIT_FOR_RUNNING_JOB_POLL_INTERVAL),
+            JobStatus::Completed => return Ok(job),
+            JobStatus::Failed => {
+                return Err(job
+                    .error_message
+                    .unwrap_or_else(|| format!("ffmpeg job failed: {job_id}")));
+            }
+        }
+    }
+}
+
+fn build_job_outputs(outputs: &ConversionOutputs) -> JobOutputs {
+    JobOutputs {
+        merged_mono_wav: Some(path_to_string(&outputs.merged_mono_wav)),
+        split_mono_wavs: outputs
+            .split_mono_wavs
+            .iter()
+            .map(|output| JobSplitOutput {
+                channel_index: output.channel_index,
+                path: path_to_string(&output.path),
+            })
+            .collect(),
     }
 }
 
@@ -781,7 +886,7 @@ fn normalize_input_path(input: &Path) -> Result<PathBuf, String> {
         .map_err(|error| format!("failed to resolve input path {}: {error}", input.display()))
 }
 
-fn repo_root() -> Result<PathBuf, String> {
+pub(crate) fn repo_root() -> Result<PathBuf, String> {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .map(Path::to_path_buf)

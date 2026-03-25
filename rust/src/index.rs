@@ -194,8 +194,29 @@ impl IndexStore {
         })
     }
 
+    pub fn find_running_job_by_source(
+        &self,
+        source_path: &Path,
+    ) -> Result<Option<JobRecord>, String> {
+        let source_path = source_path.to_string_lossy().into_owned();
+        self.with_locked_index_read(|index| {
+            Ok(index
+                .jobs
+                .iter()
+                .rev()
+                .find(|job| job.status == JobStatus::Running && job.source_path == source_path)
+                .cloned())
+        })
+    }
+
+    pub fn find_job(&self, job_id: &str) -> Result<Option<JobRecord>, String> {
+        self.with_locked_index_read(|index| {
+            Ok(index.jobs.iter().find(|job| job.job_id == job_id).cloned())
+        })
+    }
+
     pub fn list_jobs(&self) -> Result<Vec<JobRecord>, String> {
-        self.with_locked_index_read(|index| Ok(index.jobs.clone()))
+        self.with_locked_index_read(|index| Ok(index.jobs.iter().rev().cloned().collect()))
     }
 
     fn with_locked_index(
@@ -408,6 +429,77 @@ mod tests {
             .expect("valid job should be found");
 
         assert_eq!(found.job_id, "job-1");
+    }
+
+    #[test]
+    fn finds_latest_running_job_by_source() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let source_path = PathBuf::from("/tmp/input.wav");
+
+        let older = JobRecord::new(
+            "job-1".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            source_path.clone(),
+            store.job_dir("job-1"),
+        );
+        store.insert_job(older).expect("insert older job");
+
+        let mut failed = JobRecord::new(
+            "job-2".to_string(),
+            "2026-01-01T00:00:01Z".to_string(),
+            source_path.clone(),
+            store.job_dir("job-2"),
+        );
+        failed.mark_failed(
+            "2026-01-01T00:00:02Z".to_string(),
+            "synthetic failure".to_string(),
+        );
+        store.insert_job(failed).expect("insert failed job");
+
+        let newer = JobRecord::new(
+            "job-3".to_string(),
+            "2026-01-01T00:00:03Z".to_string(),
+            source_path.clone(),
+            store.job_dir("job-3"),
+        );
+        store.insert_job(newer).expect("insert newer job");
+
+        let found = store
+            .find_running_job_by_source(&source_path)
+            .expect("lookup should succeed")
+            .expect("running job should be found");
+
+        assert_eq!(found.job_id, "job-3");
+    }
+
+    #[test]
+    fn lists_jobs_with_latest_first() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+
+        store
+            .insert_job(JobRecord::new(
+                "job-1".to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+                PathBuf::from("/tmp/first.wav"),
+                store.job_dir("job-1"),
+            ))
+            .expect("insert first job");
+        store
+            .insert_job(JobRecord::new(
+                "job-2".to_string(),
+                "2026-01-01T00:00:01Z".to_string(),
+                PathBuf::from("/tmp/second.wav"),
+                store.job_dir("job-2"),
+            ))
+            .expect("insert second job");
+
+        let jobs = store.list_jobs().expect("list jobs");
+
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[0].job_id, "job-2");
+        assert_eq!(jobs[1].job_id, "job-1");
     }
 
     fn path_to_string(path: &Path) -> String {
