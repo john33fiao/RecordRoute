@@ -310,8 +310,11 @@
   - 목적: 특정 job 폴더의 오디오 파일들에 대해 STT 실행
   - 요청 필드:
     - `audio_files` (선택)
+    - `mono_mix_only` (선택, 기본값 `false`)
   - 기본 동작:
     - 지정이 없으면 job 디렉터리의 지원 오디오 파일 전체 처리
+    - `mono_mix_only=true`면 `mono_mix.wav`만 처리
+    - `mono_mix_only=true`와 `audio_files` 동시 지정은 허용하지 않음
   - 응답 필드:
     - `job_id`
     - `status`
