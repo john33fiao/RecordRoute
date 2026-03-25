@@ -92,6 +92,19 @@ struct SystemStatusResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct SttTranscriptText {
+    pub transcript_id: String,
+    pub file_name: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct SttTranscriptListResponse {
+    pub job_id: String,
+    pub transcripts: Vec<SttTranscriptText>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct JobSubmissionResponse {
     pub job_id: String,
     pub status: JobStatus,
@@ -131,6 +144,11 @@ pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
         .route("/jobs/{job_id}", get(get_job))
         .route("/jobs/{job_id}/status", get(get_job_status))
         .route("/jobs/{job_id}/stt", post(post_stt).get(get_stt))
+        .route("/jobs/{job_id}/stt/texts", get(get_stt_texts))
+        .route(
+            "/jobs/{job_id}/stt/texts/{transcript_id}",
+            get(get_stt_text),
+        )
         .route(
             "/jobs/{job_id}/summary",
             post(post_summary).get(get_summary),
@@ -457,6 +475,52 @@ async fn get_stt(State(state): State<AppState>, AxumPath(job_id): AxumPath<Strin
     Json(body).into_response()
 }
 
+async fn get_stt_texts(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+) -> Response {
+    let repo_root = state.repo_root.clone();
+    let lookup_job_id = job_id.clone();
+    let transcripts =
+        match run_blocking(move || read_stt_transcripts(&repo_root, &lookup_job_id)).await {
+            Ok(transcripts) => transcripts,
+            Err(error) if error.starts_with("job not found:") => {
+                return error_response(StatusCode::NOT_FOUND, error);
+            }
+            Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+        };
+
+    Json(SttTranscriptListResponse {
+        job_id,
+        transcripts,
+    })
+    .into_response()
+}
+
+async fn get_stt_text(
+    State(state): State<AppState>,
+    AxumPath((job_id, transcript_id)): AxumPath<(String, String)>,
+) -> Response {
+    let repo_root = state.repo_root.clone();
+    let lookup_job_id = job_id.clone();
+    let lookup_transcript_id = transcript_id.clone();
+    let transcript = match run_blocking(move || {
+        read_stt_transcript(&repo_root, &lookup_job_id, &lookup_transcript_id)
+    })
+    .await
+    {
+        Ok(transcript) => transcript,
+        Err(error)
+            if error.starts_with("job not found:")
+                || error.starts_with("transcript not found:") =>
+        {
+            return error_response(StatusCode::NOT_FOUND, error);
+        }
+        Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+    };
+    Json(transcript).into_response()
+}
+
 async fn post_summary(
     State(state): State<AppState>,
     AxumPath(job_id): AxumPath<String>,
@@ -686,6 +750,71 @@ fn collect_job_files(repo_root: &std::path::Path, job_id: &str) -> Result<Vec<St
     Ok(files)
 }
 
+fn read_stt_transcripts(
+    repo_root: &std::path::Path,
+    job_id: &str,
+) -> Result<Vec<SttTranscriptText>, String> {
+    let store = IndexStore::new(repo_root);
+    let job = store
+        .find_job(job_id)?
+        .ok_or_else(|| format!("job not found: {job_id}"))?;
+    let stt_dir = PathBuf::from(job.job_dir).join("stt");
+    if !stt_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut transcripts = Vec::new();
+    for entry in fs::read_dir(&stt_dir)
+        .map_err(|error| format!("failed to read {}: {error}", stt_dir.display()))?
+    {
+        let entry = entry.map_err(|error| format!("failed to read stt entry: {error}"))?;
+        let path = entry.path();
+        if !path.is_file()
+            || path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_none_or(|ext| ext != "txt")
+        {
+            continue;
+        }
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let transcript_id = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .ok_or_else(|| {
+                format!(
+                    "failed to parse transcript id from file: {}",
+                    path.display()
+                )
+            })?
+            .to_string();
+        let text = fs::read_to_string(&path)
+            .map_err(|error| format!("failed to read transcript {}: {error}", path.display()))?;
+        transcripts.push(SttTranscriptText {
+            transcript_id,
+            file_name: file_name.to_string(),
+            text,
+        });
+    }
+    transcripts.sort_by(|a, b| a.file_name.cmp(&b.file_name));
+    Ok(transcripts)
+}
+
+fn read_stt_transcript(
+    repo_root: &std::path::Path,
+    job_id: &str,
+    transcript_id: &str,
+) -> Result<SttTranscriptText, String> {
+    sanitize_transcript_id(transcript_id)?;
+    let transcripts = read_stt_transcripts(repo_root, job_id)?;
+    transcripts
+        .into_iter()
+        .find(|transcript| transcript.transcript_id == transcript_id)
+        .ok_or_else(|| format!("transcript not found: {transcript_id}"))
+}
+
 fn read_job_file(
     repo_root: &std::path::Path,
     job_id: &str,
@@ -714,6 +843,17 @@ fn sanitize_file_name(file_name: &str) -> Result<&str, String> {
         return Err("invalid file path".to_string());
     }
     Ok(file_name)
+}
+
+fn sanitize_transcript_id(transcript_id: &str) -> Result<(), String> {
+    if transcript_id.is_empty()
+        || transcript_id.contains('\\')
+        || transcript_id.contains('/')
+        || transcript_id.contains("..")
+    {
+        return Err("invalid transcript id".to_string());
+    }
+    Ok(())
 }
 
 fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
@@ -1266,6 +1406,100 @@ mod tests {
         assert!(!job_dir.join("channel_01.wav").exists());
         assert!(!job_dir.join("channel_02.wav").exists());
         assert!(!job_dir.join("mono_mix.wav").exists());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_stt_texts_returns_transcript_texts_as_json() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let job_id = "job-stt-texts";
+        let job_dir = store.job_dir(job_id);
+        fs::create_dir_all(job_dir.join("stt")).expect("stt dir");
+        fs::write(job_dir.join("stt/channel_01.txt"), "channel transcript").expect("channel");
+        fs::write(job_dir.join("stt/mono_mix.txt"), "mono transcript").expect("mono");
+
+        store
+            .insert_job(JobRecord::new(
+                job_id.to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+                PathBuf::from("/tmp/stt.wav"),
+                job_dir,
+            ))
+            .expect("insert job");
+
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .oneshot(get_request("/jobs/job-stt-texts/stt/texts"))
+            .await
+            .expect("stt texts response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: SttTranscriptListResponse = read_json(response).await;
+        assert_eq!(body.job_id, job_id);
+        assert_eq!(body.transcripts.len(), 2);
+        assert_eq!(body.transcripts[0].transcript_id, "channel_01");
+        assert_eq!(body.transcripts[0].text, "channel transcript");
+        assert_eq!(body.transcripts[1].transcript_id, "mono_mix");
+        assert_eq!(body.transcripts[1].text, "mono transcript");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_stt_text_returns_single_transcript_json() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let job_id = "job-stt-text";
+        let job_dir = store.job_dir(job_id);
+        fs::create_dir_all(job_dir.join("stt")).expect("stt dir");
+        fs::write(job_dir.join("stt/channel_01.txt"), "single transcript").expect("channel");
+
+        store
+            .insert_job(JobRecord::new(
+                job_id.to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+                PathBuf::from("/tmp/stt-single.wav"),
+                job_dir,
+            ))
+            .expect("insert job");
+
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .oneshot(get_request("/jobs/job-stt-text/stt/texts/channel_01"))
+            .await
+            .expect("stt text response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: SttTranscriptText = read_json(response).await;
+        assert_eq!(body.transcript_id, "channel_01");
+        assert_eq!(body.file_name, "channel_01.txt");
+        assert_eq!(body.text, "single transcript");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_stt_text_returns_404_for_missing_transcript() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let job_id = "job-stt-missing";
+        let job_dir = store.job_dir(job_id);
+        fs::create_dir_all(job_dir.join("stt")).expect("stt dir");
+
+        store
+            .insert_job(JobRecord::new(
+                job_id.to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+                PathBuf::from("/tmp/stt-missing.wav"),
+                job_dir,
+            ))
+            .expect("insert job");
+
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .oneshot(get_request("/jobs/job-stt-missing/stt/texts/not_found"))
+            .await
+            .expect("stt text missing response");
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body: ErrorResponse = read_json(response).await;
+        assert!(body.message.contains("transcript not found: not_found"));
     }
 
     fn temp_workspace() -> PathBuf {

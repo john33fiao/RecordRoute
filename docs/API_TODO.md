@@ -23,6 +23,8 @@
 - `GET /jobs/{job_id}/status`
 - `POST /jobs/{job_id}/stt`
 - `GET /jobs/{job_id}/stt`
+- `GET /jobs/{job_id}/stt/texts`
+- `GET /jobs/{job_id}/stt/texts/{transcript_id}`
 - `POST /jobs/{job_id}/summary`
 - `GET /jobs/{job_id}/summary`
 - `GET /jobs/{job_id}/files`
@@ -121,12 +123,7 @@
      - 멀티 노드 실행, 외부 스토리지, signed URL 연계는 현재 범위 밖이다
      - 브라우저 기반 입력에서는 원본 절대경로를 신뢰하기 어려우므로, reuse key는 업로드 임시 경로 대신 별도 기준을 검토해야 한다
 
-2. STT 본문 조회 API
-   - `GET /jobs/{job_id}/stt/texts`
-   - `GET /jobs/{job_id}/stt/texts/{transcript_id}`
-   - 목적: 파일 다운로드 없이 transcript 텍스트를 JSON으로 조회
-
-3. Summary 본문 조회 API
+2. Summary 본문 조회 API
    - `GET /jobs/{job_id}/summary/text`
    - 목적: `summary/result.txt` 내용을 JSON으로 조회
 
@@ -168,7 +165,7 @@
 ### 미완료
 
 - [ ] 파일 업로드 기반 job 생성 API (`POST /jobs/upload`)
-- [ ] STT 텍스트 본문 JSON 조회
+- [x] STT 텍스트 본문 JSON 조회 (`GET /jobs/{job_id}/stt/texts`, `GET /jobs/{job_id}/stt/texts/{transcript_id}`)
 - [ ] Summary 텍스트 본문 JSON 조회
 - [ ] 모델 준비 HTTP API
 - [ ] 완료 job/원본 경로 기반 조회 편의 API
