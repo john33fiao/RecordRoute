@@ -133,7 +133,7 @@ impl JobRecord {
 
     pub fn mark_completed(&mut self, finished_at: String, outputs: JobOutputs) {
         self.status = JobStatus::Completed;
-        self.finished_at = Some(finished_at);
+        self.finished_at = Some(finished_at.clone());
         self.outputs = outputs;
         self.error_message = None;
         self.update_task(
@@ -146,7 +146,7 @@ impl JobRecord {
 
     pub fn mark_failed(&mut self, finished_at: String, error_message: String) {
         self.status = JobStatus::Failed;
-        self.finished_at = Some(finished_at);
+        self.finished_at = Some(finished_at.clone());
         self.error_message = Some(error_message);
         self.update_task(
             TaskType::Ffmpeg,
