@@ -19,6 +19,7 @@
 - Whisper 래퍼: `rust/src/whisper.rs`
 - Llama 래퍼: `rust/src/llama.rs`
 - 아키텍처 문서: `docs/architecture.md`
+- OpenAPI 명세: `docs/openapi.yaml`
 - API 설계 TODO: `docs/API_TODO.md`
 
 ## 3) 실행/개발 기본 명령

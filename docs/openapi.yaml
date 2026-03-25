@@ -1,0 +1,727 @@
+openapi: 3.1.0
+info:
+  title: RecordRoute Local API
+  version: 0.1.0
+  description: |
+    `rust/src/server.rs` 기준으로 현재 구현된 RecordRoute HTTP API 명세입니다.
+
+    - 서버 기본 바인드: `127.0.0.1:38080`
+    - 상태/결과 저장 SoT: `db/index.json`
+    - 비동기 작업 제출 엔드포인트는 즉시 처리 결과 대신 제출/중복제거 상태를 반환할 수 있습니다.
+servers:
+  - url: http://127.0.0.1:38080
+    description: Local development server
+
+tags:
+  - name: server
+  - name: system
+  - name: jobs
+  - name: stt
+  - name: summary
+  - name: files
+
+paths:
+  /server/ping:
+    post:
+      tags: [server]
+      summary: Ping endpoint
+      operationId: postServerPing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PingRequest'
+      responses:
+        '200':
+          description: Ping success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PingResponse'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /system/status:
+    get:
+      tags: [system]
+      summary: Toolchain/model availability
+      operationId: getSystemStatus
+      responses:
+        '200':
+          description: System status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatusResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs:
+    post:
+      tags: [jobs]
+      summary: Create or reuse ffmpeg job
+      operationId: postJobs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateJobRequest'
+      responses:
+        '200':
+          description: Completed job reused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobSubmissionResponse'
+        '202':
+          description: New job accepted or running job deduplicated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobSubmissionResponse'
+        '400':
+          description: Invalid input path / malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: FFmpeg toolchain unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags: [jobs]
+      summary: List jobs
+      operationId: getJobs
+      responses:
+        '200':
+          description: Job list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobListResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs/{job_id}:
+    get:
+      tags: [jobs]
+      summary: Get full job record
+      operationId: getJob
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobRecord'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs/{job_id}/status:
+    get:
+      tags: [jobs]
+      summary: Get job status and task states
+      operationId: getJobStatus
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job status snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs/{job_id}/stt:
+    post:
+      tags: [stt]
+      summary: Submit STT task for a job
+      operationId: postStt
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SttRequest'
+      responses:
+        '202':
+          description: STT accepted/reused/deduplicated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskSubmissionResponse'
+        '400':
+          description: Invalid request or job state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags: [stt]
+      summary: Get STT task status
+      operationId: getStt
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: STT task status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskSubmissionResponse'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs/{job_id}/stt/texts:
+    get:
+      tags: [stt]
+      summary: List STT transcripts (.txt contents)
+      operationId: getSttTexts
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Transcript list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SttTranscriptListResponse'
+        '400':
+          description: Invalid state/path
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs/{job_id}/stt/texts/{transcript_id}:
+    get:
+      tags: [stt]
+      summary: Get one transcript by transcript id (file stem)
+      operationId: getSttText
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - name: transcript_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transcript detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SttTranscriptText'
+        '400':
+          description: Invalid transcript id/path
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job or transcript not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs/{job_id}/summary:
+    post:
+      tags: [summary]
+      summary: Submit summary task for a job
+      operationId: postSummary
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SummaryRequest'
+      responses:
+        '202':
+          description: Summary accepted/reused/deduplicated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskSubmissionResponse'
+        '400':
+          description: Invalid request or job state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags: [summary]
+      summary: Get summary task status
+      operationId: getSummary
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Summary task status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskSubmissionResponse'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs/{job_id}/files:
+    get:
+      tags: [files]
+      summary: List downloadable files for a job
+      operationId: getJobFiles
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: File list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileListResponse'
+        '400':
+          description: Invalid state/path
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs/{job_id}/files/{file_name}:
+    get:
+      tags: [files]
+      summary: Download one allowed job file
+      description: |
+        `file_name`은 `stt/result.txt`처럼 슬래시를 포함할 수 있습니다.
+        클라이언트는 경로를 URL 인코딩해서 전달해야 합니다.
+      operationId: getJobFile
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - name: file_name
+          in: path
+          required: true
+          allowReserved: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Raw file bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Invalid path or disallowed file
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job or file not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  parameters:
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+    PingRequest:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+    PingResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: HTTP status code string
+          examples: ['400', '404', '500']
+        message:
+          type: string
+
+    CreateJobRequest:
+      type: object
+      required: [input_path]
+      properties:
+        input_path:
+          type: string
+          description: Audio file path on server-local filesystem
+
+    SummaryRequest:
+      type: object
+      properties:
+        force_regenerate:
+          type: boolean
+          default: false
+
+    SttRequest:
+      type: object
+      properties:
+        audio_files:
+          type: array
+          items:
+            type: string
+          default: []
+          description: Target audio files under job directory (ex. channel_01.wav)
+        mono_mix_only:
+          type: boolean
+          default: false
+      description: mono_mix_only=true and non-empty audio_files cannot be used together.
+
+    TaskSubmissionResponse:
+      type: object
+      required:
+        [job_id, task_type, status, message, reused, deduplicated, task]
+      properties:
+        job_id:
+          type: string
+        task_type:
+          $ref: '#/components/schemas/TaskType'
+        status:
+          type: string
+          description: API-level status text (ex. accepted, ok)
+        message:
+          type: string
+        reused:
+          type: boolean
+        deduplicated:
+          type: boolean
+        task:
+          oneOf:
+            - $ref: '#/components/schemas/TaskRecord'
+            - type: 'null'
+
+    FileListResponse:
+      type: object
+      required: [job_id, files]
+      properties:
+        job_id:
+          type: string
+        files:
+          type: array
+          items:
+            type: string
+
+    JobStatusResponse:
+      type: object
+      required: [job_id, job_status, tasks, error_message]
+      properties:
+        job_id:
+          type: string
+        job_status:
+          $ref: '#/components/schemas/JobStatus'
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskRecord'
+        error_message:
+          oneOf:
+            - type: string
+            - type: 'null'
+
+    SystemStatusResponse:
+      type: object
+      required:
+        [ffmpeg_available, whisper_available, llama_available, whisper_model_ready, llama_model_ready, errors]
+      properties:
+        ffmpeg_available:
+          type: boolean
+        whisper_available:
+          type: boolean
+        llama_available:
+          type: boolean
+        whisper_model_ready:
+          type: boolean
+        llama_model_ready:
+          type: boolean
+        errors:
+          type: array
+          items:
+            type: string
+
+    SttTranscriptText:
+      type: object
+      required: [transcript_id, file_name, text]
+      properties:
+        transcript_id:
+          type: string
+        file_name:
+          type: string
+        text:
+          type: string
+
+    SttTranscriptListResponse:
+      type: object
+      required: [job_id, transcripts]
+      properties:
+        job_id:
+          type: string
+        transcripts:
+          type: array
+          items:
+            $ref: '#/components/schemas/SttTranscriptText'
+
+    JobSubmissionResponse:
+      type: object
+      required:
+        [job_id, status, message, reused, deduplicated, started_at, finished_at, source_path, source_file_name, probe, outputs, error_message]
+      properties:
+        job_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        message:
+          type: string
+        reused:
+          type: boolean
+        deduplicated:
+          type: boolean
+        started_at:
+          type: string
+        finished_at:
+          oneOf:
+            - type: string
+            - type: 'null'
+        source_path:
+          type: string
+        source_file_name:
+          type: string
+        probe:
+          $ref: '#/components/schemas/JobProbe'
+        outputs:
+          $ref: '#/components/schemas/JobOutputs'
+        error_message:
+          oneOf:
+            - type: string
+            - type: 'null'
+
+    JobListResponse:
+      type: object
+      required: [jobs]
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobRecord'
+
+    JobRecord:
+      type: object
+      required:
+        [job_id, status, started_at, finished_at, source_path, source_file_name, job_dir, probe, split_strategy, outputs, error_message, tasks]
+      properties:
+        job_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        started_at:
+          type: string
+        finished_at:
+          oneOf:
+            - type: string
+            - type: 'null'
+        source_path:
+          type: string
+        source_file_name:
+          type: string
+        job_dir:
+          type: string
+        probe:
+          $ref: '#/components/schemas/JobProbe'
+        split_strategy:
+          $ref: '#/components/schemas/SplitStrategy'
+        outputs:
+          $ref: '#/components/schemas/JobOutputs'
+        error_message:
+          oneOf:
+            - type: string
+            - type: 'null'
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskRecord'
+
+    TaskRecord:
+      type: object
+      required: [task_id, task_type, status, started_at, finished_at, last_error, retry_count]
+      properties:
+        task_id:
+          type: string
+        task_type:
+          $ref: '#/components/schemas/TaskType'
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        started_at:
+          type: string
+        finished_at:
+          oneOf:
+            - type: string
+            - type: 'null'
+        last_error:
+          oneOf:
+            - type: string
+            - type: 'null'
+        retry_count:
+          type: integer
+          minimum: 0
+
+    JobProbe:
+      type: object
+      required: [channels, channel_layout]
+      properties:
+        channels:
+          oneOf:
+            - type: integer
+              minimum: 0
+            - type: 'null'
+        channel_layout:
+          oneOf:
+            - type: string
+            - type: 'null'
+
+    JobOutputs:
+      type: object
+      required: [merged_mono_wav, split_mono_wavs]
+      properties:
+        merged_mono_wav:
+          oneOf:
+            - type: string
+            - type: 'null'
+        split_mono_wavs:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobSplitOutput'
+
+    JobSplitOutput:
+      type: object
+      required: [channel_index, path]
+      properties:
+        channel_index:
+          type: integer
+          minimum: 0
+        path:
+          type: string
+
+    JobStatus:
+      type: string
+      enum: [running, completed, failed]
+
+    TaskStatus:
+      type: string
+      enum: [running, completed, failed]
+
+    TaskType:
+      type: string
+      enum: [ffmpeg, stt, summary]
+
+    SplitStrategy:
+      type: string
+      enum: [per_channel_plus_merged_mono]
