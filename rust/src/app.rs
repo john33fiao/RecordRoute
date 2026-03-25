@@ -4,6 +4,7 @@ use crate::ffmpeg::{
 };
 use crate::index::{IndexStore, JobOutputs, JobProbe, JobRecord, JobSplitOutput};
 use crate::llama::{Toolchain as LlamaToolchain, run_summary_generation};
+use crate::server;
 use crate::whisper::{Toolchain as WhisperToolchain, run_transcription};
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -23,6 +24,7 @@ enum CliCommand {
     Stt,
     Summary,
     PrepareLlamaModel,
+    Server,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,6 +101,13 @@ pub fn main_cli() -> Result<(), String> {
         CliCommand::PrepareLlamaModel => {
             prepare_llama_model_with_repo_root(&repo_root)?;
         }
+        CliCommand::Server => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_io()
+                .build()
+                .map_err(|error| format!("failed to create tokio runtime: {error}"))?;
+            runtime.block_on(server::serve())?;
+        }
     }
 
     Ok(())
@@ -127,11 +136,15 @@ fn resolve_cli_command(
         [mode, ..] if mode == OsStr::new("prepare-llama-model") => {
             Err("prepare-llama-model mode does not accept additional arguments".to_string())
         }
+        [mode] if mode == OsStr::new("server") => Ok(CliCommand::Server),
+        [mode, ..] if mode == OsStr::new("server") => {
+            Err("server mode does not accept additional arguments".to_string())
+        }
         [path] => Ok(CliCommand::Ffmpeg {
             input: Some(PathBuf::from(path)),
         }),
         _ => Err(
-            "usage: recordroute_rust [ffmpeg <input>|stt|summary|prepare-llama-model|<input>]"
+            "usage: recordroute_rust [ffmpeg <input>|stt|summary|prepare-llama-model|server|<input>]"
                 .to_string(),
         ),
     }
@@ -143,6 +156,7 @@ fn prompt_for_mode(reader: &mut dyn BufRead, writer: &mut dyn Write) -> Result<C
         writeln!(writer, "1. ffmpeg 작업").map_err(|error| error.to_string())?;
         writeln!(writer, "2. stt 작업").map_err(|error| error.to_string())?;
         writeln!(writer, "3. summary 작업").map_err(|error| error.to_string())?;
+        writeln!(writer, "4. server 작업").map_err(|error| error.to_string())?;
         write!(writer, "Enter number: ").map_err(|error| error.to_string())?;
         writer.flush().map_err(|error| error.to_string())?;
 
@@ -151,8 +165,9 @@ fn prompt_for_mode(reader: &mut dyn BufRead, writer: &mut dyn Write) -> Result<C
             "1" => return Ok(CliCommand::Ffmpeg { input: None }),
             "2" => return Ok(CliCommand::Stt),
             "3" => return Ok(CliCommand::Summary),
+            "4" => return Ok(CliCommand::Server),
             _ => {
-                writeln!(writer, "Invalid selection. Enter 1, 2, or 3.")
+                writeln!(writer, "Invalid selection. Enter 1, 2, 3, or 4.")
                     .map_err(|error| error.to_string())?;
             }
         }
@@ -915,7 +930,7 @@ mod tests {
         assert!(
             String::from_utf8(output)
                 .expect("utf8")
-                .contains("Invalid selection. Enter 1, 2, or 3.")
+                .contains("Invalid selection. Enter 1, 2, 3, or 4.")
         );
     }
 
@@ -950,6 +965,43 @@ mod tests {
         let command = resolve_cli_command(&args, &mut reader, &mut output).expect("command");
 
         assert_eq!(command, CliCommand::PrepareLlamaModel);
+    }
+
+    #[test]
+    fn resolves_server_command() {
+        let args = vec![OsString::from("server")];
+        let mut reader = Cursor::new(Vec::<u8>::new());
+        let mut output = Vec::new();
+
+        let command = resolve_cli_command(&args, &mut reader, &mut output).expect("command");
+
+        assert_eq!(command, CliCommand::Server);
+    }
+
+    #[test]
+    fn server_command_rejects_extra_arguments() {
+        let args = vec![OsString::from("server"), OsString::from("extra")];
+        let mut reader = Cursor::new(Vec::<u8>::new());
+        let mut output = Vec::new();
+
+        let error = resolve_cli_command(&args, &mut reader, &mut output).expect_err("should fail");
+
+        assert_eq!(error, "server mode does not accept additional arguments");
+    }
+
+    #[test]
+    fn prompts_for_server_mode_when_selected() {
+        let mut reader = Cursor::new(b"4\n".to_vec());
+        let mut output = Vec::new();
+
+        let command = resolve_cli_command(&[], &mut reader, &mut output).expect("command");
+
+        assert_eq!(command, CliCommand::Server);
+        assert!(
+            String::from_utf8(output)
+                .expect("utf8")
+                .contains("4. server 작업")
+        );
     }
 
     #[test]

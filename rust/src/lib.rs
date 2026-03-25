@@ -2,6 +2,7 @@ mod app;
 mod ffmpeg;
 mod index;
 mod llama;
+mod server;
 mod whisper;
 
 pub use app::main_cli;
