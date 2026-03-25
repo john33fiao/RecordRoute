@@ -131,6 +131,98 @@ if not defined cmake_exe (
 )
 goto :eof
 
+:read_build_stamp
+set "cached_backend="
+if not exist "%build_stamp%" goto :eof
+for /f "usebackq tokens=1,* delims==" %%A in ("%build_stamp%") do (
+  if /I "%%~A"=="GGML_BACKEND" set "cached_backend=%%~B"
+)
+goto :eof
+
+:write_build_stamp
+> "%build_stamp%" (
+  echo SCHEMA=2
+  echo GGML_BACKEND=%~1
+  echo LLAMA_TLS_PROVIDER=boringssl
+)
+goto :eof
+
+:restore_cached_binary
+set "backend_name=%~1"
+set "backend_build_dir=%build_root%\build\%backend_name%"
+set "built_llama_bin=%backend_build_dir%\bin\llama-cli.exe"
+set "built_llama_release_bin=%backend_build_dir%\bin\Release\llama-cli.exe"
+if not exist "%runtime_bin%" mkdir "%runtime_bin%"
+if exist "%built_llama_bin%" (
+  copy /y "%built_llama_bin%" "%llama_bin%" >nul
+)
+if exist "%llama_bin%" (
+  echo llama_cli=%llama_bin%
+  exit /b 0
+)
+if exist "%built_llama_release_bin%" (
+  copy /y "%built_llama_release_bin%" "%llama_bin%" >nul
+)
+if exist "%llama_bin%" (
+  echo llama_cli=%llama_bin%
+  exit /b 0
+)
+exit /b 1
+
+:apply_backend_flags
+set "backend_name=%~1"
+set "backend_cmake_flags="
+if /I "%backend_name%"=="cuda" set "backend_cmake_flags=-DGGML_CUDA=ON -DGGML_METAL=OFF"
+if /I "%backend_name%"=="cpu" set "backend_cmake_flags=-DGGML_CUDA=OFF -DGGML_METAL=OFF"
+if not defined backend_cmake_flags (
+  >&2 echo Unsupported llama backend: %backend_name%
+  exit /b 1
+)
+goto :eof
+
+:build_backend
+set "backend_name=%~1"
+call :apply_backend_flags "%backend_name%"
+if errorlevel 1 exit /b %errorlevel%
+
+set "backend_build_dir=%build_root%\build\%backend_name%"
+set "backend_runtime_bin=%backend_build_dir%\bin"
+set "built_llama_bin=%backend_runtime_bin%\llama-cli.exe"
+set "built_llama_release_bin=%backend_runtime_bin%\Release\llama-cli.exe"
+
+if not exist "%backend_build_dir%" mkdir "%backend_build_dir%"
+if not exist "%backend_runtime_bin%" mkdir "%backend_runtime_bin%"
+if not exist "%runtime_bin%" mkdir "%runtime_bin%"
+
+"%cmake_exe%" -S "%source_dir%" -B "%backend_build_dir%" -G "NMake Makefiles" ^
+  "-DCMAKE_BUILD_TYPE=Release" ^
+  "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=%backend_runtime_bin%" ^
+  -DBUILD_SHARED_LIBS=OFF ^
+  -DLLAMA_BUILD_COMMON=ON ^
+  -DLLAMA_BUILD_TOOLS=ON ^
+  -DLLAMA_BUILD_TESTS=OFF ^
+  -DLLAMA_BUILD_SERVER=ON ^
+  -DLLAMA_BUILD_EXAMPLES=OFF ^
+  -DLLAMA_OPENSSL=OFF ^
+  -DLLAMA_BUILD_BORINGSSL=ON ^
+  %backend_cmake_flags%
+if errorlevel 1 exit /b %errorlevel%
+
+"%cmake_exe%" --build "%backend_build_dir%" --target llama-cli --parallel %jobs%
+if errorlevel 1 exit /b %errorlevel%
+
+if exist "%built_llama_bin%" copy /y "%built_llama_bin%" "%llama_bin%" >nul
+if exist "%built_llama_release_bin%" copy /y "%built_llama_release_bin%" "%llama_bin%" >nul
+
+if not exist "%llama_bin%" (
+  >&2 echo llama-cli binary not found after build: %built_llama_bin%
+  exit /b 1
+)
+
+call :write_build_stamp "%backend_name%"
+echo llama_cli=%llama_bin%
+exit /b 0
+
 :main
 for %%I in ("%~dp0.") do set "script_dir=%%~fI"
 for %%I in ("%script_dir%\..") do set "repo_root=%%~fI"
@@ -146,45 +238,22 @@ if errorlevel 1 exit /b %errorlevel%
 
 set "target=windows-%platform_arch%"
 set "build_root=%repo_root%\.build\llama\%target%"
-set "build_dir=%build_root%\build"
 set "runtime_bin=%build_root%\bin"
 set "llama_bin=%runtime_bin%\llama-cli.exe"
-set "built_llama_bin=%build_dir%\bin\llama-cli.exe"
-set "built_llama_release_bin=%build_dir%\bin\Release\llama-cli.exe"
 set "build_stamp=%build_root%\build-flags.txt"
-set "expected_build_stamp=LLAMA_TLS_PROVIDER=boringssl"
-set "cache_ready="
 
-if exist "%build_stamp%" (
-  set /p "cached_build_stamp="<"%build_stamp%"
-  if /I "!cached_build_stamp!"=="!expected_build_stamp!" set "cache_ready=1"
-)
+call :read_build_stamp
+if /I not "%cached_backend%"=="cuda" if /I not "%cached_backend%"=="cpu" set "cached_backend="
 
-if exist "%llama_bin%" if defined cache_ready (
+if defined cached_backend if exist "%llama_bin%" (
   echo llama_cli=%llama_bin%
   exit /b 0
 )
 
-if exist "%built_llama_bin%" (
-  if not exist "%runtime_bin%" mkdir "%runtime_bin%"
-  copy /y "%built_llama_bin%" "%llama_bin%" >nul
+if defined cached_backend (
+  call :restore_cached_binary "%cached_backend%"
+  if not errorlevel 1 exit /b 0
 )
-if exist "%llama_bin%" if defined cache_ready (
-  echo llama_cli=%llama_bin%
-  exit /b 0
-)
-
-if exist "%built_llama_release_bin%" (
-  if not exist "%runtime_bin%" mkdir "%runtime_bin%"
-  copy /y "%built_llama_release_bin%" "%llama_bin%" >nul
-)
-if exist "%llama_bin%" if defined cache_ready (
-  echo llama_cli=%llama_bin%
-  exit /b 0
-)
-
-if not exist "%build_dir%" mkdir "%build_dir%"
-if not exist "%runtime_bin%" mkdir "%runtime_bin%"
 
 call :ensure_msvc_env
 if errorlevel 1 exit /b %errorlevel%
@@ -195,31 +264,11 @@ if errorlevel 1 exit /b %errorlevel%
 set "jobs=%NUMBER_OF_PROCESSORS%"
 if not defined jobs set "jobs=4"
 
-"%cmake_exe%" -S "%source_dir%" -B "%build_dir%" -G "NMake Makefiles" ^
-  "-DCMAKE_BUILD_TYPE=Release" ^
-  "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=%runtime_bin%" ^
-  -DBUILD_SHARED_LIBS=OFF ^
-  -DLLAMA_BUILD_COMMON=ON ^
-  -DLLAMA_BUILD_TOOLS=ON ^
-  -DLLAMA_BUILD_TESTS=OFF ^
-  -DLLAMA_BUILD_SERVER=ON ^
-  -DLLAMA_BUILD_EXAMPLES=OFF ^
-  -DLLAMA_OPENSSL=OFF ^
-  -DLLAMA_BUILD_BORINGSSL=ON
-if errorlevel 1 exit /b %errorlevel%
+call :build_backend cuda
+if not errorlevel 1 exit /b 0
 
-"%cmake_exe%" --build "%build_dir%" --target llama-cli --parallel %jobs%
-if errorlevel 1 exit /b %errorlevel%
+call :build_backend cpu
+if not errorlevel 1 exit /b 0
 
-if exist "%built_llama_bin%" copy /y "%built_llama_bin%" "%llama_bin%" >nul
-if exist "%built_llama_release_bin%" copy /y "%built_llama_release_bin%" "%llama_bin%" >nul
-
-if not exist "%llama_bin%" (
-  >&2 echo llama-cli binary not found after build: %built_llama_bin%
-  exit /b 1
-)
-
-> "%build_stamp%" echo %expected_build_stamp%
-
-echo llama_cli=%llama_bin%
-exit /b 0
+>&2 echo failed to build llama-cli with supported backends: cuda cpu
+exit /b 1

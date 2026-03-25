@@ -284,8 +284,10 @@ flowchart LR
 `scripts/build_whisper.sh` / `scripts/build_whisper.bat`는 Whisper 툴체인을 현재 OS / CPU 아키텍처 기준 디렉터리에 준비한다.
 
 - 타깃 경로 계산: `.build/whisper/<platform_os>-<platform_arch>/bin`
-- 캐시 동작: 이미 `whisper-cli` 실행 파일이 있으면 바로 그 경로를 출력하고 종료
-- 빌드 방식: `cmake -S whisper.cpp -B .build/.../build`
+- 캐시 동작:
+  - 선택된 실제 백엔드를 `build-flags.txt`에 기록한다.
+  - stamp와 일치하는 `whisper-cli`가 있으면 바로 그 경로를 출력하고 종료한다.
+- 빌드 방식: `cmake -S whisper.cpp -B .build/.../build/<backend>`
 - 빌드 대상: `whisper-cli`
 - 주요 CMake 옵션:
   - `-DCMAKE_BUILD_TYPE=Release`
@@ -293,6 +295,10 @@ flowchart LR
   - `-DWHISPER_BUILD_TESTS=OFF`
   - `-DWHISPER_BUILD_SERVER=OFF`
   - `-DWHISPER_BUILD_EXAMPLES=ON`
+- 빌드 단계 백엔드 우선순위:
+  - macOS: `Metal -> CPU`
+  - Windows: `CUDA -> CPU`
+  - 기타 Unix: `CPU`
 - Windows 구현:
   - `scripts/build_whisper.bat`는 MSVC + CMake(`NMake Makefiles`) 기준으로 동일 산출물을 만든다.
 
@@ -310,9 +316,6 @@ flowchart LR
 - 모델 경로 우선순위:
   - `RECORDROUTE_WHISPER_MODEL`
   - 기본값 `models/whisper/ggml-base.bin`
-- 런타임 백엔드 설정:
-  - `RECORDROUTE_WHISPER_BACKEND` (`auto`/`cpu`/`gpu`)
-  - macOS 기본값은 `cpu`(Metal backend 비활성화)이며, 다른 OS 기본값은 `auto`다.
 - shorthand 지원:
   - `models/whisper/large-v3-turbo` 같은 값도 허용한다.
   - 이 경우 내부적으로 `models/whisper/ggml-large-v3-turbo.bin` 형태로 정규화해 해석한다.
@@ -358,9 +361,6 @@ whisper-cli \
   -otxt \
   -np \
   -of <output-prefix>
-
-# macOS 기본 동작 (CPU 강제)
-GGML_METAL=0 whisper-cli ...
 ```
 
 여기서 실제 결과 파일은 `<output-prefix>.txt`다.
@@ -371,6 +371,10 @@ GGML_METAL=0 whisper-cli ...
 - 출력 포맷: plain text (`-otxt`)
 - 콘솔 출력 최소화: `-np`
 - 기존 같은 이름의 `.txt`가 있으면 먼저 제거하고 새 결과로 덮어쓴다.
+- 런타임 폴백:
+  - macOS는 기본 실행이 실패하고 오류 메시지에 Metal 관련 흔적이 있으면 `-ng`, `GGML_METAL=0`, `GGML_METAL_DEVICES=0`으로 한 번 더 재시도한다.
+  - Windows는 기본 실행이 실패하고 오류 메시지에 CUDA 관련 흔적이 있으면 `-ng`으로 한 번 더 재시도한다.
+  - 관리형 repo-local 모델이 깨진 경우에는 invalid cache를 지우고 모델을 다시 받은 뒤 같은 순서로 재실행한다.
 
 ### Application Flow
 
@@ -452,6 +456,8 @@ db/
   - `db/index.json` 안에 실제 오디오 파일을 가진 `job_dir`가 하나도 없으면 실패
 - `whisper-cli` 실패
   - stderr/stdout를 수집해 상위로 전달
+  - macOS는 Metal 실패 시 CPU로 1회 재시도
+  - Windows는 CUDA 실패 시 CPU로 1회 재시도
   - 해당 파일의 `.txt`가 생성되지 않으면 전체 STT 실행을 실패로 처리
 
 현재 STT는 index 상태를 갱신하지 않으므로, 실패 기록은 콘솔 반환값에 남고 부분적으로 이미 생성된 다른 `.txt` 파일은 그대로 유지될 수 있다.
@@ -476,11 +482,12 @@ db/
 정리하면:
 
 - 준비: Unix는 `scripts/build_whisper.sh`, Windows는 `scripts/build_whisper.bat`가 로컬 `whisper-cli`를 만든다.
+- 백엔드 선택: 빌드 단계에서 macOS는 `Metal -> CPU`, Windows는 `CUDA -> CPU` 순서로 결정한다.
 - 설정: `.env`가 `RECORDROUTE_WHISPER_MODEL`을 공급한다.
 - 발견: `Toolchain::discover()`가 고정된 설치 경로와 모델 경로를 찾는다.
 - 모델 보장: `ensure_model()`이 필요 시 기본 경로나 shorthand 설정을 정규화한 경로에 모델을 다운로드한다.
 - 선택: `run_stt_with_repo_root()`가 `db/index.json`을 읽어 후보 폴더를 구성한다.
-- 변환: `run_transcription()`이 파일별 `whisper-cli` 실행을 구성한다.
+- 변환: `run_transcription()`이 파일별 `whisper-cli` 실행을 구성하고, macOS/Windows에서는 GPU backend 실패 시 CPU로 재시도한다.
 - 저장: 결과는 각 job 디렉터리 아래 `stt/*.txt`로 저장된다.
 
 따라서 현재 RecordRoute의 Whisper 연동도 FFmpeg와 동일하게 "서브모듈 직접 통합"이 아니라 "프로젝트 로컬 Whisper CLI를 사용하는 Rust wrapper architecture"라고 보는 것이 정확하다.
@@ -537,8 +544,10 @@ flowchart LR
 `scripts/build_llama.sh` / `scripts/build_llama.bat`는 Llama 툴체인을 현재 OS / CPU 아키텍처 기준 디렉터리에 준비한다.
 
 - 타깃 경로 계산: `.build/llama/<platform_os>-<platform_arch>/bin`
-- 캐시 동작: 이미 `llama-cli` 실행 파일이 있으면 바로 그 경로를 출력하고 종료
-- 빌드 방식: `cmake -S llama.cpp -B .build/.../build`
+- 캐시 동작:
+  - 선택된 실제 백엔드를 `build-flags.txt`에 기록한다.
+  - stamp와 일치하는 `llama-cli`가 있으면 바로 그 경로를 출력하고 종료한다.
+- 빌드 방식: `cmake -S llama.cpp -B .build/.../build/<backend>`
 - 빌드 대상: `llama-cli`
 - 주요 옵션:
   - `-DBUILD_SHARED_LIBS=OFF`
@@ -546,6 +555,10 @@ flowchart LR
   - `-DLLAMA_BUILD_TESTS=OFF`
   - `-DLLAMA_BUILD_SERVER=ON`
   - `-DLLAMA_BUILD_EXAMPLES=OFF`
+- 빌드 단계 백엔드 우선순위:
+  - macOS: `Metal -> CPU`
+  - Windows: `CUDA -> CPU`
+  - 기타 Unix: `CPU`
 - Windows 구현:
   - `scripts/build_llama.bat`는 MSVC + CMake(`NMake Makefiles`) 기준으로 동일 산출물을 만든다.
   - `llama-cli -hf ...` 다운로드가 동작하도록 BoringSSL 구성을 사용하고, 이전 옵션으로 빌드된 캐시 바이너리는 stamp 파일로 무효화한다.
@@ -610,6 +623,12 @@ llama-cli \
 
 실제 구현에서는 `stdout`을 Rust가 받아 후처리한 뒤 summary 파일로 저장한다. `llama-cli`가 배너나 prompt echo를 섞어 출력할 수 있기 때문에, Rust 쪽에서 회의록 본문만 추출해 저장한다.
 
+런타임 폴백은 다음과 같다.
+
+- macOS는 기본 실행이 실패하고 오류 메시지에 Metal 관련 흔적이 있으면 `-ngl 0 --device none --no-op-offload --no-kv-offload --no-mmproj-offload`와 `GGML_METAL=0`, `GGML_METAL_DEVICES=0`을 적용해 한 번 더 재시도한다.
+- Windows는 기본 실행이 실패하고 오류 메시지에 CUDA 관련 흔적이 있으면 같은 CPU 플래그 조합으로 한 번 더 재시도한다.
+- 이 규칙은 summary 생성뿐 아니라 `llama-cli -hf ...` 기반 repo-local 모델 준비에도 동일하게 적용된다.
+
 ### Application Flow
 
 실제 실행 순서는 `rust/src/app.rs`에서 관리한다.
@@ -666,6 +685,8 @@ db/
   - `summary/` 아래 임시 프롬프트 파일을 만들지 못하면 실패
 - `llama-cli` 실패
   - stderr/stdout를 수집해 상위로 전달
+  - macOS는 Metal 실패 시 CPU로 1회 재시도
+  - Windows는 CUDA 실패 시 CPU로 1회 재시도
   - 부분 생성된 summary 파일이 있으면 삭제
 - 출력 파일 누락
   - `llama-cli`가 성공 종료했더라도 최종 요약 파일이 없으면 실패
@@ -691,11 +712,12 @@ db/
 정리하면:
 
 - 준비: Unix는 `scripts/build_llama.sh`, Windows는 `scripts/build_llama.bat`가 로컬 `llama-cli`를 만든다.
+- 백엔드 선택: 빌드 단계에서 macOS는 `Metal -> CPU`, Windows는 `CUDA -> CPU` 순서로 결정한다.
 - 설정: `.env`가 `RECORDROUTE_LLAMA_MODEL`, `HF_TOKEN`을 공급한다.
 - 발견: `Toolchain::discover()`가 고정된 설치 경로와 모델 소스를 해석한다.
 - 선택: `run_summary_with_repo_root()`가 `db/index.json`을 읽어 `stt/*.txt`가 있는 후보를 구성한다.
 - 프롬프트: transcript 파일들을 하나로 합쳐 회의록 지시문과 함께 prompt file을 만든다.
-- 생성: `run_summary_generation()`이 `llama-cli` 실행을 구성한다.
+- 생성: `run_summary_generation()`이 `llama-cli` 실행을 구성하고, macOS/Windows에서는 GPU backend 실패 시 CPU로 재시도한다.
 - 저장: 결과는 각 job 디렉터리 아래 `summary/<source-stem>.md`로 저장된다.
 
 따라서 현재 RecordRoute의 Llama 연동도 FFmpeg, Whisper와 동일하게 "프로젝트 로컬 Llama CLI를 사용하는 Rust wrapper architecture"라고 보는 것이 정확하다.

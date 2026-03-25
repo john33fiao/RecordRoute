@@ -2,7 +2,7 @@ use crate::ffmpeg::{build_script_path, locate_command, target_dir_name};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
 
@@ -83,6 +83,48 @@ impl Toolchain {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LlamaRuntimeBackend {
+    Preferred,
+    CpuFallback,
+}
+
+fn configure_runtime_backend(command: &mut Command, backend: LlamaRuntimeBackend) {
+    match backend {
+        LlamaRuntimeBackend::CpuFallback => {
+            command
+                .arg("-ngl")
+                .arg("0")
+                .arg("--device")
+                .arg("none")
+                .arg("--no-op-offload")
+                .arg("--no-kv-offload")
+                .arg("--no-mmproj-offload");
+
+            if cfg!(target_os = "macos") {
+                command.env("GGML_METAL", "0");
+                command.env("GGML_METAL_DEVICES", "0");
+            }
+        }
+        LlamaRuntimeBackend::Preferred => {}
+    }
+}
+
+fn should_retry_llama_on_cpu(error: &str) -> bool {
+    if !(cfg!(target_os = "macos") || cfg!(windows)) {
+        return false;
+    }
+
+    let lower = error.to_ascii_lowercase();
+    let backend_markers: &[&str] = if cfg!(target_os = "macos") {
+        &["metal", "ggml-metal", "ggml_metal", "mtl"]
+    } else {
+        &["cuda", "cublas", "ggml-cuda", "ggml_cuda", "nvidia"]
+    };
+
+    backend_markers.iter().any(|marker| lower.contains(marker))
+}
+
 pub fn run_summary_generation(
     toolchain: &Toolchain,
     prompt_file: &Path,
@@ -104,7 +146,47 @@ pub fn run_summary_generation(
         })?;
     }
     let _ = fs::remove_file(output_file);
+    let output = execute_summary_generation(toolchain, prompt_file)?;
 
+    let prompt = fs::read_to_string(prompt_file).unwrap_or_default();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let summary_text = extract_summary_text(&stdout, &prompt);
+
+    if summary_text.is_empty() {
+        return Err(format!(
+            "llama-cli completed without producing summary text for {}",
+            prompt_file.display()
+        ));
+    }
+
+    fs::write(output_file, summary_text).map_err(|error| {
+        format!(
+            "failed to write summary output {}: {error}",
+            output_file.display()
+        )
+    })
+}
+
+fn execute_summary_generation(toolchain: &Toolchain, prompt_file: &Path) -> Result<Output, String> {
+    match run_summary_generation_once(toolchain, prompt_file, LlamaRuntimeBackend::Preferred) {
+        Ok(output) => Ok(output),
+        Err(primary_error) if should_retry_llama_on_cpu(&primary_error) => {
+            run_summary_generation_once(toolchain, prompt_file, LlamaRuntimeBackend::CpuFallback)
+                .map_err(|cpu_error| {
+                    format!(
+                        "{cpu_error} (after retrying on CPU because the preferred backend failed: {primary_error})"
+                    )
+                })
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn run_summary_generation_once(
+    toolchain: &Toolchain,
+    prompt_file: &Path,
+    backend: LlamaRuntimeBackend,
+) -> Result<Output, String> {
     let mut command = Command::new(&toolchain.llama_cli_path);
     command
         .arg("--single-turn")
@@ -113,6 +195,7 @@ pub fn run_summary_generation(
         .arg("--log-disable")
         .arg("-n")
         .arg(DEFAULT_PREDICT_TOKENS);
+    configure_runtime_backend(&mut command, backend);
 
     match toolchain.runtime_model_source() {
         ModelSource::LocalPath(path) => {
@@ -135,40 +218,28 @@ pub fn run_summary_generation(
             )
         })?;
 
-    if !output.status.success() {
-        let _ = fs::remove_file(output_file);
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        return Err(format!(
-            "llama summary generation failed for {}: {}",
-            prompt_file.display(),
-            if !stderr.is_empty() {
-                stderr
-            } else if !stdout.is_empty() {
-                stdout
-            } else {
-                "unknown error".to_string()
-            }
-        ));
+    if output.status.success() {
+        Ok(output)
+    } else {
+        Err(summary_generation_error(prompt_file, &output))
     }
+}
 
-    let prompt = fs::read_to_string(prompt_file).unwrap_or_default();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let summary_text = extract_summary_text(&stdout, &prompt);
+fn summary_generation_error(prompt_file: &Path, output: &Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
-    if summary_text.is_empty() {
-        return Err(format!(
-            "llama-cli completed without producing summary text for {}",
-            prompt_file.display()
-        ));
-    }
-
-    fs::write(output_file, summary_text).map_err(|error| {
-        format!(
-            "failed to write summary output {}: {error}",
-            output_file.display()
-        )
-    })
+    format!(
+        "llama summary generation failed for {}: {}",
+        prompt_file.display(),
+        if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            "unknown error".to_string()
+        }
+    )
 }
 
 fn resolve_model_source(repo_root: &Path) -> ModelSource {
@@ -203,6 +274,40 @@ fn ensure_hugging_face_model(
         return Ok(());
     }
 
+    match download_hugging_face_model(
+        toolchain,
+        repo,
+        cache_path,
+        LlamaRuntimeBackend::Preferred,
+    ) {
+        Ok(()) => Ok(()),
+        Err(primary_error) if should_retry_llama_on_cpu(&primary_error) => {
+            download_hugging_face_model(
+                toolchain,
+                repo,
+                cache_path,
+                LlamaRuntimeBackend::CpuFallback,
+            )
+            .map_err(|cpu_error| {
+                format!(
+                    "{cpu_error} (after retrying on CPU because the preferred backend failed: {primary_error})"
+                )
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn download_hugging_face_model(
+    toolchain: &Toolchain,
+    repo: &str,
+    cache_path: &Path,
+    backend: LlamaRuntimeBackend,
+) -> Result<(), String> {
+    if cache_path.is_file() {
+        return Ok(());
+    }
+
     let cache_dir = cache_path.parent().ok_or_else(|| {
         format!(
             "llama cache path has no parent directory: {}",
@@ -231,7 +336,8 @@ fn ensure_hugging_face_model(
         return Ok(());
     }
 
-    let mut child = Command::new(&toolchain.llama_cli_path)
+    let mut command = Command::new(&toolchain.llama_cli_path);
+    command
         .env(LLAMA_CACHE_ENV_VAR, &download_cache_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -240,7 +346,9 @@ fn ensure_hugging_face_model(
         .arg("--no-display-prompt")
         .arg("--log-disable")
         .arg("--no-warmup")
-        .arg("--no-mmproj")
+        .arg("--no-mmproj");
+    configure_runtime_backend(&mut command, backend);
+    let mut child = command
         .arg("-n")
         .arg("0")
         .arg("-hf")
@@ -554,6 +662,132 @@ mod tests {
 
         assert_eq!(toolchain.model_source, ModelSource::LocalPath(model_path));
         assert_eq!(toolchain.cached_model_path, None);
+    }
+
+    #[test]
+    fn run_summary_generation_uses_preferred_backend_first() {
+        let repo_root = temp_workspace();
+        let build_bin = repo_root
+            .join(".build/llama")
+            .join(target_dir_name())
+            .join("bin");
+        let prompt_file = repo_root.join("summary/prompt.txt");
+        let output_file = repo_root.join("summary/output.txt");
+        let log = repo_root.join("llama-summary.log");
+        let model_path = repo_root.join("models/llama/local.gguf");
+        fs::create_dir_all(&build_bin).expect("build bin");
+        fs::create_dir_all(model_path.parent().expect("model parent")).expect("models dir");
+        fs::create_dir_all(prompt_file.parent().expect("prompt parent")).expect("prompt dir");
+        fs::write(&model_path, "model").expect("model");
+        fs::write(&prompt_file, "prompt").expect("prompt");
+        write_executable(
+            &fake_llama_cli_path(&build_bin),
+            &format!(
+                "#!/bin/sh\n: > '{log}'\nfor arg in \"$@\"; do\n  printf 'ARG=%s\\n' \"$arg\" >> '{log}'\ndone\nprintf 'GGML_METAL=%s\\n' \"${{GGML_METAL-}}\" >> '{log}'\nprintf 'GGML_METAL_DEVICES=%s\\n' \"${{GGML_METAL_DEVICES-}}\" >> '{log}'\nprintf 'synthetic summary'\n",
+                log = log.display()
+            ),
+            &format!(
+                "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\n> \"{log}\" type nul\n:loop\nif \"%~1\"==\"\" goto after\nset \"arg=%~1\"\nif \"!arg:~0,4!\"==\"\\\\?\\\" set \"arg=!arg:~4!\"\n>> \"{log}\" echo ARG=!arg!\nshift\ngoto loop\n:after\n>> \"{log}\" echo GGML_METAL=%GGML_METAL%\n>> \"{log}\" echo GGML_METAL_DEVICES=%GGML_METAL_DEVICES%\n<nul set /p =synthetic summary\nexit /b 0\n",
+                log = log.display()
+            ),
+        );
+
+        let toolchain = Toolchain {
+            llama_cli_path: fake_llama_cli_path(&build_bin),
+            build_script_path: build_script_path(&repo_root, "llama"),
+            model_source: ModelSource::LocalPath(model_path.clone()),
+            cached_model_path: None,
+        };
+
+        run_summary_generation(&toolchain, &prompt_file, &output_file).expect("summary");
+
+        assert_eq!(
+            fs::read_to_string(output_file).expect("summary output"),
+            "synthetic summary"
+        );
+
+        let log = fs::read_to_string(log).expect("llama log");
+        assert!(log.contains("ARG=--single-turn"));
+        assert!(log.contains("ARG=-m"));
+        assert!(log.contains(&format!("ARG={}", model_path.display())));
+        assert!(!log.contains("ARG=-ngl"));
+        assert!(!log.contains("ARG=--device"));
+        assert!(!log.contains("ARG=none"));
+        assert!(!log.contains("ARG=--no-op-offload"));
+        assert!(!log.contains("ARG=--no-kv-offload"));
+        assert!(!log.contains("ARG=--no-mmproj-offload"));
+        assert!(!log.contains("GGML_METAL=0"));
+        assert!(!log.contains("GGML_METAL_DEVICES=0"));
+    }
+
+    #[cfg(any(target_os = "macos", windows))]
+    #[test]
+    fn run_summary_generation_retries_on_cpu_after_backend_failure() {
+        let repo_root = temp_workspace();
+        let build_bin = repo_root
+            .join(".build/llama")
+            .join(target_dir_name())
+            .join("bin");
+        let prompt_file = repo_root.join("summary/prompt.txt");
+        let output_file = repo_root.join("summary/output.txt");
+        let log = repo_root.join("llama-retry.log");
+        let count = repo_root.join("llama-retry.count");
+        let model_path = repo_root.join("models/llama/local.gguf");
+        let failure_marker = if cfg!(target_os = "macos") {
+            "metal backend failure"
+        } else {
+            "cuda backend failure"
+        };
+        fs::create_dir_all(&build_bin).expect("build bin");
+        fs::create_dir_all(model_path.parent().expect("model parent")).expect("models dir");
+        fs::create_dir_all(prompt_file.parent().expect("prompt parent")).expect("prompt dir");
+        fs::write(&model_path, "model").expect("model");
+        fs::write(&prompt_file, "prompt").expect("prompt");
+        write_executable(
+            &fake_llama_cli_path(&build_bin),
+            &format!(
+                "#!/bin/sh\ncount=0\nif [ -f '{count}' ]; then\n  count=$(cat '{count}')\nfi\ncount=$((count + 1))\nprintf '%s' \"$count\" > '{count}'\ncpu='0'\nlog='{log}'\nprintf 'CALL=%s\\n' \"$count\" >> \"$log\"\nprintf 'GGML_METAL=%s\\n' \"${{GGML_METAL-}}\" >> \"$log\"\nprintf 'GGML_METAL_DEVICES=%s\\n' \"${{GGML_METAL_DEVICES-}}\" >> \"$log\"\nfor arg in \"$@\"; do\n  printf 'CALL_%s_ARG=%s\\n' \"$count\" \"$arg\" >> \"$log\"\n  case \"$arg\" in\n    -ngl|--device|none|--no-op-offload|--no-kv-offload|--no-mmproj-offload)\n      cpu='1'\n      ;;\n  esac\ndone\nif [ \"$count\" = '1' ]; then\n  if [ \"$cpu\" = '1' ]; then\n    printf 'unexpected cpu fallback on first attempt\\n' >&2\n    exit 2\n  fi\n  printf 'error: {failure}\\n' >&2\n  exit 1\nfi\nif [ \"$cpu\" != '1' ]; then\n  printf 'error: second attempt still used gpu backend\\n' >&2\n  exit 3\nfi\nprintf 'cpu summary'\n",
+                count = count.display(),
+                log = log.display(),
+                failure = failure_marker,
+            ),
+            &format!(
+                "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nset \"count=0\"\nif exist \"{count}\" set /p count=<\"{count}\"\nset /a count+=1\n> \"{count}\" <nul set /p =!count!\nset \"cpu=0\"\n>> \"{log}\" echo CALL=!count!\n>> \"{log}\" echo GGML_METAL=%GGML_METAL%\n>> \"{log}\" echo GGML_METAL_DEVICES=%GGML_METAL_DEVICES%\n:loop\nif \"%~1\"==\"\" goto after\nset \"arg=%~1\"\nif \"!arg:~0,4!\"==\"\\\\?\\\" set \"arg=!arg:~4!\"\n>> \"{log}\" echo CALL_!count!_ARG=!arg!\nif /I \"!arg!\"==\"-ngl\" set \"cpu=1\"\nif /I \"!arg!\"==\"--device\" set \"cpu=1\"\nif /I \"!arg!\"==\"none\" set \"cpu=1\"\nif /I \"!arg!\"==\"--no-op-offload\" set \"cpu=1\"\nif /I \"!arg!\"==\"--no-kv-offload\" set \"cpu=1\"\nif /I \"!arg!\"==\"--no-mmproj-offload\" set \"cpu=1\"\nshift\ngoto loop\n:after\nif \"!count!\"==\"1\" (\n  if \"!cpu!\"==\"1\" (\n    echo unexpected cpu fallback on first attempt 1>&2\n    exit /b 2\n  )\n  echo error: {failure} 1>&2\n  exit /b 1\n)\nif not \"!cpu!\"==\"1\" (\n  echo error: second attempt still used gpu backend 1>&2\n  exit /b 3\n)\n<nul set /p =cpu summary\nexit /b 0\n",
+                count = count.display(),
+                log = log.display(),
+                failure = failure_marker,
+            ),
+        );
+
+        let toolchain = Toolchain {
+            llama_cli_path: fake_llama_cli_path(&build_bin),
+            build_script_path: build_script_path(&repo_root, "llama"),
+            model_source: ModelSource::LocalPath(model_path),
+            cached_model_path: None,
+        };
+
+        run_summary_generation(&toolchain, &prompt_file, &output_file).expect("summary");
+
+        assert_eq!(
+            fs::read_to_string(output_file).expect("summary output"),
+            "cpu summary"
+        );
+
+        let log = fs::read_to_string(log).expect("retry log");
+        assert!(log.contains("CALL=1"));
+        assert!(log.contains("CALL=2"));
+        assert!(!log.contains("CALL_1_ARG=-ngl"));
+        assert!(log.contains("CALL_2_ARG=-ngl"));
+        assert!(log.contains("CALL_2_ARG=0"));
+        assert!(log.contains("CALL_2_ARG=--device"));
+        assert!(log.contains("CALL_2_ARG=none"));
+        assert!(log.contains("CALL_2_ARG=--no-op-offload"));
+        assert!(log.contains("CALL_2_ARG=--no-kv-offload"));
+        assert!(log.contains("CALL_2_ARG=--no-mmproj-offload"));
+        if cfg!(target_os = "macos") {
+            assert!(log.contains("GGML_METAL=0"));
+            assert!(log.contains("GGML_METAL_DEVICES=0"));
+        }
     }
 
     #[test]

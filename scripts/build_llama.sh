@@ -21,14 +21,92 @@ esac
 
 target="${platform_os}-${platform_arch}"
 build_root="${repo_root}/.build/llama/${target}"
-build_dir="${build_root}/build"
 runtime_bin="${build_root}/bin"
 llama_bin="${runtime_bin}/llama-cli"
-built_llama_bin="${build_dir}/bin/llama-cli"
+build_stamp="${build_root}/build-flags.txt"
 
 link_llama_cli() {
+  local built_llama_bin="$1"
   mkdir -p "${runtime_bin}"
   ln -sf "${built_llama_bin}" "${llama_bin}"
+}
+
+read_build_stamp() {
+  local key="$1"
+  [[ -f "${build_stamp}" ]] || return 0
+  sed -n "s/^${key}=//p" "${build_stamp}" | head -n 1
+}
+
+write_build_stamp() {
+  local backend="$1"
+  printf 'SCHEMA=2\nGGML_BACKEND=%s\n' "${backend}" > "${build_stamp}"
+}
+
+backend_build_dir() {
+  local backend="$1"
+  printf '%s/build/%s' "${build_root}" "${backend}"
+}
+
+built_llama_bin_for_backend() {
+  local backend="$1"
+  printf '%s/bin/llama-cli' "$(backend_build_dir "${backend}")"
+}
+
+is_known_backend() {
+  case "$1" in
+    cpu | metal) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+build_backend() {
+  local backend="$1"
+  local build_dir
+  local backend_runtime_bin
+  local built_llama_bin
+  local -a cmake_args
+
+  build_dir="$(backend_build_dir "${backend}")"
+  backend_runtime_bin="${build_dir}/bin"
+  built_llama_bin="${backend_runtime_bin}/llama-cli"
+
+  mkdir -p "${build_dir}" "${backend_runtime_bin}" "${runtime_bin}"
+
+  cmake_args=(
+    -DCMAKE_BUILD_TYPE=Release
+    "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=${backend_runtime_bin}"
+    -DBUILD_SHARED_LIBS=OFF
+    -DLLAMA_BUILD_COMMON=ON
+    -DLLAMA_BUILD_TOOLS=ON
+    -DLLAMA_BUILD_TESTS=OFF
+    -DLLAMA_BUILD_SERVER=ON
+    -DLLAMA_BUILD_EXAMPLES=OFF
+  )
+
+  case "${backend}" in
+    metal)
+      cmake_args+=(-DGGML_METAL=ON -DGGML_CUDA=OFF)
+      ;;
+    cpu)
+      cmake_args+=(-DGGML_METAL=OFF -DGGML_CUDA=OFF)
+      ;;
+    *)
+      printf 'unsupported llama backend: %s\n' "${backend}" >&2
+      return 1
+      ;;
+  esac
+
+  if cmake -S "${source_dir}" -B "${build_dir}" "${cmake_args[@]}" \
+    && cmake --build "${build_dir}" --target llama-cli -j"${jobs}"; then
+    if [[ -x "${built_llama_bin}" ]]; then
+      link_llama_cli "${built_llama_bin}"
+      write_build_stamp "${backend}"
+      printf 'llama_cli=%s\n' "${llama_bin}"
+      return 0
+    fi
+  fi
+
+  return 1
 }
 
 if [[ ! -d "${source_dir}" ]]; then
@@ -36,40 +114,36 @@ if [[ ! -d "${source_dir}" ]]; then
   exit 1
 fi
 
-if [[ -x "${llama_bin}" ]]; then
-  printf 'llama_cli=%s\n' "${llama_bin}"
-  exit 0
+cached_backend="$(read_build_stamp GGML_BACKEND)"
+if is_known_backend "${cached_backend}"; then
+  if [[ -x "${llama_bin}" ]]; then
+    printf 'llama_cli=%s\n' "${llama_bin}"
+    exit 0
+  fi
+
+  built_llama_bin="$(built_llama_bin_for_backend "${cached_backend}")"
+  if [[ -x "${built_llama_bin}" ]]; then
+    link_llama_cli "${built_llama_bin}"
+    printf 'llama_cli=%s\n' "${llama_bin}"
+    exit 0
+  fi
 fi
 
-if [[ -x "${built_llama_bin}" ]]; then
-  link_llama_cli
-  printf 'llama_cli=%s\n' "${llama_bin}"
-  exit 0
-fi
-
-mkdir -p "${build_dir}" "${runtime_bin}"
+mkdir -p "${runtime_bin}"
 
 jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '4')"
 
-cmake -S "${source_dir}" -B "${build_dir}" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="${runtime_bin}" \
-  -DBUILD_SHARED_LIBS=OFF \
-  -DLLAMA_BUILD_COMMON=ON \
-  -DLLAMA_BUILD_TOOLS=ON \
-  -DLLAMA_BUILD_TESTS=OFF \
-  -DLLAMA_BUILD_SERVER=ON \
-  -DLLAMA_BUILD_EXAMPLES=OFF
-
-cmake --build "${build_dir}" --target llama-cli -j"${jobs}"
-
-if [[ -x "${built_llama_bin}" ]]; then
-  link_llama_cli
+if [[ "${platform_os}" == "macos" ]]; then
+  backends=(metal cpu)
+else
+  backends=(cpu)
 fi
 
-if [[ ! -x "${llama_bin}" ]]; then
-  printf 'llama-cli binary not found after build: %s\n' "${built_llama_bin}" >&2
-  exit 1
-fi
+for backend in "${backends[@]}"; do
+  if build_backend "${backend}"; then
+    exit 0
+  fi
+done
 
-printf 'llama_cli=%s\n' "${llama_bin}"
+printf 'failed to build llama-cli with supported backends for %s\n' "${platform_os}" >&2
+exit 1
