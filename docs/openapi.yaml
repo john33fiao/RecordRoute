@@ -345,6 +345,33 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /jobs/{job_id}/summary/text:
+    get:
+      tags: [summary]
+      summary: Get summary/result.txt content as JSON
+      operationId: getSummaryText
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Summary text payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryTextResponse'
+        '400':
+          description: Invalid state/path
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job or summary text not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /jobs/{job_id}/files:
     get:
       tags: [files]
@@ -572,6 +599,18 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SttTranscriptText'
+
+    SummaryTextResponse:
+      type: object
+      required: [job_id, file_name, text]
+      properties:
+        job_id:
+          type: string
+        file_name:
+          type: string
+          examples: [result.txt]
+        text:
+          type: string
 
     JobSubmissionResponse:
       type: object

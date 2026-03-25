@@ -126,6 +126,7 @@
 2. Summary 본문 조회 API
    - `GET /jobs/{job_id}/summary/text`
    - 목적: `summary/result.txt` 내용을 JSON으로 조회
+   - 상태: ✅ 구현 완료 (2026-03-25)
 
 ## P1 (운영 자동화)
 
@@ -166,7 +167,7 @@
 
 - [ ] 파일 업로드 기반 job 생성 API (`POST /jobs/upload`)
 - [x] STT 텍스트 본문 JSON 조회 (`GET /jobs/{job_id}/stt/texts`, `GET /jobs/{job_id}/stt/texts/{transcript_id}`)
-- [ ] Summary 텍스트 본문 JSON 조회
+- [x] Summary 텍스트 본문 JSON 조회 (`GET /jobs/{job_id}/summary/text`)
 - [ ] 모델 준비 HTTP API
 - [ ] 완료 job/원본 경로 기반 조회 편의 API
 - [ ] 대용량 파일 전달 최적화
