@@ -1017,9 +1017,9 @@ mod tests {
         let ffmpeg_log = repo_root.join("ffmpeg-args.log");
         fs::create_dir_all(&scripts_dir).expect("scripts dir");
         fs::create_dir_all(&build_bin).expect("toolchain dir");
-        write_build_script(&scripts_dir.join("build_ffmpeg.sh"));
-        write_fake_ffprobe(&build_bin.join("ffprobe"), 2, Some("stereo"));
-        write_fake_ffmpeg(&build_bin.join("ffmpeg"), &ffmpeg_log);
+        write_build_script(&build_script_path(&repo_root, "ffmpeg"));
+        write_fake_ffprobe(&fake_command_path(&build_bin, "ffprobe"), 2, Some("stereo"));
+        write_fake_ffmpeg(&fake_command_path(&build_bin, "ffmpeg"), &ffmpeg_log);
         write_test_wav(&input, 2);
 
         let summary = run_with_repo_root(&repo_root, &input).expect("run should succeed");
@@ -1060,9 +1060,9 @@ mod tests {
         let input = repo_root.join("fixture.wav");
         fs::create_dir_all(&scripts_dir).expect("scripts dir");
         fs::create_dir_all(&build_bin).expect("toolchain dir");
-        write_build_script(&scripts_dir.join("build_ffmpeg.sh"));
-        write_fake_ffprobe(&build_bin.join("ffprobe"), 2, Some("stereo"));
-        write_failing_ffmpeg(&build_bin.join("ffmpeg"));
+        write_build_script(&build_script_path(&repo_root, "ffmpeg"));
+        write_fake_ffprobe(&fake_command_path(&build_bin, "ffprobe"), 2, Some("stereo"));
+        write_failing_ffmpeg(&fake_command_path(&build_bin, "ffmpeg"));
         write_test_wav(&input, 2);
 
         let error = run_with_repo_root(&repo_root, &input).expect_err("run should fail");
@@ -1100,15 +1100,19 @@ mod tests {
         let ffmpeg_count = repo_root.join("ffmpeg-count.txt");
         fs::create_dir_all(&scripts_dir).expect("scripts dir");
         fs::create_dir_all(&build_bin).expect("toolchain dir");
-        write_build_script(&scripts_dir.join("build_ffmpeg.sh"));
-        write_fake_ffprobe(&build_bin.join("ffprobe"), 2, Some("stereo"));
-        write_counting_ffmpeg(&build_bin.join("ffmpeg"), &ffmpeg_log, &ffmpeg_count);
+        write_build_script(&build_script_path(&repo_root, "ffmpeg"));
+        write_fake_ffprobe(&fake_command_path(&build_bin, "ffprobe"), 2, Some("stereo"));
+        write_counting_ffmpeg(
+            &fake_command_path(&build_bin, "ffmpeg"),
+            &ffmpeg_log,
+            &ffmpeg_count,
+        );
         write_test_wav(&input, 2);
 
         let first = run_with_repo_root(&repo_root, &input).expect("first run should succeed");
 
-        fs::remove_file(build_bin.join("ffmpeg")).expect("remove ffmpeg");
-        fs::remove_file(build_bin.join("ffprobe")).expect("remove ffprobe");
+        fs::remove_file(fake_command_path(&build_bin, "ffmpeg")).expect("remove ffmpeg");
+        fs::remove_file(fake_command_path(&build_bin, "ffprobe")).expect("remove ffprobe");
 
         let second = run_with_repo_root(&repo_root, &input).expect("second run should reuse");
 
@@ -1142,9 +1146,13 @@ mod tests {
         let ffmpeg_count = repo_root.join("ffmpeg-count.txt");
         fs::create_dir_all(&scripts_dir).expect("scripts dir");
         fs::create_dir_all(&build_bin).expect("toolchain dir");
-        write_build_script(&scripts_dir.join("build_ffmpeg.sh"));
-        write_fake_ffprobe(&build_bin.join("ffprobe"), 2, Some("stereo"));
-        write_counting_ffmpeg(&build_bin.join("ffmpeg"), &ffmpeg_log, &ffmpeg_count);
+        write_build_script(&build_script_path(&repo_root, "ffmpeg"));
+        write_fake_ffprobe(&fake_command_path(&build_bin, "ffprobe"), 2, Some("stereo"));
+        write_counting_ffmpeg(
+            &fake_command_path(&build_bin, "ffmpeg"),
+            &ffmpeg_log,
+            &ffmpeg_count,
+        );
         write_test_wav(&input, 2);
 
         let first = run_with_repo_root(&repo_root, &input).expect("first run should succeed");
@@ -1177,9 +1185,13 @@ mod tests {
         let ffmpeg_count = repo_root.join("ffmpeg-count.txt");
         fs::create_dir_all(&scripts_dir).expect("scripts dir");
         fs::create_dir_all(&build_bin).expect("toolchain dir");
-        write_build_script(&scripts_dir.join("build_ffmpeg.sh"));
-        write_fake_ffprobe(&build_bin.join("ffprobe"), 2, Some("stereo"));
-        write_counting_ffmpeg(&build_bin.join("ffmpeg"), &ffmpeg_log, &ffmpeg_count);
+        write_build_script(&build_script_path(&repo_root, "ffmpeg"));
+        write_fake_ffprobe(&fake_command_path(&build_bin, "ffprobe"), 2, Some("stereo"));
+        write_counting_ffmpeg(
+            &fake_command_path(&build_bin, "ffmpeg"),
+            &ffmpeg_log,
+            &ffmpeg_count,
+        );
         write_test_wav(&input, 2);
 
         let first = run_with_repo_root(&repo_root, &input).expect("first run should succeed");
@@ -1197,8 +1209,8 @@ mod tests {
         );
         store.insert_job(failed_job).expect("insert failed job");
 
-        fs::remove_file(build_bin.join("ffmpeg")).expect("remove ffmpeg");
-        fs::remove_file(build_bin.join("ffprobe")).expect("remove ffprobe");
+        fs::remove_file(fake_command_path(&build_bin, "ffmpeg")).expect("remove ffmpeg");
+        fs::remove_file(fake_command_path(&build_bin, "ffprobe")).expect("remove ffprobe");
 
         let second = run_with_repo_root(&repo_root, &input).expect("run should reuse old job");
 
@@ -1217,13 +1229,19 @@ mod tests {
         let repo_root = temp_workspace();
         let input = repo_root.join("fixture.wav");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
-        write_build_script(&repo_root.join("scripts/build_ffmpeg.sh"));
+        write_build_script(&build_script_path(&repo_root, "ffmpeg"));
         write_test_wav(&input, 1);
 
         let error =
             run_with_repo_root(&repo_root, &input).expect_err("toolchain should be required");
 
-        assert!(error.contains("scripts/build_ffmpeg.sh"));
+        assert!(
+            error.contains(
+                build_script_path(&repo_root, "ffmpeg")
+                    .to_string_lossy()
+                    .as_ref()
+            )
+        );
         assert!(!repo_root.join("db/index.json").exists());
     }
 
@@ -1249,12 +1267,13 @@ mod tests {
         fs::write(selected_job_dir.join("notes.txt"), "ignore").expect("notes");
         fs::write(ignored_job_dir.join("not-audio.txt"), "ignore").expect("ignored");
 
-        write_build_script(&repo_root.join("scripts/build_whisper.sh"));
-        write_fake_whisper_cli(&whisper_bin.join("whisper-cli"), &whisper_log, false);
-        write_fake_download_script(
-            &repo_root.join("whisper.cpp/models/download-ggml-model.sh"),
-            &download_log,
+        write_build_script(&build_script_path(&repo_root, "whisper"));
+        write_fake_whisper_cli(
+            &fake_command_path(&whisper_bin, "whisper-cli"),
+            &whisper_log,
+            false,
         );
+        write_fake_download_script(&whisper_download_script_path(&repo_root), &download_log);
 
         let store = IndexStore::new(&repo_root);
         store
@@ -1313,14 +1332,14 @@ mod tests {
         fs::create_dir_all(&whisper_bin).expect("whisper bin");
 
         write_test_wav(&selected_job_dir.join("channel_01.wav"), 1);
-        write_build_script(&repo_root.join("scripts/build_whisper.sh"));
+        write_build_script(&build_script_path(&repo_root, "whisper"));
         write_fake_whisper_cli(
-            &whisper_bin.join("whisper-cli"),
+            &fake_command_path(&whisper_bin, "whisper-cli"),
             &repo_root.join("whisper.log"),
             false,
         );
         write_fake_download_script(
-            &repo_root.join("whisper.cpp/models/download-ggml-model.sh"),
+            &whisper_download_script_path(&repo_root),
             &repo_root.join("download.log"),
         );
         fs::write(repo_root.join("models/whisper/ggml-base.bin"), "model").expect("model");
@@ -1351,7 +1370,9 @@ mod tests {
 
     #[test]
     fn run_summary_processes_transcript_files_in_selected_job_dir() {
-        let _guard = env_lock().lock().expect("env lock");
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         unsafe {
             std::env::remove_var("RECORDROUTE_LLAMA_MODEL");
             std::env::set_var("HF_TOKEN", "summary-token");
@@ -1388,9 +1409,9 @@ mod tests {
         .expect("mono mix");
         fs::write(ignored_job_dir.join("stt/notes.md"), "ignore").expect("ignored");
 
-        write_build_script(&repo_root.join("scripts/build_llama.sh"));
+        write_build_script(&build_script_path(&repo_root, "llama"));
         write_fake_llama_cli(
-            &llama_bin.join("llama-cli"),
+            &fake_command_path(&llama_bin, "llama-cli"),
             &llama_log,
             &prompt_capture,
             false,
@@ -1492,7 +1513,9 @@ mod tests {
 
     #[test]
     fn run_summary_uses_local_model_path_when_file_exists() {
-        let _guard = env_lock().lock().expect("env lock");
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let repo_root = temp_workspace();
         let selected_job_dir = repo_root.join("db/job-1");
@@ -1515,9 +1538,9 @@ mod tests {
         .expect("mono mix");
         fs::write(&model_path, "model").expect("model");
 
-        write_build_script(&repo_root.join("scripts/build_llama.sh"));
+        write_build_script(&build_script_path(&repo_root, "llama"));
         write_fake_llama_cli(
-            &llama_bin.join("llama-cli"),
+            &fake_command_path(&llama_bin, "llama-cli"),
             &llama_log,
             &prompt_capture,
             false,
@@ -1552,7 +1575,9 @@ mod tests {
 
     #[test]
     fn prepare_llama_model_downloads_default_hugging_face_repo() {
-        let _guard = env_lock().lock().expect("env lock");
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         unsafe {
             std::env::remove_var("RECORDROUTE_LLAMA_MODEL");
             std::env::set_var("HF_TOKEN", "prepare-token");
@@ -1567,9 +1592,9 @@ mod tests {
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
         fs::create_dir_all(&llama_bin).expect("llama bin");
 
-        write_build_script(&repo_root.join("scripts/build_llama.sh"));
+        write_build_script(&build_script_path(&repo_root, "llama"));
         write_fake_llama_cli(
-            &llama_bin.join("llama-cli"),
+            &fake_command_path(&llama_bin, "llama-cli"),
             &llama_log,
             &repo_root.join("unused-prompt.txt"),
             false,
@@ -1596,7 +1621,9 @@ mod tests {
 
     #[test]
     fn load_repo_env_reads_only_dot_env() {
-        let _guard = env_lock().lock().expect("env lock");
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let repo_root = temp_workspace();
 
         unsafe {
@@ -1635,8 +1662,33 @@ mod tests {
         path
     }
 
+    fn build_script_path(repo_root: &Path, tool: &str) -> PathBuf {
+        crate::ffmpeg::build_script_path(repo_root, tool)
+    }
+
+    fn fake_command_path(base_dir: &Path, name: &str) -> PathBuf {
+        crate::ffmpeg::fake_command_path(base_dir, name)
+    }
+
+    fn whisper_download_script_path(repo_root: &Path) -> PathBuf {
+        if cfg!(windows) {
+            repo_root.join("whisper.cpp/models/download-ggml-model.cmd")
+        } else {
+            repo_root.join("whisper.cpp/models/download-ggml-model.sh")
+        }
+    }
+
     fn write_build_script(path: &Path) {
-        fs::write(path, "#!/bin/sh\nexit 0\n").expect("build script");
+        write_platform_script(path, "#!/bin/sh\nexit 0\n", "@echo off\nexit /b 0\n");
+    }
+
+    fn write_platform_script(path: &Path, unix_content: &str, windows_content: &str) {
+        let content = if cfg!(windows) {
+            windows_content.replace("\r\n", "\n").replace('\n', "\r\n")
+        } else {
+            unix_content.to_string()
+        };
+        fs::write(path, content).expect("script");
         make_executable(path);
     }
 
@@ -1647,42 +1699,46 @@ mod tests {
             ),
             None => format!("{{\"streams\":[{{\"channels\":{channels}}}]}}"),
         };
-        let script = format!(
+        let unix_script = format!(
             "#!/bin/sh\nprintf '%s' '{}'\n",
             json.replace('\'', "'\"'\"'")
         );
-        fs::write(path, script).expect("ffprobe script");
-        make_executable(path);
+        let windows_script = format!("@echo off\necho {json}\n");
+        write_platform_script(path, &unix_script, &windows_script);
     }
 
     fn write_fake_ffmpeg(path: &Path, log_path: &Path) {
         let log = log_path.display();
-        let script = format!(
+        let unix_script = format!(
             "#!/bin/sh\n: > '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\n  case \"$arg\" in\n    *.wav)\n      mkdir -p \"$(dirname \"$arg\")\"\n      : > \"$arg\"\n      ;;\n  esac\ndone\n"
         );
-        fs::write(path, script).expect("ffmpeg script");
-        make_executable(path);
+        let windows_script = format!(
+            "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\n> \"{log}\" type nul\n:loop\nif \"%~1\"==\"\" goto done\nset \"arg=%~1\"\nif \"!arg:~0,4!\"==\"\\\\?\\\" set \"arg=!arg:~4!\"\n>> \"{log}\" echo(!arg!\nfor %%I in (\"!arg!\") do (\n  if /I \"%%~xI\"==\".wav\" (\n    if not exist \"%%~dpI\" mkdir \"%%~dpI\"\n    > \"%%~fI\" type nul\n  )\n)\nshift\ngoto loop\n:done\nexit /b 0\n"
+        );
+        write_platform_script(path, &unix_script, &windows_script);
     }
 
     fn write_counting_ffmpeg(path: &Path, log_path: &Path, count_path: &Path) {
         let log = log_path.display();
         let count = count_path.display();
-        let script = format!(
+        let unix_script = format!(
             "#!/bin/sh\ncount=0\nif [ -f '{count}' ]; then\n  count=$(cat '{count}')\nfi\ncount=$((count + 1))\nprintf '%s' \"$count\" > '{count}'\n: > '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\n  case \"$arg\" in\n    *.wav)\n      mkdir -p \"$(dirname \"$arg\")\"\n      : > \"$arg\"\n      ;;\n  esac\ndone\n"
         );
-        fs::write(path, script).expect("ffmpeg script");
-        make_executable(path);
+        let windows_script = format!(
+            "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nset /a count=0\nif exist \"{count}\" set /p count=<\"{count}\"\nset /a count+=1\n> \"{count}\" <nul set /p =!count!\n> \"{log}\" type nul\n:loop\nif \"%~1\"==\"\" goto done\nset \"arg=%~1\"\nif \"!arg:~0,4!\"==\"\\\\?\\\" set \"arg=!arg:~4!\"\n>> \"{log}\" echo(!arg!\nfor %%I in (\"!arg!\") do (\n  if /I \"%%~xI\"==\".wav\" (\n    if not exist \"%%~dpI\" mkdir \"%%~dpI\"\n    > \"%%~fI\" type nul\n  )\n)\nshift\ngoto loop\n:done\nexit /b 0\n"
+        );
+        write_platform_script(path, &unix_script, &windows_script);
     }
 
     fn write_failing_ffmpeg(path: &Path) {
-        let script = "#!/bin/sh\nlast=''\nfor arg in \"$@\"; do\n  case \"$arg\" in\n    *.wav)\n      last=\"$arg\"\n      ;;\n  esac\ndone\nif [ -n \"$last\" ]; then\n  mkdir -p \"$(dirname \"$last\")\"\n  : > \"$last\"\nfi\nprintf 'synthetic ffmpeg failure' >&2\nexit 1\n";
-        fs::write(path, script).expect("ffmpeg script");
-        make_executable(path);
+        let unix_script = "#!/bin/sh\nlast=''\nfor arg in \"$@\"; do\n  case \"$arg\" in\n    *.wav)\n      last=\"$arg\"\n      ;;\n  esac\ndone\nif [ -n \"$last\" ]; then\n  mkdir -p \"$(dirname \"$last\")\"\n  : > \"$last\"\nfi\nprintf 'synthetic ffmpeg failure' >&2\nexit 1\n";
+        let windows_script = "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nset \"last=\"\n:loop\nif \"%~1\"==\"\" goto done\nset \"arg=%~1\"\nif \"!arg:~0,4!\"==\"\\\\?\\\" set \"arg=!arg:~4!\"\nfor %%I in (\"!arg!\") do if /I \"%%~xI\"==\".wav\" set \"last=%%~fI\"\nshift\ngoto loop\n:done\nif defined last (\n  for %%I in (\"!last!\") do if not exist \"%%~dpI\" mkdir \"%%~dpI\"\n  > \"!last!\" type nul\n)\necho synthetic ffmpeg failure 1>&2\nexit /b 1\n";
+        write_platform_script(path, unix_script, windows_script);
     }
 
     fn write_fake_whisper_cli(path: &Path, log_path: &Path, fail: bool) {
         let log = log_path.display();
-        let script = if fail {
+        let unix_script = if fail {
             format!(
                 "#!/bin/sh\ntouch '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\ndone\nprintf 'synthetic whisper failure' >&2\nexit 1\n"
             )
@@ -1691,14 +1747,22 @@ mod tests {
                 "#!/bin/sh\ntouch '{log}'\nout=''\nnext=''\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\n  if [ \"$next\" = 'of' ]; then\n    out=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -of)\n      next='of'\n      ;;\n  esac\ndone\nmkdir -p \"$(dirname \"$out\")\"\nprintf 'synthetic transcript' > \"$out.txt\"\n"
             )
         };
-        fs::write(path, script).expect("whisper script");
-        make_executable(path);
+        let windows_script = if fail {
+            format!(
+                "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nif not exist \"{log}\" > \"{log}\" type nul\n:loop\nif \"%~1\"==\"\" goto done\nset \"arg=%~1\"\nif \"!arg:~0,4!\"==\"\\\\?\\\" set \"arg=!arg:~4!\"\n>> \"{log}\" echo(!arg!\nshift\ngoto loop\n:done\necho synthetic whisper failure 1>&2\nexit /b 1\n"
+            )
+        } else {
+            format!(
+                "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nif not exist \"{log}\" > \"{log}\" type nul\nset \"out=\"\nset \"next=\"\n:loop\nif \"%~1\"==\"\" goto done\nset \"arg=%~1\"\nif \"!arg:~0,4!\"==\"\\\\?\\\" set \"arg=!arg:~4!\"\n>> \"{log}\" echo(!arg!\nif /I \"!next!\"==\"of\" (\n  set \"out=!arg!\"\n  set \"next=\"\n) else if /I \"!arg!\"==\"-of\" (\n  set \"next=of\"\n)\nshift\ngoto loop\n:done\nif defined out (\n  for %%I in (\"!out!\") do if not exist \"%%~dpI\" mkdir \"%%~dpI\"\n  > \"!out!.txt\" <nul set /p =synthetic transcript\n)\nexit /b 0\n"
+            )
+        };
+        write_platform_script(path, &unix_script, &windows_script);
     }
 
     fn write_fake_llama_cli(path: &Path, log_path: &Path, prompt_capture_path: &Path, fail: bool) {
         let log = log_path.display();
         let prompt_capture = prompt_capture_path.display();
-        let script = if fail {
+        let unix_script = if fail {
             format!(
                 "#!/bin/sh\ntouch '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\ndone\nprintf 'HF_TOKEN=%s\\n' \"${{HF_TOKEN:-}}\" >> '{log}'\nprintf 'LLAMA_CACHE=%s\\n' \"${{LLAMA_CACHE:-}}\" >> '{log}'\nprintf 'synthetic llama failure' >&2\nexit 1\n"
             )
@@ -1707,19 +1771,27 @@ mod tests {
                 "#!/bin/sh\ntouch '{log}'\nprompt=''\nmodel=''\nhf_repo=''\nnext=''\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\n  if [ \"$next\" = 'f' ]; then\n    prompt=\"$arg\"\n    next=''\n    continue\n  fi\n  if [ \"$next\" = 'm' ]; then\n    model=\"$arg\"\n    next=''\n    continue\n  fi\n  if [ \"$next\" = 'hf' ]; then\n    hf_repo=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -f)\n      next='f'\n      ;;\n    -m)\n      next='m'\n      ;;\n    -hf)\n      next='hf'\n      ;;\n  esac\ndone\nprintf 'HF_TOKEN=%s\\n' \"${{HF_TOKEN:-}}\" >> '{log}'\nprintf 'LLAMA_CACHE=%s\\n' \"${{LLAMA_CACHE:-}}\" >> '{log}'\nif [ -n \"$prompt\" ]; then\n  cat \"$prompt\" > '{prompt_capture}'\nfi\nif [ -n \"$model\" ]; then\n  mkdir -p \"$(dirname \"$model\")\"\n  printf 'synthetic model' > \"$model\"\nelif [ -n \"$hf_repo\" ] && [ -n \"${{LLAMA_CACHE:-}}\" ]; then\n  mkdir -p \"$LLAMA_CACHE\"\n  printf 'synthetic downloaded model' > \"$LLAMA_CACHE/downloaded-model.gguf\"\nfi\nif [ -n \"$prompt\" ]; then\n  printf 'synthetic summary'\nfi\n"
             )
         };
-        fs::write(path, script).expect("llama script");
-        make_executable(path);
+        let windows_script = if fail {
+            format!(
+                "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nif not exist \"{log}\" > \"{log}\" type nul\n:loop\nif \"%~1\"==\"\" goto done\nset \"arg=%~1\"\nif \"!arg:~0,4!\"==\"\\\\?\\\" set \"arg=!arg:~4!\"\n>> \"{log}\" echo(!arg!\nshift\ngoto loop\n:done\nset \"llama_cache=!LLAMA_CACHE!\"\nif \"!llama_cache:~0,4!\"==\"\\\\?\\\" set \"llama_cache=!llama_cache:~4!\"\n>> \"{log}\" echo HF_TOKEN=!HF_TOKEN!\n>> \"{log}\" echo LLAMA_CACHE=!llama_cache!\necho synthetic llama failure 1>&2\nexit /b 1\n"
+            )
+        } else {
+            format!(
+                "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nif not exist \"{log}\" > \"{log}\" type nul\nset \"prompt=\"\nset \"model=\"\nset \"hf_repo=\"\nset \"next=\"\n:loop\nif \"%~1\"==\"\" goto after\nset \"arg=%~1\"\nif \"!arg:~0,4!\"==\"\\\\?\\\" set \"arg=!arg:~4!\"\n>> \"{log}\" echo(!arg!\nif /I \"!next!\"==\"f\" (\n  set \"prompt=!arg!\"\n  set \"next=\"\n) else if /I \"!next!\"==\"m\" (\n  set \"model=!arg!\"\n  set \"next=\"\n) else if /I \"!next!\"==\"hf\" (\n  set \"hf_repo=!arg!\"\n  set \"next=\"\n) else if /I \"!arg!\"==\"-f\" (\n  set \"next=f\"\n) else if /I \"!arg!\"==\"-m\" (\n  set \"next=m\"\n) else if /I \"!arg!\"==\"-hf\" (\n  set \"next=hf\"\n)\nshift\ngoto loop\n:after\nset \"llama_cache=!LLAMA_CACHE!\"\nif \"!llama_cache:~0,4!\"==\"\\\\?\\\" set \"llama_cache=!llama_cache:~4!\"\n>> \"{log}\" echo HF_TOKEN=!HF_TOKEN!\n>> \"{log}\" echo LLAMA_CACHE=!llama_cache!\nif defined prompt copy /y \"!prompt!\" \"{prompt_capture}\" >nul\nif defined model (\n  for %%I in (\"!model!\") do if not exist \"%%~dpI\" mkdir \"%%~dpI\"\n  > \"!model!\" <nul set /p =synthetic model\n) else if defined hf_repo if defined llama_cache (\n  if not exist \"!llama_cache!\" mkdir \"!llama_cache!\"\n  > \"!llama_cache!\\downloaded-model.gguf\" <nul set /p =synthetic downloaded model\n)\nif defined prompt <nul set /p =synthetic summary\nexit /b 0\n"
+            )
+        };
+        write_platform_script(path, &unix_script, &windows_script);
     }
-
     fn write_fake_download_script(path: &Path, log_path: &Path) {
         let log = log_path.display();
-        let script = format!(
+        let unix_script = format!(
             "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{log}'\nmkdir -p \"$2\"\n: > \"$2/ggml-$1.bin\"\n"
         );
-        fs::write(path, script).expect("download script");
-        make_executable(path);
+        let windows_script = format!(
+            "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nset \"model=%~1\"\nset \"out_dir=%~2\"\nif \"!out_dir:~0,4!\"==\"\\\\?\\\" set \"out_dir=!out_dir:~4!\"\n> \"{log}\" echo(!model! !out_dir!\nif not exist \"!out_dir!\" mkdir \"!out_dir!\"\n> \"!out_dir!\\ggml-!model!.bin\" type nul\nexit /b 0\n"
+        );
+        write_platform_script(path, &unix_script, &windows_script);
     }
-
     fn write_test_wav(path: &Path, channels: u16) {
         let mut file = File::create(path).expect("fixture wav");
         let sample_rate: u32 = 16_000;
@@ -1752,14 +1824,14 @@ mod tests {
             .expect("samples");
     }
 
-    fn make_executable(path: &Path) {
+    fn make_executable(_path: &Path) {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
 
-            let mut permissions = fs::metadata(path).expect("metadata").permissions();
+            let mut permissions = fs::metadata(_path).expect("metadata").permissions();
             permissions.set_mode(0o755);
-            fs::set_permissions(path, permissions).expect("permissions");
+            fs::set_permissions(_path, permissions).expect("permissions");
         }
     }
 
@@ -1781,13 +1853,22 @@ mod tests {
             .join("install/bin");
         fs::create_dir_all(&scripts_dir).expect("scripts dir");
         fs::create_dir_all(&build_bin).expect("toolchain dir");
-        write_build_script(&scripts_dir.join("build_ffmpeg.sh"));
-        write_fake_ffprobe(&build_bin.join("ffprobe"), 1, Some("mono"));
-        write_fake_ffmpeg(&build_bin.join("ffmpeg"), &repo_root.join("ffmpeg.log"));
+        write_build_script(&build_script_path(&repo_root, "ffmpeg"));
+        write_fake_ffprobe(&fake_command_path(&build_bin, "ffprobe"), 1, Some("mono"));
+        write_fake_ffmpeg(
+            &fake_command_path(&build_bin, "ffmpeg"),
+            &repo_root.join("ffmpeg.log"),
+        );
 
         let toolchain = FfmpegToolchain::discover(&repo_root).expect("toolchain");
 
-        assert_eq!(toolchain.ffmpeg_path, build_bin.join("ffmpeg"));
-        assert_eq!(toolchain.ffprobe_path, build_bin.join("ffprobe"));
+        assert_eq!(
+            toolchain.ffmpeg_path,
+            fake_command_path(&build_bin, "ffmpeg")
+        );
+        assert_eq!(
+            toolchain.ffprobe_path,
+            fake_command_path(&build_bin, "ffprobe")
+        );
     }
 }

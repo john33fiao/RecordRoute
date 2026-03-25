@@ -1,6 +1,5 @@
-use crate::ffmpeg::target_dir_name;
+use crate::ffmpeg::{build_script_path, locate_command, target_dir_name};
 use std::collections::BTreeSet;
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -29,19 +28,17 @@ pub struct Toolchain {
 
 impl Toolchain {
     pub fn discover(repo_root: &Path) -> Result<Self, String> {
-        let build_script_path = repo_root.join("scripts/build_llama.sh");
-        let llama_cli_path = repo_root
+        let build_script_path = build_script_path(repo_root, "llama");
+        let llama_bin = repo_root
             .join(".build/llama")
             .join(target_dir_name())
-            .join("bin")
-            .join(executable_name("llama-cli"));
-
-        if !llama_cli_path.is_file() {
-            return Err(format!(
+            .join("bin");
+        let llama_cli_path = locate_command(&llama_bin, "llama-cli").ok_or_else(|| {
+            format!(
                 "local llama toolchain not found. Build it first with {}",
                 build_script_path.display()
-            ));
-        }
+            )
+        })?;
 
         let model_source = resolve_model_source(repo_root);
         let cached_model_path = match &model_source {
@@ -486,14 +483,6 @@ fn cache_key(repo: &str) -> String {
     }
 }
 
-fn executable_name(name: &str) -> OsString {
-    if cfg!(windows) {
-        OsString::from(format!("{name}.exe"))
-    } else {
-        OsString::from(name)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,7 +490,9 @@ mod tests {
 
     #[test]
     fn discovers_toolchain_with_default_hugging_face_model() {
-        let _guard = crate::test_support::env_lock().lock().expect("env lock");
+        let _guard = crate::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         unsafe { std::env::remove_var(MODEL_ENV_VAR) };
 
         let repo_root = temp_workspace();
@@ -511,15 +502,12 @@ mod tests {
             .join("bin");
         fs::create_dir_all(&build_bin).expect("build bin");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        write_build_script(&build_script_path(&repo_root, "llama"));
         write_executable(
-            &build_bin.join(executable_name("llama-cli")),
+            &fake_llama_cli_path(&build_bin),
             "#!/bin/sh\nexit 0\n",
+            "@echo off\nexit /b 0\n",
         );
-        fs::write(
-            repo_root.join("scripts/build_llama.sh"),
-            "#!/bin/sh\nexit 0\n",
-        )
-        .expect("build script");
 
         let toolchain = Toolchain::discover(&repo_root).expect("toolchain");
 
@@ -539,7 +527,9 @@ mod tests {
 
     #[test]
     fn resolves_existing_relative_model_path_from_env() {
-        let _guard = crate::test_support::env_lock().lock().expect("env lock");
+        let _guard = crate::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let repo_root = temp_workspace();
         let build_bin = repo_root
@@ -551,15 +541,12 @@ mod tests {
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
         fs::create_dir_all(model_path.parent().expect("parent")).expect("models dir");
         fs::write(&model_path, "model").expect("model");
+        write_build_script(&build_script_path(&repo_root, "llama"));
         write_executable(
-            &build_bin.join(executable_name("llama-cli")),
+            &fake_llama_cli_path(&build_bin),
             "#!/bin/sh\nexit 0\n",
+            "@echo off\nexit /b 0\n",
         );
-        fs::write(
-            repo_root.join("scripts/build_llama.sh"),
-            "#!/bin/sh\nexit 0\n",
-        )
-        .expect("build script");
 
         unsafe { std::env::set_var(MODEL_ENV_VAR, "models/llama/custom.gguf") };
         let toolchain = Toolchain::discover(&repo_root).expect("toolchain");
@@ -571,7 +558,9 @@ mod tests {
 
     #[test]
     fn downloads_missing_hugging_face_model_to_repo_cache() {
-        let _guard = crate::test_support::env_lock().lock().expect("env lock");
+        let _guard = crate::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         unsafe { std::env::remove_var(MODEL_ENV_VAR) };
 
         let repo_root = temp_workspace();
@@ -582,18 +571,18 @@ mod tests {
         let llama_log = repo_root.join("llama-download.log");
         fs::create_dir_all(&build_bin).expect("build bin");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        write_build_script(&build_script_path(&repo_root, "llama"));
         write_executable(
-            &build_bin.join(executable_name("llama-cli")),
+            &fake_llama_cli_path(&build_bin),
             &format!(
                 "#!/bin/sh\n: > '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\ndone\nprintf 'LLAMA_CACHE=%s\\n' \"${{LLAMA_CACHE:-}}\" >> '{log}'\nmkdir -p \"$LLAMA_CACHE\"\nprintf 'synthetic model' > \"$LLAMA_CACHE/downloaded-model.gguf\"\n",
                 log = llama_log.display()
             ),
+            &format!(
+                "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\n> \"{log}\" type nul\n:loop\nif \"%~1\"==\"\" goto after\n>> \"{log}\" echo %~1\nshift\ngoto loop\n:after\n>> \"{log}\" echo LLAMA_CACHE=!LLAMA_CACHE!\nif not exist \"!LLAMA_CACHE!\" mkdir \"!LLAMA_CACHE!\"\n> \"!LLAMA_CACHE!\\downloaded-model.gguf\" <nul set /p =synthetic model\nexit /b 0\n",
+                log = llama_log.display()
+            ),
         );
-        fs::write(
-            repo_root.join("scripts/build_llama.sh"),
-            "#!/bin/sh\nexit 0\n",
-        )
-        .expect("build script");
 
         let toolchain = Toolchain::discover(&repo_root).expect("toolchain");
         toolchain.ensure_model().expect("model download");
@@ -621,7 +610,13 @@ mod tests {
 
         let error = Toolchain::discover(&repo_root).expect_err("toolchain should fail");
 
-        assert!(error.contains("scripts/build_llama.sh"));
+        assert!(
+            error.contains(
+                build_script_path(&repo_root, "llama")
+                    .to_string_lossy()
+                    .as_ref()
+            )
+        );
     }
 
     #[test]
@@ -639,8 +634,21 @@ mod tests {
         path
     }
 
-    fn write_executable(path: &Path, contents: &str) {
-        fs::write(path, contents).expect("write executable");
+    fn fake_llama_cli_path(build_bin: &Path) -> PathBuf {
+        crate::ffmpeg::fake_command_path(build_bin, "llama-cli")
+    }
+
+    fn write_build_script(path: &Path) {
+        write_executable(path, "#!/bin/sh\nexit 0\n", "@echo off\nexit /b 0\n");
+    }
+
+    fn write_executable(path: &Path, unix_content: &str, windows_content: &str) {
+        let content = if cfg!(windows) {
+            windows_content.replace("\r\n", "\n").replace('\n', "\r\n")
+        } else {
+            unix_content.to_string()
+        };
+        fs::write(path, content).expect("write executable");
 
         #[cfg(unix)]
         {

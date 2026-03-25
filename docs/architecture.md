@@ -8,7 +8,7 @@
 
 즉, 실제 통합 지점은 다음 3개다.
 
-1. `scripts/build_ffmpeg.sh`
+1. Unix의 `scripts/build_ffmpeg.sh` 또는 Windows의 `scripts/build_ffmpeg.bat`
    로컬 머신에서 사용할 FFmpeg CLI 바이너리를 `.build/ffmpeg/<os>-<arch>/install/bin` 아래에 빌드한다.
 2. `rust/src/ffmpeg.rs`
    빌드된 바이너리 위치를 찾고, `ffprobe`와 `ffmpeg` 호출 인자를 구성하는 얇은 래퍼다.
@@ -45,7 +45,7 @@ flowchart LR
 
 #### 1. Build script
 
-`scripts/build_ffmpeg.sh`는 FFmpeg 툴체인을 현재 OS / CPU 아키텍처 기준 디렉터리에 설치한다.
+`scripts/build_ffmpeg.sh` / `scripts/build_ffmpeg.bat`는 FFmpeg 툴체인을 현재 OS / CPU 아키텍처 기준 디렉터리에 설치한다.
 
 - 타깃 경로 계산: `.build/ffmpeg/<platform_os>-<platform_arch>/install/bin`
 - 캐시 동작: 이미 `ffmpeg`와 `ffprobe` 실행 파일이 있으면 바로 그 경로를 출력하고 종료
@@ -56,6 +56,10 @@ flowchart LR
   - `--disable-network`
   - `--disable-autodetect`
   - `--disable-debug`
+- Windows 전제:
+  - `scripts/build_ffmpeg.bat`는 FFmpeg 자체 빌드는 POSIX shell + GNU `make` + `cmp`/`cygpath` 환경(MSYS2 `diffutils` 포함, 또는 Git for Windows 등)에 위임한다.
+  - 동시에 MSVC toolchain(`cl`, `nmake`)이 필요하다.
+  - 일반 PowerShell / `cmd.exe` 세션에서도 `VsDevCmd.bat`를 자동 로드하고, 현재 MSVC `PATH`를 POSIX shell로 다시 전달해서 `cl.exe`를 찾을 수 있게 만든다.
 
 의미상 이 스크립트는 "서브모듈 관리"가 아니라 "런타임이 사용할 로컬 CLI 툴체인 준비"를 담당한다.
 
@@ -64,7 +68,7 @@ flowchart LR
 `rust/src/ffmpeg.rs`의 `Toolchain`은 FFmpeg 연동의 진입점이다.
 
 - `Toolchain::discover(repo_root)`
-  - `scripts/build_ffmpeg.sh` 위치를 함께 저장한다.
+  - 현재 플랫폼에 맞는 `scripts/build_ffmpeg.sh` 또는 `scripts/build_ffmpeg.bat` 위치를 함께 저장한다.
   - `.build/ffmpeg/<target>/install/bin/ffmpeg`
   - `.build/ffmpeg/<target>/install/bin/ffprobe`
   - 두 파일이 모두 존재해야 성공한다.
@@ -184,7 +188,7 @@ db/
 
 - 툴체인 없음
   - `.build/.../ffmpeg`, `ffprobe`가 없으면 즉시 실패
-  - 에러 메시지에 `scripts/build_ffmpeg.sh` 경로를 포함
+  - 에러 메시지에 현재 플랫폼용 `scripts/build_ffmpeg.sh` 또는 `scripts/build_ffmpeg.bat` 경로를 포함
 - `ffprobe` 실패
   - stderr를 수집해 상위로 전달
 - `ffmpeg` 실패
@@ -212,7 +216,7 @@ db/
 
 정리하면:
 
-- 준비: `scripts/build_ffmpeg.sh`가 로컬 바이너리를 만든다.
+- 준비: Unix는 `scripts/build_ffmpeg.sh`, Windows는 `scripts/build_ffmpeg.bat`가 로컬 바이너리를 만든다.
 - 재사용 확인: `IndexStore`가 canonical input path 기준으로 기존 완료 결과를 찾는다.
 - 발견: cache miss일 때만 `Toolchain::discover()`가 고정된 설치 경로를 찾는다.
 - 분석: `probe_audio_input()`이 `ffprobe` JSON 출력을 파싱한다.
@@ -231,7 +235,7 @@ db/
 
 현재 Whisper 통합의 핵심 지점은 다음 4개다.
 
-1. `scripts/build_whisper.sh`
+1. Unix의 `scripts/build_whisper.sh` 또는 Windows의 `scripts/build_whisper.bat`
    로컬 머신에서 사용할 `whisper-cli` 바이너리를 `.build/whisper/<os>-<arch>/bin` 아래에 빌드한다.
 2. `rust/src/whisper.rs`
    빌드된 `whisper-cli` 위치를 찾고, 모델 경로를 해석하고, 필요한 경우 모델 다운로드를 수행한 뒤 실제 STT 명령행을 실행하는 얇은 래퍼다.
@@ -277,7 +281,7 @@ flowchart LR
 
 #### 1. Build script
 
-`scripts/build_whisper.sh`는 Whisper 툴체인을 현재 OS / CPU 아키텍처 기준 디렉터리에 준비한다.
+`scripts/build_whisper.sh` / `scripts/build_whisper.bat`는 Whisper 툴체인을 현재 OS / CPU 아키텍처 기준 디렉터리에 준비한다.
 
 - 타깃 경로 계산: `.build/whisper/<platform_os>-<platform_arch>/bin`
 - 캐시 동작: 이미 `whisper-cli` 실행 파일이 있으면 바로 그 경로를 출력하고 종료
@@ -289,6 +293,8 @@ flowchart LR
   - `-DWHISPER_BUILD_TESTS=OFF`
   - `-DWHISPER_BUILD_SERVER=OFF`
   - `-DWHISPER_BUILD_EXAMPLES=ON`
+- Windows 구현:
+  - `scripts/build_whisper.bat`는 MSVC + CMake(`NMake Makefiles`) 기준으로 동일 산출물을 만든다.
 
 의미상 이 스크립트는 "Whisper 소스를 직접 호출"하는 것이 아니라 "런타임이 사용할 로컬 `whisper-cli` 준비"를 담당한다.
 
@@ -297,8 +303,8 @@ flowchart LR
 `rust/src/whisper.rs`의 `Toolchain`은 Whisper 연동의 진입점이다.
 
 - `Toolchain::discover(repo_root)`
-  - `scripts/build_whisper.sh` 위치를 저장한다.
-  - `whisper.cpp/models/download-ggml-model.sh` 위치를 저장한다.
+  - 현재 플랫폼에 맞는 `scripts/build_whisper.sh` 또는 `scripts/build_whisper.bat` 위치를 저장한다.
+  - Unix는 `whisper.cpp/models/download-ggml-model.sh`, Windows는 `whisper.cpp/models/download-ggml-model.cmd` 위치를 저장한다.
   - `.build/whisper/<target>/bin/whisper-cli`
   - 모델 경로를 함께 해석한다.
 - 모델 경로 우선순위:
@@ -316,7 +322,7 @@ flowchart LR
 모델 파일은 `Toolchain::ensure_model()`이 관리한다.
 
 - 설정된 모델 파일이 이미 있으면 그대로 사용한다.
-- 모델 파일이 없으면 `whisper.cpp/models/download-ggml-model.sh`를 실행해 다운로드를 시도한다.
+- 모델 파일이 없으면 Unix는 `whisper.cpp/models/download-ggml-model.sh`, Windows는 `whisper.cpp/models/download-ggml-model.cmd`를 실행해 다운로드를 시도한다.
 - 다운로드 대상 디렉터리는 모델 파일의 부모 디렉터리다.
 - 환경변수에 shorthand가 들어온 경우에도 실제 다운로드 대상 파일명은 `ggml-<model>.bin` 규칙으로 정규화된다.
 
@@ -430,7 +436,7 @@ db/
 
 - 툴체인 없음
   - `.build/.../whisper-cli`가 없으면 즉시 실패
-  - 에러 메시지에 `scripts/build_whisper.sh` 경로를 포함
+  - 에러 메시지에 현재 플랫폼용 `scripts/build_whisper.sh` 또는 `scripts/build_whisper.bat` 경로를 포함
 - 모델 없음
   - 설정된 모델 파일이 없으면 다운로드를 시도
   - 다운로드 스크립트가 없거나 다운로드 실패 시 에러 반환
@@ -463,7 +469,7 @@ db/
 
 정리하면:
 
-- 준비: `scripts/build_whisper.sh`가 로컬 `whisper-cli`를 만든다.
+- 준비: Unix는 `scripts/build_whisper.sh`, Windows는 `scripts/build_whisper.bat`가 로컬 `whisper-cli`를 만든다.
 - 설정: `.env`가 `RECORDROUTE_WHISPER_MODEL`을 공급한다.
 - 발견: `Toolchain::discover()`가 고정된 설치 경로와 모델 경로를 찾는다.
 - 모델 보장: `ensure_model()`이 필요 시 기본 경로나 shorthand 설정을 정규화한 경로에 모델을 다운로드한다.
@@ -481,7 +487,7 @@ db/
 
 요약 기능의 실제 통합 지점은 다음 4개다.
 
-1. `scripts/build_llama.sh`
+1. Unix의 `scripts/build_llama.sh` 또는 Windows의 `scripts/build_llama.bat`
    로컬 머신에서 사용할 `llama-cli` 바이너리를 `.build/llama/<os>-<arch>/bin` 아래에 빌드한다.
 2. `rust/src/llama.rs`
    빌드된 `llama-cli` 위치를 찾고, 모델 설정을 해석하고, 실제 요약 명령행을 실행하는 얇은 래퍼다.
@@ -522,7 +528,7 @@ flowchart LR
 
 #### 1. Build script
 
-`scripts/build_llama.sh`는 Llama 툴체인을 현재 OS / CPU 아키텍처 기준 디렉터리에 준비한다.
+`scripts/build_llama.sh` / `scripts/build_llama.bat`는 Llama 툴체인을 현재 OS / CPU 아키텍처 기준 디렉터리에 준비한다.
 
 - 타깃 경로 계산: `.build/llama/<platform_os>-<platform_arch>/bin`
 - 캐시 동작: 이미 `llama-cli` 실행 파일이 있으면 바로 그 경로를 출력하고 종료
@@ -534,6 +540,8 @@ flowchart LR
   - `-DLLAMA_BUILD_TESTS=OFF`
   - `-DLLAMA_BUILD_SERVER=ON`
   - `-DLLAMA_BUILD_EXAMPLES=OFF`
+- Windows 구현:
+  - `scripts/build_llama.bat`는 MSVC + CMake(`NMake Makefiles`) 기준으로 동일 산출물을 만든다.
 
 의미상 이 스크립트는 "llama.cpp 서브모듈 관리"가 아니라 "런타임이 사용할 로컬 `llama-cli` 준비"를 담당한다.
 
@@ -542,7 +550,7 @@ flowchart LR
 `rust/src/llama.rs`의 `Toolchain`은 요약 연동의 진입점이다.
 
 - `Toolchain::discover(repo_root)`
-  - `scripts/build_llama.sh` 위치를 저장한다.
+  - 현재 플랫폼에 맞는 `scripts/build_llama.sh` 또는 `scripts/build_llama.bat` 위치를 저장한다.
   - `.build/llama/<target>/bin/llama-cli`
   - 실행 파일이 없으면 빌드 스크립트 경로를 포함한 에러를 반환한다.
 - 모델 해석
@@ -644,7 +652,7 @@ db/
 
 - 툴체인 없음
   - `.build/.../llama-cli`가 없으면 즉시 실패
-  - 에러 메시지에 `scripts/build_llama.sh` 경로를 포함
+  - 에러 메시지에 현재 플랫폼용 `scripts/build_llama.sh` 또는 `scripts/build_llama.bat` 경로를 포함
 - 후보 폴더 없음
   - `db/index.json` 안에 실제 `stt/*.txt`가 있는 `job_dir`가 하나도 없으면 실패
 - 프롬프트 파일 생성 실패
@@ -675,7 +683,7 @@ db/
 
 정리하면:
 
-- 준비: `scripts/build_llama.sh`가 로컬 `llama-cli`를 만든다.
+- 준비: Unix는 `scripts/build_llama.sh`, Windows는 `scripts/build_llama.bat`가 로컬 `llama-cli`를 만든다.
 - 설정: `.env`가 `RECORDROUTE_LLAMA_MODEL`, `HF_TOKEN`을 공급한다.
 - 발견: `Toolchain::discover()`가 고정된 설치 경로와 모델 소스를 해석한다.
 - 선택: `run_summary_with_repo_root()`가 `db/index.json`을 읽어 `stt/*.txt`가 있는 후보를 구성한다.

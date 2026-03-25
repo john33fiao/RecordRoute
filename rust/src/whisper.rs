@@ -1,5 +1,4 @@
-use crate::ffmpeg::target_dir_name;
-use std::ffi::OsString;
+use crate::ffmpeg::{build_script_path, locate_command, target_dir_name};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -17,20 +16,18 @@ pub struct Toolchain {
 
 impl Toolchain {
     pub fn discover(repo_root: &Path) -> Result<Self, String> {
-        let build_script_path = repo_root.join("scripts/build_whisper.sh");
-        let download_script_path = repo_root.join("whisper.cpp/models/download-ggml-model.sh");
-        let whisper_cli_path = repo_root
+        let build_script_path = build_script_path(repo_root, "whisper");
+        let download_script_path = download_script_path(repo_root);
+        let whisper_bin = repo_root
             .join(".build/whisper")
             .join(target_dir_name())
-            .join("bin")
-            .join(executable_name("whisper-cli"));
-
-        if !whisper_cli_path.is_file() {
-            return Err(format!(
+            .join("bin");
+        let whisper_cli_path = locate_command(&whisper_bin, "whisper-cli").ok_or_else(|| {
+            format!(
                 "local whisper toolchain not found. Build it first with {}",
                 build_script_path.display()
-            ));
-        }
+            )
+        })?;
 
         Ok(Self {
             whisper_cli_path,
@@ -75,8 +72,7 @@ impl Toolchain {
             )
         })?;
 
-        let output = Command::new("sh")
-            .arg(&self.download_script_path)
+        let output = Command::new(&self.download_script_path)
             .arg(&model_name)
             .arg(model_dir)
             .output()
@@ -257,11 +253,17 @@ fn transcript_output_prefix(output_text: &Path) -> Result<PathBuf, String> {
     Ok(parent.join(stem))
 }
 
-fn executable_name(name: &str) -> OsString {
+fn download_script_path(repo_root: &Path) -> PathBuf {
+    repo_root
+        .join("whisper.cpp/models")
+        .join(download_script_name())
+}
+
+fn download_script_name() -> &'static str {
     if cfg!(windows) {
-        OsString::from(format!("{name}.exe"))
+        "download-ggml-model.cmd"
     } else {
-        OsString::from(name)
+        "download-ggml-model.sh"
     }
 }
 
@@ -281,20 +283,17 @@ mod tests {
         fs::create_dir_all(&build_bin).expect("build bin");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
         fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("models dir");
+        write_build_script(&build_script_path(&repo_root, "whisper"));
         write_executable(
-            &build_bin.join(executable_name("whisper-cli")),
+            &fake_whisper_cli_path(&build_bin),
             "#!/bin/sh\nexit 0\n",
+            "@echo off\nexit /b 0\n",
         );
-        fs::write(
-            repo_root.join("scripts/build_whisper.sh"),
+        write_executable(
+            &download_script_path(&repo_root),
             "#!/bin/sh\nexit 0\n",
-        )
-        .expect("build script");
-        fs::write(
-            repo_root.join("whisper.cpp/models/download-ggml-model.sh"),
-            "#!/bin/sh\nexit 0\n",
-        )
-        .expect("download script");
+            "@echo off\nexit /b 0\n",
+        );
 
         let toolchain = Toolchain::discover(&repo_root).expect("toolchain");
 
@@ -304,13 +303,15 @@ mod tests {
         );
         assert_eq!(
             toolchain.whisper_cli_path,
-            build_bin.join(executable_name("whisper-cli"))
+            fake_whisper_cli_path(&build_bin)
         );
     }
 
     #[test]
     fn discover_uses_env_override_for_relative_model_path() {
-        let _guard = crate::test_support::env_lock().lock().expect("env lock");
+        let _guard = crate::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let repo_root = temp_workspace();
         let build_bin = repo_root
             .join(".build/whisper")
@@ -319,20 +320,17 @@ mod tests {
         fs::create_dir_all(&build_bin).expect("build bin");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
         fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("models dir");
+        write_build_script(&build_script_path(&repo_root, "whisper"));
         write_executable(
-            &build_bin.join(executable_name("whisper-cli")),
+            &fake_whisper_cli_path(&build_bin),
             "#!/bin/sh\nexit 0\n",
+            "@echo off\nexit /b 0\n",
         );
-        fs::write(
-            repo_root.join("scripts/build_whisper.sh"),
+        write_executable(
+            &download_script_path(&repo_root),
             "#!/bin/sh\nexit 0\n",
-        )
-        .expect("build script");
-        fs::write(
-            repo_root.join("whisper.cpp/models/download-ggml-model.sh"),
-            "#!/bin/sh\nexit 0\n",
-        )
-        .expect("download script");
+            "@echo off\nexit /b 0\n",
+        );
 
         unsafe { std::env::set_var(MODEL_ENV_VAR, "custom/ggml-base.bin") };
         let toolchain = Toolchain::discover(&repo_root).expect("toolchain");
@@ -343,7 +341,9 @@ mod tests {
 
     #[test]
     fn discover_normalizes_shorthand_relative_model_path() {
-        let _guard = crate::test_support::env_lock().lock().expect("env lock");
+        let _guard = crate::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let repo_root = temp_workspace();
         let build_bin = repo_root
             .join(".build/whisper")
@@ -352,20 +352,17 @@ mod tests {
         fs::create_dir_all(&build_bin).expect("build bin");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
         fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("models dir");
+        write_build_script(&build_script_path(&repo_root, "whisper"));
         write_executable(
-            &build_bin.join(executable_name("whisper-cli")),
+            &fake_whisper_cli_path(&build_bin),
             "#!/bin/sh\nexit 0\n",
+            "@echo off\nexit /b 0\n",
         );
-        fs::write(
-            repo_root.join("scripts/build_whisper.sh"),
+        write_executable(
+            &download_script_path(&repo_root),
             "#!/bin/sh\nexit 0\n",
-        )
-        .expect("build script");
-        fs::write(
-            repo_root.join("whisper.cpp/models/download-ggml-model.sh"),
-            "#!/bin/sh\nexit 0\n",
-        )
-        .expect("download script");
+            "@echo off\nexit /b 0\n",
+        );
 
         unsafe { std::env::set_var(MODEL_ENV_VAR, "models/whisper/large-v3-turbo") };
         let toolchain = Toolchain::discover(&repo_root).expect("toolchain");
@@ -384,7 +381,13 @@ mod tests {
 
         let error = Toolchain::discover(&repo_root).expect_err("toolchain should fail");
 
-        assert!(error.contains("scripts/build_whisper.sh"));
+        assert!(
+            error.contains(
+                build_script_path(&repo_root, "whisper")
+                    .to_string_lossy()
+                    .as_ref()
+            )
+        );
     }
 
     #[test]
@@ -394,25 +397,25 @@ mod tests {
             .join(".build/whisper")
             .join(target_dir_name())
             .join("bin");
-        let models_dir = repo_root.join("whisper.cpp/models");
         let download_log = repo_root.join("download.log");
         fs::create_dir_all(&build_bin).expect("build bin");
-        fs::create_dir_all(&models_dir).expect("models dir");
+        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("models dir");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        write_build_script(&build_script_path(&repo_root, "whisper"));
         write_executable(
-            &build_bin.join(executable_name("whisper-cli")),
+            &fake_whisper_cli_path(&build_bin),
             "#!/bin/sh\nexit 0\n",
+            "@echo off\nexit /b 0\n",
         );
-        fs::write(
-            repo_root.join("scripts/build_whisper.sh"),
-            "#!/bin/sh\nexit 0\n",
-        )
-        .expect("build script");
         write_executable(
-            &models_dir.join("download-ggml-model.sh"),
+            &download_script_path(&repo_root),
             &format!(
                 "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nmkdir -p \"$2\"\n: > \"$2/ggml-$1.bin\"\n",
                 download_log.display()
+            ),
+            &format!(
+                "@echo off\r\nsetlocal EnableExtensions\r\n> \"{log}\" echo %1 %2\r\nif not exist \"%~2\" mkdir \"%~2\"\r\n> \"%~2\\ggml-%~1.bin\" type nul\r\nexit /b 0\r\n",
+                log = download_log.display()
             ),
         );
 
@@ -436,14 +439,15 @@ mod tests {
         fs::create_dir_all(&build_bin).expect("build bin");
         write_test_audio(&input);
         write_executable(
-            &build_bin.join(executable_name("whisper-cli")),
+            &fake_whisper_cli_path(&build_bin),
             "#!/bin/sh\nnext=''\nout=''\nfor arg in \"$@\"; do\n  if [ \"$next\" = 'of' ]; then\n    out=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -of)\n      next='of'\n      ;;\n  esac\ndone\nmkdir -p \"$(dirname \"$out\")\"\nprintf 'synthetic transcript' > \"$out.txt\"\n",
+            "@echo off\r\nsetlocal EnableExtensions EnableDelayedExpansion\r\nset \"out=\"\r\nset \"next=\"\r\n:loop\r\nif \"%~1\"==\"\" goto done\r\nif /I \"!next!\"==\"of\" (\r\n  set \"out=%~1\"\r\n  set \"next=\"\r\n) else if /I \"%~1\"==\"-of\" (\r\n  set \"next=of\"\r\n)\r\nshift\r\ngoto loop\r\n:done\r\nif defined out (\r\n  for %%I in (\"!out!\") do if not exist \"%%~dpI\" mkdir \"%%~dpI\"\r\n  > \"!out!.txt\" <nul set /p =synthetic transcript\r\n)\r\nexit /b 0\r\n",
         );
 
         let toolchain = Toolchain {
-            whisper_cli_path: build_bin.join(executable_name("whisper-cli")),
-            build_script_path: repo_root.join("scripts/build_whisper.sh"),
-            download_script_path: repo_root.join("whisper.cpp/models/download-ggml-model.sh"),
+            whisper_cli_path: fake_whisper_cli_path(&build_bin),
+            build_script_path: build_script_path(&repo_root, "whisper"),
+            download_script_path: download_script_path(&repo_root),
             model_path: repo_root.join("models/whisper/ggml-base.bin"),
         };
         fs::create_dir_all(repo_root.join("models/whisper")).expect("models dir");
@@ -463,8 +467,22 @@ mod tests {
         path
     }
 
-    fn write_executable(path: &Path, content: &str) {
+    fn fake_whisper_cli_path(build_bin: &Path) -> PathBuf {
+        crate::ffmpeg::fake_command_path(build_bin, "whisper-cli")
+    }
+
+    fn write_build_script(path: &Path) {
+        write_executable(path, "#!/bin/sh\nexit 0\n", "@echo off\nexit /b 0\n");
+    }
+
+    fn write_executable(path: &Path, unix_content: &str, windows_content: &str) {
+        let content = if cfg!(windows) {
+            windows_content.replace("\r\n", "\n").replace('\n', "\r\n")
+        } else {
+            unix_content.to_string()
+        };
         fs::write(path, content).expect("script");
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

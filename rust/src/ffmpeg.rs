@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -29,12 +30,13 @@ pub struct SplitMonoOutput {
 
 impl Toolchain {
     pub fn discover(repo_root: &Path) -> Result<Self, String> {
-        let build_script_path = repo_root.join("scripts/build_ffmpeg.sh");
-        let install_bin = locate_install_bin(repo_root)?;
-        let ffmpeg_path = install_bin.join("ffmpeg");
-        let ffprobe_path = install_bin.join("ffprobe");
+        let build_script_path = build_script_path(repo_root, "ffmpeg");
+        let install_bin = install_bin_dir(repo_root);
 
-        if ffmpeg_path.is_file() && ffprobe_path.is_file() {
+        if let (Some(ffmpeg_path), Some(ffprobe_path)) = (
+            locate_command(&install_bin, "ffmpeg"),
+            locate_command(&install_bin, "ffprobe"),
+        ) {
             return Ok(Self {
                 ffmpeg_path,
                 ffprobe_path,
@@ -42,10 +44,7 @@ impl Toolchain {
             });
         }
 
-        Err(format!(
-            "local ffmpeg toolchain not found. Build it first with {}",
-            build_script_path.display()
-        ))
+        Err(missing_toolchain_error(&build_script_path))
     }
 }
 
@@ -216,20 +215,57 @@ pub fn build_filter_complex(channels: u32) -> String {
     filters.join(";")
 }
 
-fn locate_install_bin(repo_root: &Path) -> Result<PathBuf, String> {
-    let install_bin = repo_root
+fn install_bin_dir(repo_root: &Path) -> PathBuf {
+    repo_root
         .join(".build/ffmpeg")
         .join(target_dir_name())
-        .join("install/bin");
+        .join("install/bin")
+}
 
-    if install_bin.join("ffmpeg").is_file() && install_bin.join("ffprobe").is_file() {
-        Ok(install_bin)
+fn missing_toolchain_error(build_script_path: &Path) -> String {
+    format!(
+        "local ffmpeg toolchain not found. Build it first with {}",
+        build_script_path.display()
+    )
+}
+
+pub fn build_script_path(repo_root: &Path, tool: &str) -> PathBuf {
+    repo_root
+        .join("scripts")
+        .join(format!("build_{tool}.{}", build_script_extension()))
+}
+
+pub fn build_script_extension() -> &'static str {
+    if cfg!(windows) { "bat" } else { "sh" }
+}
+
+pub fn executable_name(name: &str) -> OsString {
+    if cfg!(windows) {
+        OsString::from(format!("{name}.exe"))
     } else {
-        Err(format!(
-            "local ffmpeg toolchain not found. Build it first with {}",
-            repo_root.join("scripts/build_ffmpeg.sh").display()
-        ))
+        OsString::from(name)
     }
+}
+
+pub(crate) fn locate_command(base_dir: &Path, name: &str) -> Option<PathBuf> {
+    command_name_candidates(name)
+        .into_iter()
+        .map(|candidate| base_dir.join(candidate))
+        .find(|path| path.is_file())
+}
+
+fn command_name_candidates(name: &str) -> Vec<OsString> {
+    let candidates = vec![executable_name(name)];
+
+    #[cfg(all(test, windows))]
+    let candidates = {
+        let mut candidates = candidates;
+        candidates.push(OsString::from(format!("{name}.cmd")));
+        candidates.push(OsString::from(format!("{name}.bat")));
+        candidates
+    };
+
+    candidates
 }
 
 pub fn target_dir_name() -> String {
@@ -249,6 +285,15 @@ fn normalized_arch() -> &'static str {
         "arm64" => "aarch64",
         "amd64" => "x86_64",
         other => other,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn fake_command_path(base_dir: &Path, name: &str) -> PathBuf {
+    if cfg!(windows) {
+        base_dir.join(format!("{name}.cmd"))
+    } else {
+        base_dir.join(name)
     }
 }
 
