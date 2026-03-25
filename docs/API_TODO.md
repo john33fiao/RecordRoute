@@ -92,7 +92,7 @@
 
 ### P0 (먼저)
 
-1. `GET /system/status`
+1. [x] `GET /system/status`
    - 목적: 운영 상태 점검
    - 응답 권장 필드:
      - `ffmpeg_available`
@@ -162,7 +162,7 @@
 - [x] 단계 통합 상태 조회 (`GET /jobs/{job_id}/status`)
 - [ ] STT 텍스트 본문 조회
 - [ ] summary 텍스트 본문 조회
-- [ ] 시스템/모델 상태 조회
+- [x] 시스템/모델 상태 조회
 - [ ] 모델 준비 API
 - [ ] 완료 job/원본 기준 조회 편의 API
 
