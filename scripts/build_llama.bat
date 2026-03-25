@@ -151,8 +151,16 @@ set "runtime_bin=%build_root%\bin"
 set "llama_bin=%runtime_bin%\llama-cli.exe"
 set "built_llama_bin=%build_dir%\bin\llama-cli.exe"
 set "built_llama_release_bin=%build_dir%\bin\Release\llama-cli.exe"
+set "build_stamp=%build_root%\build-flags.txt"
+set "expected_build_stamp=LLAMA_TLS_PROVIDER=boringssl"
+set "cache_ready="
 
-if exist "%llama_bin%" (
+if exist "%build_stamp%" (
+  set /p "cached_build_stamp="<"%build_stamp%"
+  if /I "!cached_build_stamp!"=="!expected_build_stamp!" set "cache_ready=1"
+)
+
+if exist "%llama_bin%" if defined cache_ready (
   echo llama_cli=%llama_bin%
   exit /b 0
 )
@@ -161,7 +169,7 @@ if exist "%built_llama_bin%" (
   if not exist "%runtime_bin%" mkdir "%runtime_bin%"
   copy /y "%built_llama_bin%" "%llama_bin%" >nul
 )
-if exist "%llama_bin%" (
+if exist "%llama_bin%" if defined cache_ready (
   echo llama_cli=%llama_bin%
   exit /b 0
 )
@@ -170,7 +178,7 @@ if exist "%built_llama_release_bin%" (
   if not exist "%runtime_bin%" mkdir "%runtime_bin%"
   copy /y "%built_llama_release_bin%" "%llama_bin%" >nul
 )
-if exist "%llama_bin%" (
+if exist "%llama_bin%" if defined cache_ready (
   echo llama_cli=%llama_bin%
   exit /b 0
 )
@@ -195,7 +203,9 @@ if not defined jobs set "jobs=4"
   -DLLAMA_BUILD_TOOLS=ON ^
   -DLLAMA_BUILD_TESTS=OFF ^
   -DLLAMA_BUILD_SERVER=ON ^
-  -DLLAMA_BUILD_EXAMPLES=OFF
+  -DLLAMA_BUILD_EXAMPLES=OFF ^
+  -DLLAMA_OPENSSL=OFF ^
+  -DLLAMA_BUILD_BORINGSSL=ON
 if errorlevel 1 exit /b %errorlevel%
 
 "%cmake_exe%" --build "%build_dir%" --target llama-cli --parallel %jobs%
@@ -208,6 +218,8 @@ if not exist "%llama_bin%" (
   >&2 echo llama-cli binary not found after build: %built_llama_bin%
   exit /b 1
 )
+
+> "%build_stamp%" echo %expected_build_stamp%
 
 echo llama_cli=%llama_bin%
 exit /b 0

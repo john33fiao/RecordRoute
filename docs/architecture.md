@@ -542,6 +542,7 @@ flowchart LR
   - `-DLLAMA_BUILD_EXAMPLES=OFF`
 - Windows 구현:
   - `scripts/build_llama.bat`는 MSVC + CMake(`NMake Makefiles`) 기준으로 동일 산출물을 만든다.
+  - `llama-cli -hf ...` 다운로드가 동작하도록 BoringSSL 구성을 사용하고, 이전 옵션으로 빌드된 캐시 바이너리는 stamp 파일로 무효화한다.
 
 의미상 이 스크립트는 "llama.cpp 서브모듈 관리"가 아니라 "런타임이 사용할 로컬 `llama-cli` 준비"를 담당한다.
 
