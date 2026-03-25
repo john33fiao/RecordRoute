@@ -1,24 +1,22 @@
-# API TODO (2026-03-25 기준 최신화)
+# API TODO (2026-03-25 코드베이스 기준)
 
 ## 목적
 
-이 문서는 **현재 코드베이스 기준으로 이미 구현된 HTTP API**와, 아직 남아 있는 API 작업을 분리해서 정리한다.
+이 문서는 `rust/src/server.rs`, `rust/src/app.rs`, `rust/src/index.rs` 기준으로
 
-핵심 원칙:
+1. **이미 구현된 HTTP API 사실**
+2. **아직 남아 있는 API 작업(TODO)**
 
-1. `db/index.json`(`IndexStore`)를 단일 상태 저장소로 유지한다.
-2. API와 CLI는 동일한 도메인 로직(`app.rs`, `index.rs`)을 공유한다.
-3. 중복 요청 deduplicate / 완료 결과 재사용(reuse) 동작을 깨지 않는다.
+를 분리해 정리한다.
 
 ---
 
-## 현재 구현 상태 (사실 기준)
+## 1) 현재 구현된 API (확정)
 
-### 서버 라우트
-
-현재 서버(axum)는 다음 라우트를 제공한다.
+## 라우트 목록
 
 - `POST /server/ping`
+- `GET /system/status`
 - `POST /jobs`
 - `GET /jobs`
 - `GET /jobs/{job_id}`
@@ -30,146 +28,138 @@
 - `GET /jobs/{job_id}/files`
 - `GET /jobs/{job_id}/files/{*file_name}`
 
-즉, 과거 문서의 "ping만 구현" 상태는 더 이상 유효하지 않다.
+즉 현재는 ping-only 단계가 아니라, job/task/file 조회·실행 API까지 구현된 상태다.
 
-### 작업 실행 모델
+## 핵심 동작 요약
 
-- `POST /jobs`는 요청을 수락한 뒤 백그라운드에서 ffmpeg 작업을 실행한다.
-  - 신규 실행이면 `202 Accepted`
-  - 재사용이면 `200 OK`
-- `POST /jobs/{job_id}/stt`, `POST /jobs/{job_id}/summary`도 백그라운드 실행 + `202 Accepted` 모델이다.
+### `POST /jobs`
+
+- 요청: `{ "input_path": "..." }` (서버 로컬 파일 경로)
+- 동작: ffmpeg 파이프라인 작업을 등록하고 필요 시 백그라운드 실행
+- 응답 코드:
+  - `200 OK`: 완료된 기존 작업 재사용(`reused=true`)
+  - `202 Accepted`: 신규 제출 또는 실행 중 작업 deduplicate
+
+### `POST /jobs/{job_id}/stt`
+
+- 요청: `{ "audio_files": [...], "mono_mix_only": false }`
+  - `mono_mix_only=true` 이면 내부적으로 `mono_mix.wav`만 대상으로 처리
+  - `audio_files`와 `mono_mix_only=true` 동시 사용은 `400`
+- 동작: STT task 제출/재사용/deduplicate 후 필요 시 백그라운드 실행
+- 응답 코드: 항상 `202 Accepted` (메시지/플래그로 reused·deduplicated 구분)
+
+### `POST /jobs/{job_id}/summary`
+
+- 요청: `{ "force_regenerate": false }` (body 없으면 false 취급)
+- 동작: summary task 제출/재사용/deduplicate 후 필요 시 백그라운드 실행
+- 응답 코드: 항상 `202 Accepted`
+
+### `GET /jobs/{job_id}/stt`, `GET /jobs/{job_id}/summary`
+
+- **본문 데이터가 아니라 task 상태 조회 API**
+- 응답은 task 존재 여부/상태(`running|completed|failed`) 중심
+
+### `GET /jobs/{job_id}/files`, `GET /jobs/{job_id}/files/{*file_name}`
+
+- 파일 목록/다운로드 제공
+- 허용 파일 경로 제한:
+  - 루트: `mono_mix.wav`, `channel_*.wav`
+  - 하위: `stt/*`, `summary/*`
+- `..`, 절대경로, 백슬래시 경로는 차단
+
+### `GET /system/status`
+
+- 점검 필드 제공:
+  - `ffmpeg_available`
+  - `whisper_available`
+  - `llama_available`
+  - `whisper_model_ready`
+  - `llama_model_ready`
+  - `errors[]`
+
+---
+
+## 2) 상태/중복 처리 모델 (현재 구현과 일치)
+
+- 상태 저장 SoT: `db/index.json` (`IndexStore`)
+- Job 상태: `running`, `completed`, `failed`
+- Task 타입: `ffmpeg`, `stt`, `summary`
+- Task 상태: `running`, `completed`, `failed`
 
 ### deduplicate / reuse
 
-- ffmpeg:
-  - 같은 `source_path`의 완료 job + 유효 산출물 존재 시 `reused`
-  - 같은 `source_path`의 실행중 job 존재 시 `deduplicated`
-- stt:
-  - 동일 task 실행중이면 `deduplicated`
-  - 대상 transcript가 이미 모두 존재하면 `reused`
-- summary:
-  - 동일 task 실행중이면 `deduplicated`
-  - summary 파일이 이미 있고 `force_regenerate=false`면 `reused`
-
-### 상태 저장
-
-`JobRecord`는 다음을 보관한다.
-
-- ffmpeg job 상태: `status` (`running`/`completed`/`failed`)
-- 작업 시간: `started_at`, `finished_at`
-- 입력/출력 메타: `source_path`, `source_file_name`, `probe`, `outputs`
-- 오류: `error_message`
-- 단계별 task 상태: `tasks[]` (`ffmpeg`/`stt`/`summary`, `running`/`completed`/`failed`, `last_error`, `retry_count`)
+- ffmpeg
+  - 동일 `source_path` 완료 job + 산출물 유효 시 `reused`
+  - 동일 `source_path` 실행 중 job 있으면 `deduplicated`
+- stt
+  - 동일 task 실행 중이면 `deduplicated`
+  - 대상 transcript가 이미 있으면 `reused`
+- summary
+  - 동일 task 실행 중이면 `deduplicated`
+  - summary 파일이 있고 `force_regenerate=false`면 `reused`
 
 ---
 
-## 현재 API와 사용자 최소 시나리오 매핑
+## 3) 미구현 TODO (우선순위)
 
-사용자 시나리오 관점에서 이미 가능한 항목:
+## P0 (운영/클라이언트 사용성에 즉시 필요)
 
-1. 오디오 경로 전달 후 ffmpeg 작업 시작
-   - `POST /jobs`
-2. 기존 완료 job 재사용
-   - `POST /jobs` 응답의 `reused`
-3. ffmpeg 완료/진행 포함 전체 job 조회
-   - `GET /jobs`, `GET /jobs/{job_id}`
-4. 특정 job STT 시작
-   - `POST /jobs/{job_id}/stt`
-5. 특정 job summary 시작
-   - `POST /jobs/{job_id}/summary`
-6. 산출물 파일 목록/다운로드
-   - `GET /jobs/{job_id}/files`
-   - `GET /jobs/{job_id}/files/{*file_name}`
-
-보완이 필요한 항목:
-
-- STT/summary 본문 전용 조회 API 부재(현재는 파일 다운로드 기반)
-- 시스템/모델 상태 조회 API 부재
-
----
-
-## 미구현 TODO (우선순위 최신화)
-
-### P0 (먼저)
-
-1. [x] `GET /system/status`
-   - 목적: 운영 상태 점검
-   - 응답 권장 필드:
-     - `ffmpeg_available`
-     - `whisper_available`
-     - `llama_available`
-     - `whisper_model_ready`
-     - `llama_model_ready`
-     - `errors[]`
-
-### P1 (다음)
-
-2. STT 본문 조회 API
+1. STT 본문 조회 API
    - `GET /jobs/{job_id}/stt/texts`
    - `GET /jobs/{job_id}/stt/texts/{transcript_id}`
+   - 목적: 파일 다운로드 없이 transcript 텍스트를 JSON으로 조회
 
-3. Summary 본문 조회 API
+2. Summary 본문 조회 API
    - `GET /jobs/{job_id}/summary/text`
+   - 목적: `summary/result.txt` 내용을 JSON으로 조회
 
-4. 모델 준비 API (HTTP 노출)
+## P1 (운영 자동화)
+
+3. 모델 준비 API
    - `POST /models/whisper/prepare`
    - `POST /models/llama/prepare`
+   - 목적: CLI 의존 없이 서버에서 모델 준비 작업 트리거
 
-### P2 (확장)
+## P2 (확장/성능)
 
-5. 조회 편의 API
+4. 조회 편의 API
    - `GET /jobs/completed`
    - `GET /jobs/by-source?source_path=...`
 
-6. 파일 제공 전략 고도화
-   - 대용량 파일 응답 최적화
-   - 필요 시 signed URL / 외부 스토리지 매핑
+5. 파일 제공 전략 고도화
+   - 대용량 응답 최적화(스트리밍/Range 등)
+   - 필요 시 외부 스토리지/서명 URL 연계
 
-7. 상태 모델 고도화
-   - task 세부 단계(progress) 도입
-   - 필요 시 비동기 job 큐(워커)로 확장
-
----
-
-## 설계 메모 (현재 코드와 맞춘 제약)
-
-1. 입력은 현재 `input_path`(서버 로컬 파일 경로) 기반이다.
-   - 업로드 API는 아직 없다.
-
-2. 현재도 비동기 UX(`accepted`)를 사용 중이다.
-   - 따라서 상태 조회 API를 먼저 강화하는 것이 맞다.
-
-3. API에서 `job_id` 중심 흐름은 이미 적용되었다.
-   - 기존 CLI의 번호 선택 인터랙션은 API 경로에 직접 반영되지 않는다.
-
-4. 실패/재시도 정보는 `tasks[]`와 `error_message`를 기준으로 표준화한다.
+6. 상태 모델 고도화
+   - task progress/phase 필드 확장
+   - 워커 큐 기반 비동기 실행 모델로 확장 가능성 검토
 
 ---
 
-## 최종 체크리스트 (현행)
+## 4) 체크리스트
 
-### 이미 충족
+### 구현 완료
 
-- [x] 오디오 파일 경로로 ffmpeg 작업 시작
-- [x] 기존 완료 job 재사용
-- [x] 특정 job STT 시작
-- [x] 특정 job summary 시작
-- [x] 산출물 파일 목록 조회
-- [x] 산출물 파일 다운로드
+- [x] ffmpeg job 생성/조회 API
+- [x] STT task 제출/상태 조회 API
+- [x] Summary task 제출/상태 조회 API
+- [x] job별 파일 목록/다운로드 API
+- [x] 시스템/모델 가용성 상태 조회 API (`GET /system/status`)
+- [x] job/task 상태 구조를 `db/index.json`에 일관 저장
 
-### 추가 필요
+### 미완료
 
-- [x] 단계 통합 상태 조회 (`GET /jobs/{job_id}/status`)
-- [ ] STT 텍스트 본문 조회
-- [ ] summary 텍스트 본문 조회
-- [x] 시스템/모델 상태 조회
-- [ ] 모델 준비 API
-- [ ] 완료 job/원본 기준 조회 편의 API
+- [ ] STT 텍스트 본문 JSON 조회
+- [ ] Summary 텍스트 본문 JSON 조회
+- [ ] 모델 준비 HTTP API
+- [ ] 완료 job/원본 경로 기반 조회 편의 API
+- [ ] 대용량 파일 전달 최적화
 
 ---
 
-## 이번 최신화에서 정리한 결론
+## 5) 설계 메모
 
-- 현재 RecordRoute는 이미 "ping-only" 단계가 아니다.
-- 기본 Job/STT/Summary/File API는 동작 중이며, 실질적으로 1차 API 골격이 마련되어 있다.
-- 다음 작업의 핵심은 **상태/본문/운영 API 보강**이다.
+- 현재 입력 모델은 업로드가 아니라 **서버 로컬 경로(`input_path`) 기반**이다.
+- API/CLI는 동일 도메인 로직(`app.rs`, `index.rs`)을 공유한다.
+- 향후 API 추가 시에도 `IndexStore`를 단일 상태 SoT로 유지하고,
+  reuse/deduplicate 규칙을 깨지 않도록 우선 검증해야 한다.
