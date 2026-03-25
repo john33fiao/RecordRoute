@@ -71,6 +71,14 @@ struct FileListResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct JobStatusResponse {
+    pub job_id: String,
+    pub job_status: JobStatus,
+    pub tasks: Vec<TaskRecord>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct JobSubmissionResponse {
     pub job_id: String,
     pub status: JobStatus,
@@ -107,6 +115,7 @@ pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
         .route("/server/ping", post(post_server_ping))
         .route("/jobs", post(post_jobs).get(get_jobs))
         .route("/jobs/{job_id}", get(get_job))
+        .route("/jobs/{job_id}/status", get(get_job_status))
         .route("/jobs/{job_id}/stt", post(post_stt).get(get_stt))
         .route(
             "/jobs/{job_id}/summary",
@@ -218,6 +227,26 @@ async fn get_job(State(state): State<AppState>, AxumPath(job_id): AxumPath<Strin
 
     match run_blocking(move || IndexStore::new(&repo_root).find_job(&job_id_for_lookup)).await {
         Ok(Some(job)) => Json(job).into_response(),
+        Ok(None) => error_response(StatusCode::NOT_FOUND, format!("job not found: {job_id}")),
+        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+    }
+}
+
+async fn get_job_status(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+) -> Response {
+    let repo_root = state.repo_root.clone();
+    let lookup_job_id = job_id.clone();
+
+    match run_blocking(move || IndexStore::new(&repo_root).find_job(&lookup_job_id)).await {
+        Ok(Some(job)) => Json(JobStatusResponse {
+            job_id,
+            job_status: job.status,
+            tasks: job.tasks,
+            error_message: job.error_message,
+        })
+        .into_response(),
         Ok(None) => error_response(StatusCode::NOT_FOUND, format!("job not found: {job_id}")),
         Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
     }
@@ -935,6 +964,67 @@ mod tests {
         assert_eq!(body.jobs.len(), 2);
         assert_eq!(body.jobs[0].job_id, "job-2");
         assert_eq!(body.jobs[1].job_id, "job-1");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_job_status_returns_integrated_stage_status() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+
+        let mut job = JobRecord::new(
+            "job-status".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/status.wav"),
+            store.job_dir("job-status"),
+        );
+        job.upsert_running_task(TaskType::Stt, "2026-01-01T00:00:01Z".to_string());
+        job.complete_task(TaskType::Stt, "2026-01-01T00:00:02Z".to_string());
+        job.upsert_running_task(TaskType::Summary, "2026-01-01T00:00:03Z".to_string());
+        store.insert_job(job).expect("insert status job");
+
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .oneshot(get_request("/jobs/job-status/status"))
+            .await
+            .expect("get job status response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: JobStatusResponse = read_json(response).await;
+        assert_eq!(body.job_id, "job-status");
+        assert_eq!(body.job_status, JobStatus::Running);
+        assert_eq!(body.tasks.len(), 3);
+        assert!(
+            body.tasks
+                .iter()
+                .any(|task| task.task_type == TaskType::Ffmpeg)
+        );
+        assert!(
+            body.tasks
+                .iter()
+                .any(|task| task.task_type == TaskType::Stt)
+        );
+        assert!(
+            body.tasks
+                .iter()
+                .any(|task| task.task_type == TaskType::Summary)
+        );
+        assert_eq!(body.error_message, None);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_job_status_returns_404_for_missing_job() {
+        let repo_root = temp_workspace();
+        let app = router_with_repo_root(repo_root);
+
+        let response = app
+            .oneshot(get_request("/jobs/missing/status"))
+            .await
+            .expect("missing status response");
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body: ErrorResponse = read_json(response).await;
+        assert_eq!(body.code, "404");
+        assert!(body.message.contains("job not found: missing"));
     }
 
     #[tokio::test(flavor = "multi_thread")]

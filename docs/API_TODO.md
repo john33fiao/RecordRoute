@@ -22,6 +22,7 @@
 - `POST /jobs`
 - `GET /jobs`
 - `GET /jobs/{job_id}`
+- `GET /jobs/{job_id}/status`
 - `POST /jobs/{job_id}/stt`
 - `GET /jobs/{job_id}/stt`
 - `POST /jobs/{job_id}/summary`
@@ -82,7 +83,6 @@
 
 보완이 필요한 항목:
 
-- 단계 통합 상태 조회(`GET /jobs/{job_id}/status`) 부재
 - STT/summary 본문 전용 조회 API 부재(현재는 파일 다운로드 기반)
 - 시스템/모델 상태 조회 API 부재
 
@@ -92,21 +92,7 @@
 
 ### P0 (먼저)
 
-1. `GET /jobs/{job_id}/status`
-   - 목적: ffmpeg/stt/summary 상태를 한 번에 제공
-   - 응답 권장 필드:
-     - `job_id`
-     - `job_status`
-     - `tasks`
-       - `task_type`
-       - `status`
-       - `started_at`
-       - `finished_at`
-       - `last_error`
-       - `retry_count`
-     - `error_message`
-
-2. `GET /system/status`
+1. `GET /system/status`
    - 목적: 운영 상태 점검
    - 응답 권장 필드:
      - `ffmpeg_available`
@@ -118,28 +104,28 @@
 
 ### P1 (다음)
 
-3. STT 본문 조회 API
+2. STT 본문 조회 API
    - `GET /jobs/{job_id}/stt/texts`
    - `GET /jobs/{job_id}/stt/texts/{transcript_id}`
 
-4. Summary 본문 조회 API
+3. Summary 본문 조회 API
    - `GET /jobs/{job_id}/summary/text`
 
-5. 모델 준비 API (HTTP 노출)
+4. 모델 준비 API (HTTP 노출)
    - `POST /models/whisper/prepare`
    - `POST /models/llama/prepare`
 
 ### P2 (확장)
 
-6. 조회 편의 API
+5. 조회 편의 API
    - `GET /jobs/completed`
    - `GET /jobs/by-source?source_path=...`
 
-7. 파일 제공 전략 고도화
+6. 파일 제공 전략 고도화
    - 대용량 파일 응답 최적화
    - 필요 시 signed URL / 외부 스토리지 매핑
 
-8. 상태 모델 고도화
+7. 상태 모델 고도화
    - task 세부 단계(progress) 도입
    - 필요 시 비동기 job 큐(워커)로 확장
 
@@ -173,7 +159,7 @@
 
 ### 추가 필요
 
-- [ ] 단계 통합 상태 조회
+- [x] 단계 통합 상태 조회 (`GET /jobs/{job_id}/status`)
 - [ ] STT 텍스트 본문 조회
 - [ ] summary 텍스트 본문 조회
 - [ ] 시스템/모델 상태 조회
