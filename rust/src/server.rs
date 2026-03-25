@@ -105,6 +105,13 @@ struct SttTranscriptListResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct SummaryTextResponse {
+    pub job_id: String,
+    pub file_name: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct JobSubmissionResponse {
     pub job_id: String,
     pub status: JobStatus,
@@ -153,6 +160,7 @@ pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
             "/jobs/{job_id}/summary",
             post(post_summary).get(get_summary),
         )
+        .route("/jobs/{job_id}/summary/text", get(get_summary_text))
         .route("/jobs/{job_id}/files", get(get_job_files))
         .route("/jobs/{job_id}/files/{*file_name}", get(get_job_file))
         .with_state(AppState {
@@ -605,6 +613,30 @@ async fn get_summary(
     .into_response()
 }
 
+async fn get_summary_text(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+) -> Response {
+    let repo_root = state.repo_root.clone();
+    let lookup_job_id = job_id.clone();
+    let summary = match run_blocking(move || read_summary_text(&repo_root, &lookup_job_id)).await {
+        Ok(summary) => summary,
+        Err(error)
+            if error.starts_with("job not found:") || error.starts_with("summary not found:") =>
+        {
+            return error_response(StatusCode::NOT_FOUND, error);
+        }
+        Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+    };
+
+    Json(SummaryTextResponse {
+        job_id,
+        file_name: "result.txt".to_string(),
+        text: summary,
+    })
+    .into_response()
+}
+
 async fn get_job_files(
     State(state): State<AppState>,
     AxumPath(job_id): AxumPath<String>,
@@ -813,6 +845,21 @@ fn read_stt_transcript(
         .into_iter()
         .find(|transcript| transcript.transcript_id == transcript_id)
         .ok_or_else(|| format!("transcript not found: {transcript_id}"))
+}
+
+fn read_summary_text(repo_root: &std::path::Path, job_id: &str) -> Result<String, String> {
+    let store = IndexStore::new(repo_root);
+    let job = store
+        .find_job(job_id)?
+        .ok_or_else(|| format!("job not found: {job_id}"))?;
+    let path = PathBuf::from(job.job_dir)
+        .join("summary")
+        .join("result.txt");
+    if !path.is_file() {
+        return Err(format!("summary not found: {}", path.display()));
+    }
+    fs::read_to_string(&path)
+        .map_err(|error| format!("failed to read summary {}: {error}", path.display()))
 }
 
 fn read_job_file(
@@ -1500,6 +1547,65 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         let body: ErrorResponse = read_json(response).await;
         assert!(body.message.contains("transcript not found: not_found"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_summary_text_returns_result_txt_as_json() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let job_id = "job-summary-text";
+        let job_dir = store.job_dir(job_id);
+        fs::create_dir_all(job_dir.join("summary")).expect("summary dir");
+        fs::write(job_dir.join("summary/result.txt"), "summary body").expect("summary text");
+
+        store
+            .insert_job(JobRecord::new(
+                job_id.to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+                PathBuf::from("/tmp/summary.wav"),
+                job_dir,
+            ))
+            .expect("insert job");
+
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .oneshot(get_request("/jobs/job-summary-text/summary/text"))
+            .await
+            .expect("summary text response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: SummaryTextResponse = read_json(response).await;
+        assert_eq!(body.job_id, job_id);
+        assert_eq!(body.file_name, "result.txt");
+        assert_eq!(body.text, "summary body");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_summary_text_returns_404_when_result_txt_missing() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let job_id = "job-summary-missing";
+        let job_dir = store.job_dir(job_id);
+        fs::create_dir_all(job_dir.join("summary")).expect("summary dir");
+
+        store
+            .insert_job(JobRecord::new(
+                job_id.to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+                PathBuf::from("/tmp/summary-missing.wav"),
+                job_dir,
+            ))
+            .expect("insert job");
+
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .oneshot(get_request("/jobs/job-summary-missing/summary/text"))
+            .await
+            .expect("summary text missing response");
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body: ErrorResponse = read_json(response).await;
+        assert!(body.message.contains("summary not found:"));
     }
 
     fn temp_workspace() -> PathBuf {
