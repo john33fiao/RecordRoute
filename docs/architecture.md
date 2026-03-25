@@ -310,6 +310,9 @@ flowchart LR
 - 모델 경로 우선순위:
   - `RECORDROUTE_WHISPER_MODEL`
   - 기본값 `models/whisper/ggml-base.bin`
+- 런타임 백엔드 설정:
+  - `RECORDROUTE_WHISPER_BACKEND` (`auto`/`cpu`/`gpu`)
+  - macOS 기본값은 `cpu`(Metal backend 비활성화)이며, 다른 OS 기본값은 `auto`다.
 - shorthand 지원:
   - `models/whisper/large-v3-turbo` 같은 값도 허용한다.
   - 이 경우 내부적으로 `models/whisper/ggml-large-v3-turbo.bin` 형태로 정규화해 해석한다.
@@ -355,6 +358,9 @@ whisper-cli \
   -otxt \
   -np \
   -of <output-prefix>
+
+# macOS 기본 동작 (CPU 강제)
+GGML_METAL=0 whisper-cli ...
 ```
 
 여기서 실제 결과 파일은 `<output-prefix>.txt`다.

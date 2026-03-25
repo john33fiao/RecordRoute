@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub const MODEL_ENV_VAR: &str = "RECORDROUTE_WHISPER_MODEL";
+pub const BACKEND_ENV_VAR: &str = "RECORDROUTE_WHISPER_BACKEND";
 const DEFAULT_MODEL_RELATIVE_PATH: &str = "models/whisper/ggml-base.bin";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,7 +130,8 @@ pub fn run_transcription(
     }
     let _ = fs::remove_file(output_text);
 
-    let output = Command::new(&toolchain.whisper_cli_path)
+    let mut command = Command::new(&toolchain.whisper_cli_path);
+    command
         .arg("-m")
         .arg(&toolchain.model_path)
         .arg("-f")
@@ -139,14 +141,15 @@ pub fn run_transcription(
         .arg("-otxt")
         .arg("-np")
         .arg("-of")
-        .arg(&output_prefix)
-        .output()
-        .map_err(|error| {
-            format!(
-                "failed to execute whisper-cli {}: {error}",
-                toolchain.whisper_cli_path.display()
-            )
-        })?;
+        .arg(&output_prefix);
+    configure_runtime_backend(&mut command);
+
+    let output = command.output().map_err(|error| {
+        format!(
+            "failed to execute whisper-cli {}: {error}",
+            toolchain.whisper_cli_path.display()
+        )
+    })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -180,6 +183,46 @@ fn resolve_model_path(repo_root: &Path) -> PathBuf {
             resolve_model_override_path(repo_root, PathBuf::from(path))
         }
         _ => repo_root.join(DEFAULT_MODEL_RELATIVE_PATH),
+    }
+}
+
+fn configure_runtime_backend(command: &mut Command) {
+    match resolve_backend_mode() {
+        WhisperBackend::Cpu => {
+            command.env("GGML_METAL", "0");
+        }
+        WhisperBackend::Gpu | WhisperBackend::Auto => {}
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WhisperBackend {
+    Auto,
+    Cpu,
+    Gpu,
+}
+
+fn resolve_backend_mode() -> WhisperBackend {
+    match std::env::var(BACKEND_ENV_VAR) {
+        Ok(value) => parse_backend_mode(&value).unwrap_or(default_backend_mode()),
+        Err(_) => default_backend_mode(),
+    }
+}
+
+fn parse_backend_mode(value: &str) -> Option<WhisperBackend> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "auto" => Some(WhisperBackend::Auto),
+        "cpu" => Some(WhisperBackend::Cpu),
+        "gpu" => Some(WhisperBackend::Gpu),
+        _ => None,
+    }
+}
+
+fn default_backend_mode() -> WhisperBackend {
+    if cfg!(target_os = "macos") {
+        WhisperBackend::Cpu
+    } else {
+        WhisperBackend::Auto
     }
 }
 
@@ -305,6 +348,15 @@ mod tests {
             toolchain.whisper_cli_path,
             fake_whisper_cli_path(&build_bin)
         );
+    }
+
+    #[test]
+    fn parse_backend_mode_supports_known_values() {
+        assert_eq!(parse_backend_mode("auto"), Some(WhisperBackend::Auto));
+        assert_eq!(parse_backend_mode("cpu"), Some(WhisperBackend::Cpu));
+        assert_eq!(parse_backend_mode("gpu"), Some(WhisperBackend::Gpu));
+        assert_eq!(parse_backend_mode("CPU"), Some(WhisperBackend::Cpu));
+        assert_eq!(parse_backend_mode(" invalid "), None);
     }
 
     #[test]
