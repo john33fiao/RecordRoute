@@ -49,6 +49,8 @@ struct SummaryRequest {
 struct SttRequest {
     #[serde(default)]
     audio_files: Vec<String>,
+    #[serde(default)]
+    mono_mix_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -227,8 +229,10 @@ async fn post_stt(
     payload: Result<Json<SttRequest>, JsonRejection>,
 ) -> Response {
     let subset = match payload {
-        Ok(Json(request)) if !request.audio_files.is_empty() => Some(request.audio_files),
-        Ok(_) => None,
+        Ok(Json(request)) => match resolve_stt_subset(request) {
+            Ok(subset) => subset,
+            Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+        },
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -282,6 +286,19 @@ async fn post_stt(
         task,
     };
     (StatusCode::ACCEPTED, Json(body)).into_response()
+}
+
+fn resolve_stt_subset(request: SttRequest) -> Result<Option<Vec<String>>, String> {
+    if request.mono_mix_only && !request.audio_files.is_empty() {
+        return Err("audio_files cannot be combined with mono_mix_only".to_string());
+    }
+    if request.mono_mix_only {
+        return Ok(Some(vec!["mono_mix.wav".to_string()]));
+    }
+    if request.audio_files.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(request.audio_files))
 }
 
 async fn get_stt(State(state): State<AppState>, AxumPath(job_id): AxumPath<String>) -> Response {
@@ -586,6 +603,36 @@ mod tests {
     use std::time::{Duration, Instant};
     use tower::util::ServiceExt;
     use uuid::Uuid;
+
+    #[test]
+    fn resolve_stt_subset_defaults_to_all_audio_files() {
+        let subset = resolve_stt_subset(SttRequest {
+            audio_files: Vec::new(),
+            mono_mix_only: false,
+        })
+        .expect("subset");
+        assert_eq!(subset, None);
+    }
+
+    #[test]
+    fn resolve_stt_subset_supports_mono_mix_only_mode() {
+        let subset = resolve_stt_subset(SttRequest {
+            audio_files: Vec::new(),
+            mono_mix_only: true,
+        })
+        .expect("subset");
+        assert_eq!(subset, Some(vec!["mono_mix.wav".to_string()]));
+    }
+
+    #[test]
+    fn resolve_stt_subset_rejects_mixed_modes() {
+        let error = resolve_stt_subset(SttRequest {
+            audio_files: vec!["channel_01.wav".to_string()],
+            mono_mix_only: true,
+        })
+        .expect_err("mixed mode should fail");
+        assert!(error.contains("audio_files cannot be combined with mono_mix_only"));
+    }
 
     #[tokio::test]
     async fn ping_returns_expected_success_payload() {
