@@ -3,6 +3,7 @@ use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IndexFile {
@@ -23,6 +24,8 @@ pub struct JobRecord {
     pub split_strategy: SplitStrategy,
     pub outputs: JobOutputs,
     pub error_message: Option<String>,
+    #[serde(default)]
+    pub tasks: Vec<TaskRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -31,6 +34,34 @@ pub enum JobStatus {
     Running,
     Completed,
     Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskType {
+    Ffmpeg,
+    Stt,
+    Summary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    Running,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TaskRecord {
+    #[serde(default = "default_task_id")]
+    pub task_id: String,
+    pub task_type: TaskType,
+    pub status: TaskStatus,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub last_error: Option<String>,
+    pub retry_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -83,7 +114,7 @@ impl JobRecord {
         Self {
             job_id,
             status: JobStatus::Running,
-            started_at,
+            started_at: started_at.clone(),
             finished_at: None,
             source_path: source_path.to_string_lossy().into_owned(),
             source_file_name,
@@ -92,6 +123,11 @@ impl JobRecord {
             split_strategy: SplitStrategy::PerChannelPlusMergedMono,
             outputs: JobOutputs::default(),
             error_message: None,
+            tasks: vec![TaskRecord::new(
+                TaskType::Ffmpeg,
+                TaskStatus::Running,
+                started_at,
+            )],
         }
     }
 
@@ -100,13 +136,121 @@ impl JobRecord {
         self.finished_at = Some(finished_at);
         self.outputs = outputs;
         self.error_message = None;
+        self.update_task(
+            TaskType::Ffmpeg,
+            TaskStatus::Completed,
+            Some(finished_at),
+            None,
+        );
     }
 
     pub fn mark_failed(&mut self, finished_at: String, error_message: String) {
         self.status = JobStatus::Failed;
         self.finished_at = Some(finished_at);
         self.error_message = Some(error_message);
+        self.update_task(
+            TaskType::Ffmpeg,
+            TaskStatus::Failed,
+            Some(finished_at),
+            self.error_message.clone(),
+        );
     }
+
+    pub fn upsert_running_task(&mut self, task_type: TaskType, started_at: String) {
+        let retry_count = self
+            .task(task_type.clone())
+            .map(|task| task.retry_count.saturating_add(1))
+            .unwrap_or(0);
+        self.set_task(TaskRecord {
+            task_id: build_task_id(),
+            task_type,
+            status: TaskStatus::Running,
+            started_at,
+            finished_at: None,
+            last_error: None,
+            retry_count,
+        });
+    }
+
+    pub fn complete_task(&mut self, task_type: TaskType, finished_at: String) {
+        self.update_task(task_type, TaskStatus::Completed, Some(finished_at), None);
+    }
+
+    pub fn fail_task(&mut self, task_type: TaskType, finished_at: String, error: String) {
+        self.update_task(
+            task_type,
+            TaskStatus::Failed,
+            Some(finished_at),
+            Some(error),
+        );
+    }
+
+    pub fn task(&self, task_type: TaskType) -> Option<&TaskRecord> {
+        self.tasks.iter().find(|task| task.task_type == task_type)
+    }
+
+    fn set_task(&mut self, record: TaskRecord) {
+        if let Some(existing) = self
+            .tasks
+            .iter_mut()
+            .find(|task| task.task_type == record.task_type)
+        {
+            *existing = record;
+        } else {
+            self.tasks.push(record);
+        }
+    }
+
+    fn update_task(
+        &mut self,
+        task_type: TaskType,
+        status: TaskStatus,
+        finished_at: Option<String>,
+        last_error: Option<String>,
+    ) {
+        if let Some(task) = self
+            .tasks
+            .iter_mut()
+            .find(|task| task.task_type == task_type)
+        {
+            task.status = status;
+            task.finished_at = finished_at;
+            task.last_error = last_error;
+            return;
+        }
+
+        self.tasks.push(TaskRecord {
+            task_id: build_task_id(),
+            task_type,
+            status,
+            started_at: finished_at.clone().unwrap_or_default(),
+            finished_at,
+            last_error,
+            retry_count: 0,
+        });
+    }
+}
+
+impl TaskRecord {
+    pub fn new(task_type: TaskType, status: TaskStatus, started_at: String) -> Self {
+        Self {
+            task_id: build_task_id(),
+            task_type,
+            status,
+            started_at,
+            finished_at: None,
+            last_error: None,
+            retry_count: 0,
+        }
+    }
+}
+
+fn build_task_id() -> String {
+    Uuid::now_v7().to_string()
+}
+
+fn default_task_id() -> String {
+    String::new()
 }
 
 impl JobOutputs {

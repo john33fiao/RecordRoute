@@ -1,13 +1,17 @@
-use crate::app::{self, execute_ffmpeg_job, submit_ffmpeg_job};
-use crate::index::{IndexStore, JobOutputs, JobProbe, JobRecord, JobStatus};
+use crate::app::{
+    self, execute_ffmpeg_job, execute_stt_job, execute_summary_job, submit_ffmpeg_job,
+    submit_stt_job, submit_summary_job,
+};
+use crate::index::{IndexStore, JobOutputs, JobProbe, JobRecord, JobStatus, TaskRecord, TaskType};
 use axum::extract::Path as AxumPath;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::{Json, Router, body::Body};
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::PathBuf;
 
 const SERVER_BIND: &str = "127.0.0.1:38080";
@@ -33,6 +37,35 @@ pub struct ErrorResponse {
 #[derive(Debug, Clone, Deserialize)]
 struct CreateJobRequest {
     input_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SummaryRequest {
+    #[serde(default)]
+    force_regenerate: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SttRequest {
+    #[serde(default)]
+    audio_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct TaskSubmissionResponse {
+    pub job_id: String,
+    pub task_type: TaskType,
+    pub status: String,
+    pub message: String,
+    pub reused: bool,
+    pub deduplicated: bool,
+    pub task: Option<TaskRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct FileListResponse {
+    pub job_id: String,
+    pub files: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -72,6 +105,13 @@ pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
         .route("/server/ping", post(post_server_ping))
         .route("/jobs", post(post_jobs).get(get_jobs))
         .route("/jobs/{job_id}", get(get_job))
+        .route("/jobs/{job_id}/stt", post(post_stt).get(get_stt))
+        .route(
+            "/jobs/{job_id}/summary",
+            post(post_summary).get(get_summary),
+        )
+        .route("/jobs/{job_id}/files", get(get_job_files))
+        .route("/jobs/{job_id}/files/{*file_name}", get(get_job_file))
         .with_state(AppState {
             repo_root,
             invalid_request_body: ErrorResponse {
@@ -181,6 +221,211 @@ async fn get_job(State(state): State<AppState>, AxumPath(job_id): AxumPath<Strin
     }
 }
 
+async fn post_stt(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+    payload: Result<Json<SttRequest>, JsonRejection>,
+) -> Response {
+    let subset = match payload {
+        Ok(Json(request)) if !request.audio_files.is_empty() => Some(request.audio_files),
+        Ok(_) => None,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(state.invalid_request_body.clone()),
+            )
+                .into_response();
+        }
+    };
+    let repo_root = state.repo_root.clone();
+    let submit_job_id = job_id.clone();
+    let submission =
+        match run_blocking(move || submit_stt_job(&repo_root, &submit_job_id, subset)).await {
+            Ok(submission) => submission,
+            Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+        };
+
+    if submission.should_execute() {
+        let repo_root = state.repo_root.clone();
+        let execute_job_id = job_id.clone();
+        let planned_audio_files = submission.planned_audio_files.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Err(error) = execute_stt_job(&repo_root, &execute_job_id, &planned_audio_files) {
+                if let Ok(store_job) = IndexStore::new(&repo_root).find_job(&execute_job_id)
+                    && let Some(mut job) = store_job
+                {
+                    if let Ok(now) = crate::app::now_rfc3339() {
+                        job.fail_task(TaskType::Stt, now, error.clone());
+                        let _ = IndexStore::new(&repo_root)
+                            .update_job(&execute_job_id, |_| job.clone());
+                    }
+                }
+                eprintln!("{error}");
+            }
+        });
+    }
+
+    let task = submission.job.task(TaskType::Stt).cloned();
+    let body = TaskSubmissionResponse {
+        job_id: job_id.clone(),
+        task_type: TaskType::Stt,
+        status: "accepted".to_string(),
+        message: if submission.reused() {
+            "stt outputs reused".to_string()
+        } else if submission.deduplicated() {
+            "stt already running".to_string()
+        } else {
+            "stt accepted".to_string()
+        },
+        reused: submission.reused(),
+        deduplicated: submission.deduplicated(),
+        task,
+    };
+    (StatusCode::ACCEPTED, Json(body)).into_response()
+}
+
+async fn get_stt(State(state): State<AppState>, AxumPath(job_id): AxumPath<String>) -> Response {
+    let repo_root = state.repo_root.clone();
+    let lookup_job_id = job_id.clone();
+    let job = match run_blocking(move || IndexStore::new(&repo_root).find_job(&lookup_job_id)).await
+    {
+        Ok(Some(job)) => job,
+        Ok(None) => {
+            return error_response(StatusCode::NOT_FOUND, format!("job not found: {job_id}"));
+        }
+        Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+    };
+
+    let body = TaskSubmissionResponse {
+        job_id,
+        task_type: TaskType::Stt,
+        status: "ok".to_string(),
+        message: "stt task status".to_string(),
+        reused: false,
+        deduplicated: false,
+        task: job.task(TaskType::Stt).cloned(),
+    };
+    Json(body).into_response()
+}
+
+async fn post_summary(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+    payload: Result<Json<SummaryRequest>, JsonRejection>,
+) -> Response {
+    let force_regenerate = match payload {
+        Ok(Json(request)) => request.force_regenerate,
+        Err(_) => false,
+    };
+    let repo_root = state.repo_root.clone();
+    let submit_job_id = job_id.clone();
+    let submission = match run_blocking(move || {
+        submit_summary_job(&repo_root, &submit_job_id, force_regenerate)
+    })
+    .await
+    {
+        Ok(submission) => submission,
+        Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+    };
+
+    if submission.should_execute() {
+        let repo_root = state.repo_root.clone();
+        let execute_job_id = job_id.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Err(error) = execute_summary_job(&repo_root, &execute_job_id, force_regenerate) {
+                if let Ok(store_job) = IndexStore::new(&repo_root).find_job(&execute_job_id)
+                    && let Some(mut job) = store_job
+                {
+                    if let Ok(now) = crate::app::now_rfc3339() {
+                        job.fail_task(TaskType::Summary, now, error.clone());
+                        let _ = IndexStore::new(&repo_root)
+                            .update_job(&execute_job_id, |_| job.clone());
+                    }
+                }
+                eprintln!("{error}");
+            }
+        });
+    }
+
+    let body = TaskSubmissionResponse {
+        job_id: job_id.clone(),
+        task_type: TaskType::Summary,
+        status: "accepted".to_string(),
+        message: if submission.reused() {
+            "summary reused".to_string()
+        } else if submission.deduplicated() {
+            "summary already running".to_string()
+        } else {
+            "summary accepted".to_string()
+        },
+        reused: submission.reused(),
+        deduplicated: submission.deduplicated(),
+        task: submission.job.task(TaskType::Summary).cloned(),
+    };
+    (StatusCode::ACCEPTED, Json(body)).into_response()
+}
+
+async fn get_summary(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+) -> Response {
+    let repo_root = state.repo_root.clone();
+    let lookup_job_id = job_id.clone();
+    let job = match run_blocking(move || IndexStore::new(&repo_root).find_job(&lookup_job_id)).await
+    {
+        Ok(Some(job)) => job,
+        Ok(None) => {
+            return error_response(StatusCode::NOT_FOUND, format!("job not found: {job_id}"));
+        }
+        Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+    };
+
+    Json(TaskSubmissionResponse {
+        job_id,
+        task_type: TaskType::Summary,
+        status: "ok".to_string(),
+        message: "summary task status".to_string(),
+        reused: false,
+        deduplicated: false,
+        task: job.task(TaskType::Summary).cloned(),
+    })
+    .into_response()
+}
+
+async fn get_job_files(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+) -> Response {
+    let repo_root = state.repo_root.clone();
+    let lookup_job_id = job_id.clone();
+    let files = match run_blocking(move || collect_job_files(&repo_root, &lookup_job_id)).await {
+        Ok(files) => files,
+        Err(error) if error.starts_with("job not found:") => {
+            return error_response(StatusCode::NOT_FOUND, error);
+        }
+        Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+    };
+    Json(FileListResponse { job_id, files }).into_response()
+}
+
+async fn get_job_file(
+    State(state): State<AppState>,
+    AxumPath((job_id, file_name)): AxumPath<(String, String)>,
+) -> Response {
+    let repo_root = state.repo_root.clone();
+    let lookup_job_id = job_id.clone();
+    let lookup_file = file_name.clone();
+    let result =
+        match run_blocking(move || read_job_file(&repo_root, &lookup_job_id, &lookup_file)).await {
+            Ok(result) => result,
+            Err(error) if error.contains("not found") => {
+                return error_response(StatusCode::NOT_FOUND, error);
+            }
+            Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+        };
+    (StatusCode::OK, Body::from(result)).into_response()
+}
+
 async fn run_blocking<T>(
     task: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String>
@@ -230,6 +475,96 @@ fn classify_create_job_error(error: &str) -> StatusCode {
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
     }
+}
+
+fn collect_job_files(repo_root: &std::path::Path, job_id: &str) -> Result<Vec<String>, String> {
+    let store = IndexStore::new(repo_root);
+    let job = store
+        .find_job(job_id)?
+        .ok_or_else(|| format!("job not found: {job_id}"))?;
+    let job_dir = PathBuf::from(job.job_dir);
+    let mut files = Vec::new();
+
+    let root_candidates = ["mono_mix.wav"];
+    for file in root_candidates {
+        let path = job_dir.join(file);
+        if path.is_file() {
+            files.push(file.to_string());
+        }
+    }
+    for entry in fs::read_dir(&job_dir)
+        .map_err(|error| format!("failed to read {}: {error}", job_dir.display()))?
+    {
+        let entry = entry.map_err(|error| format!("failed to read job dir entry: {error}"))?;
+        let path = entry.path();
+        if path.is_file()
+            && path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext == "wav")
+            && path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("channel_"))
+        {
+            files.push(
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .to_string(),
+            );
+        }
+    }
+    for sub in ["stt", "summary"] {
+        let sub_dir = job_dir.join(sub);
+        if !sub_dir.is_dir() {
+            continue;
+        }
+        for entry in fs::read_dir(&sub_dir)
+            .map_err(|error| format!("failed to read {}: {error}", sub_dir.display()))?
+        {
+            let entry = entry.map_err(|error| format!("failed to read {sub} entry: {error}"))?;
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+                files.push(format!("{sub}/{name}"));
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+fn read_job_file(
+    repo_root: &std::path::Path,
+    job_id: &str,
+    file_name: &str,
+) -> Result<Vec<u8>, String> {
+    let store = IndexStore::new(repo_root);
+    let job = store
+        .find_job(job_id)?
+        .ok_or_else(|| format!("job not found: {job_id}"))?;
+
+    let path = sanitize_file_name(file_name)?;
+    let allowed_prefix = ["stt/", "summary/"];
+    let is_allowed = path == "mono_mix.wav"
+        || path.starts_with("channel_")
+        || allowed_prefix.iter().any(|prefix| path.starts_with(prefix));
+    if !is_allowed {
+        return Err(format!("file not allowed: {file_name}"));
+    }
+
+    let absolute = PathBuf::from(job.job_dir).join(path);
+    fs::read(&absolute).map_err(|error| format!("file not found: {} ({error})", absolute.display()))
+}
+
+fn sanitize_file_name(file_name: &str) -> Result<&str, String> {
+    if file_name.contains('\\') || file_name.starts_with('/') || file_name.contains("..") {
+        return Err("invalid file path".to_string());
+    }
+    Ok(file_name)
 }
 
 fn error_response(status: StatusCode, message: impl Into<String>) -> Response {

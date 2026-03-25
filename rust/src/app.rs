@@ -2,7 +2,9 @@ use crate::ffmpeg::{
     ConversionOutputs, SplitMonoOutput, Toolchain as FfmpegToolchain, probe_audio_input,
     run_conversion,
 };
-use crate::index::{IndexStore, JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus};
+use crate::index::{
+    IndexStore, JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus, TaskStatus, TaskType,
+};
 use crate::llama::{Toolchain as LlamaToolchain, run_summary_generation};
 use crate::server;
 use crate::whisper::{Toolchain as WhisperToolchain, run_transcription};
@@ -73,6 +75,34 @@ pub struct SummaryRunSummary {
     pub job_dir: PathBuf,
     pub summary_dir: PathBuf,
     pub summary_file: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StageJobDisposition {
+    Submitted,
+    Reused,
+    Deduplicated,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StageJobSubmission {
+    pub job: JobRecord,
+    pub disposition: StageJobDisposition,
+    pub planned_audio_files: Vec<PathBuf>,
+}
+
+impl StageJobSubmission {
+    pub fn reused(&self) -> bool {
+        self.disposition == StageJobDisposition::Reused
+    }
+
+    pub fn deduplicated(&self) -> bool {
+        self.disposition == StageJobDisposition::Deduplicated
+    }
+
+    pub fn should_execute(&self) -> bool {
+        self.disposition == StageJobDisposition::Submitted
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -339,6 +369,214 @@ pub fn execute_ffmpeg_job(
             Err(error)
         }
     }
+}
+
+pub fn submit_stt_job(
+    repo_root: &Path,
+    job_id: &str,
+    subset_audio_files: Option<Vec<String>>,
+) -> Result<StageJobSubmission, String> {
+    let index_store = IndexStore::new(repo_root);
+    let mut job = index_store
+        .find_job(job_id)?
+        .ok_or_else(|| format!("job not found: {job_id}"))?;
+    if job.status != JobStatus::Completed {
+        return Err(format!("ffmpeg must be completed before stt: {job_id}"));
+    }
+
+    if let Some(task) = job.task(TaskType::Stt) {
+        if task.status == TaskStatus::Running {
+            return Ok(StageJobSubmission {
+                job,
+                disposition: StageJobDisposition::Deduplicated,
+                planned_audio_files: Vec::new(),
+            });
+        }
+    }
+
+    let stt_dir = PathBuf::from(&job.job_dir).join("stt");
+    let all_audio_files = supported_audio_files(&PathBuf::from(&job.job_dir))?;
+    let audio_files = select_subset_audio_files(&all_audio_files, subset_audio_files)?;
+    if audio_files.is_empty() {
+        return Err(format!("no supported audio files found in job: {job_id}"));
+    }
+
+    let all_transcripts_exist =
+        audio_files
+            .iter()
+            .try_fold(true, |acc, audio| -> Result<bool, String> {
+                let transcript = transcript_output_path(&stt_dir, audio)?;
+                Ok(acc && transcript.is_file())
+            })?;
+    if all_transcripts_exist {
+        return Ok(StageJobSubmission {
+            job,
+            disposition: StageJobDisposition::Reused,
+            planned_audio_files: audio_files,
+        });
+    }
+
+    job.upsert_running_task(TaskType::Stt, now_rfc3339()?);
+    index_store.update_job(job_id, |_| job.clone())?;
+    Ok(StageJobSubmission {
+        job,
+        disposition: StageJobDisposition::Submitted,
+        planned_audio_files: audio_files,
+    })
+}
+
+pub fn execute_stt_job(
+    repo_root: &Path,
+    job_id: &str,
+    audio_files: &[PathBuf],
+) -> Result<JobRecord, String> {
+    let index_store = IndexStore::new(repo_root);
+    let mut job = index_store
+        .find_job(job_id)?
+        .ok_or_else(|| format!("job not found: {job_id}"))?;
+    let job_dir = PathBuf::from(&job.job_dir);
+    let stt_dir = job_dir.join("stt");
+    if audio_files.is_empty() {
+        return Err(format!("no audio files selected for stt: {job_id}"));
+    }
+    let toolchain = WhisperToolchain::discover(repo_root)?;
+    toolchain.ensure_model()?;
+    fs::create_dir_all(&stt_dir).map_err(|error| {
+        format!(
+            "failed to create stt directory {}: {error}",
+            stt_dir.display()
+        )
+    })?;
+
+    for audio in audio_files {
+        let absolute_audio = if audio.is_absolute() {
+            audio.clone()
+        } else {
+            job_dir.join(audio)
+        };
+        let transcript = transcript_output_path(&stt_dir, &absolute_audio)?;
+        run_transcription(&toolchain, &absolute_audio, &transcript)?;
+    }
+
+    job.complete_task(TaskType::Stt, now_rfc3339()?);
+    index_store.update_job(job_id, |_| job.clone())?;
+    Ok(job)
+}
+
+pub fn submit_summary_job(
+    repo_root: &Path,
+    job_id: &str,
+    force_regenerate: bool,
+) -> Result<StageJobSubmission, String> {
+    let index_store = IndexStore::new(repo_root);
+    let mut job = index_store
+        .find_job(job_id)?
+        .ok_or_else(|| format!("job not found: {job_id}"))?;
+    let job_dir = PathBuf::from(&job.job_dir);
+    let summary_dir = job_dir.join("summary");
+    let summary_file = summary_output_path(&summary_dir, &job.source_file_name)?;
+
+    if let Some(task) = job.task(TaskType::Summary) {
+        if task.status == TaskStatus::Running {
+            return Ok(StageJobSubmission {
+                job,
+                disposition: StageJobDisposition::Deduplicated,
+                planned_audio_files: Vec::new(),
+            });
+        }
+    }
+    if !force_regenerate && summary_file.is_file() {
+        return Ok(StageJobSubmission {
+            job,
+            disposition: StageJobDisposition::Reused,
+            planned_audio_files: Vec::new(),
+        });
+    }
+
+    job.upsert_running_task(TaskType::Summary, now_rfc3339()?);
+    index_store.update_job(job_id, |_| job.clone())?;
+    Ok(StageJobSubmission {
+        job,
+        disposition: StageJobDisposition::Submitted,
+        planned_audio_files: Vec::new(),
+    })
+}
+
+fn select_subset_audio_files(
+    all_audio_files: &[PathBuf],
+    subset_audio_files: Option<Vec<String>>,
+) -> Result<Vec<PathBuf>, String> {
+    let Some(subset_audio_files) = subset_audio_files else {
+        return Ok(all_audio_files.to_vec());
+    };
+    if subset_audio_files.is_empty() {
+        return Ok(all_audio_files.to_vec());
+    }
+
+    let mut selected = Vec::new();
+    for requested in subset_audio_files {
+        let found = all_audio_files.iter().find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name == requested)
+        });
+        let Some(path) = found else {
+            return Err(format!("requested stt subset file not found: {requested}"));
+        };
+        if !selected.contains(path) {
+            selected.push(path.clone());
+        }
+    }
+    Ok(selected)
+}
+
+pub fn execute_summary_job(
+    repo_root: &Path,
+    job_id: &str,
+    force_regenerate: bool,
+) -> Result<JobRecord, String> {
+    let index_store = IndexStore::new(repo_root);
+    let mut job = index_store
+        .find_job(job_id)?
+        .ok_or_else(|| format!("job not found: {job_id}"))?;
+    let job_dir = PathBuf::from(&job.job_dir);
+    let stt_dir = job_dir.join("stt");
+    let transcript_files = transcript_text_files(&stt_dir)?;
+    if transcript_files.is_empty() {
+        return Err(format!("no transcripts found for summary: {job_id}"));
+    }
+
+    let summary_dir = job_dir.join("summary");
+    fs::create_dir_all(&summary_dir).map_err(|error| {
+        format!(
+            "failed to create summary directory {}: {error}",
+            summary_dir.display()
+        )
+    })?;
+    let summary_file = summary_output_path(&summary_dir, &job.source_file_name)?;
+    if summary_file.is_file() && !force_regenerate {
+        job.complete_task(TaskType::Summary, now_rfc3339()?);
+        index_store.update_job(job_id, |_| job.clone())?;
+        return Ok(job);
+    }
+
+    let prompt_file = summary_prompt_file_path(&summary_dir, &job.source_file_name)?;
+    let prompt = build_summary_prompt(&transcript_files)?;
+    fs::write(&prompt_file, prompt).map_err(|error| {
+        format!(
+            "failed to write summary prompt {}: {error}",
+            prompt_file.display()
+        )
+    })?;
+    let toolchain = LlamaToolchain::discover(repo_root)?;
+    toolchain.ensure_model()?;
+    let generation_result = run_summary_generation(&toolchain, &prompt_file, &summary_file);
+    let _ = fs::remove_file(&prompt_file);
+    generation_result?;
+
+    job.complete_task(TaskType::Summary, now_rfc3339()?);
+    index_store.update_job(job_id, |_| job.clone())?;
+    Ok(job)
 }
 
 fn wait_for_ffmpeg_job_completion(repo_root: &Path, job_id: &str) -> Result<JobRecord, String> {
@@ -911,7 +1149,7 @@ fn build_run_id() -> Result<String, String> {
     Ok(format!("{timestamp}_{}", Uuid::now_v7()))
 }
 
-fn now_rfc3339() -> Result<String, String> {
+pub fn now_rfc3339() -> Result<String, String> {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .map_err(|error| format!("failed to format timestamp: {error}"))
