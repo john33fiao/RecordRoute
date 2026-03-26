@@ -3,7 +3,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
-source_dir="${repo_root}/llama.cpp"
+source_dir="${repo_root}/modules/llama.cpp"
 
 os_name="$(uname -s)"
 case "${os_name}" in

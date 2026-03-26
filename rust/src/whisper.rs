@@ -426,7 +426,7 @@ fn transcript_output_prefix(output_text: &Path) -> Result<PathBuf, String> {
 
 fn download_script_path(repo_root: &Path) -> PathBuf {
     repo_root
-        .join("whisper.cpp/models")
+        .join("modules/whisper.cpp/models")
         .join(download_script_name())
 }
 
@@ -453,7 +453,7 @@ mod tests {
             .join("bin");
         fs::create_dir_all(&build_bin).expect("build bin");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
-        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("models dir");
+        fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("models dir");
         write_build_script(&build_script_path(&repo_root, "whisper"));
         write_executable(
             &fake_whisper_cli_path(&build_bin),
@@ -490,7 +490,7 @@ mod tests {
             .join("bin");
         fs::create_dir_all(&build_bin).expect("build bin");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
-        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("models dir");
+        fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("models dir");
         write_build_script(&build_script_path(&repo_root, "whisper"));
         write_executable(
             &fake_whisper_cli_path(&build_bin),
@@ -522,7 +522,7 @@ mod tests {
             .join("bin");
         fs::create_dir_all(&build_bin).expect("build bin");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
-        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("models dir");
+        fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("models dir");
         write_build_script(&build_script_path(&repo_root, "whisper"));
         write_executable(
             &fake_whisper_cli_path(&build_bin),
@@ -570,7 +570,7 @@ mod tests {
             .join("bin");
         let download_log = repo_root.join("download.log");
         fs::create_dir_all(&build_bin).expect("build bin");
-        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("models dir");
+        fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("models dir");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
         write_build_script(&build_script_path(&repo_root, "whisper"));
         write_executable(
@@ -726,7 +726,7 @@ mod tests {
         let output = repo_root.join("stt/sample.txt");
         let model_path = repo_root.join("models/whisper/ggml-base.bin");
         fs::create_dir_all(&build_bin).expect("build bin");
-        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
         fs::create_dir_all(repo_root.join("models/whisper")).expect("model dir");
         write_test_audio(&input);
         fs::write(&model_path, "broken").expect("broken model");

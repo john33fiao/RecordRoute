@@ -226,7 +226,7 @@ exit /b 0
 :main
 for %%I in ("%~dp0.") do set "script_dir=%%~fI"
 for %%I in ("%script_dir%\..") do set "repo_root=%%~fI"
-set "source_dir=%repo_root%\llama.cpp"
+set "source_dir=%repo_root%\modules\llama.cpp"
 
 if not exist "%source_dir%" (
   >&2 echo llama.cpp source directory not found: %source_dir%

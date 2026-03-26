@@ -1824,7 +1824,7 @@ mod tests {
             .join(crate::ffmpeg::target_dir_name())
             .join("bin");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
-        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
         fs::create_dir_all(repo_root.join("models/whisper")).expect("model dir");
         fs::create_dir_all(&whisper_bin).expect("whisper bin");
 
@@ -1855,7 +1855,7 @@ mod tests {
             .join(crate::ffmpeg::target_dir_name())
             .join("bin");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
-        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
         fs::create_dir_all(&whisper_bin).expect("whisper bin");
 
         write_build_script(&build_script_path(&repo_root, "whisper"));
@@ -1933,7 +1933,7 @@ mod tests {
             .join(crate::ffmpeg::target_dir_name())
             .join("bin");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
-        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
         fs::create_dir_all(&whisper_bin).expect("whisper bin");
         write_build_script(&build_script_path(&repo_root, "whisper"));
         write_simple_command(&fake_command_path(&whisper_bin, "whisper-cli"));
@@ -2259,9 +2259,9 @@ mod tests {
 
     fn whisper_download_script_path(repo_root: &Path) -> PathBuf {
         if cfg!(windows) {
-            repo_root.join("whisper.cpp/models/download-ggml-model.cmd")
+            repo_root.join("modules/whisper.cpp/models/download-ggml-model.cmd")
         } else {
-            repo_root.join("whisper.cpp/models/download-ggml-model.sh")
+            repo_root.join("modules/whisper.cpp/models/download-ggml-model.sh")
         }
     }
 

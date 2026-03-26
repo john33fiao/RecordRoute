@@ -2006,7 +2006,7 @@ mod tests {
         fs::create_dir_all(&selected_job_dir).expect("selected job dir");
         fs::create_dir_all(&ignored_job_dir).expect("ignored job dir");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
-        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
         fs::create_dir_all(&whisper_bin).expect("whisper bin");
 
         write_test_wav(&selected_job_dir.join("channel_01.wav"), 1);
@@ -2074,7 +2074,7 @@ mod tests {
             .join("bin");
         fs::create_dir_all(&selected_job_dir).expect("selected job dir");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
-        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
         fs::create_dir_all(repo_root.join("models/whisper")).expect("models dir");
         fs::create_dir_all(&whisper_bin).expect("whisper bin");
 
@@ -2375,7 +2375,7 @@ mod tests {
             .join("bin");
         let stale_heartbeat = "2020-01-01T00:00:00Z".to_string();
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
-        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
         fs::create_dir_all(&whisper_bin).expect("whisper bin");
 
         write_build_script(&build_script_path(&repo_root, "whisper"));
@@ -2420,7 +2420,7 @@ mod tests {
         let gate_path = repo_root.join("download.gate");
         let count_path = repo_root.join("download.count");
         fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
-        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
         fs::create_dir_all(&whisper_bin).expect("whisper bin");
         fs::write(&gate_path, "gate").expect("gate file");
 
@@ -2510,9 +2510,9 @@ mod tests {
 
     fn whisper_download_script_path(repo_root: &Path) -> PathBuf {
         if cfg!(windows) {
-            repo_root.join("whisper.cpp/models/download-ggml-model.cmd")
+            repo_root.join("modules/whisper.cpp/models/download-ggml-model.cmd")
         } else {
-            repo_root.join("whisper.cpp/models/download-ggml-model.sh")
+            repo_root.join("modules/whisper.cpp/models/download-ggml-model.sh")
         }
     }
 

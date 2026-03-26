@@ -165,7 +165,7 @@ goto :eof
 :main
 for %%I in ("%~dp0.") do set "script_dir=%%~fI"
 for %%I in ("%script_dir%\..") do set "repo_root=%%~fI"
-set "source_dir=%repo_root%\ffmpeg"
+set "source_dir=%repo_root%\modules\ffmpeg"
 
 if not exist "%source_dir%" (
   >&2 echo ffmpeg source directory not found: %source_dir%

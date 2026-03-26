@@ -1,9 +1,9 @@
 [submodule "ffmpeg"]
-	path = ffmpeg
+	path = modules/ffmpeg
 	url = https://github.com/ffmpeg/ffmpeg
 [submodule "llama.cpp"]
-	path = llama.cpp
+	path = modules/llama.cpp
 	url = https://github.com/ggml-org/llama.cpp.git
 [submodule "whisper.cpp"]
-	path = whisper.cpp
+	path = modules/whisper.cpp
 	url = https://github.com/ggml-org/whisper.cpp.git

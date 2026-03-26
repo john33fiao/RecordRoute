@@ -4,9 +4,9 @@
 
 이 문서는 RecordRoute 저장소에서 외부 모듈 소스 디렉터리
 
-- `ffmpeg/`
-- `whisper.cpp/`
-- `llama.cpp/`
+- `modules/ffmpeg/`
+- `modules/whisper.cpp/`
+- `modules/llama.cpp/`
 
 를 루트에서 `modules/` 하위로 이동할 때 필요한 작업을 정리한다.
 
@@ -74,12 +74,12 @@ modules/
 
 ## 1. Git / 저장소 메타데이터
 
-- [ ] `.gitmodules`의 submodule path를 다음과 같이 변경
+- [x] `.gitmodules`의 submodule path를 다음과 같이 변경
   - `ffmpeg -> modules/ffmpeg`
   - `whisper.cpp -> modules/whisper.cpp`
   - `llama.cpp -> modules/llama.cpp`
 - [ ] 로컬 `.git/config`의 submodule 설정이 새 path 기준과 충돌하지 않는지 점검
-- [ ] `ffmpeg/.git`, `llama.cpp/.git`가 가리키는 `gitdir` 구조를 새 경로 기준으로 정리
+- [ ] `modules/ffmpeg/.git`, `modules/llama.cpp/.git`가 가리키는 `gitdir` 구조를 새 경로 기준으로 정리
 - [ ] `whisper.cpp`를 submodule로 표준화할지, nested repo로 유지할지 확정 후 그 방식에 맞게 실제 이동 절차를 문서화
 - [ ] 신규 클론 환경에서 `git submodule update --init --recursive`가 정상 동작하는지 검증
 
@@ -87,20 +87,20 @@ modules/
 
 - `.gitmodules`
 - `.git/config` (로컬 상태 점검용)
-- `ffmpeg/.git`
-- `llama.cpp/.git`
-- `whisper.cpp/.git` 또는 관련 Git 메타데이터
+- `modules/ffmpeg/.git`
+- `modules/llama.cpp/.git`
+- `modules/whisper.cpp/.git` 또는 관련 Git 메타데이터
 
 ## 2. 빌드 스크립트 경로 수정
 
 현재 빌드 스크립트는 모듈 소스 경로를 루트 기준으로 직접 참조한다.
 
-- [ ] `scripts/build_ffmpeg.sh`의 `source_dir`를 `modules/ffmpeg`로 변경
-- [ ] `scripts/build_ffmpeg.bat`의 `source_dir`를 `modules\\ffmpeg`로 변경
-- [ ] `scripts/build_whisper.sh`의 `source_dir`를 `modules/whisper.cpp`로 변경
-- [ ] `scripts/build_whisper.bat`의 `source_dir`를 `modules\\whisper.cpp`로 변경
-- [ ] `scripts/build_llama.sh`의 `source_dir`를 `modules/llama.cpp`로 변경
-- [ ] `scripts/build_llama.bat`의 `source_dir`를 `modules\\llama.cpp`로 변경
+- [x] `scripts/build_ffmpeg.sh`의 `source_dir`를 `modules/ffmpeg`로 변경
+- [x] `scripts/build_ffmpeg.bat`의 `source_dir`를 `modules\\ffmpeg`로 변경
+- [x] `scripts/build_whisper.sh`의 `source_dir`를 `modules/whisper.cpp`로 변경
+- [x] `scripts/build_whisper.bat`의 `source_dir`를 `modules\\whisper.cpp`로 변경
+- [x] `scripts/build_llama.sh`의 `source_dir`를 `modules/llama.cpp`로 변경
+- [x] `scripts/build_llama.bat`의 `source_dir`를 `modules\\llama.cpp`로 변경
 
 주의:
 
@@ -112,7 +112,7 @@ modules/
 `ffmpeg`와 `llama.cpp`는 Rust 프로덕션 코드에서 소스 경로를 직접 거의 쓰지 않지만,
 `whisper.cpp`는 다운로드 스크립트 위치를 직접 참조한다.
 
-- [ ] `rust/src/whisper.rs`의 다운로드 스크립트 경로를 `modules/whisper.cpp/models/...`로 변경
+- [x] `rust/src/whisper.rs`의 다운로드 스크립트 경로를 `modules/whisper.cpp/models/...`로 변경
 - [ ] 필요하면 모듈 루트 경로를 반환하는 헬퍼 함수를 추가해 경로 문자열 하드코딩을 줄임
 - [ ] 경로 관련 에러 메시지가 새 구조를 반영하는지 확인
 
@@ -125,10 +125,10 @@ modules/
 
 현재 테스트는 `whisper.cpp/models` 경로를 fixture 디렉터리처럼 여러 번 직접 만든다.
 
-- [ ] `rust/src/whisper.rs` 테스트의 `whisper.cpp/models` 경로를 `modules/whisper.cpp/models`로 변경
-- [ ] `rust/src/app.rs` 테스트 fixture의 `whisper.cpp/models` 경로를 `modules/whisper.cpp/models`로 변경
-- [ ] `rust/src/server.rs` 테스트 fixture의 `whisper.cpp/models` 경로를 `modules/whisper.cpp/models`로 변경
-- [ ] 테스트 내부 `download-ggml-model.{cmd,sh}` 경로 helper를 새 구조 기준으로 수정
+- [x] `rust/src/whisper.rs` 테스트의 `whisper.cpp/models` 경로를 `modules/whisper.cpp/models`로 변경
+- [x] `rust/src/app.rs` 테스트 fixture의 `whisper.cpp/models` 경로를 `modules/whisper.cpp/models`로 변경
+- [x] `rust/src/server.rs` 테스트 fixture의 `whisper.cpp/models` 경로를 `modules/whisper.cpp/models`로 변경
+- [x] 테스트 내부 `download-ggml-model.{cmd,sh}` 경로 helper를 새 구조 기준으로 수정
 
 비고:
 
@@ -139,9 +139,9 @@ modules/
 
 - [ ] `README.md`에 모듈 위치 변경 사실 반영
 - [ ] `README.md`의 submodule 초기화 가이드가 새 구조에서도 유효한지 검증
-- [ ] `docs/API_Audit.md`의 `whisper.cpp/models/download-ggml-model.*` 경로를 `modules/whisper.cpp/models/...` 기준으로 갱신
+- [x] `docs/API_Audit.md`의 `whisper.cpp/models/download-ggml-model.*` 경로를 `modules/whisper.cpp/models/...` 기준으로 갱신
 - [ ] 필요 시 `docs/architecture.md`에 외부 모듈 소스 위치를 별도 명시
-- [ ] 이 문서(`docs/migration_todo.md`)를 실제 migration 진행 상황에 맞게 갱신
+- [x] 이 문서(`docs/migration_todo.md`)를 실제 migration 진행 상황에 맞게 갱신
 
 비고:
 

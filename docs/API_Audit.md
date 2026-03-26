@@ -1,6 +1,6 @@
 # API Audit
 
-이 문서는 RecordRoute에서 Rust가 `ffmpeg`, `whisper.cpp`, `llama.cpp`와 통신하는 방식을 점검한 결과를 정리한다.
+이 문서는 RecordRoute에서 Rust가 `modules/ffmpeg`, `modules/whisper.cpp`, `modules/llama.cpp`와 통신하는 방식을 점검한 결과를 정리한다.
 
 기준 범위:
 - 외부 모듈과의 통신 방식
@@ -205,8 +205,8 @@ ffmpeg
 ```
 
 현재 코드상 다운로드 스크립트 위치:
-- `whisper.cpp/models/download-ggml-model.sh`
-- `whisper.cpp/models/download-ggml-model.cmd`
+- `modules/whisper.cpp/models/download-ggml-model.sh`
+- `modules/whisper.cpp/models/download-ggml-model.cmd`
 
 성공 판정:
 - 종료 코드 성공
@@ -464,7 +464,7 @@ macOS 추가 환경:
 현재 구현과 `docs/architecture.md` 사이에 whisper 모델 다운로드 경로 설명 차이가 있다.
 
 - `docs/architecture.md`: `scripts/download_whisper_model.{sh|bat}`
-- 실제 구현: `whisper.cpp/models/download-ggml-model.{sh|cmd}`
+- 실제 구현: `modules/whisper.cpp/models/download-ggml-model.{sh|cmd}`
 
 따라서 아키텍처 문서 쪽 설명은 현재 코드 기준으로 갱신이 필요하다.
 
