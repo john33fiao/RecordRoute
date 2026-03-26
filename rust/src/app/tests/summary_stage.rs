@@ -83,7 +83,7 @@ fn run_summary_processes_transcript_files_in_selected_job_dir() {
     assert_eq!(summary.job_id, "job-1");
     assert_eq!(
         summary.summary_file,
-        selected_job_dir.join("summary/result.txt")
+        selected_job_dir.join("summary/result.md")
     );
     assert!(summary.summary_dir.is_dir());
     assert_eq!(
@@ -96,7 +96,8 @@ fn run_summary_processes_transcript_files_in_selected_job_dir() {
     assert!(prompt.contains("[channel_01.txt]"));
     assert!(prompt.contains("[channel_02.txt]"));
     assert!(prompt.contains("[mono_mix.txt]"));
-    assert!(prompt.contains("개요"));
+    assert!(prompt.contains("Markdown"));
+    assert!(prompt.contains("##"));
     assert!(prompt.contains("후속 조치"));
     assert!(prompt.contains("화자 A가 일정과 비용을 설명했다."));
 
@@ -142,7 +143,7 @@ fn run_summary_reuses_existing_summary_file_without_llama_toolchain() {
     assert_eq!(summary.summary_dir, selected_job_dir.join("summary"));
     assert_eq!(
         summary.summary_file,
-        selected_job_dir.join("summary/result.txt")
+        selected_job_dir.join("summary/result.md")
     );
     assert!(!existing_summary.exists());
     assert_eq!(
@@ -150,6 +151,49 @@ fn run_summary_reuses_existing_summary_file_without_llama_toolchain() {
         "existing summary"
     );
     assert!(!summary.summary_dir.join(".input.prompt.txt").exists());
+}
+
+#[test]
+fn run_summary_reuses_existing_result_txt_without_llama_toolchain() {
+    let repo_root = temp_workspace();
+    let selected_job_dir = repo_root.join("db/job-1");
+    let existing_summary = selected_job_dir.join("summary/result.txt");
+    fs::create_dir_all(selected_job_dir.join("stt")).expect("selected stt dir");
+    fs::create_dir_all(existing_summary.parent().expect("summary dir")).expect("summary dir");
+
+    fs::write(
+        selected_job_dir.join("stt/mono_mix.txt"),
+        "현장 방문 일정을 논의했다.",
+    )
+    .expect("mono mix");
+    fs::write(&existing_summary, "legacy txt summary").expect("existing summary");
+
+    let store = IndexStore::new(&repo_root);
+    store
+        .insert_job(JobRecord::new(
+            "job-1".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/input.wav"),
+            selected_job_dir.clone(),
+        ))
+        .expect("insert selected job");
+
+    let mut reader = Cursor::new(b"1\n".to_vec());
+    let mut output = Vec::new();
+
+    let summary =
+        run_summary_with_repo_root(&repo_root, &mut reader, &mut output).expect("summary run");
+
+    assert_eq!(summary.job_id, "job-1");
+    assert_eq!(
+        summary.summary_file,
+        selected_job_dir.join("summary/result.md")
+    );
+    assert!(!existing_summary.exists());
+    assert_eq!(
+        fs::read_to_string(&summary.summary_file).expect("summary file"),
+        "legacy txt summary"
+    );
 }
 
 #[test]

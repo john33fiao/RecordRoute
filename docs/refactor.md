@@ -14,8 +14,8 @@
 #### summary 산출물 파일 규약 통일
 
 - `rust/src/app/artifacts.rs`
-  - summary canonical 파일명을 `summary/result.txt`로 고정했다.
-  - legacy `*.md` 산출물은 `ensure_summary_output_path`에서 canonical 경로로 승격한다.
+  - summary canonical 파일명을 `summary/result.md`로 고정했다.
+  - legacy `result.txt`, `<source_stem>.md` 산출물은 `ensure_summary_output_path`에서 canonical 경로로 승격한다.
 - `rust/src/server/files.rs`
   - summary 조회는 공통 artifact helper를 통해 canonical 경로를 읽는다.
 

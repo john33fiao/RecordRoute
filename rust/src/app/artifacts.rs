@@ -2,7 +2,8 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const SUMMARY_FILE_NAME: &str = "result.txt";
+const SUMMARY_FILE_NAME: &str = "result.md";
+const LEGACY_SUMMARY_TEXT_FILE_NAME: &str = "result.txt";
 
 pub(crate) fn supported_audio_files(job_dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut audio_files = Vec::new();
@@ -98,18 +99,21 @@ pub(crate) fn ensure_summary_output_path(
         return Ok(canonical);
     }
 
-    let legacy = legacy_summary_output_path(summary_dir, source_file_name)?;
-    if !legacy.is_file() {
+    for legacy in legacy_summary_output_paths(summary_dir, source_file_name)? {
+        if !legacy.is_file() {
+            continue;
+        }
+
+        fs::rename(&legacy, &canonical).map_err(|error| {
+            format!(
+                "failed to migrate summary artifact {} to {}: {error}",
+                legacy.display(),
+                canonical.display()
+            )
+        })?;
         return Ok(canonical);
     }
 
-    fs::rename(&legacy, &canonical).map_err(|error| {
-        format!(
-            "failed to migrate summary artifact {} to {}: {error}",
-            legacy.display(),
-            canonical.display()
-        )
-    })?;
     Ok(canonical)
 }
 
@@ -156,7 +160,8 @@ pub(crate) fn collect_job_files(
 
     let summary_dir = job_dir.join("summary");
     if summary_dir.is_dir() {
-        let _ = ensure_summary_output_path(&summary_dir, source_file_name)?;
+        let canonical = ensure_summary_output_path(&summary_dir, source_file_name)?;
+        let legacy_paths = legacy_summary_output_paths(&summary_dir, source_file_name)?;
         for entry in fs::read_dir(&summary_dir)
             .map_err(|error| format!("failed to read {}: {error}", summary_dir.display()))?
         {
@@ -165,7 +170,7 @@ pub(crate) fn collect_job_files(
             if !path.is_file() {
                 continue;
             }
-            if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+            if path != canonical && legacy_paths.iter().any(|legacy| legacy == &path) {
                 continue;
             }
             if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
@@ -182,7 +187,21 @@ pub(crate) fn summary_file_name() -> &'static str {
     SUMMARY_FILE_NAME
 }
 
-fn legacy_summary_output_path(
+pub(crate) fn legacy_summary_output_paths(
+    summary_dir: &Path,
+    source_file_name: &str,
+) -> Result<Vec<PathBuf>, String> {
+    Ok(vec![
+        legacy_summary_text_output_path(summary_dir),
+        legacy_summary_markdown_output_path(summary_dir, source_file_name)?,
+    ])
+}
+
+fn legacy_summary_text_output_path(summary_dir: &Path) -> PathBuf {
+    summary_dir.join(LEGACY_SUMMARY_TEXT_FILE_NAME)
+}
+
+fn legacy_summary_markdown_output_path(
     summary_dir: &Path,
     source_file_name: &str,
 ) -> Result<PathBuf, String> {

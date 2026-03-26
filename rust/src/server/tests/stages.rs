@@ -172,13 +172,13 @@ async fn get_stt_text_returns_404_for_missing_transcript() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn get_summary_text_returns_result_txt_as_json() {
+async fn get_summary_text_returns_result_md_as_json() {
     let repo_root = temp_workspace();
     let store = IndexStore::new(&repo_root);
     let job_id = "job-summary-text";
     let job_dir = store.job_dir(job_id);
     fs::create_dir_all(job_dir.join("summary")).expect("summary dir");
-    fs::write(job_dir.join("summary/result.txt"), "summary body").expect("summary text");
+    fs::write(job_dir.join("summary/result.md"), "summary body").expect("summary text");
 
     store
         .insert_job(JobRecord::new(
@@ -198,12 +198,45 @@ async fn get_summary_text_returns_result_txt_as_json() {
     assert_eq!(response.status(), StatusCode::OK);
     let body: SummaryTextResponse = read_json(response).await;
     assert_eq!(body.job_id, job_id);
-    assert_eq!(body.file_name, "result.txt");
+    assert_eq!(body.file_name, "result.md");
     assert_eq!(body.text, "summary body");
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn get_summary_text_returns_404_when_result_txt_missing() {
+async fn get_summary_text_promotes_legacy_result_txt_to_result_md_json() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let job_id = "job-summary-legacy";
+    let job_dir = store.job_dir(job_id);
+    fs::create_dir_all(job_dir.join("summary")).expect("summary dir");
+    fs::write(job_dir.join("summary/result.txt"), "legacy summary body").expect("summary text");
+
+    store
+        .insert_job(JobRecord::new(
+            job_id.to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/summary-legacy.wav"),
+            job_dir.clone(),
+        ))
+        .expect("insert job");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(get_request("/jobs/job-summary-legacy/summary/text"))
+        .await
+        .expect("summary text response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: SummaryTextResponse = read_json(response).await;
+    assert_eq!(body.job_id, job_id);
+    assert_eq!(body.file_name, "result.md");
+    assert_eq!(body.text, "legacy summary body");
+    assert!(job_dir.join("summary/result.md").is_file());
+    assert!(!job_dir.join("summary/result.txt").exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_summary_text_returns_404_when_result_md_missing() {
     let repo_root = temp_workspace();
     let store = IndexStore::new(&repo_root);
     let job_id = "job-summary-missing";

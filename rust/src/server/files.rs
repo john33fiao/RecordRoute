@@ -137,15 +137,20 @@ pub(crate) fn read_job_file(repo_root: &Path, job_id: &str, file_name: &str) -> 
     }
 
     let job_dir = PathBuf::from(&job.job_dir);
-    if path == format!("summary/{}", artifacts::summary_file_name()) {
+    if path.starts_with("summary/") {
         let summary_dir = job_dir.join("summary");
         let canonical = artifacts::ensure_summary_output_path(&summary_dir, &job.source_file_name)
             .map_err(AppError::internal)?;
-        return fs::read(&canonical).map_err(|error| {
-            AppError::not_found(format!("file not found: {} ({error})", canonical.display()))
-        });
+        let requested = job_dir.join(path);
+        let legacy_paths =
+            artifacts::legacy_summary_output_paths(&summary_dir, &job.source_file_name)
+                .map_err(AppError::internal)?;
+        if requested == canonical || legacy_paths.iter().any(|legacy| legacy == &requested) {
+            return fs::read(&canonical).map_err(|error| {
+                AppError::not_found(format!("file not found: {} ({error})", canonical.display()))
+            });
+        }
     }
-
     let absolute = job_dir.join(path);
     fs::read(&absolute).map_err(|error| {
         AppError::not_found(format!("file not found: {} ({error})", absolute.display()))

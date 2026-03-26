@@ -103,12 +103,12 @@
 2. `execute_summary_job()`
    - `ensure_model_prepared(..., ModelKind::Llama)`로 모델 준비 보장
    - `stt/*.txt`를 모아 프롬프트 파일 생성
-   - llama 실행 후 결과 텍스트 저장
+   - llama 실행 후 결과 Markdown 저장
    - 임시 프롬프트 파일 정리
    - 성공 시 Summary task completed
 
 출력 위치:
-- `db/<job_id>/summary/result.txt`
+- `db/<job_id>/summary/result.md`
 
 ## 5. 모델 준비 오케스트레이션
 

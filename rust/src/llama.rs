@@ -522,33 +522,75 @@ fn extract_summary_text(stdout: &str, prompt: &str) -> String {
 }
 
 fn find_summary_start(text: &str) -> Option<usize> {
-    [
-        "\n## 회의록",
-        "\n**개요**",
-        "\n개요",
-        "\n**핵심 논의**",
-        "\n핵심 논의",
-    ]
-    .iter()
-    .filter_map(|marker| text.find(marker).map(|index| index + 1))
-    .min()
-}
+    let mut earliest = None;
 
-fn normalize_summary_text(text: &str) -> String {
-    let mut normalized = text.trim().to_string();
+    for marker in [
+        "## 회의록",
+        "# 회의록",
+        "회의록",
+        "## 개요",
+        "# 개요",
+        "**개요**",
+        "개요",
+        "## 핵심 논의",
+        "# 핵심 논의",
+        "**핵심 논의**",
+        "핵심 논의",
+    ] {
+        if text.starts_with(marker) {
+            earliest = Some(earliest.unwrap_or(0).min(0));
+        }
 
-    for heading in ["개요", "핵심 논의", "결정/합의", "후속 조치"] {
-        normalized = normalized.replace(&format!("**{heading}**"), heading);
-    }
-
-    for prefix in ["## 회의록\n\n", "# 회의록\n\n", "회의록\n\n"] {
-        if let Some(stripped) = normalized.strip_prefix(prefix) {
-            normalized = stripped.trim_start().to_string();
-            break;
+        let line_marker = format!("\n{marker}");
+        if let Some(index) = text.find(&line_marker) {
+            let candidate = index + 1;
+            earliest = Some(earliest.map_or(candidate, |current| current.min(candidate)));
         }
     }
 
-    normalized
+    earliest
+}
+
+fn normalize_summary_text(text: &str) -> String {
+    let mut normalized_lines = Vec::new();
+
+    for raw_line in text.trim().lines() {
+        let trimmed = raw_line.trim();
+        if is_summary_title(trimmed) {
+            continue;
+        }
+        if let Some(heading) = canonical_summary_heading(trimmed) {
+            normalized_lines.push(format!("## {heading}"));
+            continue;
+        }
+        normalized_lines.push(raw_line.trim_end().to_string());
+    }
+
+    normalized_lines.join("\n").trim().to_string()
+}
+
+fn canonical_summary_heading(line: &str) -> Option<&'static str> {
+    match normalized_heading_text(line) {
+        "개요" => Some("개요"),
+        "핵심 논의" => Some("핵심 논의"),
+        "결정/합의" => Some("결정/합의"),
+        "후속 조치" => Some("후속 조치"),
+        _ => None,
+    }
+}
+
+fn is_summary_title(line: &str) -> bool {
+    normalized_heading_text(line) == "회의록"
+}
+
+fn normalized_heading_text(line: &str) -> &str {
+    let trimmed = line.trim();
+    let without_hashes = trimmed.trim_start_matches('#').trim();
+    without_hashes
+        .strip_prefix("**")
+        .and_then(|inner| inner.strip_suffix("**"))
+        .unwrap_or(without_hashes)
+        .trim()
 }
 
 fn finalize_downloaded_model(downloaded_model: &Path, cache_path: &Path) -> Result<(), String> {
@@ -852,11 +894,20 @@ mod tests {
 
     #[test]
     fn extracts_summary_text_from_cli_stdout_with_truncated_prompt_echo() {
-        let stdout = "Loading model...\n\n> 당신은 회의 녹취를 정리하는 한국어 회의록 작성 도우미다.\n- 출력은 반드시 한국어 평문으� ... (truncated)\n\n## 회의록\n\n**개요**\n내용\n\n**핵심 논의**\n항목\n\n[ Prompt: 10.0 t/s | Generation: 20.0 t/s ]\n\nExiting...\n";
+        let stdout = "Loading model...\n\n> 당신은 회의 녹취를 정리하는 한국어 회의록 작성 도우미다.\n- 출력은 반드시 한국어 Markdown으로 작� ... (truncated)\n\n## 회의록\n\n**개요**\n내용\n\n**핵심 논의**\n항목\n\n[ Prompt: 10.0 t/s | Generation: 20.0 t/s ]\n\nExiting...\n";
 
         let extracted = extract_summary_text(stdout, "길어서 일치하지 않는 원본 프롬프트");
 
-        assert_eq!(extracted, "개요\n내용\n\n핵심 논의\n항목");
+        assert_eq!(extracted, "## 개요\n내용\n\n## 핵심 논의\n항목");
+    }
+
+    #[test]
+    fn extracts_markdown_summary_without_meeting_title() {
+        let stdout = "Assistant preface\n\n## 개요\n내용\n\n## 핵심 논의\n항목";
+
+        let extracted = extract_summary_text(stdout, "");
+
+        assert_eq!(extracted, "## 개요\n내용\n\n## 핵심 논의\n항목");
     }
 
     fn temp_workspace() -> PathBuf {
