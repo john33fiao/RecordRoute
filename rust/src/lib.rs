@@ -1,4 +1,5 @@
 mod app;
+mod error;
 mod ffmpeg;
 mod index;
 mod llama;

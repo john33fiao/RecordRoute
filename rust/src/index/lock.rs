@@ -122,6 +122,7 @@ fn is_stale_lock(lock_path: &Path) -> Result<bool, String> {
     let metadata = match fs::metadata(lock_path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) if is_lock_file_in_use_error(&error) => return Ok(false),
         Err(error) => {
             return Err(format!(
                 "failed to read index lock metadata {}: {error}",
@@ -130,12 +131,16 @@ fn is_stale_lock(lock_path: &Path) -> Result<bool, String> {
         }
     };
 
-    let modified_at = metadata.modified().map_err(|error| {
-        format!(
-            "failed to read index lock modified time {}: {error}",
-            lock_path.display()
-        )
-    })?;
+    let modified_at = match metadata.modified() {
+        Ok(modified_at) => modified_at,
+        Err(error) if is_lock_file_in_use_error(&error) => return Ok(false),
+        Err(error) => {
+            return Err(format!(
+                "failed to read index lock modified time {}: {error}",
+                lock_path.display()
+            ));
+        }
+    };
     let age = SystemTime::now()
         .duration_since(modified_at)
         .unwrap_or(Duration::ZERO);
@@ -146,6 +151,7 @@ fn lock_age_from_contents(lock_path: &Path) -> Result<Option<Duration>, String> 
     let content = match fs::read_to_string(lock_path) {
         Ok(content) => content,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if is_lock_file_in_use_error(&error) => return Ok(None),
         Err(error) => {
             return Err(format!(
                 "failed to read index lock {}: {error}",
@@ -168,4 +174,8 @@ fn parse_created_at_unix_secs(content: &str) -> Option<u64> {
         .lines()
         .find_map(|line| line.strip_prefix("created_at_unix_secs="))
         .and_then(|value| value.parse::<u64>().ok())
+}
+
+fn is_lock_file_in_use_error(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::PermissionDenied
 }

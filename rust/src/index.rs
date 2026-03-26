@@ -340,6 +340,19 @@ mod tests {
     }
 
     #[test]
+    fn active_lock_handle_times_out_instead_of_access_denied() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        store.ensure_db_dir().expect("db dir");
+        let lock_path = repo_root.join("db/index.lock");
+        let _guard = super::lock::LockGuard::acquire(&lock_path).expect("hold lock");
+
+        let error = store.list_jobs().expect_err("active lock should block");
+        assert!(error.contains("timed out waiting for index lock"));
+        assert!(!error.to_ascii_lowercase().contains("denied"));
+    }
+
+    #[test]
     fn writes_valid_json_after_atomic_replace() {
         let repo_root = temp_workspace();
         let store = IndexStore::new(&repo_root);

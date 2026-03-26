@@ -1,35 +1,32 @@
 use super::{SttProgressResponse, SttTranscriptText};
 use crate::app::artifacts;
-use crate::index::{IndexStore, TaskStatus, TaskType};
+use crate::error::{AppError, AppResult};
+use crate::index::{IndexStore, JobRecord, TaskStatus, TaskType};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub(crate) fn collect_job_files(repo_root: &Path, job_id: &str) -> Result<Vec<String>, String> {
-    let store = IndexStore::new(repo_root);
-    let job = store
-        .find_job(job_id)?
-        .ok_or_else(|| format!("job not found: {job_id}"))?;
+pub(crate) fn collect_job_files(repo_root: &Path, job_id: &str) -> AppResult<Vec<String>> {
+    let job = find_job(repo_root, job_id)?;
     artifacts::collect_job_files(&PathBuf::from(job.job_dir), &job.source_file_name)
+        .map_err(AppError::internal)
 }
 
 pub(crate) fn read_stt_transcripts(
     repo_root: &Path,
     job_id: &str,
-) -> Result<Vec<SttTranscriptText>, String> {
-    let store = IndexStore::new(repo_root);
-    let job = store
-        .find_job(job_id)?
-        .ok_or_else(|| format!("job not found: {job_id}"))?;
+) -> AppResult<Vec<SttTranscriptText>> {
+    let job = find_job(repo_root, job_id)?;
     let stt_dir = PathBuf::from(job.job_dir).join("stt");
     if !stt_dir.is_dir() {
         return Ok(Vec::new());
     }
 
     let mut transcripts = Vec::new();
-    for entry in fs::read_dir(&stt_dir)
-        .map_err(|error| format!("failed to read {}: {error}", stt_dir.display()))?
-    {
-        let entry = entry.map_err(|error| format!("failed to read stt entry: {error}"))?;
+    for entry in fs::read_dir(&stt_dir).map_err(|error| {
+        AppError::internal(format!("failed to read {}: {error}", stt_dir.display()))
+    })? {
+        let entry = entry
+            .map_err(|error| AppError::internal(format!("failed to read stt entry: {error}")))?;
         let path = entry.path();
         if !path.is_file()
             || path
@@ -46,14 +43,18 @@ pub(crate) fn read_stt_transcripts(
             .file_stem()
             .and_then(|stem| stem.to_str())
             .ok_or_else(|| {
-                format!(
+                AppError::internal(format!(
                     "failed to parse transcript id from file: {}",
                     path.display()
-                )
+                ))
             })?
             .to_string();
-        let text = fs::read_to_string(&path)
-            .map_err(|error| format!("failed to read transcript {}: {error}", path.display()))?;
+        let text = fs::read_to_string(&path).map_err(|error| {
+            AppError::internal(format!(
+                "failed to read transcript {}: {error}",
+                path.display()
+            ))
+        })?;
         transcripts.push(SttTranscriptText {
             transcript_id,
             file_name: file_name.to_string(),
@@ -67,14 +68,12 @@ pub(crate) fn read_stt_transcripts(
 pub(crate) fn read_stt_progress_snapshot(
     repo_root: &Path,
     job_id: &str,
-) -> Result<SttProgressResponse, String> {
-    let store = IndexStore::new(repo_root);
-    let job = store
-        .find_job(job_id)?
-        .ok_or_else(|| format!("job not found: {job_id}"))?;
+) -> AppResult<SttProgressResponse> {
+    let job = find_job(repo_root, job_id)?;
     let task = job.task(TaskType::Stt).cloned();
     let job_dir = PathBuf::from(job.job_dir);
-    let total_files = artifacts::count_supported_audio_files(&job_dir)?;
+    let total_files =
+        artifacts::count_supported_audio_files(&job_dir).map_err(AppError::internal)?;
     let completed_files = count_stt_transcript_files(&job_dir.join("stt"))?;
     let phase = match task.as_ref().map(|record| record.status) {
         Some(TaskStatus::Running) => "running",
@@ -102,33 +101,29 @@ pub(crate) fn read_stt_transcript(
     repo_root: &Path,
     job_id: &str,
     transcript_id: &str,
-) -> Result<SttTranscriptText, String> {
+) -> AppResult<SttTranscriptText> {
     sanitize_transcript_id(transcript_id)?;
     let transcripts = read_stt_transcripts(repo_root, job_id)?;
     transcripts
         .into_iter()
         .find(|transcript| transcript.transcript_id == transcript_id)
-        .ok_or_else(|| format!("transcript not found: {transcript_id}"))
+        .ok_or_else(|| AppError::not_found(format!("transcript not found: {transcript_id}")))
 }
 
-pub(crate) fn read_summary_text(repo_root: &Path, job_id: &str) -> Result<String, String> {
-    let store = IndexStore::new(repo_root);
-    let job = store
-        .find_job(job_id)?
-        .ok_or_else(|| format!("job not found: {job_id}"))?;
+pub(crate) fn read_summary_text(repo_root: &Path, job_id: &str) -> AppResult<String> {
+    let job = find_job(repo_root, job_id)?;
     let summary_dir = PathBuf::from(job.job_dir).join("summary");
-    artifacts::read_summary_text(&summary_dir, &job.source_file_name)
+    artifacts::read_summary_text(&summary_dir, &job.source_file_name).map_err(|error| {
+        if error.starts_with("summary not found:") {
+            AppError::not_found(error)
+        } else {
+            AppError::internal(error)
+        }
+    })
 }
 
-pub(crate) fn read_job_file(
-    repo_root: &Path,
-    job_id: &str,
-    file_name: &str,
-) -> Result<Vec<u8>, String> {
-    let store = IndexStore::new(repo_root);
-    let job = store
-        .find_job(job_id)?
-        .ok_or_else(|| format!("job not found: {job_id}"))?;
+pub(crate) fn read_job_file(repo_root: &Path, job_id: &str, file_name: &str) -> AppResult<Vec<u8>> {
+    let job = find_job(repo_root, job_id)?;
 
     let path = sanitize_file_name(file_name)?;
     let allowed_prefix = ["stt/", "summary/"];
@@ -136,31 +131,45 @@ pub(crate) fn read_job_file(
         || path.starts_with("channel_")
         || allowed_prefix.iter().any(|prefix| path.starts_with(prefix));
     if !is_allowed {
-        return Err(format!("file not allowed: {file_name}"));
+        return Err(AppError::bad_request(format!(
+            "file not allowed: {file_name}"
+        )));
     }
 
     let job_dir = PathBuf::from(&job.job_dir);
     if path == format!("summary/{}", artifacts::summary_file_name()) {
         let summary_dir = job_dir.join("summary");
-        let canonical = artifacts::ensure_summary_output_path(&summary_dir, &job.source_file_name)?;
-        return fs::read(&canonical)
-            .map_err(|error| format!("file not found: {} ({error})", canonical.display()));
+        let canonical = artifacts::ensure_summary_output_path(&summary_dir, &job.source_file_name)
+            .map_err(AppError::internal)?;
+        return fs::read(&canonical).map_err(|error| {
+            AppError::not_found(format!("file not found: {} ({error})", canonical.display()))
+        });
     }
 
     let absolute = job_dir.join(path);
-    fs::read(&absolute).map_err(|error| format!("file not found: {} ({error})", absolute.display()))
+    fs::read(&absolute).map_err(|error| {
+        AppError::not_found(format!("file not found: {} ({error})", absolute.display()))
+    })
 }
 
-fn count_stt_transcript_files(stt_dir: &Path) -> Result<usize, String> {
+fn find_job(repo_root: &Path, job_id: &str) -> AppResult<JobRecord> {
+    IndexStore::new(repo_root)
+        .find_job(job_id)
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found(format!("job not found: {job_id}")))
+}
+
+fn count_stt_transcript_files(stt_dir: &Path) -> AppResult<usize> {
     if !stt_dir.is_dir() {
         return Ok(0);
     }
 
     let mut count = 0usize;
-    for entry in fs::read_dir(stt_dir)
-        .map_err(|error| format!("failed to read {}: {error}", stt_dir.display()))?
-    {
-        let entry = entry.map_err(|error| format!("failed to read stt entry: {error}"))?;
+    for entry in fs::read_dir(stt_dir).map_err(|error| {
+        AppError::internal(format!("failed to read {}: {error}", stt_dir.display()))
+    })? {
+        let entry = entry
+            .map_err(|error| AppError::internal(format!("failed to read stt entry: {error}")))?;
         let path = entry.path();
         if path.is_file()
             && path
@@ -183,20 +192,20 @@ fn calculate_progress_percent(completed_files: usize, total_files: usize) -> u8 
     ratio.min(100) as u8
 }
 
-fn sanitize_file_name(file_name: &str) -> Result<&str, String> {
+fn sanitize_file_name(file_name: &str) -> AppResult<&str> {
     if file_name.contains('\\') || file_name.starts_with('/') || file_name.contains("..") {
-        return Err("invalid file path".to_string());
+        return Err(AppError::bad_request("invalid file path"));
     }
     Ok(file_name)
 }
 
-fn sanitize_transcript_id(transcript_id: &str) -> Result<(), String> {
+fn sanitize_transcript_id(transcript_id: &str) -> AppResult<()> {
     if transcript_id.is_empty()
         || transcript_id.contains('\\')
         || transcript_id.contains('/')
         || transcript_id.contains("..")
     {
-        return Err("invalid transcript id".to_string());
+        return Err(AppError::bad_request("invalid transcript id"));
     }
     Ok(())
 }

@@ -4,6 +4,7 @@ pub(crate) mod artifacts;
 #[path = "app/stages.rs"]
 mod stages;
 
+use crate::error::{AppError, AppResult};
 use crate::ffmpeg::{
     ConversionOutputs, SplitMonoOutput, Toolchain as FfmpegToolchain, probe_audio_input,
     run_conversion,
@@ -667,6 +668,130 @@ pub fn execute_summary_job(
     }
 }
 
+pub(crate) fn submit_ffmpeg_job_for_server(
+    repo_root: &Path,
+    input: &Path,
+) -> AppResult<FfmpegJobSubmission> {
+    submit_ffmpeg_job(repo_root, input).map_err(classify_create_job_error)
+}
+
+pub(crate) fn execute_ffmpeg_job_for_server(
+    repo_root: &Path,
+    job_id: &str,
+    input_path: &Path,
+) -> AppResult<JobRecord> {
+    execute_ffmpeg_job(repo_root, job_id, input_path).map_err(classify_ffmpeg_runtime_error)
+}
+
+pub(crate) fn submit_stt_job_for_server(
+    repo_root: &Path,
+    job_id: &str,
+    subset_audio_files: Option<Vec<String>>,
+) -> AppResult<StageJobSubmission> {
+    submit_stt_job(repo_root, job_id, subset_audio_files).map_err(classify_stage_submission_error)
+}
+
+pub(crate) fn execute_stt_job_for_server(
+    repo_root: &Path,
+    job_id: &str,
+    audio_files: &[PathBuf],
+) -> AppResult<JobRecord> {
+    execute_stt_job(repo_root, job_id, audio_files).map_err(classify_stage_runtime_error)
+}
+
+pub(crate) fn submit_summary_job_for_server(
+    repo_root: &Path,
+    job_id: &str,
+    force_regenerate: bool,
+) -> AppResult<StageJobSubmission> {
+    submit_summary_job(repo_root, job_id, force_regenerate).map_err(classify_stage_submission_error)
+}
+
+pub(crate) fn execute_summary_job_for_server(
+    repo_root: &Path,
+    job_id: &str,
+    force_regenerate: bool,
+) -> AppResult<JobRecord> {
+    execute_summary_job(repo_root, job_id, force_regenerate).map_err(classify_stage_runtime_error)
+}
+
+pub(crate) fn submit_model_preparation_for_server(
+    repo_root: &Path,
+    model: ModelKind,
+) -> AppResult<ModelPrepareSubmission> {
+    submit_model_preparation(repo_root, model).map_err(classify_model_prepare_error)
+}
+
+pub(crate) fn execute_model_preparation_for_server(
+    repo_root: &Path,
+    model: ModelKind,
+) -> AppResult<ModelPreparationRecord> {
+    execute_model_preparation(repo_root, model).map_err(classify_model_prepare_error)
+}
+
+pub(crate) fn collect_model_status_snapshot_for_server(
+    repo_root: &Path,
+) -> AppResult<ModelStatusSnapshot> {
+    collect_model_status_snapshot(repo_root).map_err(AppError::internal)
+}
+
+fn classify_create_job_error(error: String) -> AppError {
+    if error.starts_with("input file not found:")
+        || error.starts_with("input path is not a file:")
+        || error.starts_with("failed to resolve input path ")
+    {
+        AppError::bad_request(error)
+    } else if error.starts_with("local ffmpeg toolchain not found.") {
+        AppError::dependency_unavailable(error)
+    } else {
+        AppError::internal(error)
+    }
+}
+
+fn classify_ffmpeg_runtime_error(error: String) -> AppError {
+    if error.starts_with("job not found in index:") {
+        AppError::not_found(error)
+    } else if error.starts_with("local ffmpeg toolchain not found.") {
+        AppError::dependency_unavailable(error)
+    } else {
+        AppError::internal(error)
+    }
+}
+
+fn classify_stage_submission_error(error: String) -> AppError {
+    if error.starts_with("job not found:") {
+        AppError::not_found(error)
+    } else {
+        AppError::bad_request(error)
+    }
+}
+
+fn classify_stage_runtime_error(error: String) -> AppError {
+    if error.starts_with("job not found:") || error.starts_with("job not found in index:") {
+        AppError::not_found(error)
+    } else if is_model_dependency_error(&error) {
+        AppError::dependency_unavailable(error)
+    } else {
+        AppError::internal(error)
+    }
+}
+
+fn classify_model_prepare_error(error: String) -> AppError {
+    if is_model_dependency_error(&error) {
+        AppError::dependency_unavailable(error)
+    } else {
+        AppError::internal(error)
+    }
+}
+
+fn is_model_dependency_error(error: &str) -> bool {
+    error.starts_with("local whisper toolchain not found.")
+        || error.starts_with("local llama toolchain not found.")
+        || error.starts_with("whisper model not found at ")
+        || error.starts_with("whisper model path has no parent directory:")
+        || error.starts_with("llama model file not found:")
+        || error.starts_with("llama model cache path is unavailable")
+}
 fn wait_for_ffmpeg_job_completion(repo_root: &Path, job_id: &str) -> Result<JobRecord, String> {
     let index_store = IndexStore::new(repo_root);
 

@@ -6,9 +6,12 @@ mod files;
 mod upload;
 
 use crate::app::{
-    self, execute_ffmpeg_job, execute_stt_job, execute_summary_job, submit_ffmpeg_job,
-    submit_stt_job, submit_summary_job,
+    self, collect_model_status_snapshot_for_server, execute_ffmpeg_job_for_server,
+    execute_model_preparation_for_server, execute_stt_job_for_server,
+    execute_summary_job_for_server, submit_ffmpeg_job_for_server,
+    submit_model_preparation_for_server, submit_stt_job_for_server, submit_summary_job_for_server,
 };
+use crate::error::{AppError, AppResult};
 use crate::ffmpeg::Toolchain as FfmpegToolchain;
 use crate::index::{
     IndexStore, JobOutputs, JobProbe, JobRecord, JobStatus, ModelKind, ModelPreparationRecord,
@@ -267,15 +270,15 @@ async fn get_system_status(State(state): State<AppState>) -> Response {
     let repo_root = state.repo_root.clone();
     match run_blocking(move || gather_system_status(&repo_root)).await {
         Ok(status) => Json(status).into_response(),
-        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+        Err(error) => error_response(AppError::internal(error)),
     }
 }
 
 async fn get_models_status(State(state): State<AppState>) -> Response {
     let repo_root = state.repo_root.clone();
-    match run_blocking(move || app::collect_model_status_snapshot(&repo_root)).await {
+    match run_blocking_app(move || collect_model_status_snapshot_for_server(&repo_root)).await {
         Ok(status) => Json(build_model_status_response(status)).into_response(),
-        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+        Err(error) => error_response(error),
     }
 }
 
@@ -289,17 +292,19 @@ async fn post_prepare_llama_model(State(state): State<AppState>) -> Response {
 
 async fn post_prepare_model(state: AppState, model: ModelKind) -> Response {
     let repo_root = state.repo_root.clone();
-    let submission = match run_blocking(move || app::submit_model_preparation(&repo_root, model))
-        .await
+    let submission = match run_blocking_app(move || {
+        submit_model_preparation_for_server(&repo_root, model)
+    })
+    .await
     {
         Ok(submission) => submission,
-        Err(error) => return error_response(errors::classify_model_prepare_error(&error), error),
+        Err(error) => return error_response(error),
     };
 
     if submission.should_execute() {
         let repo_root = state.repo_root.clone();
         tokio::task::spawn_blocking(move || {
-            if let Err(error) = app::execute_model_preparation(&repo_root, model) {
+            if let Err(error) = execute_model_preparation_for_server(&repo_root, model) {
                 eprintln!("{error}");
             }
         });
@@ -330,20 +335,19 @@ async fn post_jobs(
 
     let repo_root = state.repo_root.clone();
     let input_path = PathBuf::from(request.input_path);
-    let submission = match run_blocking(move || submit_ffmpeg_job(&repo_root, &input_path)).await {
-        Ok(submission) => submission,
-        Err(error) => {
-            let status = errors::classify_create_job_error(&error);
-            return error_response(status, error);
-        }
-    };
+    let submission =
+        match run_blocking_app(move || submit_ffmpeg_job_for_server(&repo_root, &input_path)).await
+        {
+            Ok(submission) => submission,
+            Err(error) => return error_response(error),
+        };
 
     if submission.should_execute() {
         let repo_root = state.repo_root.clone();
         let job_id = submission.job.job_id.clone();
         let input_path = submission.input_path.clone();
         tokio::task::spawn_blocking(move || {
-            if let Err(error) = execute_ffmpeg_job(&repo_root, &job_id, &input_path) {
+            if let Err(error) = execute_ffmpeg_job_for_server(&repo_root, &job_id, &input_path) {
                 eprintln!("{error}");
             }
         });
@@ -370,20 +374,17 @@ async fn post_jobs_upload(
 ) -> Response {
     let upload = match upload::parse_uploaded_file(&headers, &body) {
         Ok(upload) => upload,
-        Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+        Err(error) => return error_response(error),
     };
 
     let repo_root = state.repo_root.clone();
-    let submission = match run_blocking(move || {
+    let submission = match run_blocking_app(move || {
         upload::persist_uploaded_file_and_submit(&repo_root, &upload.bytes)
     })
     .await
     {
         Ok(submission) => submission,
-        Err(error) => {
-            let status = errors::classify_upload_job_error(&error);
-            return error_response(status, error);
-        }
+        Err(error) => return error_response(error),
     };
 
     if submission.should_execute() {
@@ -391,7 +392,7 @@ async fn post_jobs_upload(
         let job_id = submission.job.job_id.clone();
         let input_path = submission.input_path.clone();
         tokio::task::spawn_blocking(move || {
-            if let Err(error) = execute_ffmpeg_job(&repo_root, &job_id, &input_path) {
+            if let Err(error) = execute_ffmpeg_job_for_server(&repo_root, &job_id, &input_path) {
                 eprintln!("{error}");
             }
         });
@@ -415,7 +416,7 @@ async fn get_jobs(State(state): State<AppState>) -> Response {
     let repo_root = state.repo_root.clone();
     match run_blocking(move || IndexStore::new(&repo_root).list_jobs()).await {
         Ok(jobs) => Json(JobListResponse { jobs }).into_response(),
-        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+        Err(error) => error_response(AppError::internal(error)),
     }
 }
 
@@ -423,7 +424,7 @@ async fn get_completed_jobs(State(state): State<AppState>) -> Response {
     let repo_root = state.repo_root.clone();
     match run_blocking(move || IndexStore::new(&repo_root).list_completed_jobs()).await {
         Ok(jobs) => Json(JobListResponse { jobs }).into_response(),
-        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+        Err(error) => error_response(AppError::internal(error)),
     }
 }
 
@@ -433,10 +434,10 @@ async fn get_jobs_by_source(
 ) -> Response {
     let source_path = match query {
         Ok(Query(query)) => query.source_path,
-        Err(_) => return error_response(StatusCode::BAD_REQUEST, "source_path query is required"),
+        Err(_) => return error_response(AppError::bad_request("source_path query is required")),
     };
     if source_path.trim().is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "source_path query is required");
+        return error_response(AppError::bad_request("source_path query is required"));
     }
 
     let repo_root = state.repo_root.clone();
@@ -444,7 +445,7 @@ async fn get_jobs_by_source(
         .await
     {
         Ok(jobs) => Json(JobListResponse { jobs }).into_response(),
-        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+        Err(error) => error_response(AppError::internal(error)),
     }
 }
 
@@ -454,8 +455,8 @@ async fn get_job(State(state): State<AppState>, AxumPath(job_id): AxumPath<Strin
 
     match run_blocking(move || IndexStore::new(&repo_root).find_job(&job_id_for_lookup)).await {
         Ok(Some(job)) => Json(job).into_response(),
-        Ok(None) => error_response(StatusCode::NOT_FOUND, format!("job not found: {job_id}")),
-        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+        Ok(None) => error_response(AppError::not_found(format!("job not found: {job_id}"))),
+        Err(error) => error_response(AppError::internal(error)),
     }
 }
 
@@ -474,8 +475,8 @@ async fn get_job_status(
             error_message: job.error_message,
         })
         .into_response(),
-        Ok(None) => error_response(StatusCode::NOT_FOUND, format!("job not found: {job_id}")),
-        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+        Ok(None) => error_response(AppError::not_found(format!("job not found: {job_id}"))),
+        Err(error) => error_response(AppError::internal(error)),
     }
 }
 
@@ -487,7 +488,7 @@ async fn post_stt(
     let subset = match payload {
         Ok(Json(request)) => match resolve_stt_subset(request) {
             Ok(subset) => subset,
-            Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+            Err(error) => return error_response(AppError::bad_request(error)),
         },
         Err(_) => {
             return (
@@ -499,18 +500,23 @@ async fn post_stt(
     };
     let repo_root = state.repo_root.clone();
     let submit_job_id = job_id.clone();
-    let submission =
-        match run_blocking(move || submit_stt_job(&repo_root, &submit_job_id, subset)).await {
-            Ok(submission) => submission,
-            Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
-        };
+    let submission = match run_blocking_app(move || {
+        submit_stt_job_for_server(&repo_root, &submit_job_id, subset)
+    })
+    .await
+    {
+        Ok(submission) => submission,
+        Err(error) => return error_response(error),
+    };
 
     if submission.should_execute() {
         let repo_root = state.repo_root.clone();
         let execute_job_id = job_id.clone();
         let planned_audio_files = submission.planned_audio_files.clone();
         tokio::task::spawn_blocking(move || {
-            if let Err(error) = execute_stt_job(&repo_root, &execute_job_id, &planned_audio_files) {
+            if let Err(error) =
+                execute_stt_job_for_server(&repo_root, &execute_job_id, &planned_audio_files)
+            {
                 eprintln!("{error}");
             }
         });
@@ -628,9 +634,9 @@ async fn get_stt(State(state): State<AppState>, AxumPath(job_id): AxumPath<Strin
     {
         Ok(Some(job)) => job,
         Ok(None) => {
-            return error_response(StatusCode::NOT_FOUND, format!("job not found: {job_id}"));
+            return error_response(AppError::not_found(format!("job not found: {job_id}")));
         }
-        Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+        Err(error) => return error_response(AppError::internal(error)),
     };
 
     let body = TaskSubmissionResponse {
@@ -651,16 +657,14 @@ async fn get_stt_progress(
 ) -> Response {
     let repo_root = state.repo_root.clone();
     let lookup_job_id = job_id.clone();
-    let progress =
-        match run_blocking(move || files::read_stt_progress_snapshot(&repo_root, &lookup_job_id))
-            .await
-        {
-            Ok(progress) => progress,
-            Err(error) if error.starts_with("job not found:") => {
-                return error_response(StatusCode::NOT_FOUND, error);
-            }
-            Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
-        };
+    let progress = match run_blocking_app(move || {
+        files::read_stt_progress_snapshot(&repo_root, &lookup_job_id)
+    })
+    .await
+    {
+        Ok(progress) => progress,
+        Err(error) => return error_response(error),
+    };
 
     Json(progress).into_response()
 }
@@ -672,12 +676,11 @@ async fn get_stt_texts(
     let repo_root = state.repo_root.clone();
     let lookup_job_id = job_id.clone();
     let transcripts =
-        match run_blocking(move || files::read_stt_transcripts(&repo_root, &lookup_job_id)).await {
+        match run_blocking_app(move || files::read_stt_transcripts(&repo_root, &lookup_job_id))
+            .await
+        {
             Ok(transcripts) => transcripts,
-            Err(error) if error.starts_with("job not found:") => {
-                return error_response(StatusCode::NOT_FOUND, error);
-            }
-            Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+            Err(error) => return error_response(error),
         };
 
     Json(SttTranscriptListResponse {
@@ -694,19 +697,13 @@ async fn get_stt_text(
     let repo_root = state.repo_root.clone();
     let lookup_job_id = job_id.clone();
     let lookup_transcript_id = transcript_id.clone();
-    let transcript = match run_blocking(move || {
+    let transcript = match run_blocking_app(move || {
         files::read_stt_transcript(&repo_root, &lookup_job_id, &lookup_transcript_id)
     })
     .await
     {
         Ok(transcript) => transcript,
-        Err(error)
-            if error.starts_with("job not found:")
-                || error.starts_with("transcript not found:") =>
-        {
-            return error_response(StatusCode::NOT_FOUND, error);
-        }
-        Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+        Err(error) => return error_response(error),
     };
     Json(transcript).into_response()
 }
@@ -722,20 +719,22 @@ async fn post_summary(
     };
     let repo_root = state.repo_root.clone();
     let submit_job_id = job_id.clone();
-    let submission = match run_blocking(move || {
-        submit_summary_job(&repo_root, &submit_job_id, force_regenerate)
+    let submission = match run_blocking_app(move || {
+        submit_summary_job_for_server(&repo_root, &submit_job_id, force_regenerate)
     })
     .await
     {
         Ok(submission) => submission,
-        Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+        Err(error) => return error_response(error),
     };
 
     if submission.should_execute() {
         let repo_root = state.repo_root.clone();
         let execute_job_id = job_id.clone();
         tokio::task::spawn_blocking(move || {
-            if let Err(error) = execute_summary_job(&repo_root, &execute_job_id, force_regenerate) {
+            if let Err(error) =
+                execute_summary_job_for_server(&repo_root, &execute_job_id, force_regenerate)
+            {
                 eprintln!("{error}");
             }
         });
@@ -769,9 +768,9 @@ async fn get_summary(
     {
         Ok(Some(job)) => job,
         Ok(None) => {
-            return error_response(StatusCode::NOT_FOUND, format!("job not found: {job_id}"));
+            return error_response(AppError::not_found(format!("job not found: {job_id}")));
         }
-        Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+        Err(error) => return error_response(AppError::internal(error)),
     };
 
     Json(TaskSubmissionResponse {
@@ -792,16 +791,13 @@ async fn get_summary_text(
 ) -> Response {
     let repo_root = state.repo_root.clone();
     let lookup_job_id = job_id.clone();
-    let summary = match run_blocking(move || files::read_summary_text(&repo_root, &lookup_job_id))
-        .await
+    let summary = match run_blocking_app(move || {
+        files::read_summary_text(&repo_root, &lookup_job_id)
+    })
+    .await
     {
         Ok(summary) => summary,
-        Err(error)
-            if error.starts_with("job not found:") || error.starts_with("summary not found:") =>
-        {
-            return error_response(StatusCode::NOT_FOUND, error);
-        }
-        Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+        Err(error) => return error_response(error),
     };
 
     Json(SummaryTextResponse {
@@ -818,14 +814,12 @@ async fn get_job_files(
 ) -> Response {
     let repo_root = state.repo_root.clone();
     let lookup_job_id = job_id.clone();
-    let files =
-        match run_blocking(move || files::collect_job_files(&repo_root, &lookup_job_id)).await {
-            Ok(files) => files,
-            Err(error) if error.starts_with("job not found:") => {
-                return error_response(StatusCode::NOT_FOUND, error);
-            }
-            Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
-        };
+    let files = match run_blocking_app(move || files::collect_job_files(&repo_root, &lookup_job_id))
+        .await
+    {
+        Ok(files) => files,
+        Err(error) => return error_response(error),
+    };
     Json(FileListResponse { job_id, files }).into_response()
 }
 
@@ -836,17 +830,24 @@ async fn get_job_file(
     let repo_root = state.repo_root.clone();
     let lookup_job_id = job_id.clone();
     let lookup_file = file_name.clone();
-    let result =
-        match run_blocking(move || files::read_job_file(&repo_root, &lookup_job_id, &lookup_file))
-            .await
-        {
-            Ok(result) => result,
-            Err(error) if error.contains("not found") => {
-                return error_response(StatusCode::NOT_FOUND, error);
-            }
-            Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
-        };
+    let result = match run_blocking_app(move || {
+        files::read_job_file(&repo_root, &lookup_job_id, &lookup_file)
+    })
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => return error_response(error),
+    };
     (StatusCode::OK, Body::from(result)).into_response()
+}
+
+async fn run_blocking_app<T>(task: impl FnOnce() -> AppResult<T> + Send + 'static) -> AppResult<T>
+where
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(task)
+        .await
+        .map_err(|error| AppError::internal(format!("blocking task failed: {error}")))?
 }
 
 async fn run_blocking<T>(
@@ -926,8 +927,8 @@ fn build_model_prepare_response(submission: &app::ModelPrepareSubmission) -> Mod
     }
 }
 
-fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
-    errors::error_response(status, message)
+fn error_response(error: AppError) -> Response {
+    errors::error_response(error)
 }
 
 #[cfg(test)]
@@ -1194,6 +1195,51 @@ mod tests {
         fs::remove_file(&gate).expect("remove gate");
         let completed = wait_for_job_completion(&app, &submitted.job_id).await;
         assert_eq!(completed.status, JobStatus::Completed);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn post_jobs_returns_400_for_invalid_input_path() {
+        let repo_root = temp_workspace();
+        let missing_input = repo_root.join("missing.wav");
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .oneshot(post_json_request(
+                "/jobs",
+                &serde_json::json!({ "input_path": missing_input }),
+            ))
+            .await
+            .expect("post jobs invalid path response");
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body: ErrorResponse = read_json(response).await;
+        assert!(body.message.contains("input file not found:"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn post_jobs_upload_returns_400_for_missing_file_field() {
+        let repo_root = temp_workspace();
+        let app = router_with_repo_root(repo_root);
+        let boundary = "recordroute-boundary";
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/jobs/upload")
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\nmissing file\r\n--{boundary}--\r\n"
+            )))
+            .expect("upload request");
+
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("upload missing file response");
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body: ErrorResponse = read_json(response).await;
+        assert_eq!(body.message, "multipart field 'file' is required");
     }
 
     #[tokio::test(flavor = "multi_thread")]
