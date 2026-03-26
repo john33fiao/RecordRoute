@@ -207,6 +207,9 @@ fn collect_model_status_entry(
                     available: true,
                     ready,
                     error,
+                    embedding_available: true,
+                    embedding_ready: ready,
+                    embedding_error: None,
                     preparation,
                 }
             }
@@ -215,6 +218,9 @@ fn collect_model_status_entry(
                 available: false,
                 ready: false,
                 error: Some(error),
+                embedding_available: false,
+                embedding_ready: false,
+                embedding_error: None,
                 preparation,
             },
         },
@@ -234,6 +240,9 @@ fn collect_model_status_entry(
                     available: true,
                     ready,
                     error,
+                    embedding_available: toolchain.llama_embedding_path.is_file(),
+                    embedding_ready: ready,
+                    embedding_error: None,
                     preparation,
                 }
             }
@@ -242,6 +251,9 @@ fn collect_model_status_entry(
                 available: false,
                 ready: false,
                 error: Some(error),
+                embedding_available: false,
+                embedding_ready: false,
+                embedding_error: None,
                 preparation,
             },
         },

@@ -80,6 +80,7 @@ pub(crate) struct SystemStatusResponse {
     pub llama_available: bool,
     pub whisper_model_ready: bool,
     pub llama_model_ready: bool,
+    pub llama_embedding_model_ready: bool,
     pub errors: Vec<String>,
 }
 
@@ -88,6 +89,9 @@ pub(crate) struct ModelStatusEntryResponse {
     pub available: bool,
     pub ready: bool,
     pub error: Option<String>,
+    pub embedding_available: bool,
+    pub embedding_ready: bool,
+    pub embedding_error: Option<String>,
     pub preparation: ModelPreparationRecord,
 }
 
@@ -136,6 +140,39 @@ pub(crate) struct SummaryTextResponse {
     pub job_id: String,
     pub file_name: String,
     pub text: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct SummarySearchRequest {
+    pub query: String,
+    pub limit: Option<usize>,
+    pub min_score: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub(crate) struct SummarySearchResultResponse {
+    pub job_id: String,
+    pub score: f32,
+    pub source_file_name: String,
+    pub summary_file_name: String,
+    pub summary_excerpt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub(crate) struct SummarySearchResponse {
+    pub query: String,
+    pub results: Vec<SummarySearchResultResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct SummaryEmbeddingResponse {
+    pub job_id: String,
+    pub status: String,
+    pub message: String,
+    pub reused: bool,
+    pub deduplicated: bool,
+    pub task: Option<TaskRecord>,
+    pub metadata: Option<crate::index::SummaryEmbeddingRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -216,6 +253,9 @@ fn build_model_status_entry_response(entry: app::ModelStatusEntry) -> ModelStatu
         available: entry.available,
         ready: entry.ready,
         error: entry.error,
+        embedding_available: entry.embedding_available,
+        embedding_ready: entry.embedding_ready,
+        embedding_error: entry.embedding_error,
         preparation: entry.preparation,
     }
 }

@@ -65,7 +65,12 @@ pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
             "/jobs/{job_id}/summary",
             post(stages::post_summary).get(stages::get_summary),
         )
+        .route(
+            "/jobs/{job_id}/summary/embedding",
+            post(stages::post_summary_embedding).get(stages::get_summary_embedding),
+        )
         .route("/jobs/{job_id}/summary/text", get(stages::get_summary_text))
+        .route("/summary/search", post(stages::post_summary_search))
         .route("/jobs/{job_id}/files", get(stages::get_job_files))
         .route(
             "/jobs/{job_id}/files/{*file_name}",

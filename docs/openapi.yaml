@@ -768,7 +768,7 @@ components:
     SystemStatusResponse:
       type: object
       required:
-        [ffmpeg_available, whisper_available, llama_available, whisper_model_ready, llama_model_ready, errors]
+        [ffmpeg_available, whisper_available, llama_available, whisper_model_ready, llama_model_ready, llama_embedding_model_ready, errors]
       properties:
         ffmpeg_available:
           type: boolean
@@ -779,6 +779,8 @@ components:
         whisper_model_ready:
           type: boolean
         llama_model_ready:
+          type: boolean
+        llama_embedding_model_ready:
           type: boolean
         errors:
           type: array
@@ -821,13 +823,21 @@ components:
 
     ModelStatusEntryResponse:
       type: object
-      required: [available, ready, error, preparation]
+      required: [available, ready, error, embedding_available, embedding_ready, embedding_error, preparation]
       properties:
         available:
           type: boolean
         ready:
           type: boolean
         error:
+          oneOf:
+            - type: string
+            - type: 'null'
+        embedding_available:
+          type: boolean
+        embedding_ready:
+          type: boolean
+        embedding_error:
           oneOf:
             - type: string
             - type: 'null'
@@ -1074,7 +1084,7 @@ components:
 
     TaskType:
       type: string
-      enum: [ffmpeg, stt, summary]
+      enum: [ffmpeg, stt, summary, embedding]
 
     SplitStrategy:
       type: string

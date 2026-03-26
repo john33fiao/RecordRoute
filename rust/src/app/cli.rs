@@ -1,6 +1,7 @@
 use super::{
-    SttRunSummary, SummaryRunSummary, load_repo_env, read_line, repo_root, run_stt_with_repo_root,
-    run_summary_with_repo_root, run_with_repo_root,
+    SttRunSummary, SummaryRunSummary, backfill_summary_embeddings, load_repo_env, read_line,
+    repo_root, run_stt_with_repo_root, run_summary_with_repo_root, run_with_repo_root,
+    search_summaries,
 };
 use crate::server;
 use std::ffi::{OsStr, OsString};
@@ -13,6 +14,8 @@ pub(crate) enum CliCommand {
     Stt,
     Summary,
     PrepareLlamaModel,
+    EmbedSummaries,
+    SearchSummaries { query: String },
     Server,
 }
 
@@ -44,6 +47,28 @@ pub fn main_cli() -> Result<(), String> {
         }
         CliCommand::PrepareLlamaModel => {
             super::prepare_llama_model_with_repo_root(&repo_root)?;
+        }
+        CliCommand::EmbedSummaries => {
+            let rows = backfill_summary_embeddings(&repo_root)?;
+            for (job_id, rebuilt) in rows {
+                writeln!(
+                    writer,
+                    "{job_id}: {}",
+                    if rebuilt { "rebuilt" } else { "skipped" }
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        }
+        CliCommand::SearchSummaries { query } => {
+            let rows = search_summaries(&repo_root, &query, 10, None)?;
+            for row in rows {
+                writeln!(
+                    writer,
+                    "{} {:.4} {}",
+                    row.job_id, row.score, row.summary_excerpt
+                )
+                .map_err(|error| error.to_string())?;
+            }
         }
         CliCommand::Server => {
             let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -79,6 +104,21 @@ pub(crate) fn resolve_cli_command(
         [mode] if mode == OsStr::new("prepare-llama-model") => Ok(CliCommand::PrepareLlamaModel),
         [mode, ..] if mode == OsStr::new("prepare-llama-model") => {
             Err("prepare-llama-model mode does not accept additional arguments".to_string())
+        }
+        [mode] if mode == OsStr::new("embed-summaries") => Ok(CliCommand::EmbedSummaries),
+        [mode, ..] if mode == OsStr::new("embed-summaries") => {
+            Err("embed-summaries mode does not accept additional arguments".to_string())
+        }
+        [mode, query] if mode == OsStr::new("search-summaries") => {
+            Ok(CliCommand::SearchSummaries {
+                query: query.to_string_lossy().into_owned(),
+            })
+        }
+        [mode] if mode == OsStr::new("search-summaries") => {
+            Err("search-summaries mode requires a query argument".to_string())
+        }
+        [mode, ..] if mode == OsStr::new("search-summaries") => {
+            Err("search-summaries mode accepts exactly one query argument".to_string())
         }
         [mode] if mode == OsStr::new("server") => Ok(CliCommand::Server),
         [mode, ..] if mode == OsStr::new("server") => {

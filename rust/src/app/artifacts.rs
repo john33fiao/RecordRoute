@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 const SUMMARY_FILE_NAME: &str = "result.md";
 const LEGACY_SUMMARY_TEXT_FILE_NAME: &str = "result.txt";
+const SUMMARY_EMBEDDING_FILE_NAME: &str = "embedding.json";
 
 pub(crate) fn supported_audio_files(job_dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut audio_files = Vec::new();
@@ -185,6 +186,14 @@ pub(crate) fn collect_job_files(
 
 pub(crate) fn summary_file_name() -> &'static str {
     SUMMARY_FILE_NAME
+}
+
+pub(crate) fn summary_embedding_file_name() -> &'static str {
+    SUMMARY_EMBEDDING_FILE_NAME
+}
+
+pub(crate) fn summary_embedding_output_path(summary_dir: &Path) -> PathBuf {
+    summary_dir.join(SUMMARY_EMBEDDING_FILE_NAME)
 }
 
 pub(crate) fn legacy_summary_output_paths(

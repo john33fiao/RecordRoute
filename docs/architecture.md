@@ -45,7 +45,7 @@
   - `probe`, `split_strategy`, `outputs`, `error_message`
   - `tasks`: `TaskRecord[]`
 - `JobStatus`: `running | completed | failed`
-- `TaskType`: `ffmpeg | stt | summary`
+- `TaskType`: `ffmpeg | stt | summary | embedding`
 - `TaskStatus`: `running | completed | failed`
 - `TaskRecord`
   - `task_id`(uuid), `task_type`, `status`, `started_at`, `finished_at`, `last_error`, `retry_count`
@@ -199,6 +199,8 @@
 - `GET /jobs/{job_id}/stt/texts/{transcript_id}`
 - `POST /jobs/{job_id}/summary`, `GET /jobs/{job_id}/summary`
 - `GET /jobs/{job_id}/summary/text`
+- `POST /jobs/{job_id}/summary/embedding`, `GET /jobs/{job_id}/summary/embedding`
+- `POST /summary/search`
 - `GET /jobs/{job_id}/files`
 - `GET /jobs/{job_id}/files/{*file_name}`
 

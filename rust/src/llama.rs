@@ -8,7 +8,9 @@ use std::thread;
 use std::time::Duration;
 
 pub const MODEL_ENV_VAR: &str = "RECORDROUTE_LLAMA_MODEL";
+pub const EMBEDDING_MODEL_ENV_VAR: &str = "RECORDROUTE_LLAMA_EMBEDDING_MODEL";
 const DEFAULT_MODEL_REPOSITORY: &str = "ggml-org/gemma-3-4b-it-GGUF";
+const DEFAULT_EMBEDDING_MODEL_REPOSITORY: &str = "Qwen/Qwen3-Embedding-4B";
 const DEFAULT_PREDICT_TOKENS: &str = "1024";
 const HF_CACHE_RELATIVE_DIR: &str = "models/llama/hf";
 const LLAMA_CACHE_ENV_VAR: &str = "LLAMA_CACHE";
@@ -22,6 +24,7 @@ pub enum ModelSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Toolchain {
     pub llama_cli_path: PathBuf,
+    pub llama_embedding_path: PathBuf,
     pub build_script_path: PathBuf,
     pub model_source: ModelSource,
     pub cached_model_path: Option<PathBuf>,
@@ -40,6 +43,8 @@ impl Toolchain {
                 build_script_path.display()
             )
         })?;
+        let llama_embedding_path = locate_command(&llama_bin, "llama-embedding")
+            .unwrap_or_else(|| llama_bin.join("llama-embedding"));
 
         let model_source = resolve_model_source(repo_root);
         let cached_model_path = match &model_source {
@@ -49,6 +54,7 @@ impl Toolchain {
 
         Ok(Self {
             llama_cli_path,
+            llama_embedding_path,
             build_script_path,
             model_source,
             cached_model_path,
@@ -106,6 +112,61 @@ impl Toolchain {
             (ModelSource::HuggingFaceRepo(repo), _) => ModelSource::HuggingFaceRepo(repo.clone()),
         }
     }
+}
+
+pub fn embedding_model_id(repo_root: &Path) -> String {
+    match std::env::var(EMBEDDING_MODEL_ENV_VAR) {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => {
+            let default_gguf =
+                repo_root.join("models/llama/hf/Qwen_Qwen3-Embedding-4B-GGUF-Q4_K_M.gguf");
+            if default_gguf.is_file() {
+                "Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M.gguf".to_string()
+            } else {
+                DEFAULT_EMBEDDING_MODEL_REPOSITORY.to_string()
+            }
+        }
+    }
+}
+
+pub fn run_summary_embedding(toolchain: &Toolchain, input: &str) -> Result<Vec<f32>, String> {
+    let mut command = Command::new(&toolchain.llama_embedding_path);
+    command
+        .arg("--pooling")
+        .arg("mean")
+        .arg("--embd-normalize")
+        .arg("2")
+        .arg("--embd-output-format")
+        .arg("array")
+        .arg("--log-disable")
+        .arg("-p")
+        .arg(input);
+
+    match toolchain.runtime_model_source() {
+        ModelSource::LocalPath(path) => {
+            command.arg("-m").arg(path);
+        }
+        ModelSource::HuggingFaceRepo(repo) => {
+            command.env(LLAMA_CACHE_ENV_VAR, hf_download_cache_dir(toolchain, &repo));
+            command.arg("-hf").arg(repo);
+        }
+    }
+
+    let output = command.output().map_err(|error| {
+        format!(
+            "failed to execute llama-embedding {}: {error}",
+            toolchain.llama_embedding_path.display()
+        )
+    })?;
+    if !output.status.success() {
+        return Err(format!(
+            "llama embedding failed: {}",
+            command_output_details(&output)
+        ));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str::<Vec<f32>>(stdout.trim())
+        .map_err(|error| format!("failed to parse embedding output: {error}"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -733,6 +794,7 @@ mod tests {
 
         let toolchain = Toolchain {
             llama_cli_path: fake_llama_cli_path(&build_bin),
+            llama_embedding_path: fake_command_path(build_bin.clone(), "llama-embedding"),
             build_script_path: build_script_path(&repo_root, "llama"),
             model_source: ModelSource::LocalPath(model_path.clone()),
             cached_model_path: None,
@@ -800,6 +862,7 @@ mod tests {
 
         let toolchain = Toolchain {
             llama_cli_path: fake_llama_cli_path(&build_bin),
+            llama_embedding_path: fake_command_path(build_bin.clone(), "llama-embedding"),
             build_script_path: build_script_path(&repo_root, "llama"),
             model_source: ModelSource::LocalPath(model_path),
             cached_model_path: None,

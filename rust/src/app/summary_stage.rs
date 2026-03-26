@@ -1,6 +1,6 @@
 use super::{
     StageJobDisposition, StageJobSubmission, SummaryRunSummary, artifacts, ensure_model_prepared,
-    now_rfc3339, read_line, stages,
+    execute_summary_embedding_job, now_rfc3339, read_line, stages, submit_summary_embedding_job,
 };
 use crate::index::{IndexStore, JobRecord, ModelKind, TaskStatus, TaskType};
 use crate::llama::{Toolchain as LlamaToolchain, run_summary_generation};
@@ -102,7 +102,16 @@ pub fn execute_summary_job(
     })();
 
     match result {
-        Ok(()) => stages::finalize_task_success(repo_root, job, TaskType::Summary, now_rfc3339()?),
+        Ok(()) => {
+            let completed =
+                stages::finalize_task_success(repo_root, job, TaskType::Summary, now_rfc3339()?)?;
+            if let Ok(submission) = submit_summary_embedding_job(repo_root, &completed.job_id)
+                && submission.should_execute()
+            {
+                let _ = execute_summary_embedding_job(repo_root, &completed.job_id);
+            }
+            Ok(completed)
+        }
         Err(error) => {
             stages::finalize_task_failure(
                 repo_root,

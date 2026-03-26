@@ -24,6 +24,8 @@ pub struct JobRecord {
     pub outputs: JobOutputs,
     pub error_message: Option<String>,
     #[serde(default)]
+    pub summary_embedding: Option<SummaryEmbeddingRecord>,
+    #[serde(default)]
     pub tasks: Vec<TaskRecord>,
 }
 
@@ -41,6 +43,7 @@ pub enum TaskType {
     Ffmpeg,
     Stt,
     Summary,
+    Embedding,
 }
 
 impl TaskType {
@@ -49,6 +52,7 @@ impl TaskType {
             Self::Ffmpeg => "ffmpeg",
             Self::Stt => "stt",
             Self::Summary => "summary",
+            Self::Embedding => "embedding",
         }
     }
 }
@@ -117,6 +121,18 @@ pub struct ModelPreparations {
     pub whisper: ModelPreparationRecord,
     #[serde(default)]
     pub llama: ModelPreparationRecord,
+    #[serde(default)]
+    pub llama_embedding: ModelPreparationRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SummaryEmbeddingRecord {
+    pub model_id: String,
+    pub text_sha256: String,
+    pub dimension: usize,
+    pub normalized: bool,
+    pub created_at: String,
+    pub file_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -159,7 +175,7 @@ pub struct JobSplitOutput {
 impl IndexFile {
     pub(crate) fn empty() -> Self {
         Self {
-            version: 2,
+            version: 3,
             model_preparations: ModelPreparations::default(),
             jobs: Vec::new(),
         }
@@ -185,6 +201,7 @@ impl JobRecord {
             split_strategy: SplitStrategy::PerChannelPlusMergedMono,
             outputs: JobOutputs::default(),
             error_message: None,
+            summary_embedding: None,
             tasks: vec![TaskRecord::new(
                 TaskType::Ffmpeg,
                 TaskStatus::Running,
@@ -268,6 +285,10 @@ impl JobRecord {
         self.tasks.iter().find(|task| task.task_type == task_type)
     }
 
+    pub fn clear_embedding(&mut self) {
+        self.summary_embedding = None;
+    }
+
     fn set_task(&mut self, record: TaskRecord) {
         if let Some(existing) = self
             .tasks
@@ -334,6 +355,10 @@ impl ModelPreparations {
             ModelKind::Whisper => &mut self.whisper,
             ModelKind::Llama => &mut self.llama,
         }
+    }
+
+    pub(crate) fn llama_embedding_mut(&mut self) -> &mut ModelPreparationRecord {
+        &mut self.llama_embedding
     }
 }
 

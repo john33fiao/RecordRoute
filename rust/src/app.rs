@@ -3,6 +3,8 @@ pub(crate) mod artifacts;
 
 #[path = "app/cli.rs"]
 mod cli;
+#[path = "app/embedding_stage.rs"]
+mod embedding_stage;
 #[path = "app/ffmpeg_stage.rs"]
 mod ffmpeg_stage;
 #[path = "app/models.rs"]
@@ -60,6 +62,11 @@ pub struct SummaryRunSummary {
     pub job_dir: PathBuf,
     pub summary_dir: PathBuf,
     pub summary_file: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddingRunSummary {
+    pub processed_jobs: Vec<(String, bool)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -152,6 +159,9 @@ pub struct ModelStatusEntry {
     pub available: bool,
     pub ready: bool,
     pub error: Option<String>,
+    pub embedding_available: bool,
+    pub embedding_ready: bool,
+    pub embedding_error: Option<String>,
     pub preparation: ModelPreparationRecord,
 }
 
@@ -173,6 +183,10 @@ impl ModelStatusSnapshot {
 pub use cli::main_cli;
 #[allow(unused_imports)]
 pub use cli::resolve_input_path;
+pub use embedding_stage::{
+    SummarySearchResult, backfill_summary_embeddings, execute_summary_embedding_job,
+    search_summaries, submit_summary_embedding_job,
+};
 pub use ffmpeg_stage::{execute_ffmpeg_job, run_with_repo_root, submit_ffmpeg_job};
 #[allow(unused_imports)]
 pub use models::wait_for_model_preparation;

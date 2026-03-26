@@ -23,12 +23,15 @@ target="${platform_os}-${platform_arch}"
 build_root="${repo_root}/.build/llama/${target}"
 runtime_bin="${build_root}/bin"
 llama_bin="${runtime_bin}/llama-cli"
+llama_embedding_bin="${runtime_bin}/llama-embedding"
 build_stamp="${build_root}/build-flags.txt"
 
 link_llama_cli() {
   local built_llama_bin="$1"
+  local built_llama_embedding_bin="$2"
   mkdir -p "${runtime_bin}"
   ln -sf "${built_llama_bin}" "${llama_bin}"
+  ln -sf "${built_llama_embedding_bin}" "${llama_embedding_bin}"
 }
 
 read_build_stamp() {
@@ -52,6 +55,11 @@ built_llama_bin_for_backend() {
   printf '%s/bin/llama-cli' "$(backend_build_dir "${backend}")"
 }
 
+built_llama_embedding_bin_for_backend() {
+  local backend="$1"
+  printf '%s/bin/llama-embedding' "$(backend_build_dir "${backend}")"
+}
+
 is_known_backend() {
   case "$1" in
     cpu | metal) return 0 ;;
@@ -64,11 +72,13 @@ build_backend() {
   local build_dir
   local backend_runtime_bin
   local built_llama_bin
+  local built_llama_embedding_bin
   local -a cmake_args
 
   build_dir="$(backend_build_dir "${backend}")"
   backend_runtime_bin="${build_dir}/bin"
   built_llama_bin="${backend_runtime_bin}/llama-cli"
+  built_llama_embedding_bin="${backend_runtime_bin}/llama-embedding"
 
   mkdir -p "${build_dir}" "${backend_runtime_bin}" "${runtime_bin}"
 
@@ -97,11 +107,12 @@ build_backend() {
   esac
 
   if cmake -S "${source_dir}" -B "${build_dir}" "${cmake_args[@]}" \
-    && cmake --build "${build_dir}" --target llama-cli -j"${jobs}"; then
-    if [[ -x "${built_llama_bin}" ]]; then
-      link_llama_cli "${built_llama_bin}"
+    && cmake --build "${build_dir}" --target llama-cli llama-embedding -j"${jobs}"; then
+    if [[ -x "${built_llama_bin}" && -x "${built_llama_embedding_bin}" ]]; then
+      link_llama_cli "${built_llama_bin}" "${built_llama_embedding_bin}"
       write_build_stamp "${backend}"
       printf 'llama_cli=%s\n' "${llama_bin}"
+      printf 'llama_embedding=%s\n' "${llama_embedding_bin}"
       return 0
     fi
   fi
@@ -116,15 +127,18 @@ fi
 
 cached_backend="$(read_build_stamp GGML_BACKEND)"
 if is_known_backend "${cached_backend}"; then
-  if [[ -x "${llama_bin}" ]]; then
+  if [[ -x "${llama_bin}" && -x "${llama_embedding_bin}" ]]; then
     printf 'llama_cli=%s\n' "${llama_bin}"
+    printf 'llama_embedding=%s\n' "${llama_embedding_bin}"
     exit 0
   fi
 
   built_llama_bin="$(built_llama_bin_for_backend "${cached_backend}")"
-  if [[ -x "${built_llama_bin}" ]]; then
-    link_llama_cli "${built_llama_bin}"
+  built_llama_embedding_bin="$(built_llama_embedding_bin_for_backend "${cached_backend}")"
+  if [[ -x "${built_llama_bin}" && -x "${built_llama_embedding_bin}" ]]; then
+    link_llama_cli "${built_llama_bin}" "${built_llama_embedding_bin}"
     printf 'llama_cli=%s\n' "${llama_bin}"
+    printf 'llama_embedding=%s\n' "${llama_embedding_bin}"
     exit 0
   fi
 fi
@@ -145,5 +159,5 @@ for backend in "${backends[@]}"; do
   fi
 done
 
-printf 'failed to build llama-cli with supported backends for %s\n' "${platform_os}" >&2
+printf 'failed to build llama-cli/llama-embedding with supported backends for %s\n' "${platform_os}" >&2
 exit 1

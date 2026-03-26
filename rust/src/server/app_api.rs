@@ -1,5 +1,6 @@
 use crate::app::{
     self, FfmpegJobSubmission, ModelPrepareSubmission, ModelStatusSnapshot, StageJobSubmission,
+    SummarySearchResult,
 };
 use crate::error::{AppError, AppResult};
 use crate::index::{JobRecord, ModelKind, ModelPreparationRecord};
@@ -50,6 +51,35 @@ pub(crate) fn execute_summary_job(
 ) -> AppResult<JobRecord> {
     app::execute_summary_job(repo_root, job_id, force_regenerate)
         .map_err(classify_stage_runtime_error)
+}
+
+pub(crate) fn submit_summary_embedding_job(
+    repo_root: &Path,
+    job_id: &str,
+) -> AppResult<StageJobSubmission> {
+    app::submit_summary_embedding_job(repo_root, job_id).map_err(classify_stage_submission_error)
+}
+
+pub(crate) fn execute_summary_embedding_job(
+    repo_root: &Path,
+    job_id: &str,
+) -> AppResult<JobRecord> {
+    app::execute_summary_embedding_job(repo_root, job_id).map_err(classify_stage_runtime_error)
+}
+
+pub(crate) fn search_summaries(
+    repo_root: &Path,
+    query: &str,
+    limit: usize,
+    min_score: Option<f32>,
+) -> AppResult<Vec<SummarySearchResult>> {
+    app::search_summaries(repo_root, query, limit, min_score).map_err(|error| {
+        if is_model_dependency_error(&error) {
+            AppError::dependency_unavailable(error)
+        } else {
+            AppError::internal(error)
+        }
+    })
 }
 
 pub(crate) fn submit_model_preparation(
@@ -122,6 +152,7 @@ fn classify_model_prepare_error(error: String) -> AppError {
 fn is_model_dependency_error(error: &str) -> bool {
     error.starts_with("local whisper toolchain not found.")
         || error.starts_with("local llama toolchain not found.")
+        || error.starts_with("local llama embedding toolchain not found.")
         || error.starts_with("whisper model not found at ")
         || error.starts_with("whisper model path has no parent directory:")
         || error.starts_with("llama model file not found:")
