@@ -18,6 +18,7 @@
 - `POST /server/ping`
 - `GET /system/status`
 - `POST /jobs`
+- `POST /jobs/upload`
 - `GET /jobs`
 - `GET /jobs/{job_id}`
 - `GET /jobs/{job_id}/status`
@@ -31,7 +32,7 @@
 - `GET /jobs/{job_id}/files/{*file_name}`
 
 즉 현재는 ping-only 단계가 아니라, job/task/file 조회·실행 API까지 구현된 상태다.
-다만 입력 진입점은 아직 서버 로컬 경로 기반이며, 동일 PC에서 동작하는 프론트엔드용 업로드 API는 없다.
+입력 진입점은 서버 로컬 경로 기반(`POST /jobs`)과 localhost UI 업로드 기반(`POST /jobs/upload`)을 함께 제공한다.
 
 ## 핵심 동작 요약
 
@@ -107,7 +108,7 @@
 
 ## P0 (운영/클라이언트 사용성에 즉시 필요)
 
-1. 파일 업로드 기반 job 생성 API
+1. 파일 업로드 기반 job 생성 API ✅ 구현 완료 (2026-03-25)
    - `POST /jobs/upload`
    - 요청: `multipart/form-data` (`file`)
    - 목적: 동일 PC에서 동작하는 웹 프론트엔드/Electron renderer가 선택한 오디오 파일을 localhost 서버에 제출
@@ -165,7 +166,7 @@
 
 ### 미완료
 
-- [ ] 파일 업로드 기반 job 생성 API (`POST /jobs/upload`)
+- [x] 파일 업로드 기반 job 생성 API (`POST /jobs/upload`)
 - [x] STT 텍스트 본문 JSON 조회 (`GET /jobs/{job_id}/stt/texts`, `GET /jobs/{job_id}/stt/texts/{transcript_id}`)
 - [x] Summary 텍스트 본문 JSON 조회 (`GET /jobs/{job_id}/summary/text`)
 - [ ] 모델 준비 HTTP API

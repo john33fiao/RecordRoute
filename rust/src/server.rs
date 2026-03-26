@@ -9,10 +9,13 @@ use crate::whisper::Toolchain as WhisperToolchain;
 use axum::extract::Path as AxumPath;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::{Json, Router, body::Body};
+use axum::{
+    Json, Router,
+    body::{Body, Bytes},
+};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -148,6 +151,7 @@ pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
         .route("/server/ping", post(post_server_ping))
         .route("/system/status", get(get_system_status))
         .route("/jobs", post(post_jobs).get(get_jobs))
+        .route("/jobs/upload", post(post_jobs_upload))
         .route("/jobs/{job_id}", get(get_job))
         .route("/jobs/{job_id}/status", get(get_job_status))
         .route("/jobs/{job_id}/stt", post(post_stt).get(get_stt))
@@ -259,6 +263,177 @@ async fn post_jobs(
     );
 
     (status, Json(response)).into_response()
+}
+
+async fn post_jobs_upload(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let upload = match parse_uploaded_file(&headers, &body) {
+        Ok(upload) => upload,
+        Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+    };
+
+    let repo_root = state.repo_root.clone();
+    let submission =
+        match run_blocking(move || persist_uploaded_file_and_submit(&repo_root, &upload.bytes))
+            .await
+        {
+            Ok(submission) => submission,
+            Err(error) => {
+                let status = classify_upload_job_error(&error);
+                return error_response(status, error);
+            }
+        };
+
+    if submission.should_execute() {
+        let repo_root = state.repo_root.clone();
+        let job_id = submission.job.job_id.clone();
+        let input_path = submission.input_path.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Err(error) = execute_ffmpeg_job(&repo_root, &job_id, &input_path) {
+                eprintln!("{error}");
+            }
+        });
+    }
+
+    let status = if submission.reused() {
+        StatusCode::OK
+    } else {
+        StatusCode::ACCEPTED
+    };
+    let response = build_job_submission_response(
+        &submission.job,
+        submission.reused(),
+        submission.deduplicated(),
+    );
+
+    (status, Json(response)).into_response()
+}
+
+fn persist_uploaded_file_and_submit(
+    repo_root: &std::path::Path,
+    bytes: &[u8],
+) -> Result<app::FfmpegJobSubmission, String> {
+    let uploads_dir = repo_root.join("db").join("uploads");
+    fs::create_dir_all(&uploads_dir).map_err(|error| {
+        format!(
+            "failed to create upload directory {}: {error}",
+            uploads_dir.display()
+        )
+    })?;
+
+    let file_hash = stable_content_hash(bytes);
+    let upload_path = uploads_dir.join(format!("{file_hash}.bin"));
+    if !upload_path.is_file() {
+        fs::write(&upload_path, bytes)
+            .map_err(|error| format!("failed to persist uploaded file: {error}"))?;
+    }
+
+    submit_ffmpeg_job(repo_root, &upload_path)
+}
+
+struct UploadedFile {
+    bytes: Vec<u8>,
+}
+
+fn parse_uploaded_file(headers: &HeaderMap, body: &[u8]) -> Result<UploadedFile, String> {
+    let content_type = headers
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| "missing content-type header".to_string())?;
+    if !content_type.starts_with("multipart/form-data") {
+        return Err("content-type must be multipart/form-data".to_string());
+    }
+
+    let boundary = parse_boundary(content_type)?;
+    let marker = format!("--{boundary}").into_bytes();
+    let separator = {
+        let mut value = b"\r\n".to_vec();
+        value.extend_from_slice(&marker);
+        value
+    };
+
+    let mut position = 0usize;
+    let mut file_bytes = None;
+
+    while let Some(marker_index) = find_subsequence(&body[position..], &marker) {
+        position += marker_index + marker.len();
+
+        if body
+            .get(position..position + 2)
+            .is_some_and(|suffix| suffix == b"--")
+        {
+            break;
+        }
+
+        if body
+            .get(position..position + 2)
+            .is_none_or(|suffix| suffix != b"\r\n")
+        {
+            return Err("invalid multipart body format".to_string());
+        }
+        position += 2;
+
+        let header_end_offset = find_subsequence(&body[position..], b"\r\n\r\n")
+            .ok_or_else(|| "invalid multipart body headers".to_string())?;
+        let header_end = position + header_end_offset;
+        let header_text = std::str::from_utf8(&body[position..header_end])
+            .map_err(|_| "invalid multipart header encoding".to_string())?;
+        position = header_end + 4;
+
+        let content_end_offset = find_subsequence(&body[position..], &separator)
+            .ok_or_else(|| "invalid multipart body content terminator".to_string())?;
+        let content_end = position + content_end_offset;
+        let content = body[position..content_end].to_vec();
+        position = content_end;
+
+        if !header_text.contains("name=\"file\"") {
+            continue;
+        }
+        if file_bytes.is_some() {
+            return Err("multipart field 'file' must appear only once".to_string());
+        }
+        if content.is_empty() {
+            return Err("uploaded file is empty".to_string());
+        }
+        file_bytes = Some(content);
+    }
+
+    let bytes = file_bytes.ok_or_else(|| "multipart field 'file' is required".to_string())?;
+    Ok(UploadedFile { bytes })
+}
+
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+fn parse_boundary(content_type: &str) -> Result<String, String> {
+    for piece in content_type.split(';').map(str::trim) {
+        if let Some(boundary) = piece.strip_prefix("boundary=") {
+            let boundary = boundary.trim_matches('"').to_string();
+            if boundary.is_empty() {
+                return Err("multipart boundary is empty".to_string());
+            }
+            return Ok(boundary);
+        }
+    }
+    Err("multipart boundary is missing".to_string())
+}
+
+fn stable_content_hash(bytes: &[u8]) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
 }
 
 async fn get_jobs(State(state): State<AppState>) -> Response {
@@ -709,6 +884,22 @@ fn build_job_submission_response(
     }
 }
 
+fn classify_upload_job_error(error: &str) -> StatusCode {
+    if error.starts_with("multipart field 'file' is required")
+        || error.starts_with("multipart field 'file' must appear only once")
+        || error.starts_with("uploaded file is empty")
+        || error.starts_with("input file not found:")
+        || error.starts_with("input path is not a file:")
+        || error.starts_with("failed to resolve input path ")
+    {
+        StatusCode::BAD_REQUEST
+    } else if error.starts_with("local ffmpeg toolchain not found.") {
+        StatusCode::SERVICE_UNAVAILABLE
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
+}
+
 fn classify_create_job_error(error: &str) -> StatusCode {
     if error.starts_with("input file not found:")
         || error.starts_with("input path is not a file:")
@@ -1128,6 +1319,102 @@ mod tests {
             .is_file()
         );
         assert_eq!(completed.outputs.split_mono_wavs.len(), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn post_jobs_upload_accepts_file_and_stores_content_hashed_path() {
+        let repo_root = temp_workspace();
+        let scripts_dir = repo_root.join("scripts");
+        let build_bin = repo_root
+            .join(".build/ffmpeg")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("install/bin");
+        let gate = repo_root.join("ffmpeg.gate");
+
+        fs::create_dir_all(&scripts_dir).expect("scripts dir");
+        fs::create_dir_all(&build_bin).expect("toolchain dir");
+        write_build_script(&build_script_path(&repo_root, "ffmpeg"));
+        write_fake_ffprobe(&fake_command_path(&build_bin, "ffprobe"), 1, Some("mono"));
+        write_blocking_ffmpeg(&fake_command_path(&build_bin, "ffmpeg"), &gate);
+        fs::write(&gate, "wait").expect("gate");
+
+        let app = router_with_repo_root(repo_root.clone());
+        let audio_bytes = b"upload-audio-bytes";
+        let response = app
+            .clone()
+            .oneshot(post_upload_request(
+                "/jobs/upload",
+                "sample.wav",
+                audio_bytes,
+            ))
+            .await
+            .expect("upload response");
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let submitted: JobSubmissionResponse = read_json(response).await;
+        assert!(!submitted.reused);
+        assert!(!submitted.deduplicated);
+        assert!(submitted.source_path.ends_with(".bin"));
+        assert!(Path::new(&submitted.source_path).is_file());
+        assert_eq!(
+            fs::read(&submitted.source_path).expect("uploaded path"),
+            audio_bytes
+        );
+
+        fs::remove_file(&gate).expect("remove gate");
+        let completed = wait_for_job_completion(&app, &submitted.job_id).await;
+        assert_eq!(completed.status, JobStatus::Completed);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn post_jobs_upload_reuses_completed_job_for_same_content() {
+        let repo_root = temp_workspace();
+        let scripts_dir = repo_root.join("scripts");
+        let build_bin = repo_root
+            .join(".build/ffmpeg")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("install/bin");
+
+        fs::create_dir_all(&scripts_dir).expect("scripts dir");
+        fs::create_dir_all(&build_bin).expect("toolchain dir");
+        write_build_script(&build_script_path(&repo_root, "ffmpeg"));
+        write_fake_ffprobe(&fake_command_path(&build_bin, "ffprobe"), 2, Some("stereo"));
+        write_fake_ffmpeg(&fake_command_path(&build_bin, "ffmpeg"));
+
+        let app = router_with_repo_root(repo_root.clone());
+        let audio_bytes = b"same-content";
+
+        let first_response = app
+            .clone()
+            .oneshot(post_upload_request(
+                "/jobs/upload",
+                "first.wav",
+                audio_bytes,
+            ))
+            .await
+            .expect("first upload response");
+        assert_eq!(first_response.status(), StatusCode::ACCEPTED);
+        let first: JobSubmissionResponse = read_json(first_response).await;
+        let completed = wait_for_job_completion(&app, &first.job_id).await;
+        assert_eq!(completed.status, JobStatus::Completed);
+
+        fs::remove_file(fake_command_path(&build_bin, "ffmpeg")).expect("remove ffmpeg");
+        fs::remove_file(fake_command_path(&build_bin, "ffprobe")).expect("remove ffprobe");
+
+        let second_response = app
+            .oneshot(post_upload_request(
+                "/jobs/upload",
+                "second.wav",
+                audio_bytes,
+            ))
+            .await
+            .expect("second upload response");
+
+        assert_eq!(second_response.status(), StatusCode::OK);
+        let second: JobSubmissionResponse = read_json(second_response).await;
+        assert_eq!(first.job_id, second.job_id);
+        assert!(second.reused);
+        assert!(!second.deduplicated);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1719,6 +2006,30 @@ mod tests {
             permissions.set_mode(0o755);
             fs::set_permissions(path, permissions).expect("permissions");
         }
+    }
+
+    fn post_upload_request(uri: &str, filename: &str, file_bytes: &[u8]) -> Request<Body> {
+        let boundary = "recordroute-boundary";
+        let mut body = Vec::new();
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(
+            format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
+                .as_bytes(),
+        );
+        body.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
+        body.extend_from_slice(file_bytes);
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+
+        Request::builder()
+            .method(Method::POST)
+            .uri(uri)
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(body))
+            .expect("upload request")
     }
 
     fn post_json_request(uri: &str, body: &serde_json::Value) -> Request<Body> {
