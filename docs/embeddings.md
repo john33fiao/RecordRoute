@@ -259,7 +259,62 @@ query embedding은 요청 시점에만 계산하고, v1에서는 별도 캐시�
 - embedding model resolve/download/prepare 실패 시 summary 기능은 유지되고, embedding/search 기능만 비활성화되는 방향을 기본 가정으로 둔다.
 - v1은 운영 단순성과 현재 저장소의 파일 기반 SoT 유지에 우선순위를 둔다.
 
-## 10. 구현 로드맵(권장 순서)
+## 10. 구현 상태 체크리스트 (코드베이스 기준, 2026-03-26)
+
+> 기준: 현재 `rust/src`와 `docs/openapi.yaml` 구현을 대조해 완료/미완료를 표기한다.
+> 상태 표기: `완료`, `부분 완료`, `미완료`
+
+### 10.1 v1 범위
+
+- `완료`: summary/result.md 단위 임베딩 생성
+- `완료`: summary 임베딩 산출물 저장과 재사용
+- `완료`: brute-force cosine similarity 기반 검색
+- `완료`: 신규 summary 자동 임베딩
+- `완료`: 기존 summary backfill 경로(`embed-summaries`) 제공
+
+### 10.2 모델 정책/준비
+
+- `부분 완료`: `RECORDROUTE_LLAMA_EMBEDDING_MODEL` 값 자체는 metadata 식별(`model_id`)에 반영됨
+- `미완료`: 임베딩 실행 모델이 summary 모델과 완전히 분리되어 동작하는 정책
+- `부분 완료`: llama toolchain에서 `llama-embedding` 실행 파일 탐색
+- `미완료`: `prepare-llama-model`/`/models/llama/prepare`가 summary+embedding umbrella prepare로 동작
+- `미완료`: embedding prepare 실패를 독립 상태(`embedding_error`)로 반영하고 summary와 분리 노출
+
+### 10.3 저장 구조/인덱스
+
+- `완료`: `db/<job_id>/summary/embedding.json` sidecar 저장
+- `완료`: `JobRecord.summary_embedding` metadata 저장
+- `완료`: `IndexFile.version` 3 반영 및 `summary_embedding` 기본값 호환 처리
+
+### 10.4 Task/상태 모델
+
+- `완료`: `TaskType.embedding` 추가
+- `완료`: summary 변경/모델 id 변경/sidecar 손상 감지 시 stale로 재생성
+- `완료`: running/reused/submitted 판정 로직 반영
+- `완료`: summary 성공 직후 embedding 연쇄 실행
+
+### 10.5 검색 설계
+
+- `완료`: 문서 1개(summary 1개) = 벡터 1개 단위
+- `완료`: query 즉시 임베딩 후 corpus 전체 brute-force 스코어링
+- `완료`: score 내림차순 정렬
+- `완료`: `limit` 기본 10, 최대 50 적용
+- `완료`: `min_score` 선택 필터 적용
+- `완료`: 결과 필드(`job_id`, `score`, `source_file_name`, `summary_file_name`, `summary_excerpt`) 반환
+
+### 10.6 인터페이스(HTTP/CLI/OpenAPI)
+
+- `완료`: `POST/GET /jobs/{job_id}/summary/embedding` 구현
+- `완료`: `POST /summary/search` 구현
+- `완료`: `embed-summaries`, `search-summaries "<query>"` CLI 구현
+- `부분 완료`: `/models/status`, `/system/status`에 embedding 관련 필드 노출
+- `미완료`: OpenAPI에 임베딩/검색 신규 경로 반영(현재 schema 일부만 반영됨)
+
+### 10.7 이번 작업 범위(문서 전용)와의 정합성
+
+- `미완료`: 본 문서의 “이번 작업에는 Rust/OpenAPI 변경이 없다”는 설명은 현재 저장소 상태와 불일치
+
+## 11. 구현 로드맵(권장 순서)
 
 아래 순서는 후속 구현자가 리스크를 낮추면서 단계적으로 합칠 수 있도록 정리한 권장안이다.
 
@@ -312,7 +367,7 @@ Phase 4 DoD:
 - backfill이 missing summary를 건너뛰고, stale만 재생성한다.
 - query 임베딩 실패/모델 미준비 시 명확한 오류 또는 not ready 응답을 반환한다.
 
-## 11. 테스트 전략(구현 단계 체크리스트)
+## 12. 테스트 전략(구현 단계 체크리스트)
 
 단위 테스트(우선):
 
@@ -334,7 +389,7 @@ Phase 4 DoD:
 - embedding 모델 준비 실패 시 summary 파이프라인이 계속 동작하는지 확인
 - 기존 v2 index 데이터에서 backfill 정상 동작 확인
 
-## 12. 롤백/장애 대응 기준
+## 13. 롤백/장애 대응 기준
 
 - 기능 플래그 관점:
   - embedding 준비 실패 시 검색 기능만 비활성화하고 summary는 유지
@@ -345,7 +400,7 @@ Phase 4 DoD:
 - 릴리스 관점:
   - Phase 단위로 분리 배포하여 장애 발생 시 직전 Phase로 되돌릴 수 있도록 구성
 
-## 13. 오픈 이슈(구현 전 확정 필요)
+## 14. 오픈 이슈(구현 전 확정 필요)
 
 - `llama-embedding` 실행 파라미터 표준화(차원/정규화 옵션 고정 여부)
 - `summary_excerpt` 생성 규칙(길이, 마크다운 제거 여부, 멀티바이트 안전 자르기)
