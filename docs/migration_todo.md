@@ -199,7 +199,7 @@ modules/
 - [x] `cargo test --manifest-path rust/Cargo.toml` 실행
 - [ ] 최소 1회 `ffmpeg -> stt -> summary` 흐름을 실제 또는 fixture 기반으로 점검
 - [x] `prepare-llama-model` 실행 검증
-- [ ] HTTP API의 모델 준비 엔드포인트 동작 검증
+- [x] HTTP API의 모델 준비 엔드포인트 동작 검증
   - `POST /models/whisper/prepare`
   - `POST /models/llama/prepare`
 

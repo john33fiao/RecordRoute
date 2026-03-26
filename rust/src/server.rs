@@ -1888,7 +1888,6 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    #[tokio::test(flavor = "multi_thread")]
     async fn post_prepare_llama_runs_background_download_and_updates_model_status() {
         let _guard = env_lock()
             .lock()
@@ -1934,6 +1933,7 @@ mod tests {
         assert!(log.contains("-hf"));
         assert!(log.contains("LLAMA_CACHE="));
     }
+    #[tokio::test(flavor = "multi_thread")]
     async fn post_prepare_llama_deduplicates_running_preparation() {
         let repo_root = temp_workspace();
         let llama_bin = repo_root
@@ -2262,13 +2262,14 @@ mod tests {
     fn write_fake_llama_download_command(path: &Path, log_path: &Path) {
         let log = log_path.display();
         let unix_script = format!(
-            "#!/bin/sh\n: > '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\ndone\nprintf 'LLAMA_CACHE=%s\\n' \"${LLAMA_CACHE:-}\" >> '{log}'\nmkdir -p \"$LLAMA_CACHE\"\nprintf 'synthetic model' > \"$LLAMA_CACHE/downloaded-model.gguf\"\n"
+            "#!/bin/sh\n: > '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\ndone\nprintf 'LLAMA_CACHE=%s\\n' \"${{LLAMA_CACHE:-}}\" >> '{log}'\nmkdir -p \"$LLAMA_CACHE\"\nprintf 'synthetic model' > \"$LLAMA_CACHE/downloaded-model.gguf\"\n"
         );
         let windows_script = format!(
             "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\n> \"{log}\" type nul\n:loop\nif \"%~1\"==\"\" goto after\n>> \"{log}\" echo %~1\nshift\ngoto loop\n:after\n>> \"{log}\" echo LLAMA_CACHE=!LLAMA_CACHE!\nif not exist \"!LLAMA_CACHE!\" mkdir \"!LLAMA_CACHE!\"\n> \"!LLAMA_CACHE!\\downloaded-model.gguf\" <nul set /p =synthetic model\nexit /b 0\n"
         );
         write_platform_script(path, &unix_script, &windows_script);
     }
+
     fn write_fake_ffprobe(path: &Path, channels: u32, channel_layout: Option<&str>) {
         let json = match channel_layout {
             Some(layout) => format!(
