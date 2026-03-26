@@ -351,6 +351,7 @@ fn managed_repo_root(toolchain: &Toolchain) -> Option<PathBuf> {
         .parent()?
         .parent()?
         .parent()
+        .and_then(Path::parent)
         .map(Path::to_path_buf)
 }
 

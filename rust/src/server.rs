@@ -1888,6 +1888,52 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn post_prepare_llama_runs_background_download_and_updates_model_status() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe { std::env::remove_var(crate::llama::MODEL_ENV_VAR) };
+
+        let repo_root = temp_workspace();
+        let llama_bin = repo_root
+            .join(".build/llama")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("bin");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        fs::create_dir_all(&llama_bin).expect("llama bin");
+
+        write_build_script(&build_script_path(&repo_root, "llama"));
+        write_fake_llama_download_command(
+            &fake_command_path(&llama_bin, "llama-cli"),
+            &repo_root.join("llama-download.log"),
+        );
+
+        let app = router_with_repo_root(repo_root.clone());
+        let response = app
+            .clone()
+            .oneshot(post_empty_request("/models/llama/prepare"))
+            .await
+            .expect("prepare response");
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let body: ModelPrepareResponse = read_json(response).await;
+        assert_eq!(body.model, ModelKind::Llama);
+        assert!(!body.ready);
+        assert!(!body.already_ready);
+        assert!(!body.deduplicated);
+        assert_eq!(body.preparation.status, ModelPreparationStatus::Running);
+
+        let status = wait_for_model_preparation_state(&app, ModelKind::Llama).await;
+        assert!(status.available);
+        assert!(status.ready);
+        assert_eq!(status.preparation.status, ModelPreparationStatus::Completed);
+
+        let log =
+            fs::read_to_string(repo_root.join("llama-download.log")).expect("llama download log");
+        assert!(log.contains("-hf"));
+        assert!(log.contains("LLAMA_CACHE="));
+    }
     async fn post_prepare_llama_deduplicates_running_preparation() {
         let repo_root = temp_workspace();
         let llama_bin = repo_root
@@ -2213,6 +2259,16 @@ mod tests {
         write_platform_script(path, "#!/bin/sh\nexit 0\n", "@echo off\nexit /b 0\n");
     }
 
+    fn write_fake_llama_download_command(path: &Path, log_path: &Path) {
+        let log = log_path.display();
+        let unix_script = format!(
+            "#!/bin/sh\n: > '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\ndone\nprintf 'LLAMA_CACHE=%s\\n' \"${LLAMA_CACHE:-}\" >> '{log}'\nmkdir -p \"$LLAMA_CACHE\"\nprintf 'synthetic model' > \"$LLAMA_CACHE/downloaded-model.gguf\"\n"
+        );
+        let windows_script = format!(
+            "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\n> \"{log}\" type nul\n:loop\nif \"%~1\"==\"\" goto after\n>> \"{log}\" echo %~1\nshift\ngoto loop\n:after\n>> \"{log}\" echo LLAMA_CACHE=!LLAMA_CACHE!\nif not exist \"!LLAMA_CACHE!\" mkdir \"!LLAMA_CACHE!\"\n> \"!LLAMA_CACHE!\\downloaded-model.gguf\" <nul set /p =synthetic model\nexit /b 0\n"
+        );
+        write_platform_script(path, &unix_script, &windows_script);
+    }
     fn write_fake_ffprobe(path: &Path, channels: u32, channel_layout: Option<&str>) {
         let json = match channel_layout {
             Some(layout) => format!(
