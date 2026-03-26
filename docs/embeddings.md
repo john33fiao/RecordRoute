@@ -61,18 +61,22 @@ v1 범위:
 
 ### 3.1 모델 정책
 
-기본 정책은 summary model과 embedding model을 분리하는 것이다.
+기본 정책은 summary model과 embedding model을 분리하되, embedding model에는 저장소 기본값을 둔다는 것이다.
 
 - 기존 summary model은 `RECORDROUTE_LLAMA_MODEL`을 계속 사용한다.
-- 새 embedding model은 `RECORDROUTE_LLAMA_EMBEDDING_MODEL`을 사용한다.
-- 값 해석 규칙은 기존 llama model과 동일하다.
+- 새 embedding model override는 `RECORDROUTE_LLAMA_EMBEDDING_MODEL`을 사용한다.
+- `RECORDROUTE_LLAMA_EMBEDDING_MODEL`이 비어 있으면 기본값은 `Qwen/Qwen3-Embedding-4B`로 간주한다.
+- llama.cpp 실행 경로에서 GGUF artifact가 필요하면 `Qwen/Qwen3-Embedding-4B-GGUF`에서 가져다 쓴다.
+- 특별한 이유가 없다면 기본 GGUF 선택은 `Q4_K_M.gguf`로 둔다.
+- 값 해석 규칙은 기존 llama model과 유사하게 유지한다.
   - 파일 경로면 로컬 모델 파일로 사용
   - 파일이 아니면 Hugging Face repo 문자열로 해석
 
 운영 가정:
 
-- embedding model이 설정되지 않아도 summary 기능은 계속 동작한다.
-- embedding/search 기능만 비활성화하거나 `not configured` 상태로 노출한다.
+- `RECORDROUTE_LLAMA_EMBEDDING_MODEL`이 없어도 embedding 기능은 기본값 정책으로 동작한다.
+- embedding model resolve/download/prepare에 실패해도 summary 기능은 계속 동작한다.
+- 이 경우 embedding/search 기능만 비활성화하거나 `not ready` 상태로 노출한다.
 
 ### 3.2 llama 준비 흐름 확장
 
@@ -81,8 +85,8 @@ v1 범위:
 계획 방향:
 
 - summary model 준비 로직은 기존 동작을 유지한다.
-- embedding model이 설정된 경우 같은 prepare 경로에서 함께 준비한다.
-- embedding model이 미설정인 경우 prepare 전체가 실패하지는 않으며, embedding 관련 상태만 비활성화한다.
+- embedding model override가 있으면 그 값을, 없으면 기본값 `Qwen/Qwen3-Embedding-4B`를 기준으로 같은 prepare 경로에서 함께 준비한다.
+- embedding model resolve/download/prepare가 실패한 경우 prepare 전체가 실패하지는 않으며, embedding 관련 상태만 비활성화한다.
 - build 스크립트는 `llama-cli`뿐 아니라 `llama-embedding`도 산출하도록 확장한다.
 - Rust 쪽 toolchain discovery도 summary용 실행 파일과 embedding용 실행 파일을 함께 찾도록 바꾼다.
 
@@ -125,7 +129,7 @@ v1 범위:
 stale 판단 기준:
 
 - `summary/result.md` 내용이 바뀐 경우
-- `RECORDROUTE_LLAMA_EMBEDDING_MODEL` 값이 바뀐 경우
+- effective embedding model id 또는 GGUF 선택값이 바뀐 경우
 - `embedding.json` 파일이 없거나 손상된 경우
 
 ## 4. 검색 설계
@@ -211,7 +215,7 @@ query embedding은 요청 시점에만 계산하고, v1에서는 별도 캐시�
 - `embed-summaries` CLI 또는 동등한 app 레이어 경로로 기존 completed job 전체를 순회
 - `summary/result.md`가 있고 embedding metadata가 없거나 stale이면 재생성
 - summary 파일이 없으면 건너뜀
-- embedding model 미설정이면 backfill/search는 비활성화하고, summary 기능은 영향 없이 유지
+- embedding model resolve/download/prepare에 실패하면 backfill/search는 비활성화하고, summary 기능은 영향 없이 유지
 
 운영 상 고려할 점:
 
@@ -229,7 +233,7 @@ query embedding은 요청 시점에만 계산하고, v1에서는 별도 캐시�
 - summary 재생성 시 stale embedding이 무효화된다.
 - normalized vectors 기준 cosine score 정렬이 맞다.
 - `limit`, `min_score`, empty corpus, missing artifact 처리가 의도대로 동작한다.
-- embedding model env 유무에 따라 prepare/status/search 동작이 올바르게 갈린다.
+- embedding model env override 유무와 resolve/download/prepare 실패 여부에 따라 prepare/status/search 동작이 올바르게 갈린다.
 - per-job embedding submit/get, global search, backfill command가 같은 app 레이어 로직을 사용한다.
 
 문서 완료 기준:
@@ -251,5 +255,6 @@ query embedding은 요청 시점에만 계산하고, v1에서는 별도 캐시�
 
 - 현재 저장소에는 `docs/API_Doc.md`가 없으므로, 이 문서는 `docs/architecture.md`와 `docs/openapi.yaml`을 기준으로 작성한다.
 - separate embedding model 정책을 기본안으로 채택한다.
-- embedding model 미설정 시 summary 기능은 유지되고, embedding/search 기능만 비활성화되는 backward-compatible opt-in 방향을 기본 가정으로 둔다.
+- embedding model env가 없으면 기본값 `Qwen/Qwen3-Embedding-4B`를 사용하고, GGUF가 필요하면 `Qwen/Qwen3-Embedding-4B-GGUF`의 `Q4_K_M.gguf`를 우선 사용한다.
+- embedding model resolve/download/prepare 실패 시 summary 기능은 유지되고, embedding/search 기능만 비활성화되는 방향을 기본 가정으로 둔다.
 - v1은 운영 단순성과 현재 저장소의 파일 기반 SoT 유지에 우선순위를 둔다.
