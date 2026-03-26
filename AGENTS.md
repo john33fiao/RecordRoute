@@ -68,6 +68,8 @@
   - `/jobs/{job_id}/files`, `/jobs/{job_id}/files/{*file_name}`
 
 ## 8) 에이전트 문서 규칙
+- 코드 또는 문서 수정을 시작하기 전에는 `.agents/skills/rtd-before/SKILL.md`를 먼저 수행해 범위, DoD, 테스트 전략, 롤백 계획을 점검합니다.
+- 코드 또는 문서 수정이 끝난 후에는 `.agents/skills/rtd-after/SKILL.md`를 수행해 목적 적합성, 회귀, 검증 근거, READY 여부를 점검합니다.
 - 에이전트 전용 추가 문서는 이 파일을 기준 문서로 참조합니다.
 - `CLAUDE.md`, `GEMINI.md`에는 중복 설명을 최소화하고 본 문서 링크/요약만 둡니다.
 - 공통 정책 변경은 우선 `AGENTS.md`에 반영 후, 다른 에이전트 문서는 참조 링크만 갱신하세요.
