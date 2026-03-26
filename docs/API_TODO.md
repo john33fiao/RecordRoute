@@ -126,7 +126,11 @@
    - 대용량 파일 스트리밍/Range 지원
    - 로컬 앱 연동 UX(복사/열람) 최적화
 
-4. 상태 모델 고도화
+4. Whisper 진행률 조회 API
+   - `GET /jobs/{job_id}/stt/progress`
+   - 비고: 우선 whisper 현재 진행률을 polling 가능한 형태로 응답
+
+5. 상태 모델 고도화
    - task progress/phase 필드
    - 워커 큐 기반 비동기 실행 모델 확장 검토
 
@@ -151,6 +155,7 @@
 - [ ] 모델 준비 HTTP API
 - [ ] 완료 job / source_path 기반 전용 조회 API
 - [ ] 대용량 파일 전달 최적화(스트리밍/Range)
+- [ ] whisper 진행률 조회 API (`GET /jobs/{job_id}/stt/progress`)
 - [ ] task progress/phase 모델 확장
 
 ---
