@@ -478,6 +478,31 @@ impl IndexStore {
         self.with_locked_index_read(|index| Ok(index.jobs.iter().rev().cloned().collect()))
     }
 
+    pub fn list_completed_jobs(&self) -> Result<Vec<JobRecord>, String> {
+        self.with_locked_index_read(|index| {
+            Ok(index
+                .jobs
+                .iter()
+                .filter(|job| job.status == JobStatus::Completed)
+                .rev()
+                .cloned()
+                .collect())
+        })
+    }
+
+    pub fn list_jobs_by_source_path(&self, source_path: &Path) -> Result<Vec<JobRecord>, String> {
+        let source_path = source_path.to_string_lossy().into_owned();
+        self.with_locked_index_read(|index| {
+            Ok(index
+                .jobs
+                .iter()
+                .filter(|job| job.source_path == source_path)
+                .rev()
+                .cloned()
+                .collect())
+        })
+    }
+
     pub fn model_preparations(&self) -> Result<ModelPreparations, String> {
         self.with_locked_index_read(|index| Ok(index.model_preparations.clone()))
     }
@@ -801,6 +826,89 @@ mod tests {
         assert_eq!(jobs.len(), 2);
         assert_eq!(jobs[0].job_id, "job-2");
         assert_eq!(jobs[1].job_id, "job-1");
+    }
+
+    #[test]
+    fn lists_only_completed_jobs_with_latest_first() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+
+        let mut completed_old = JobRecord::new(
+            "job-1".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/input.wav"),
+            store.job_dir("job-1"),
+        );
+        completed_old.mark_completed("2026-01-01T00:00:01Z".to_string(), JobOutputs::default());
+        store
+            .insert_job(completed_old)
+            .expect("insert completed old");
+
+        store
+            .insert_job(JobRecord::new(
+                "job-2".to_string(),
+                "2026-01-01T00:00:02Z".to_string(),
+                PathBuf::from("/tmp/input.wav"),
+                store.job_dir("job-2"),
+            ))
+            .expect("insert running");
+
+        let mut completed_new = JobRecord::new(
+            "job-3".to_string(),
+            "2026-01-01T00:00:03Z".to_string(),
+            PathBuf::from("/tmp/input.wav"),
+            store.job_dir("job-3"),
+        );
+        completed_new.mark_completed("2026-01-01T00:00:04Z".to_string(), JobOutputs::default());
+        store
+            .insert_job(completed_new)
+            .expect("insert completed new");
+
+        let jobs = store.list_completed_jobs().expect("list completed jobs");
+
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[0].job_id, "job-3");
+        assert_eq!(jobs[1].job_id, "job-1");
+    }
+
+    #[test]
+    fn lists_jobs_by_source_path_with_latest_first() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let target = PathBuf::from("/tmp/target.wav");
+
+        store
+            .insert_job(JobRecord::new(
+                "job-1".to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+                PathBuf::from("/tmp/other.wav"),
+                store.job_dir("job-1"),
+            ))
+            .expect("insert other");
+        store
+            .insert_job(JobRecord::new(
+                "job-2".to_string(),
+                "2026-01-01T00:00:01Z".to_string(),
+                target.clone(),
+                store.job_dir("job-2"),
+            ))
+            .expect("insert target first");
+        store
+            .insert_job(JobRecord::new(
+                "job-3".to_string(),
+                "2026-01-01T00:00:02Z".to_string(),
+                target.clone(),
+                store.job_dir("job-3"),
+            ))
+            .expect("insert target second");
+
+        let jobs = store
+            .list_jobs_by_source_path(&target)
+            .expect("list jobs by source");
+
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[0].job_id, "job-3");
+        assert_eq!(jobs[1].job_id, "job-2");
     }
 
     #[test]
