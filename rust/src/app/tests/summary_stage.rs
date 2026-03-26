@@ -97,8 +97,8 @@ fn run_summary_processes_transcript_files_in_selected_job_dir() {
     assert!(prompt.contains("[channel_02.txt]"));
     assert!(prompt.contains("[mono_mix.txt]"));
     assert!(prompt.contains("Markdown"));
-    assert!(prompt.contains("##"));
-    assert!(prompt.contains("후속 조치"));
+    assert!(prompt.contains("## 요약"));
+    assert!(prompt.contains("통화, 회의, 음성 메모"));
     assert!(prompt.contains("화자 A가 일정과 비용을 설명했다."));
 
     let llama_log = fs::read_to_string(llama_log).expect("llama log");
