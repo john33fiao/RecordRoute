@@ -478,6 +478,30 @@ impl IndexStore {
         self.with_locked_index_read(|index| Ok(index.jobs.iter().rev().cloned().collect()))
     }
 
+    pub fn list_completed_jobs(&self) -> Result<Vec<JobRecord>, String> {
+        self.with_locked_index_read(|index| {
+            Ok(index
+                .jobs
+                .iter()
+                .rev()
+                .filter(|job| job.status == JobStatus::Completed)
+                .cloned()
+                .collect())
+        })
+    }
+
+    pub fn list_jobs_by_source_path(&self, source_path: &str) -> Result<Vec<JobRecord>, String> {
+        self.with_locked_index_read(|index| {
+            Ok(index
+                .jobs
+                .iter()
+                .rev()
+                .filter(|job| job.source_path == source_path)
+                .cloned()
+                .collect())
+        })
+    }
+
     pub fn model_preparations(&self) -> Result<ModelPreparations, String> {
         self.with_locked_index_read(|index| Ok(index.model_preparations.clone()))
     }

@@ -10,6 +10,7 @@ use crate::index::{
 use crate::llama::{ModelSource as LlamaModelSource, Toolchain as LlamaToolchain};
 use crate::whisper::Toolchain as WhisperToolchain;
 use axum::extract::Path as AxumPath;
+use axum::extract::Query;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use axum::http::{HeaderMap, StatusCode};
@@ -46,6 +47,11 @@ pub struct ErrorResponse {
 #[derive(Debug, Clone, Deserialize)]
 struct CreateJobRequest {
     input_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct JobsBySourceQuery {
+    source_path: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -182,6 +188,8 @@ pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
         .route("/models/whisper/prepare", post(post_prepare_whisper_model))
         .route("/models/llama/prepare", post(post_prepare_llama_model))
         .route("/jobs", post(post_jobs).get(get_jobs))
+        .route("/jobs/completed", get(get_completed_jobs))
+        .route("/jobs/by-source", get(get_jobs_by_source))
         .route("/jobs/upload", post(post_jobs_upload))
         .route("/jobs/{job_id}", get(get_job))
         .route("/jobs/{job_id}/status", get(get_job_status))
@@ -511,6 +519,35 @@ fn stable_content_hash(bytes: &[u8]) -> String {
 async fn get_jobs(State(state): State<AppState>) -> Response {
     let repo_root = state.repo_root.clone();
     match run_blocking(move || IndexStore::new(&repo_root).list_jobs()).await {
+        Ok(jobs) => Json(JobListResponse { jobs }).into_response(),
+        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+    }
+}
+
+async fn get_completed_jobs(State(state): State<AppState>) -> Response {
+    let repo_root = state.repo_root.clone();
+    match run_blocking(move || IndexStore::new(&repo_root).list_completed_jobs()).await {
+        Ok(jobs) => Json(JobListResponse { jobs }).into_response(),
+        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+    }
+}
+
+async fn get_jobs_by_source(
+    State(state): State<AppState>,
+    query: Result<Query<JobsBySourceQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    let source_path = match query {
+        Ok(Query(query)) => query.source_path,
+        Err(_) => return error_response(StatusCode::BAD_REQUEST, "source_path query is required"),
+    };
+    if source_path.trim().is_empty() {
+        return error_response(StatusCode::BAD_REQUEST, "source_path query is required");
+    }
+
+    let repo_root = state.repo_root.clone();
+    match run_blocking(move || IndexStore::new(&repo_root).list_jobs_by_source_path(&source_path))
+        .await
+    {
         Ok(jobs) => Json(JobListResponse { jobs }).into_response(),
         Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
     }
@@ -1660,6 +1697,106 @@ mod tests {
         assert_eq!(body.jobs.len(), 2);
         assert_eq!(body.jobs[0].job_id, "job-2");
         assert_eq!(body.jobs[1].job_id, "job-1");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_jobs_completed_returns_only_completed_jobs() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+
+        let mut completed_job = JobRecord::new(
+            "job-completed".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/completed.wav"),
+            store.job_dir("job-completed"),
+        );
+        completed_job.mark_completed(
+            "2026-01-01T00:00:01Z".to_string(),
+            JobOutputs {
+                merged_mono_wav: Some("/tmp/completed_mono.wav".to_string()),
+                split_mono_wavs: Vec::new(),
+            },
+        );
+        store
+            .insert_job(completed_job)
+            .expect("insert completed job");
+        store
+            .insert_job(JobRecord::new(
+                "job-running".to_string(),
+                "2026-01-01T00:00:02Z".to_string(),
+                PathBuf::from("/tmp/running.wav"),
+                store.job_dir("job-running"),
+            ))
+            .expect("insert running job");
+
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .oneshot(get_request("/jobs/completed"))
+            .await
+            .expect("get completed jobs response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: JobListResponse = read_json(response).await;
+        assert_eq!(body.jobs.len(), 1);
+        assert_eq!(body.jobs[0].job_id, "job-completed");
+        assert_eq!(body.jobs[0].status, JobStatus::Completed);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_jobs_by_source_filters_jobs() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+
+        store
+            .insert_job(JobRecord::new(
+                "job-target-1".to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+                PathBuf::from("/tmp/target.wav"),
+                store.job_dir("job-target-1"),
+            ))
+            .expect("insert target job 1");
+        store
+            .insert_job(JobRecord::new(
+                "job-other".to_string(),
+                "2026-01-01T00:00:01Z".to_string(),
+                PathBuf::from("/tmp/other.wav"),
+                store.job_dir("job-other"),
+            ))
+            .expect("insert other job");
+        store
+            .insert_job(JobRecord::new(
+                "job-target-2".to_string(),
+                "2026-01-01T00:00:02Z".to_string(),
+                PathBuf::from("/tmp/target.wav"),
+                store.job_dir("job-target-2"),
+            ))
+            .expect("insert target job 2");
+
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .oneshot(get_request("/jobs/by-source?source_path=/tmp/target.wav"))
+            .await
+            .expect("get jobs by source response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: JobListResponse = read_json(response).await;
+        assert_eq!(body.jobs.len(), 2);
+        assert_eq!(body.jobs[0].job_id, "job-target-2");
+        assert_eq!(body.jobs[1].job_id, "job-target-1");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_jobs_by_source_requires_source_path_query() {
+        let repo_root = temp_workspace();
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .oneshot(get_request("/jobs/by-source"))
+            .await
+            .expect("get jobs by source without query response");
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body: ErrorResponse = read_json(response).await;
+        assert_eq!(body.message, "source_path query is required");
     }
 
     #[tokio::test(flavor = "multi_thread")]

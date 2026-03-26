@@ -22,6 +22,8 @@
 - `POST /models/llama/prepare`
 - `POST /jobs`
 - `GET /jobs`
+- `GET /jobs/completed`
+- `GET /jobs/by-source?source_path=...`
 - `POST /jobs/upload`
 - `GET /jobs/{job_id}`
 - `GET /jobs/{job_id}/status`
@@ -123,19 +125,15 @@
 
 ### P2 (조회 편의 / 확장)
 
-1. 조회 편의 API
-   - `GET /jobs/completed`
-   - `GET /jobs/by-source?source_path=...`
-
-2. 파일 제공 전략 고도화
+1. 파일 제공 전략 고도화
    - 대용량 파일 스트리밍/Range 지원
    - 로컬 앱 연동 UX(복사/열람) 최적화
 
-3. Whisper 진행률 조회 API
+2. Whisper 진행률 조회 API
    - `GET /jobs/{job_id}/stt/progress`
    - 비고: 우선 whisper 현재 진행률을 polling 가능한 형태로 응답
 
-4. 상태 모델 고도화
+3. 상태 모델 고도화
    - task progress/phase 필드
    - 워커 큐 기반 비동기 실행 모델 확장 검토
 
@@ -158,7 +156,7 @@
 
 ### 미완료
 
-- [ ] 완료 job / source_path 기반 전용 조회 API
+- [x] 완료 job / source_path 기반 전용 조회 API
 - [ ] 대용량 파일 전달 최적화(스트리밍/Range)
 - [ ] whisper 진행률 조회 API (`GET /jobs/{job_id}/stt/progress`)
 - [ ] task progress/phase 모델 확장
@@ -173,4 +171,3 @@
 - 모델 준비는 HTTP API, CLI(`prepare-llama-model`), STT/Summary 런타임 자동 준비가 동일한 preparation 상태/heartbeat/deduplicate 규칙을 공유한다.
 - API 추가 시 `IndexStore`를 단일 상태 SoT로 유지하고 reuse/deduplicate 규칙을 우선 검증한다.
 - 업로드 입력은 해시 기반 저장 경로를 사용하므로 path 기반 재사용 규칙과 구분해 관리한다.
-

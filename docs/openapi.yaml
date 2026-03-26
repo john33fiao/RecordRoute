@@ -255,6 +255,57 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /jobs/completed:
+    get:
+      tags: [jobs]
+      summary: List completed jobs
+      operationId: getCompletedJobs
+      responses:
+        '200':
+          description: Completed job list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobListResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs/by-source:
+    get:
+      tags: [jobs]
+      summary: List jobs by source path
+      operationId: getJobsBySource
+      parameters:
+        - in: query
+          name: source_path
+          required: true
+          schema:
+            type: string
+          description: Exact source path used when creating the ffmpeg job
+      responses:
+        '200':
+          description: Filtered job list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobListResponse'
+        '400':
+          description: Missing source_path query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /jobs/{job_id}:
     get:
       tags: [jobs]
@@ -975,4 +1026,3 @@ components:
     SplitStrategy:
       type: string
       enum: [per_channel_plus_merged_mono]
-
