@@ -1,3 +1,10 @@
+#[path = "server/errors.rs"]
+mod errors;
+#[path = "server/files.rs"]
+mod files;
+#[path = "server/upload.rs"]
+mod upload;
+
 use crate::app::{
     self, execute_ffmpeg_job, execute_stt_job, execute_summary_job, submit_ffmpeg_job,
     submit_stt_job, submit_summary_job,
@@ -21,7 +28,6 @@ use axum::{
     body::{Body, Bytes},
 };
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::PathBuf;
 
 const SERVER_BIND: &str = "127.0.0.1:38080";
@@ -283,11 +289,12 @@ async fn post_prepare_llama_model(State(state): State<AppState>) -> Response {
 
 async fn post_prepare_model(state: AppState, model: ModelKind) -> Response {
     let repo_root = state.repo_root.clone();
-    let submission =
-        match run_blocking(move || app::submit_model_preparation(&repo_root, model)).await {
-            Ok(submission) => submission,
-            Err(error) => return error_response(classify_model_prepare_error(&error), error),
-        };
+    let submission = match run_blocking(move || app::submit_model_preparation(&repo_root, model))
+        .await
+    {
+        Ok(submission) => submission,
+        Err(error) => return error_response(errors::classify_model_prepare_error(&error), error),
+    };
 
     if submission.should_execute() {
         let repo_root = state.repo_root.clone();
@@ -326,7 +333,7 @@ async fn post_jobs(
     let submission = match run_blocking(move || submit_ffmpeg_job(&repo_root, &input_path)).await {
         Ok(submission) => submission,
         Err(error) => {
-            let status = classify_create_job_error(&error);
+            let status = errors::classify_create_job_error(&error);
             return error_response(status, error);
         }
     };
@@ -361,22 +368,23 @@ async fn post_jobs_upload(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let upload = match parse_uploaded_file(&headers, &body) {
+    let upload = match upload::parse_uploaded_file(&headers, &body) {
         Ok(upload) => upload,
         Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
     };
 
     let repo_root = state.repo_root.clone();
-    let submission =
-        match run_blocking(move || persist_uploaded_file_and_submit(&repo_root, &upload.bytes))
-            .await
-        {
-            Ok(submission) => submission,
-            Err(error) => {
-                let status = classify_upload_job_error(&error);
-                return error_response(status, error);
-            }
-        };
+    let submission = match run_blocking(move || {
+        upload::persist_uploaded_file_and_submit(&repo_root, &upload.bytes)
+    })
+    .await
+    {
+        Ok(submission) => submission,
+        Err(error) => {
+            let status = errors::classify_upload_job_error(&error);
+            return error_response(status, error);
+        }
+    };
 
     if submission.should_execute() {
         let repo_root = state.repo_root.clone();
@@ -401,130 +409,6 @@ async fn post_jobs_upload(
     );
 
     (status, Json(response)).into_response()
-}
-
-fn persist_uploaded_file_and_submit(
-    repo_root: &std::path::Path,
-    bytes: &[u8],
-) -> Result<app::FfmpegJobSubmission, String> {
-    let uploads_dir = repo_root.join("db").join("uploads");
-    fs::create_dir_all(&uploads_dir).map_err(|error| {
-        format!(
-            "failed to create upload directory {}: {error}",
-            uploads_dir.display()
-        )
-    })?;
-
-    let file_hash = stable_content_hash(bytes);
-    let upload_path = uploads_dir.join(format!("{file_hash}.bin"));
-    if !upload_path.is_file() {
-        fs::write(&upload_path, bytes)
-            .map_err(|error| format!("failed to persist uploaded file: {error}"))?;
-    }
-
-    submit_ffmpeg_job(repo_root, &upload_path)
-}
-
-struct UploadedFile {
-    bytes: Vec<u8>,
-}
-
-fn parse_uploaded_file(headers: &HeaderMap, body: &[u8]) -> Result<UploadedFile, String> {
-    let content_type = headers
-        .get("content-type")
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| "missing content-type header".to_string())?;
-    if !content_type.starts_with("multipart/form-data") {
-        return Err("content-type must be multipart/form-data".to_string());
-    }
-
-    let boundary = parse_boundary(content_type)?;
-    let marker = format!("--{boundary}").into_bytes();
-    let separator = {
-        let mut value = b"\r\n".to_vec();
-        value.extend_from_slice(&marker);
-        value
-    };
-
-    let mut position = 0usize;
-    let mut file_bytes = None;
-
-    while let Some(marker_index) = find_subsequence(&body[position..], &marker) {
-        position += marker_index + marker.len();
-
-        if body
-            .get(position..position + 2)
-            .is_some_and(|suffix| suffix == b"--")
-        {
-            break;
-        }
-
-        if body
-            .get(position..position + 2)
-            .is_none_or(|suffix| suffix != b"\r\n")
-        {
-            return Err("invalid multipart body format".to_string());
-        }
-        position += 2;
-
-        let header_end_offset = find_subsequence(&body[position..], b"\r\n\r\n")
-            .ok_or_else(|| "invalid multipart body headers".to_string())?;
-        let header_end = position + header_end_offset;
-        let header_text = std::str::from_utf8(&body[position..header_end])
-            .map_err(|_| "invalid multipart header encoding".to_string())?;
-        position = header_end + 4;
-
-        let content_end_offset = find_subsequence(&body[position..], &separator)
-            .ok_or_else(|| "invalid multipart body content terminator".to_string())?;
-        let content_end = position + content_end_offset;
-        let content = body[position..content_end].to_vec();
-        position = content_end;
-
-        if !header_text.contains("name=\"file\"") {
-            continue;
-        }
-        if file_bytes.is_some() {
-            return Err("multipart field 'file' must appear only once".to_string());
-        }
-        if content.is_empty() {
-            return Err("uploaded file is empty".to_string());
-        }
-        file_bytes = Some(content);
-    }
-
-    let bytes = file_bytes.ok_or_else(|| "multipart field 'file' is required".to_string())?;
-    Ok(UploadedFile { bytes })
-}
-
-fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() || haystack.len() < needle.len() {
-        return None;
-    }
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
-}
-
-fn parse_boundary(content_type: &str) -> Result<String, String> {
-    for piece in content_type.split(';').map(str::trim) {
-        if let Some(boundary) = piece.strip_prefix("boundary=") {
-            let boundary = boundary.trim_matches('"').to_string();
-            if boundary.is_empty() {
-                return Err("multipart boundary is empty".to_string());
-            }
-            return Ok(boundary);
-        }
-    }
-    Err("multipart boundary is missing".to_string())
-}
-
-fn stable_content_hash(bytes: &[u8]) -> String {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{hash:016x}")
 }
 
 async fn get_jobs(State(state): State<AppState>) -> Response {
@@ -627,15 +511,6 @@ async fn post_stt(
         let planned_audio_files = submission.planned_audio_files.clone();
         tokio::task::spawn_blocking(move || {
             if let Err(error) = execute_stt_job(&repo_root, &execute_job_id, &planned_audio_files) {
-                if let Ok(store_job) = IndexStore::new(&repo_root).find_job(&execute_job_id)
-                    && let Some(mut job) = store_job
-                {
-                    if let Ok(now) = crate::app::now_rfc3339() {
-                        job.fail_task(TaskType::Stt, now, error.clone());
-                        let _ = IndexStore::new(&repo_root)
-                            .update_job(&execute_job_id, |_| job.clone());
-                    }
-                }
                 eprintln!("{error}");
             }
         });
@@ -777,7 +652,9 @@ async fn get_stt_progress(
     let repo_root = state.repo_root.clone();
     let lookup_job_id = job_id.clone();
     let progress =
-        match run_blocking(move || read_stt_progress_snapshot(&repo_root, &lookup_job_id)).await {
+        match run_blocking(move || files::read_stt_progress_snapshot(&repo_root, &lookup_job_id))
+            .await
+        {
             Ok(progress) => progress,
             Err(error) if error.starts_with("job not found:") => {
                 return error_response(StatusCode::NOT_FOUND, error);
@@ -795,7 +672,7 @@ async fn get_stt_texts(
     let repo_root = state.repo_root.clone();
     let lookup_job_id = job_id.clone();
     let transcripts =
-        match run_blocking(move || read_stt_transcripts(&repo_root, &lookup_job_id)).await {
+        match run_blocking(move || files::read_stt_transcripts(&repo_root, &lookup_job_id)).await {
             Ok(transcripts) => transcripts,
             Err(error) if error.starts_with("job not found:") => {
                 return error_response(StatusCode::NOT_FOUND, error);
@@ -818,7 +695,7 @@ async fn get_stt_text(
     let lookup_job_id = job_id.clone();
     let lookup_transcript_id = transcript_id.clone();
     let transcript = match run_blocking(move || {
-        read_stt_transcript(&repo_root, &lookup_job_id, &lookup_transcript_id)
+        files::read_stt_transcript(&repo_root, &lookup_job_id, &lookup_transcript_id)
     })
     .await
     {
@@ -859,15 +736,6 @@ async fn post_summary(
         let execute_job_id = job_id.clone();
         tokio::task::spawn_blocking(move || {
             if let Err(error) = execute_summary_job(&repo_root, &execute_job_id, force_regenerate) {
-                if let Ok(store_job) = IndexStore::new(&repo_root).find_job(&execute_job_id)
-                    && let Some(mut job) = store_job
-                {
-                    if let Ok(now) = crate::app::now_rfc3339() {
-                        job.fail_task(TaskType::Summary, now, error.clone());
-                        let _ = IndexStore::new(&repo_root)
-                            .update_job(&execute_job_id, |_| job.clone());
-                    }
-                }
                 eprintln!("{error}");
             }
         });
@@ -924,7 +792,9 @@ async fn get_summary_text(
 ) -> Response {
     let repo_root = state.repo_root.clone();
     let lookup_job_id = job_id.clone();
-    let summary = match run_blocking(move || read_summary_text(&repo_root, &lookup_job_id)).await {
+    let summary = match run_blocking(move || files::read_summary_text(&repo_root, &lookup_job_id))
+        .await
+    {
         Ok(summary) => summary,
         Err(error)
             if error.starts_with("job not found:") || error.starts_with("summary not found:") =>
@@ -936,7 +806,7 @@ async fn get_summary_text(
 
     Json(SummaryTextResponse {
         job_id,
-        file_name: "result.txt".to_string(),
+        file_name: crate::app::artifacts::summary_file_name().to_string(),
         text: summary,
     })
     .into_response()
@@ -948,13 +818,14 @@ async fn get_job_files(
 ) -> Response {
     let repo_root = state.repo_root.clone();
     let lookup_job_id = job_id.clone();
-    let files = match run_blocking(move || collect_job_files(&repo_root, &lookup_job_id)).await {
-        Ok(files) => files,
-        Err(error) if error.starts_with("job not found:") => {
-            return error_response(StatusCode::NOT_FOUND, error);
-        }
-        Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
-    };
+    let files =
+        match run_blocking(move || files::collect_job_files(&repo_root, &lookup_job_id)).await {
+            Ok(files) => files,
+            Err(error) if error.starts_with("job not found:") => {
+                return error_response(StatusCode::NOT_FOUND, error);
+            }
+            Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+        };
     Json(FileListResponse { job_id, files }).into_response()
 }
 
@@ -966,7 +837,9 @@ async fn get_job_file(
     let lookup_job_id = job_id.clone();
     let lookup_file = file_name.clone();
     let result =
-        match run_blocking(move || read_job_file(&repo_root, &lookup_job_id, &lookup_file)).await {
+        match run_blocking(move || files::read_job_file(&repo_root, &lookup_job_id, &lookup_file))
+            .await
+        {
             Ok(result) => result,
             Err(error) if error.contains("not found") => {
                 return error_response(StatusCode::NOT_FOUND, error);
@@ -1053,327 +926,8 @@ fn build_model_prepare_response(submission: &app::ModelPrepareSubmission) -> Mod
     }
 }
 
-fn classify_upload_job_error(error: &str) -> StatusCode {
-    if error.starts_with("multipart field 'file' is required")
-        || error.starts_with("multipart field 'file' must appear only once")
-        || error.starts_with("uploaded file is empty")
-        || error.starts_with("input file not found:")
-        || error.starts_with("input path is not a file:")
-        || error.starts_with("failed to resolve input path ")
-    {
-        StatusCode::BAD_REQUEST
-    } else if error.starts_with("local ffmpeg toolchain not found.") {
-        StatusCode::SERVICE_UNAVAILABLE
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    }
-}
-
-fn classify_create_job_error(error: &str) -> StatusCode {
-    if error.starts_with("input file not found:")
-        || error.starts_with("input path is not a file:")
-        || error.starts_with("failed to resolve input path ")
-    {
-        StatusCode::BAD_REQUEST
-    } else if error.starts_with("local ffmpeg toolchain not found.") {
-        StatusCode::SERVICE_UNAVAILABLE
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    }
-}
-
-fn classify_model_prepare_error(error: &str) -> StatusCode {
-    if error.starts_with("local whisper toolchain not found.")
-        || error.starts_with("local llama toolchain not found.")
-        || error.starts_with("whisper model not found at ")
-        || error.starts_with("whisper model path has no parent directory:")
-        || error.starts_with("llama model file not found:")
-        || error.starts_with("llama model cache path is unavailable")
-    {
-        StatusCode::SERVICE_UNAVAILABLE
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    }
-}
-
-fn collect_job_files(repo_root: &std::path::Path, job_id: &str) -> Result<Vec<String>, String> {
-    let store = IndexStore::new(repo_root);
-    let job = store
-        .find_job(job_id)?
-        .ok_or_else(|| format!("job not found: {job_id}"))?;
-    let job_dir = PathBuf::from(job.job_dir);
-    let mut files = Vec::new();
-
-    let root_candidates = ["mono_mix.wav"];
-    for file in root_candidates {
-        let path = job_dir.join(file);
-        if path.is_file() {
-            files.push(file.to_string());
-        }
-    }
-    for entry in fs::read_dir(&job_dir)
-        .map_err(|error| format!("failed to read {}: {error}", job_dir.display()))?
-    {
-        let entry = entry.map_err(|error| format!("failed to read job dir entry: {error}"))?;
-        let path = entry.path();
-        if path.is_file()
-            && path
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| ext == "wav")
-            && path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("channel_"))
-        {
-            files.push(
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or_default()
-                    .to_string(),
-            );
-        }
-    }
-    for sub in ["stt", "summary"] {
-        let sub_dir = job_dir.join(sub);
-        if !sub_dir.is_dir() {
-            continue;
-        }
-        for entry in fs::read_dir(&sub_dir)
-            .map_err(|error| format!("failed to read {}: {error}", sub_dir.display()))?
-        {
-            let entry = entry.map_err(|error| format!("failed to read {sub} entry: {error}"))?;
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-            if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
-                files.push(format!("{sub}/{name}"));
-            }
-        }
-    }
-    files.sort();
-    Ok(files)
-}
-
-fn read_stt_transcripts(
-    repo_root: &std::path::Path,
-    job_id: &str,
-) -> Result<Vec<SttTranscriptText>, String> {
-    let store = IndexStore::new(repo_root);
-    let job = store
-        .find_job(job_id)?
-        .ok_or_else(|| format!("job not found: {job_id}"))?;
-    let stt_dir = PathBuf::from(job.job_dir).join("stt");
-    if !stt_dir.is_dir() {
-        return Ok(Vec::new());
-    }
-
-    let mut transcripts = Vec::new();
-    for entry in fs::read_dir(&stt_dir)
-        .map_err(|error| format!("failed to read {}: {error}", stt_dir.display()))?
-    {
-        let entry = entry.map_err(|error| format!("failed to read stt entry: {error}"))?;
-        let path = entry.path();
-        if !path.is_file()
-            || path
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .is_none_or(|ext| ext != "txt")
-        {
-            continue;
-        }
-        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-            continue;
-        };
-        let transcript_id = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .ok_or_else(|| {
-                format!(
-                    "failed to parse transcript id from file: {}",
-                    path.display()
-                )
-            })?
-            .to_string();
-        let text = fs::read_to_string(&path)
-            .map_err(|error| format!("failed to read transcript {}: {error}", path.display()))?;
-        transcripts.push(SttTranscriptText {
-            transcript_id,
-            file_name: file_name.to_string(),
-            text,
-        });
-    }
-    transcripts.sort_by(|a, b| a.file_name.cmp(&b.file_name));
-    Ok(transcripts)
-}
-
-fn read_stt_progress_snapshot(
-    repo_root: &std::path::Path,
-    job_id: &str,
-) -> Result<SttProgressResponse, String> {
-    let store = IndexStore::new(repo_root);
-    let job = store
-        .find_job(job_id)?
-        .ok_or_else(|| format!("job not found: {job_id}"))?;
-    let task = job.task(TaskType::Stt).cloned();
-    let job_dir = PathBuf::from(job.job_dir);
-    let total_files = count_supported_audio_files(&job_dir)?;
-    let completed_files = count_stt_transcript_files(&job_dir.join("stt"))?;
-    let phase = match task.as_ref().map(|record| &record.status) {
-        Some(crate::index::TaskStatus::Running) => "running",
-        Some(crate::index::TaskStatus::Completed) => "completed",
-        Some(crate::index::TaskStatus::Failed) => "failed",
-        None => "idle",
-    }
-    .to_string();
-    let progress_percent = match task.as_ref().map(|record| &record.status) {
-        Some(crate::index::TaskStatus::Completed) => 100,
-        _ => calculate_progress_percent(completed_files, total_files),
-    };
-
-    Ok(SttProgressResponse {
-        job_id: job_id.to_string(),
-        task,
-        phase,
-        total_files,
-        completed_files,
-        progress_percent,
-    })
-}
-
-fn count_supported_audio_files(job_dir: &std::path::Path) -> Result<usize, String> {
-    let mut count = 0usize;
-    for entry in fs::read_dir(job_dir)
-        .map_err(|error| format!("failed to read {}: {error}", job_dir.display()))?
-    {
-        let entry = entry.map_err(|error| format!("failed to read job dir entry: {error}"))?;
-        let path = entry.path();
-        if path.is_file() && is_supported_audio_file(&path) {
-            count = count.saturating_add(1);
-        }
-    }
-    Ok(count)
-}
-
-fn count_stt_transcript_files(stt_dir: &std::path::Path) -> Result<usize, String> {
-    if !stt_dir.is_dir() {
-        return Ok(0);
-    }
-
-    let mut count = 0usize;
-    for entry in fs::read_dir(stt_dir)
-        .map_err(|error| format!("failed to read {}: {error}", stt_dir.display()))?
-    {
-        let entry = entry.map_err(|error| format!("failed to read stt entry: {error}"))?;
-        let path = entry.path();
-        if path.is_file()
-            && path
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("txt"))
-        {
-            count = count.saturating_add(1);
-        }
-    }
-
-    Ok(count)
-}
-
-fn is_supported_audio_file(path: &std::path::Path) -> bool {
-    matches!(
-        path.extension().and_then(|extension| extension.to_str()),
-        Some(extension)
-            if extension.eq_ignore_ascii_case("wav")
-                || extension.eq_ignore_ascii_case("mp3")
-                || extension.eq_ignore_ascii_case("flac")
-                || extension.eq_ignore_ascii_case("ogg")
-    )
-}
-
-fn calculate_progress_percent(completed_files: usize, total_files: usize) -> u8 {
-    if total_files == 0 {
-        return 0;
-    }
-    let ratio = completed_files.saturating_mul(100) / total_files;
-    ratio.min(100) as u8
-}
-
-fn read_stt_transcript(
-    repo_root: &std::path::Path,
-    job_id: &str,
-    transcript_id: &str,
-) -> Result<SttTranscriptText, String> {
-    sanitize_transcript_id(transcript_id)?;
-    let transcripts = read_stt_transcripts(repo_root, job_id)?;
-    transcripts
-        .into_iter()
-        .find(|transcript| transcript.transcript_id == transcript_id)
-        .ok_or_else(|| format!("transcript not found: {transcript_id}"))
-}
-
-fn read_summary_text(repo_root: &std::path::Path, job_id: &str) -> Result<String, String> {
-    let store = IndexStore::new(repo_root);
-    let job = store
-        .find_job(job_id)?
-        .ok_or_else(|| format!("job not found: {job_id}"))?;
-    let path = PathBuf::from(job.job_dir)
-        .join("summary")
-        .join("result.txt");
-    if !path.is_file() {
-        return Err(format!("summary not found: {}", path.display()));
-    }
-    fs::read_to_string(&path)
-        .map_err(|error| format!("failed to read summary {}: {error}", path.display()))
-}
-
-fn read_job_file(
-    repo_root: &std::path::Path,
-    job_id: &str,
-    file_name: &str,
-) -> Result<Vec<u8>, String> {
-    let store = IndexStore::new(repo_root);
-    let job = store
-        .find_job(job_id)?
-        .ok_or_else(|| format!("job not found: {job_id}"))?;
-
-    let path = sanitize_file_name(file_name)?;
-    let allowed_prefix = ["stt/", "summary/"];
-    let is_allowed = path == "mono_mix.wav"
-        || path.starts_with("channel_")
-        || allowed_prefix.iter().any(|prefix| path.starts_with(prefix));
-    if !is_allowed {
-        return Err(format!("file not allowed: {file_name}"));
-    }
-
-    let absolute = PathBuf::from(job.job_dir).join(path);
-    fs::read(&absolute).map_err(|error| format!("file not found: {} ({error})", absolute.display()))
-}
-
-fn sanitize_file_name(file_name: &str) -> Result<&str, String> {
-    if file_name.contains('\\') || file_name.starts_with('/') || file_name.contains("..") {
-        return Err("invalid file path".to_string());
-    }
-    Ok(file_name)
-}
-
-fn sanitize_transcript_id(transcript_id: &str) -> Result<(), String> {
-    if transcript_id.is_empty()
-        || transcript_id.contains('\\')
-        || transcript_id.contains('/')
-        || transcript_id.contains("..")
-    {
-        return Err("invalid transcript id".to_string());
-    }
-    Ok(())
-}
-
 fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
-    let body = ErrorResponse {
-        code: status.as_u16().to_string(),
-        message: message.into(),
-    };
-    (status, Json(body)).into_response()
+    errors::error_response(status, message)
 }
 
 #[cfg(test)]
@@ -1830,13 +1384,15 @@ mod tests {
             PathBuf::from("/tmp/completed.wav"),
             store.job_dir("job-completed"),
         );
-        completed_job.mark_completed(
-            "2026-01-01T00:00:01Z".to_string(),
-            JobOutputs {
-                merged_mono_wav: Some("/tmp/completed_mono.wav".to_string()),
-                split_mono_wavs: Vec::new(),
-            },
-        );
+        completed_job
+            .mark_completed(
+                "2026-01-01T00:00:01Z".to_string(),
+                JobOutputs {
+                    merged_mono_wav: Some("/tmp/completed_mono.wav".to_string()),
+                    split_mono_wavs: Vec::new(),
+                },
+            )
+            .expect("mark completed job");
         store
             .insert_job(completed_job)
             .expect("insert completed job");
@@ -1931,7 +1487,8 @@ mod tests {
             store.job_dir("job-status"),
         );
         job.upsert_running_task(TaskType::Stt, "2026-01-01T00:00:01Z".to_string());
-        job.complete_task(TaskType::Stt, "2026-01-01T00:00:02Z".to_string());
+        job.complete_task(TaskType::Stt, "2026-01-01T00:00:02Z".to_string())
+            .expect("complete stt task");
         job.upsert_running_task(TaskType::Summary, "2026-01-01T00:00:03Z".to_string());
         store.insert_job(job).expect("insert status job");
 

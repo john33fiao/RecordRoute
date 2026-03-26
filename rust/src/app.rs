@@ -1,3 +1,9 @@
+#[path = "app/artifacts.rs"]
+pub(crate) mod artifacts;
+
+#[path = "app/stages.rs"]
+mod stages;
+
 use crate::ffmpeg::{
     ConversionOutputs, SplitMonoOutput, Toolchain as FfmpegToolchain, probe_audio_input,
     run_conversion,
@@ -26,7 +32,6 @@ const RUN_ID_FORMAT: &[time::format_description::FormatItem<'static>] =
 const WAIT_FOR_RUNNING_JOB_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const MODEL_PREPARATION_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const MODEL_PREPARATION_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
-const CLI_STT_PROGRESS_INTERVAL: Duration = Duration::from_secs(10);
 const MODEL_PREPARATION_STALE_THRESHOLD_SECS: i64 = 60;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -384,14 +389,14 @@ pub fn execute_ffmpeg_job(
     let input_path = match normalize_input_path(input_path) {
         Ok(path) => path,
         Err(error) => {
-            job.mark_failed(now_rfc3339()?, error.clone());
+            job.mark_failed(now_rfc3339()?, error.clone())?;
             index_store.update_job(job_id, |_| job.clone())?;
             return Err(error);
         }
     };
     if input_path != PathBuf::from(&job.source_path) {
         let error = format!("job input path mismatch for {job_id}");
-        job.mark_failed(now_rfc3339()?, error.clone());
+        job.mark_failed(now_rfc3339()?, error.clone())?;
         index_store.update_job(job_id, |_| job.clone())?;
         return Err(error);
     }
@@ -400,7 +405,7 @@ pub fn execute_ffmpeg_job(
     let probe = match probe_audio_input(&toolchain, &input_path) {
         Ok(probe) => probe,
         Err(error) => {
-            job.mark_failed(now_rfc3339()?, error.clone());
+            job.mark_failed(now_rfc3339()?, error.clone())?;
             index_store.update_job(job_id, |_| job.clone())?;
             return Err(error);
         }
@@ -416,13 +421,13 @@ pub fn execute_ffmpeg_job(
 
     match run_conversion(&toolchain, &input_path, probe.channels, &planned_outputs) {
         Ok(()) => {
-            job.mark_completed(now_rfc3339()?, build_job_outputs(&planned_outputs));
+            job.mark_completed(now_rfc3339()?, build_job_outputs(&planned_outputs))?;
             index_store.update_job(job_id, |_| job.clone())?;
             Ok(job)
         }
         Err(error) => {
             planned_outputs.cleanup_partial_files();
-            job.mark_failed(now_rfc3339()?, error.clone());
+            job.mark_failed(now_rfc3339()?, error.clone())?;
             index_store.update_job(job_id, |_| job.clone())?;
             Err(error)
         }
@@ -463,7 +468,7 @@ pub fn submit_stt_job(
         audio_files
             .iter()
             .try_fold(true, |acc, audio| -> Result<bool, String> {
-                let transcript = transcript_output_path(&stt_dir, audio)?;
+                let transcript = artifacts::transcript_output_path(&stt_dir, audio)?;
                 Ok(acc && transcript.is_file())
             })?;
     if all_transcripts_exist {
@@ -489,36 +494,49 @@ pub fn execute_stt_job(
     audio_files: &[PathBuf],
 ) -> Result<JobRecord, String> {
     let index_store = IndexStore::new(repo_root);
-    let mut job = index_store
+    let job = index_store
         .find_job(job_id)?
         .ok_or_else(|| format!("job not found: {job_id}"))?;
     let job_dir = PathBuf::from(&job.job_dir);
     let stt_dir = job_dir.join("stt");
-    if audio_files.is_empty() {
-        return Err(format!("no audio files selected for stt: {job_id}"));
-    }
-    ensure_model_prepared(repo_root, ModelKind::Whisper)?;
-    let toolchain = WhisperToolchain::discover(repo_root)?;
-    fs::create_dir_all(&stt_dir).map_err(|error| {
-        format!(
-            "failed to create stt directory {}: {error}",
-            stt_dir.display()
-        )
-    })?;
+    let result = (|| -> Result<(), String> {
+        if audio_files.is_empty() {
+            return Err(format!("no audio files selected for stt: {job_id}"));
+        }
+        ensure_model_prepared(repo_root, ModelKind::Whisper)?;
+        let toolchain = WhisperToolchain::discover(repo_root)?;
+        fs::create_dir_all(&stt_dir).map_err(|error| {
+            format!(
+                "failed to create stt directory {}: {error}",
+                stt_dir.display()
+            )
+        })?;
 
-    for audio in audio_files {
-        let absolute_audio = if audio.is_absolute() {
-            audio.clone()
-        } else {
-            job_dir.join(audio)
-        };
-        let transcript = transcript_output_path(&stt_dir, &absolute_audio)?;
-        run_transcription(&toolchain, &absolute_audio, &transcript)?;
-    }
+        for audio in audio_files {
+            let absolute_audio = if audio.is_absolute() {
+                audio.clone()
+            } else {
+                job_dir.join(audio)
+            };
+            let transcript = artifacts::transcript_output_path(&stt_dir, &absolute_audio)?;
+            run_transcription(&toolchain, &absolute_audio, &transcript)?;
+        }
+        Ok(())
+    })();
 
-    job.complete_task(TaskType::Stt, now_rfc3339()?);
-    index_store.update_job(job_id, |_| job.clone())?;
-    Ok(job)
+    match result {
+        Ok(()) => stages::finalize_task_success(repo_root, job, TaskType::Stt, now_rfc3339()?),
+        Err(error) => {
+            stages::finalize_task_failure(
+                repo_root,
+                job,
+                TaskType::Stt,
+                now_rfc3339()?,
+                error.clone(),
+            )?;
+            Err(error)
+        }
+    }
 }
 
 pub fn submit_summary_job(
@@ -532,7 +550,7 @@ pub fn submit_summary_job(
         .ok_or_else(|| format!("job not found: {job_id}"))?;
     let job_dir = PathBuf::from(&job.job_dir);
     let summary_dir = job_dir.join("summary");
-    let summary_file = summary_output_path(&summary_dir, &job.source_file_name)?;
+    let summary_file = artifacts::ensure_summary_output_path(&summary_dir, &job.source_file_name)?;
 
     if let Some(task) = job.task(TaskType::Summary) {
         if task.status == TaskStatus::Running {
@@ -594,47 +612,59 @@ pub fn execute_summary_job(
     force_regenerate: bool,
 ) -> Result<JobRecord, String> {
     let index_store = IndexStore::new(repo_root);
-    let mut job = index_store
+    let job = index_store
         .find_job(job_id)?
         .ok_or_else(|| format!("job not found: {job_id}"))?;
     let job_dir = PathBuf::from(&job.job_dir);
     let stt_dir = job_dir.join("stt");
-    let transcript_files = transcript_text_files(&stt_dir)?;
-    if transcript_files.is_empty() {
-        return Err(format!("no transcripts found for summary: {job_id}"));
-    }
-
     let summary_dir = job_dir.join("summary");
-    fs::create_dir_all(&summary_dir).map_err(|error| {
-        format!(
-            "failed to create summary directory {}: {error}",
-            summary_dir.display()
-        )
-    })?;
-    let summary_file = summary_output_path(&summary_dir, &job.source_file_name)?;
-    if summary_file.is_file() && !force_regenerate {
-        job.complete_task(TaskType::Summary, now_rfc3339()?);
-        index_store.update_job(job_id, |_| job.clone())?;
-        return Ok(job);
+    let result = (|| -> Result<(), String> {
+        let transcript_files = transcript_text_files(&stt_dir)?;
+        if transcript_files.is_empty() {
+            return Err(format!("no transcripts found for summary: {job_id}"));
+        }
+
+        fs::create_dir_all(&summary_dir).map_err(|error| {
+            format!(
+                "failed to create summary directory {}: {error}",
+                summary_dir.display()
+            )
+        })?;
+        let summary_file =
+            artifacts::ensure_summary_output_path(&summary_dir, &job.source_file_name)?;
+        if summary_file.is_file() && !force_regenerate {
+            return Ok(());
+        }
+
+        let prompt_file = artifacts::summary_prompt_file_path(&summary_dir, &job.source_file_name)?;
+        let prompt = build_summary_prompt(&transcript_files)?;
+        fs::write(&prompt_file, prompt).map_err(|error| {
+            format!(
+                "failed to write summary prompt {}: {error}",
+                prompt_file.display()
+            )
+        })?;
+        ensure_model_prepared(repo_root, ModelKind::Llama)?;
+        let toolchain = LlamaToolchain::discover(repo_root)?;
+        let generation_result = run_summary_generation(&toolchain, &prompt_file, &summary_file);
+        let _ = fs::remove_file(&prompt_file);
+        generation_result?;
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => stages::finalize_task_success(repo_root, job, TaskType::Summary, now_rfc3339()?),
+        Err(error) => {
+            stages::finalize_task_failure(
+                repo_root,
+                job,
+                TaskType::Summary,
+                now_rfc3339()?,
+                error.clone(),
+            )?;
+            Err(error)
+        }
     }
-
-    let prompt_file = summary_prompt_file_path(&summary_dir, &job.source_file_name)?;
-    let prompt = build_summary_prompt(&transcript_files)?;
-    fs::write(&prompt_file, prompt).map_err(|error| {
-        format!(
-            "failed to write summary prompt {}: {error}",
-            prompt_file.display()
-        )
-    })?;
-    ensure_model_prepared(repo_root, ModelKind::Llama)?;
-    let toolchain = LlamaToolchain::discover(repo_root)?;
-    let generation_result = run_summary_generation(&toolchain, &prompt_file, &summary_file);
-    let _ = fs::remove_file(&prompt_file);
-    generation_result?;
-
-    job.complete_task(TaskType::Summary, now_rfc3339()?);
-    index_store.update_job(job_id, |_| job.clone())?;
-    Ok(job)
 }
 
 fn wait_for_ffmpeg_job_completion(repo_root: &Path, job_id: &str) -> Result<JobRecord, String> {
@@ -683,34 +713,25 @@ pub fn run_stt_with_repo_root(
     }
 
     let selected = select_stt_candidate(&candidates, reader, writer)?;
-    ensure_model_prepared(repo_root, ModelKind::Whisper)?;
-    let toolchain = WhisperToolchain::discover(repo_root)?;
+    let submission = submit_stt_job(repo_root, &selected.job_id, None)?;
+    if submission.should_execute() {
+        execute_stt_job(repo_root, &selected.job_id, &submission.planned_audio_files)?;
+    } else if submission.deduplicated() {
+        stages::wait_for_task_completion(repo_root, &selected.job_id, TaskType::Stt)?;
+    }
 
     let stt_dir = selected.job_dir.join("stt");
-    fs::create_dir_all(&stt_dir).map_err(|error| {
-        format!(
-            "failed to create stt directory {}: {error}",
-            stt_dir.display()
-        )
-    })?;
-
-    let mut transcripts = Vec::new();
-    let total_files = selected.audio_files.len();
-    for (index, audio_file) in selected.audio_files.iter().enumerate() {
-        let text_path = transcript_output_path(&stt_dir, audio_file)?;
-        run_transcription_with_cli_progress(
-            &toolchain,
-            audio_file,
-            &text_path,
-            index + 1,
-            total_files,
-            writer,
-        )?;
-        transcripts.push(SttTranscriptOutput {
-            source_path: audio_file.clone(),
-            text_path,
-        });
-    }
+    let transcripts = selected
+        .audio_files
+        .iter()
+        .map(|audio_file| {
+            let text_path = artifacts::transcript_output_path(&stt_dir, audio_file)?;
+            Ok(SttTranscriptOutput {
+                source_path: audio_file.clone(),
+                text_path,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
 
     Ok(SttRunSummary {
         job_id: selected.job_id,
@@ -718,65 +739,6 @@ pub fn run_stt_with_repo_root(
         stt_dir,
         transcripts,
     })
-}
-
-fn run_transcription_with_cli_progress(
-    toolchain: &WhisperToolchain,
-    audio_file: &Path,
-    text_path: &Path,
-    current_index: usize,
-    total_files: usize,
-    writer: &mut dyn Write,
-) -> Result<(), String> {
-    writeln!(
-        writer,
-        "[stt {current_index}/{total_files}] 시작: {}",
-        audio_file.display()
-    )
-    .map_err(|error| error.to_string())?;
-    writer.flush().map_err(|error| error.to_string())?;
-
-    let toolchain = toolchain.clone();
-    let audio_file = audio_file.to_path_buf();
-    let text_path = text_path.to_path_buf();
-    let (result_tx, result_rx) = mpsc::channel::<Result<(), String>>();
-    thread::spawn(move || {
-        let _ = result_tx.send(run_transcription(&toolchain, &audio_file, &text_path));
-    });
-
-    let mut elapsed = 0;
-    loop {
-        match result_rx.recv_timeout(CLI_STT_PROGRESS_INTERVAL) {
-            Ok(result) => {
-                result?;
-                writeln!(
-                    writer,
-                    "[stt {current_index}/{total_files}] 완료: {}",
-                    audio_file.display()
-                )
-                .map_err(|error| error.to_string())?;
-                writer.flush().map_err(|error| error.to_string())?;
-                return Ok(());
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                elapsed += CLI_STT_PROGRESS_INTERVAL.as_secs();
-                writeln!(
-                    writer,
-                    "[stt {current_index}/{total_files}] 진행중... {}초 경과: {}",
-                    elapsed,
-                    audio_file.display()
-                )
-                .map_err(|error| error.to_string())?;
-                writer.flush().map_err(|error| error.to_string())?;
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(format!(
-                    "stt progress channel disconnected unexpectedly for {}",
-                    audio_file.display()
-                ));
-            }
-        }
-    }
 }
 
 pub fn run_summary_with_repo_root(
@@ -791,39 +753,16 @@ pub fn run_summary_with_repo_root(
     }
 
     let selected = select_summary_candidate(&candidates, reader, writer)?;
-    let summary_dir = selected.job_dir.join("summary");
-    let summary_file = summary_output_path(&summary_dir, &selected.source_file_name)?;
-    if summary_file.is_file() {
-        return Ok(SummaryRunSummary {
-            job_id: selected.job_id,
-            job_dir: selected.job_dir,
-            summary_dir,
-            summary_file,
-        });
+    let submission = submit_summary_job(repo_root, &selected.job_id, false)?;
+    if submission.should_execute() {
+        execute_summary_job(repo_root, &selected.job_id, false)?;
+    } else if submission.deduplicated() {
+        stages::wait_for_task_completion(repo_root, &selected.job_id, TaskType::Summary)?;
     }
 
-    ensure_model_prepared(repo_root, ModelKind::Llama)?;
-    let toolchain = LlamaToolchain::discover(repo_root)?;
-    fs::create_dir_all(&summary_dir).map_err(|error| {
-        format!(
-            "failed to create summary directory {}: {error}",
-            summary_dir.display()
-        )
-    })?;
-
-    let prompt_file = summary_prompt_file_path(&summary_dir, &selected.source_file_name)?;
-    let prompt = build_summary_prompt(&selected.transcript_files)?;
-    fs::write(&prompt_file, prompt).map_err(|error| {
-        format!(
-            "failed to write summary prompt {}: {error}",
-            prompt_file.display()
-        )
-    })?;
-
-    let generation_result = run_summary_generation(&toolchain, &prompt_file, &summary_file);
-    let _ = fs::remove_file(&prompt_file);
-    generation_result?;
-
+    let summary_dir = selected.job_dir.join("summary");
+    let summary_file =
+        artifacts::ensure_summary_output_path(&summary_dir, &selected.source_file_name)?;
     Ok(SummaryRunSummary {
         job_id: selected.job_id,
         job_dir: selected.job_dir,
@@ -1117,13 +1056,12 @@ fn is_model_preparation_stale(record: &ModelPreparationRecord) -> bool {
         return true;
     };
 
-    let Ok(cutoff) = (OffsetDateTime::now_utc()
-        - time::Duration::seconds(MODEL_PREPARATION_STALE_THRESHOLD_SECS))
-    .format(&Rfc3339) else {
-        return false;
+    let Ok(parsed_heartbeat_at) = OffsetDateTime::parse(heartbeat_at, &Rfc3339) else {
+        return true;
     };
 
-    heartbeat_at <= cutoff.as_str()
+    OffsetDateTime::now_utc() - parsed_heartbeat_at
+        >= time::Duration::seconds(MODEL_PREPARATION_STALE_THRESHOLD_SECS)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1291,105 +1229,11 @@ fn select_summary_candidate(
 }
 
 fn supported_audio_files(job_dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut audio_files = Vec::new();
-
-    for entry in fs::read_dir(job_dir).map_err(|error| {
-        format!(
-            "failed to read job directory {}: {error}",
-            job_dir.display()
-        )
-    })? {
-        let entry = entry.map_err(|error| {
-            format!(
-                "failed to inspect job directory entry {}: {error}",
-                job_dir.display()
-            )
-        })?;
-        let path = entry.path();
-        if !path.is_file() || !is_supported_audio_file(&path) {
-            continue;
-        }
-        audio_files.push(path);
-    }
-
-    audio_files.sort();
-    Ok(audio_files)
+    artifacts::supported_audio_files(job_dir)
 }
 
 fn transcript_text_files(stt_dir: &Path) -> Result<Vec<PathBuf>, String> {
-    if !stt_dir.is_dir() {
-        return Ok(Vec::new());
-    }
-
-    let mut transcript_files = Vec::new();
-    for entry in fs::read_dir(stt_dir).map_err(|error| {
-        format!(
-            "failed to read stt directory {}: {error}",
-            stt_dir.display()
-        )
-    })? {
-        let entry = entry.map_err(|error| {
-            format!(
-                "failed to inspect stt directory entry {}: {error}",
-                stt_dir.display()
-            )
-        })?;
-        let path = entry.path();
-        if path.is_file() && is_transcript_text_file(&path) {
-            transcript_files.push(path);
-        }
-    }
-
-    transcript_files.sort();
-    Ok(transcript_files)
-}
-
-fn is_supported_audio_file(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|extension| extension.to_str()),
-        Some(extension)
-            if extension.eq_ignore_ascii_case("wav")
-                || extension.eq_ignore_ascii_case("mp3")
-                || extension.eq_ignore_ascii_case("flac")
-                || extension.eq_ignore_ascii_case("ogg")
-    )
-}
-
-fn is_transcript_text_file(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|extension| extension.to_str()),
-        Some(extension) if extension.eq_ignore_ascii_case("txt")
-    )
-}
-
-fn transcript_output_path(stt_dir: &Path, audio_file: &Path) -> Result<PathBuf, String> {
-    let stem = audio_file.file_stem().ok_or_else(|| {
-        format!(
-            "audio file does not have a valid file stem: {}",
-            audio_file.display()
-        )
-    })?;
-    Ok(stt_dir.join(stem).with_extension("txt"))
-}
-
-fn summary_output_path(summary_dir: &Path, source_file_name: &str) -> Result<PathBuf, String> {
-    Ok(summary_dir
-        .join(source_file_stem(source_file_name)?)
-        .with_extension("md"))
-}
-
-fn summary_prompt_file_path(summary_dir: &Path, source_file_name: &str) -> Result<PathBuf, String> {
-    let mut file_name = OsString::from(".");
-    file_name.push(source_file_stem(source_file_name)?);
-    file_name.push(".prompt.txt");
-    Ok(summary_dir.join(file_name))
-}
-
-fn source_file_stem(source_file_name: &str) -> Result<OsString, String> {
-    Path::new(source_file_name)
-        .file_stem()
-        .map(OsStr::to_os_string)
-        .ok_or_else(|| format!("source file does not have a valid file stem: {source_file_name}"))
+    artifacts::transcript_text_files(stt_dir)
 }
 
 fn build_summary_prompt(transcript_files: &[PathBuf]) -> Result<String, String> {
@@ -2018,10 +1862,12 @@ mod tests {
             fs::canonicalize(&input).expect("canonical input"),
             store.job_dir("job-failed"),
         );
-        failed_job.mark_failed(
-            "2026-01-01T00:00:03Z".to_string(),
-            "synthetic failure".to_string(),
-        );
+        failed_job
+            .mark_failed(
+                "2026-01-01T00:00:03Z".to_string(),
+                "synthetic failure".to_string(),
+            )
+            .expect("mark failed job");
         store.insert_job(failed_job).expect("insert failed job");
 
         fs::remove_file(fake_command_path(&build_bin, "ffmpeg")).expect("remove ffmpeg");
@@ -2091,14 +1937,16 @@ mod tests {
         write_fake_download_script(&whisper_download_script_path(&repo_root), &download_log);
 
         let store = IndexStore::new(&repo_root);
-        store
-            .insert_job(JobRecord::new(
-                "job-1".to_string(),
-                "2026-01-01T00:00:00Z".to_string(),
-                PathBuf::from("/tmp/input.wav"),
-                selected_job_dir.clone(),
-            ))
-            .expect("insert selected job");
+        let mut selected_job = JobRecord::new(
+            "job-1".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/input.wav"),
+            selected_job_dir.clone(),
+        );
+        selected_job
+            .mark_completed("2026-01-01T00:00:01Z".to_string(), JobOutputs::default())
+            .expect("mark selected completed");
+        store.insert_job(selected_job).expect("insert selected job");
         store
             .insert_job(JobRecord::new(
                 "job-2".to_string(),
@@ -2160,14 +2008,16 @@ mod tests {
         fs::write(repo_root.join("models/whisper/ggml-base.bin"), "model").expect("model");
 
         let store = IndexStore::new(&repo_root);
-        store
-            .insert_job(JobRecord::new(
-                "job-1".to_string(),
-                "2026-01-01T00:00:00Z".to_string(),
-                PathBuf::from("/tmp/input.wav"),
-                selected_job_dir,
-            ))
-            .expect("insert selected job");
+        let mut selected_job = JobRecord::new(
+            "job-1".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/input.wav"),
+            selected_job_dir,
+        );
+        selected_job
+            .mark_completed("2026-01-01T00:00:01Z".to_string(), JobOutputs::default())
+            .expect("mark selected completed");
+        store.insert_job(selected_job).expect("insert selected job");
 
         let mut reader = Cursor::new(b"9\n1\n".to_vec());
         let mut output = Vec::new();
@@ -2261,7 +2111,7 @@ mod tests {
         assert_eq!(summary.job_id, "job-1");
         assert_eq!(
             summary.summary_file,
-            selected_job_dir.join("summary/input.md")
+            selected_job_dir.join("summary/result.txt")
         );
         assert!(summary.summary_dir.is_dir());
         assert_eq!(
@@ -2318,7 +2168,11 @@ mod tests {
 
         assert_eq!(summary.job_id, "job-1");
         assert_eq!(summary.summary_dir, selected_job_dir.join("summary"));
-        assert_eq!(summary.summary_file, existing_summary);
+        assert_eq!(
+            summary.summary_file,
+            selected_job_dir.join("summary/result.txt")
+        );
+        assert!(!existing_summary.exists());
         assert_eq!(
             fs::read_to_string(&summary.summary_file).expect("summary file"),
             "existing summary"
