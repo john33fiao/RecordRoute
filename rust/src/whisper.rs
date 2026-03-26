@@ -38,8 +38,31 @@ impl Toolchain {
         })
     }
 
+    pub fn is_model_ready(&self) -> bool {
+        self.model_path.is_file()
+    }
+
+    pub fn can_prepare_model(&self) -> Result<(), String> {
+        if self.is_model_ready() {
+            return Ok(());
+        }
+
+        let model_name = managed_model_name(&self.model_path)?;
+        let model_dir = model_directory(&self.model_path)?;
+        let _ = model_name;
+        let _ = model_dir;
+        if !self.download_script_path.is_file() {
+            return Err(format!(
+                "whisper model not found at {} and download script is missing: {}",
+                self.model_path.display(),
+                self.download_script_path.display()
+            ));
+        }
+        Ok(())
+    }
+
     pub fn ensure_model(&self) -> Result<(), String> {
-        if self.model_path.is_file() {
+        if self.is_model_ready() {
             return Ok(());
         }
 

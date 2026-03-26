@@ -54,6 +54,30 @@ impl Toolchain {
         })
     }
 
+    pub fn is_model_ready(&self) -> bool {
+        match (&self.model_source, &self.cached_model_path) {
+            (ModelSource::LocalPath(path), _) => path.is_file(),
+            (ModelSource::HuggingFaceRepo(_), Some(cache_path)) => cache_path.is_file(),
+            (ModelSource::HuggingFaceRepo(_), None) => false,
+        }
+    }
+
+    pub fn can_prepare_model(&self) -> Result<(), String> {
+        match (&self.model_source, &self.cached_model_path) {
+            (ModelSource::LocalPath(path), _) => {
+                if path.is_file() {
+                    Ok(())
+                } else {
+                    Err(format!("llama model file not found: {}", path.display()))
+                }
+            }
+            (ModelSource::HuggingFaceRepo(_), Some(_)) => Ok(()),
+            (ModelSource::HuggingFaceRepo(repo), None) => Err(format!(
+                "llama model cache path is unavailable for configured Hugging Face repo: {repo}"
+            )),
+        }
+    }
+
     pub fn ensure_model(&self) -> Result<(), String> {
         match (&self.model_source, &self.cached_model_path) {
             (ModelSource::LocalPath(path), _) => {

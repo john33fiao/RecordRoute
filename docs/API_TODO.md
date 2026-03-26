@@ -1,4 +1,4 @@
-# API TODO (2026-03-26 코드베이스 점검 반영)
+﻿# API TODO (2026-03-26 코드베이스 점검 반영)
 
 ## 목적
 
@@ -17,6 +17,9 @@
 
 - `POST /server/ping`
 - `GET /system/status`
+- `GET /models/status`
+- `POST /models/whisper/prepare`
+- `POST /models/llama/prepare`
 - `POST /jobs`
 - `GET /jobs`
 - `POST /jobs/upload`
@@ -32,7 +35,7 @@
 - `GET /jobs/{job_id}/files`
 - `GET /jobs/{job_id}/files/{*file_name}`
 
-> 결론: 현재 API는 ffmpeg/stt/summary 제출 + 상태조회 + 산출물 조회 + 파일 업로드 진입점까지 포함한다.
+> 결론: 현재 API는 ffmpeg/stt/summary 제출 + 모델 준비/상태조회 + 산출물 조회 + 파일 업로드 진입점까지 포함한다.
 
 ### 핵심 동작 요약
 
@@ -84,6 +87,14 @@
   - `whisper_model_ready`, `llama_model_ready`
   - `errors[]`
 
+#### 모델 준비/상세 상태 API
+- `GET /models/status`
+  - 모델별 `available`, `ready`, `error`, `preparation(status/started_at/finished_at/heartbeat_at/last_error)` 반환
+- `POST /models/whisper/prepare`, `POST /models/llama/prepare`
+  - `200 OK`: 이미 준비된 모델 확인 (`already_ready=true`)
+  - `202 Accepted`: 신규 준비 시작 또는 실행중 preparation deduplicate
+  - 준비 상태는 `db/index.json`의 `model_preparations`에 저장되고, 런타임 자동 준비/CLI와 공유된다.
+
 ---
 
 ## 2) 상태/중복처리 모델 (현행)
@@ -92,6 +103,7 @@
 - Job 상태: `running | completed | failed`
 - Task 타입: `ffmpeg | stt | summary`
 - Task 상태: `running | completed | failed`
+- Model preparation 상태: `idle | running | completed | failed`
 
 ### deduplicate / reuse 규칙
 
@@ -109,28 +121,21 @@
 
 ## 3) 미구현 TODO (우선순위)
 
-### P1 (운영 자동화)
-
-1. 모델 준비 HTTP API
-   - `POST /models/whisper/prepare`
-   - `POST /models/llama/prepare`
-   - 비고: 현재는 CLI(`prepare-llama-model`) 또는 런타임 자동 준비 로직에 의존
-
 ### P2 (조회 편의 / 확장)
 
-2. 조회 편의 API
+1. 조회 편의 API
    - `GET /jobs/completed`
    - `GET /jobs/by-source?source_path=...`
 
-3. 파일 제공 전략 고도화
+2. 파일 제공 전략 고도화
    - 대용량 파일 스트리밍/Range 지원
    - 로컬 앱 연동 UX(복사/열람) 최적화
 
-4. Whisper 진행률 조회 API
+3. Whisper 진행률 조회 API
    - `GET /jobs/{job_id}/stt/progress`
    - 비고: 우선 whisper 현재 진행률을 polling 가능한 형태로 응답
 
-5. 상태 모델 고도화
+4. 상태 모델 고도화
    - task progress/phase 필드
    - 워커 큐 기반 비동기 실행 모델 확장 검토
 
@@ -148,11 +153,11 @@
 - [x] Summary 텍스트 본문 조회 API
 - [x] job별 파일 목록/다운로드 API
 - [x] 시스템/모델 가용성 상태 조회 API (`GET /system/status`)
-- [x] job/task 상태를 `db/index.json`에 일관 저장
+- [x] 모델 준비/상세 상태 API (`GET /models/status`, `POST /models/whisper/prepare`, `POST /models/llama/prepare`)
+- [x] job/task/model preparation 상태를 `db/index.json`에 일관 저장
 
 ### 미완료
 
-- [ ] 모델 준비 HTTP API
 - [ ] 완료 job / source_path 기반 전용 조회 API
 - [ ] 대용량 파일 전달 최적화(스트리밍/Range)
 - [ ] whisper 진행률 조회 API (`GET /jobs/{job_id}/stt/progress`)
@@ -165,5 +170,7 @@
 - 배포 가정은 **프론트엔드와 서버가 동일 PC에서 함께 동작하는 단일 머신 구성**이다.
 - 입력 진입점은 **로컬 경로(`POST /jobs`) + 업로드(`POST /jobs/upload`)** 두 가지를 모두 지원한다.
 - API/CLI는 동일 도메인 로직(`app.rs`, `index.rs`)을 공유한다.
+- 모델 준비는 HTTP API, CLI(`prepare-llama-model`), STT/Summary 런타임 자동 준비가 동일한 preparation 상태/heartbeat/deduplicate 규칙을 공유한다.
 - API 추가 시 `IndexStore`를 단일 상태 SoT로 유지하고 reuse/deduplicate 규칙을 우선 검증한다.
 - 업로드 입력은 해시 기반 저장 경로를 사용하므로 path 기반 재사용 규칙과 구분해 관리한다.
+

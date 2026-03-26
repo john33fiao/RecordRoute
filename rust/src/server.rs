@@ -3,7 +3,10 @@ use crate::app::{
     submit_stt_job, submit_summary_job,
 };
 use crate::ffmpeg::Toolchain as FfmpegToolchain;
-use crate::index::{IndexStore, JobOutputs, JobProbe, JobRecord, JobStatus, TaskRecord, TaskType};
+use crate::index::{
+    IndexStore, JobOutputs, JobProbe, JobRecord, JobStatus, ModelKind, ModelPreparationRecord,
+    TaskRecord, TaskType,
+};
 use crate::llama::{ModelSource as LlamaModelSource, Toolchain as LlamaToolchain};
 use crate::whisper::Toolchain as WhisperToolchain;
 use axum::extract::Path as AxumPath;
@@ -95,6 +98,31 @@ struct SystemStatusResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct ModelStatusEntryResponse {
+    pub available: bool,
+    pub ready: bool,
+    pub error: Option<String>,
+    pub preparation: ModelPreparationRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct ModelStatusResponse {
+    pub whisper: ModelStatusEntryResponse,
+    pub llama: ModelStatusEntryResponse,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct ModelPrepareResponse {
+    pub model: ModelKind,
+    pub status: String,
+    pub message: String,
+    pub ready: bool,
+    pub already_ready: bool,
+    pub deduplicated: bool,
+    pub preparation: ModelPreparationRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct SttTranscriptText {
     pub transcript_id: String,
     pub file_name: String,
@@ -150,6 +178,9 @@ pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
     Router::new()
         .route("/server/ping", post(post_server_ping))
         .route("/system/status", get(get_system_status))
+        .route("/models/status", get(get_models_status))
+        .route("/models/whisper/prepare", post(post_prepare_whisper_model))
+        .route("/models/llama/prepare", post(post_prepare_llama_model))
         .route("/jobs", post(post_jobs).get(get_jobs))
         .route("/jobs/upload", post(post_jobs_upload))
         .route("/jobs/{job_id}", get(get_job))
@@ -213,6 +244,47 @@ async fn get_system_status(State(state): State<AppState>) -> Response {
         Ok(status) => Json(status).into_response(),
         Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
     }
+}
+
+async fn get_models_status(State(state): State<AppState>) -> Response {
+    let repo_root = state.repo_root.clone();
+    match run_blocking(move || app::collect_model_status_snapshot(&repo_root)).await {
+        Ok(status) => Json(build_model_status_response(status)).into_response(),
+        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+    }
+}
+
+async fn post_prepare_whisper_model(State(state): State<AppState>) -> Response {
+    post_prepare_model(state, ModelKind::Whisper).await
+}
+
+async fn post_prepare_llama_model(State(state): State<AppState>) -> Response {
+    post_prepare_model(state, ModelKind::Llama).await
+}
+
+async fn post_prepare_model(state: AppState, model: ModelKind) -> Response {
+    let repo_root = state.repo_root.clone();
+    let submission =
+        match run_blocking(move || app::submit_model_preparation(&repo_root, model)).await {
+            Ok(submission) => submission,
+            Err(error) => return error_response(classify_model_prepare_error(&error), error),
+        };
+
+    if submission.should_execute() {
+        let repo_root = state.repo_root.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Err(error) = app::execute_model_preparation(&repo_root, model) {
+                eprintln!("{error}");
+            }
+        });
+    }
+
+    let status = if submission.already_ready() {
+        StatusCode::OK
+    } else {
+        StatusCode::ACCEPTED
+    };
+    (status, Json(build_model_prepare_response(&submission))).into_response()
 }
 
 async fn post_jobs(
@@ -572,7 +644,7 @@ fn gather_system_status(repo_root: &std::path::Path) -> Result<SystemStatusRespo
     let whisper_model_ready = whisper_discovery
         .as_ref()
         .ok()
-        .is_some_and(|toolchain| toolchain.model_path.is_file());
+        .is_some_and(WhisperToolchain::is_model_ready);
     if whisper_available
         && !whisper_model_ready
         && let Ok(toolchain) = &whisper_discovery
@@ -591,7 +663,7 @@ fn gather_system_status(repo_root: &std::path::Path) -> Result<SystemStatusRespo
     let llama_model_ready = llama_discovery
         .as_ref()
         .ok()
-        .is_some_and(is_llama_model_ready);
+        .is_some_and(LlamaToolchain::is_model_ready);
     if llama_available
         && !llama_model_ready
         && let Ok(toolchain) = &llama_discovery
@@ -607,14 +679,6 @@ fn gather_system_status(repo_root: &std::path::Path) -> Result<SystemStatusRespo
         llama_model_ready,
         errors,
     })
-}
-
-fn is_llama_model_ready(toolchain: &LlamaToolchain) -> bool {
-    match (&toolchain.model_source, &toolchain.cached_model_path) {
-        (LlamaModelSource::LocalPath(path), _) => path.is_file(),
-        (LlamaModelSource::HuggingFaceRepo(_), Some(cache_path)) => cache_path.is_file(),
-        (LlamaModelSource::HuggingFaceRepo(_), None) => false,
-    }
 }
 
 fn llama_model_missing_message(toolchain: &LlamaToolchain) -> String {
@@ -884,6 +948,45 @@ fn build_job_submission_response(
     }
 }
 
+fn build_model_status_response(status: app::ModelStatusSnapshot) -> ModelStatusResponse {
+    ModelStatusResponse {
+        whisper: build_model_status_entry_response(status.whisper),
+        llama: build_model_status_entry_response(status.llama),
+    }
+}
+
+fn build_model_status_entry_response(entry: app::ModelStatusEntry) -> ModelStatusEntryResponse {
+    ModelStatusEntryResponse {
+        available: entry.available,
+        ready: entry.ready,
+        error: entry.error,
+        preparation: entry.preparation,
+    }
+}
+
+fn build_model_prepare_response(submission: &app::ModelPrepareSubmission) -> ModelPrepareResponse {
+    let model_name = submission.model.as_str();
+    ModelPrepareResponse {
+        model: submission.model,
+        status: if submission.already_ready() {
+            "ok".to_string()
+        } else {
+            "accepted".to_string()
+        },
+        message: if submission.already_ready() {
+            format!("{model_name} model already ready")
+        } else if submission.deduplicated() {
+            format!("{model_name} model preparation already running")
+        } else {
+            format!("{model_name} model preparation accepted")
+        },
+        ready: submission.already_ready(),
+        already_ready: submission.already_ready(),
+        deduplicated: submission.deduplicated(),
+        preparation: submission.preparation.clone(),
+    }
+}
+
 fn classify_upload_job_error(error: &str) -> StatusCode {
     if error.starts_with("multipart field 'file' is required")
         || error.starts_with("multipart field 'file' must appear only once")
@@ -907,6 +1010,20 @@ fn classify_create_job_error(error: &str) -> StatusCode {
     {
         StatusCode::BAD_REQUEST
     } else if error.starts_with("local ffmpeg toolchain not found.") {
+        StatusCode::SERVICE_UNAVAILABLE
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
+}
+
+fn classify_model_prepare_error(error: &str) -> StatusCode {
+    if error.starts_with("local whisper toolchain not found.")
+        || error.starts_with("local llama toolchain not found.")
+        || error.starts_with("whisper model not found at ")
+        || error.starts_with("whisper model path has no parent directory:")
+        || error.starts_with("llama model file not found:")
+        || error.starts_with("llama model cache path is unavailable")
+    {
         StatusCode::SERVICE_UNAVAILABLE
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
@@ -1105,6 +1222,8 @@ fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::index::ModelPreparationStatus;
+    use crate::test_support::env_lock;
     use axum::body::Body;
     use axum::http::{Method, Request};
     use http_body_util::BodyExt;
@@ -1638,7 +1757,7 @@ mod tests {
 
         fs::write(repo_root.join("models/whisper/ggml-base.bin"), "model").expect("whisper model");
         fs::write(
-            repo_root.join("models/llama/hf/model.gguf"),
+            repo_root.join("models/llama/hf/ggml-org__gemma-3-4b-it-GGUF.gguf"),
             "cached llama model",
         )
         .expect("llama model");
@@ -1695,6 +1814,183 @@ mod tests {
                 .any(|message| message.contains("whisper"))
         );
         assert!(body.errors.iter().any(|message| message.contains("llama")));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn post_prepare_whisper_returns_ok_when_model_is_already_ready() {
+        let repo_root = temp_workspace();
+        let whisper_bin = repo_root
+            .join(".build/whisper")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("bin");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(repo_root.join("models/whisper")).expect("model dir");
+        fs::create_dir_all(&whisper_bin).expect("whisper bin");
+
+        write_build_script(&build_script_path(&repo_root, "whisper"));
+        write_simple_command(&fake_command_path(&whisper_bin, "whisper-cli"));
+        fs::write(repo_root.join("models/whisper/ggml-base.bin"), "model").expect("model");
+
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .oneshot(post_empty_request("/models/whisper/prepare"))
+            .await
+            .expect("prepare response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: ModelPrepareResponse = read_json(response).await;
+        assert_eq!(body.model, ModelKind::Whisper);
+        assert!(body.ready);
+        assert!(body.already_ready);
+        assert!(!body.deduplicated);
+        assert_eq!(body.preparation.status, ModelPreparationStatus::Completed);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn post_prepare_whisper_runs_background_download_and_updates_model_status() {
+        let repo_root = temp_workspace();
+        let whisper_bin = repo_root
+            .join(".build/whisper")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("bin");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(&whisper_bin).expect("whisper bin");
+
+        write_build_script(&build_script_path(&repo_root, "whisper"));
+        write_simple_command(&fake_command_path(&whisper_bin, "whisper-cli"));
+        write_fake_download_script(
+            &whisper_download_script_path(&repo_root),
+            &repo_root.join("download.log"),
+        );
+
+        let app = router_with_repo_root(repo_root.clone());
+        let response = app
+            .clone()
+            .oneshot(post_empty_request("/models/whisper/prepare"))
+            .await
+            .expect("prepare response");
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let body: ModelPrepareResponse = read_json(response).await;
+        assert_eq!(body.model, ModelKind::Whisper);
+        assert!(!body.ready);
+        assert!(!body.already_ready);
+        assert!(!body.deduplicated);
+        assert_eq!(body.preparation.status, ModelPreparationStatus::Running);
+
+        let status = wait_for_model_preparation_state(&app, ModelKind::Whisper).await;
+        assert!(status.available);
+        assert!(status.ready);
+        assert_eq!(status.preparation.status, ModelPreparationStatus::Completed);
+        assert!(repo_root.join("models/whisper/ggml-base.bin").is_file());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn post_prepare_llama_deduplicates_running_preparation() {
+        let repo_root = temp_workspace();
+        let llama_bin = repo_root
+            .join(".build/llama")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("bin");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        fs::create_dir_all(&llama_bin).expect("llama bin");
+
+        write_build_script(&build_script_path(&repo_root, "llama"));
+        write_simple_command(&fake_command_path(&llama_bin, "llama-cli"));
+        IndexStore::new(&repo_root)
+            .update_model_preparation(ModelKind::Llama, |record| {
+                record.mark_running(crate::app::now_rfc3339().expect("timestamp"));
+            })
+            .expect("seed running preparation");
+
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .oneshot(post_empty_request("/models/llama/prepare"))
+            .await
+            .expect("prepare response");
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let body: ModelPrepareResponse = read_json(response).await;
+        assert_eq!(body.model, ModelKind::Llama);
+        assert!(!body.ready);
+        assert!(!body.already_ready);
+        assert!(body.deduplicated);
+        assert_eq!(body.preparation.status, ModelPreparationStatus::Running);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn post_prepare_whisper_returns_503_for_invalid_configuration() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe { std::env::set_var(crate::whisper::MODEL_ENV_VAR, "models/whisper/custom.bin") };
+
+        let repo_root = temp_workspace();
+        let whisper_bin = repo_root
+            .join(".build/whisper")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("bin");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(&whisper_bin).expect("whisper bin");
+        write_build_script(&build_script_path(&repo_root, "whisper"));
+        write_simple_command(&fake_command_path(&whisper_bin, "whisper-cli"));
+
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .oneshot(post_empty_request("/models/whisper/prepare"))
+            .await
+            .expect("prepare response");
+
+        unsafe { std::env::remove_var(crate::whisper::MODEL_ENV_VAR) };
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body: ErrorResponse = read_json(response).await;
+        assert!(body.message.contains("whisper model not found at"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn post_prepare_llama_marks_failed_status_when_download_fails() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe { std::env::remove_var(crate::llama::MODEL_ENV_VAR) };
+
+        let repo_root = temp_workspace();
+        let llama_bin = repo_root
+            .join(".build/llama")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("bin");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        fs::create_dir_all(&llama_bin).expect("llama bin");
+        write_build_script(&build_script_path(&repo_root, "llama"));
+        write_failing_llama_cli(&fake_command_path(&llama_bin, "llama-cli"));
+
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .clone()
+            .oneshot(post_empty_request("/models/llama/prepare"))
+            .await
+            .expect("prepare response");
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let body: ModelPrepareResponse = read_json(response).await;
+        assert_eq!(body.model, ModelKind::Llama);
+        assert_eq!(body.preparation.status, ModelPreparationStatus::Running);
+
+        let status = wait_for_model_preparation_state(&app, ModelKind::Llama).await;
+        assert!(status.available);
+        assert!(!status.ready);
+        assert_eq!(status.preparation.status, ModelPreparationStatus::Failed);
+        assert!(
+            status
+                .error
+                .as_deref()
+                .expect("error")
+                .contains("synthetic llama failure")
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1955,6 +2251,31 @@ mod tests {
         write_platform_script(path, unix_script, windows_script);
     }
 
+    fn write_failing_llama_cli(path: &Path) {
+        let unix_script = "#!/bin/sh\nprintf 'synthetic llama failure' >&2\nexit 1\n";
+        let windows_script = "@echo off\necho synthetic llama failure 1>&2\nexit /b 1\n";
+        write_platform_script(path, unix_script, windows_script);
+    }
+
+    fn whisper_download_script_path(repo_root: &Path) -> PathBuf {
+        if cfg!(windows) {
+            repo_root.join("whisper.cpp/models/download-ggml-model.cmd")
+        } else {
+            repo_root.join("whisper.cpp/models/download-ggml-model.sh")
+        }
+    }
+
+    fn write_fake_download_script(path: &Path, log_path: &Path) {
+        let log = log_path.display();
+        let unix_script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{log}'\nmkdir -p \"$2\"\n: > \"$2/ggml-$1.bin\"\n"
+        );
+        let windows_script = format!(
+            "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nset \"model=%~1\"\nset \"out_dir=%~2\"\nif \"!out_dir:~0,4!\"==\"\\\\?\\\" set \"out_dir=!out_dir:~4!\"\n> \"{log}\" echo(!model! !out_dir!\nif not exist \"!out_dir!\" mkdir \"!out_dir!\"\n> \"!out_dir!\\ggml-!model!.bin\" type nul\nexit /b 0\n"
+        );
+        write_platform_script(path, &unix_script, &windows_script);
+    }
+
     fn write_test_wav(path: &Path, channels: u16) {
         let mut file = File::create(path).expect("fixture wav");
         let sample_rate: u32 = 16_000;
@@ -1997,7 +2318,7 @@ mod tests {
         make_executable(path);
     }
 
-    fn make_executable(path: &Path) {
+    fn make_executable(_path: &Path) {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -2041,6 +2362,14 @@ mod tests {
             .expect("request")
     }
 
+    fn post_empty_request(uri: &str) -> Request<Body> {
+        Request::builder()
+            .method(Method::POST)
+            .uri(uri)
+            .body(Body::empty())
+            .expect("request")
+    }
+
     fn get_request(uri: &str) -> Request<Body> {
         Request::builder()
             .method(Method::GET)
@@ -2077,6 +2406,37 @@ mod tests {
         let job = wait_for_job_terminal_state(app, job_id).await;
         assert_eq!(job.status, JobStatus::Completed);
         job
+    }
+
+    async fn wait_for_model_preparation_state(
+        app: &Router,
+        model: ModelKind,
+    ) -> ModelStatusEntryResponse {
+        let deadline = Instant::now() + Duration::from_secs(5);
+
+        loop {
+            let response = app
+                .clone()
+                .oneshot(get_request("/models/status"))
+                .await
+                .expect("models status response");
+            let status: ModelStatusResponse = read_json(response).await;
+            let entry = match model {
+                ModelKind::Whisper => status.whisper,
+                ModelKind::Llama => status.llama,
+            };
+
+            if entry.preparation.status != ModelPreparationStatus::Running {
+                return entry;
+            }
+
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {} model preparation",
+                model.as_str()
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
     }
 
     async fn wait_for_job_terminal_state(app: &Router, job_id: &str) -> JobRecord {

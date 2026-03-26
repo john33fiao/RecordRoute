@@ -8,6 +8,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IndexFile {
     pub version: u32,
+    #[serde(default)]
+    pub model_preparations: ModelPreparations,
     pub jobs: Vec<JobRecord>,
 }
 
@@ -50,6 +52,64 @@ pub enum TaskStatus {
     Running,
     Completed,
     Failed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelKind {
+    Whisper,
+    Llama,
+}
+
+impl ModelKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Whisper => "whisper",
+            Self::Llama => "llama",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelPreparationStatus {
+    Idle,
+    Running,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelPreparationRecord {
+    pub status: ModelPreparationStatus,
+    #[serde(default)]
+    pub started_at: Option<String>,
+    #[serde(default)]
+    pub finished_at: Option<String>,
+    #[serde(default)]
+    pub heartbeat_at: Option<String>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+}
+
+impl Default for ModelPreparationRecord {
+    fn default() -> Self {
+        Self {
+            status: ModelPreparationStatus::Idle,
+            started_at: None,
+            finished_at: None,
+            heartbeat_at: None,
+            last_error: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ModelPreparations {
+    #[serde(default)]
+    pub whisper: ModelPreparationRecord,
+    #[serde(default)]
+    pub llama: ModelPreparationRecord,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -98,7 +158,8 @@ pub struct IndexStore {
 impl IndexFile {
     fn empty() -> Self {
         Self {
-            version: 1,
+            version: 2,
+            model_preparations: ModelPreparations::default(),
             jobs: Vec::new(),
         }
     }
@@ -245,6 +306,60 @@ impl TaskRecord {
     }
 }
 
+impl ModelPreparations {
+    #[cfg(test)]
+    pub fn record(&self, model: ModelKind) -> &ModelPreparationRecord {
+        match model {
+            ModelKind::Whisper => &self.whisper,
+            ModelKind::Llama => &self.llama,
+        }
+    }
+
+    fn record_mut(&mut self, model: ModelKind) -> &mut ModelPreparationRecord {
+        match model {
+            ModelKind::Whisper => &mut self.whisper,
+            ModelKind::Llama => &mut self.llama,
+        }
+    }
+}
+
+impl ModelPreparationRecord {
+    pub fn mark_running(&mut self, started_at: String) {
+        self.status = ModelPreparationStatus::Running;
+        self.started_at = Some(started_at.clone());
+        self.finished_at = None;
+        self.heartbeat_at = Some(started_at);
+        self.last_error = None;
+    }
+
+    pub fn mark_completed(&mut self, finished_at: String) {
+        self.status = ModelPreparationStatus::Completed;
+        if self.started_at.is_none() {
+            self.started_at = Some(finished_at.clone());
+        }
+        self.finished_at = Some(finished_at.clone());
+        self.heartbeat_at = Some(finished_at);
+        self.last_error = None;
+    }
+
+    pub fn mark_failed(&mut self, finished_at: String, error: String) {
+        self.status = ModelPreparationStatus::Failed;
+        if self.started_at.is_none() {
+            self.started_at = Some(finished_at.clone());
+        }
+        self.finished_at = Some(finished_at.clone());
+        self.heartbeat_at = Some(finished_at);
+        self.last_error = Some(error);
+    }
+
+    pub fn touch(&mut self, heartbeat_at: String) {
+        if self.started_at.is_none() {
+            self.started_at = Some(heartbeat_at.clone());
+        }
+        self.heartbeat_at = Some(heartbeat_at);
+    }
+}
+
 fn build_task_id() -> String {
     Uuid::now_v7().to_string()
 }
@@ -363,6 +478,30 @@ impl IndexStore {
         self.with_locked_index_read(|index| Ok(index.jobs.iter().rev().cloned().collect()))
     }
 
+    pub fn model_preparations(&self) -> Result<ModelPreparations, String> {
+        self.with_locked_index_read(|index| Ok(index.model_preparations.clone()))
+    }
+
+    #[cfg(test)]
+    pub fn model_preparation(&self, model: ModelKind) -> Result<ModelPreparationRecord, String> {
+        self.with_locked_index_read(|index| Ok(index.model_preparations.record(model).clone()))
+    }
+
+    pub fn update_model_preparation(
+        &self,
+        model: ModelKind,
+        update: impl FnOnce(&mut ModelPreparationRecord),
+    ) -> Result<ModelPreparationRecord, String> {
+        let mut updated = None;
+        self.with_locked_index(|index| {
+            let record = index.model_preparations.record_mut(model);
+            update(record);
+            updated = Some(record.clone());
+            Ok(())
+        })?;
+        updated.ok_or_else(|| format!("failed to update {} model preparation", model.as_str()))
+    }
+
     fn with_locked_index(
         &self,
         mutate: impl FnOnce(&mut IndexFile) -> Result<(), String>,
@@ -470,6 +609,24 @@ mod tests {
         let index = store.read_index().expect("read index");
 
         assert_eq!(index, IndexFile::empty());
+    }
+
+    #[test]
+    fn reads_legacy_index_without_model_preparations() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        store.ensure_db_dir().expect("db dir");
+        fs::write(
+            repo_root.join("db/index.json"),
+            r#"{"version":1,"jobs":[]}"#,
+        )
+        .expect("legacy index");
+
+        let index = store.read_index().expect("read legacy index");
+
+        assert_eq!(index.version, 1);
+        assert_eq!(index.model_preparations, ModelPreparations::default());
+        assert!(index.jobs.is_empty());
     }
 
     #[test]
@@ -644,6 +801,34 @@ mod tests {
         assert_eq!(jobs.len(), 2);
         assert_eq!(jobs[0].job_id, "job-2");
         assert_eq!(jobs[1].job_id, "job-1");
+    }
+
+    #[test]
+    fn updates_model_preparation_records() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let updated = store
+            .update_model_preparation(ModelKind::Whisper, |record| {
+                record.mark_running("2026-01-01T00:00:00Z".to_string());
+            })
+            .expect("update model preparation");
+
+        assert_eq!(updated.status, ModelPreparationStatus::Running);
+        assert_eq!(
+            updated.heartbeat_at.as_deref(),
+            Some("2026-01-01T00:00:00Z")
+        );
+
+        let persisted = store
+            .model_preparation(ModelKind::Whisper)
+            .expect("read model preparation");
+        assert_eq!(persisted, updated);
+        assert_eq!(
+            store
+                .model_preparation(ModelKind::Llama)
+                .expect("llama model preparation"),
+            ModelPreparationRecord::default()
+        );
     }
 
     fn path_to_string(path: &Path) -> String {

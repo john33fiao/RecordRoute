@@ -3,7 +3,8 @@ use crate::ffmpeg::{
     run_conversion,
 };
 use crate::index::{
-    IndexStore, JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus, TaskStatus, TaskType,
+    IndexStore, JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus, ModelKind,
+    ModelPreparationRecord, ModelPreparationStatus, TaskStatus, TaskType,
 };
 use crate::llama::{Toolchain as LlamaToolchain, run_summary_generation};
 use crate::server;
@@ -12,6 +13,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use time::OffsetDateTime;
@@ -22,6 +24,9 @@ use uuid::Uuid;
 const RUN_ID_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[year][month][day]T[hour][minute][second]");
 const WAIT_FOR_RUNNING_JOB_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const MODEL_PREPARATION_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const MODEL_PREPARATION_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
+const MODEL_PREPARATION_STALE_THRESHOLD_SECS: i64 = 60;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CliCommand {
@@ -130,6 +135,58 @@ impl FfmpegJobSubmission {
 
     pub fn should_execute(&self) -> bool {
         self.disposition == FfmpegJobDisposition::Submitted
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelPrepareDisposition {
+    Submitted,
+    AlreadyReady,
+    Deduplicated,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelPrepareSubmission {
+    pub model: ModelKind,
+    pub disposition: ModelPrepareDisposition,
+    pub preparation: ModelPreparationRecord,
+}
+
+impl ModelPrepareSubmission {
+    pub fn already_ready(&self) -> bool {
+        self.disposition == ModelPrepareDisposition::AlreadyReady
+    }
+
+    pub fn deduplicated(&self) -> bool {
+        self.disposition == ModelPrepareDisposition::Deduplicated
+    }
+
+    pub fn should_execute(&self) -> bool {
+        self.disposition == ModelPrepareDisposition::Submitted
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelStatusEntry {
+    pub model: ModelKind,
+    pub available: bool,
+    pub ready: bool,
+    pub error: Option<String>,
+    pub preparation: ModelPreparationRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelStatusSnapshot {
+    pub whisper: ModelStatusEntry,
+    pub llama: ModelStatusEntry,
+}
+
+impl ModelStatusSnapshot {
+    pub fn entry(&self, model: ModelKind) -> &ModelStatusEntry {
+        match model {
+            ModelKind::Whisper => &self.whisper,
+            ModelKind::Llama => &self.llama,
+        }
     }
 }
 
@@ -439,8 +496,8 @@ pub fn execute_stt_job(
     if audio_files.is_empty() {
         return Err(format!("no audio files selected for stt: {job_id}"));
     }
+    ensure_model_prepared(repo_root, ModelKind::Whisper)?;
     let toolchain = WhisperToolchain::discover(repo_root)?;
-    toolchain.ensure_model()?;
     fs::create_dir_all(&stt_dir).map_err(|error| {
         format!(
             "failed to create stt directory {}: {error}",
@@ -568,8 +625,8 @@ pub fn execute_summary_job(
             prompt_file.display()
         )
     })?;
+    ensure_model_prepared(repo_root, ModelKind::Llama)?;
     let toolchain = LlamaToolchain::discover(repo_root)?;
-    toolchain.ensure_model()?;
     let generation_result = run_summary_generation(&toolchain, &prompt_file, &summary_file);
     let _ = fs::remove_file(&prompt_file);
     generation_result?;
@@ -625,8 +682,8 @@ pub fn run_stt_with_repo_root(
     }
 
     let selected = select_stt_candidate(&candidates, reader, writer)?;
+    ensure_model_prepared(repo_root, ModelKind::Whisper)?;
     let toolchain = WhisperToolchain::discover(repo_root)?;
-    toolchain.ensure_model()?;
 
     let stt_dir = selected.job_dir.join("stt");
     fs::create_dir_all(&stt_dir).map_err(|error| {
@@ -677,8 +734,8 @@ pub fn run_summary_with_repo_root(
         });
     }
 
+    ensure_model_prepared(repo_root, ModelKind::Llama)?;
     let toolchain = LlamaToolchain::discover(repo_root)?;
-    toolchain.ensure_model()?;
     fs::create_dir_all(&summary_dir).map_err(|error| {
         format!(
             "failed to create summary directory {}: {error}",
@@ -708,8 +765,302 @@ pub fn run_summary_with_repo_root(
 }
 
 pub fn prepare_llama_model_with_repo_root(repo_root: &Path) -> Result<(), String> {
-    let toolchain = LlamaToolchain::discover(repo_root)?;
-    toolchain.ensure_model()
+    ensure_model_prepared(repo_root, ModelKind::Llama).map(|_| ())
+}
+
+pub fn submit_model_preparation(
+    repo_root: &Path,
+    model: ModelKind,
+) -> Result<ModelPrepareSubmission, String> {
+    let index_store = IndexStore::new(repo_root);
+    let inspection = inspect_model_preparation(repo_root, model)?;
+    if inspection.ready {
+        let finished_at = now_rfc3339()?;
+        let preparation = index_store.update_model_preparation(model, |record| {
+            record.mark_completed(finished_at.clone());
+        })?;
+        return Ok(ModelPrepareSubmission {
+            model,
+            disposition: ModelPrepareDisposition::AlreadyReady,
+            preparation,
+        });
+    }
+
+    let started_at = now_rfc3339()?;
+    let mut deduplicated = false;
+    let preparation = index_store.update_model_preparation(model, |record| {
+        if record.status == ModelPreparationStatus::Running && !is_model_preparation_stale(record) {
+            deduplicated = true;
+            return;
+        }
+        record.mark_running(started_at.clone());
+    })?;
+
+    Ok(ModelPrepareSubmission {
+        model,
+        disposition: if deduplicated {
+            ModelPrepareDisposition::Deduplicated
+        } else {
+            ModelPrepareDisposition::Submitted
+        },
+        preparation,
+    })
+}
+
+pub fn execute_model_preparation(
+    repo_root: &Path,
+    model: ModelKind,
+) -> Result<ModelPreparationRecord, String> {
+    let index_store = IndexStore::new(repo_root);
+    let heartbeat_at = now_rfc3339()?;
+    index_store.update_model_preparation(model, |record| {
+        if record.status == ModelPreparationStatus::Running {
+            record.touch(heartbeat_at.clone());
+        } else {
+            record.mark_running(heartbeat_at.clone());
+        }
+    })?;
+
+    let repo_root_for_heartbeat = repo_root.to_path_buf();
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let heartbeat_thread =
+        thread::spawn(move || {
+            loop {
+                match stop_rx.recv_timeout(MODEL_PREPARATION_HEARTBEAT_INTERVAL) {
+                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        if let Ok(heartbeat) = now_rfc3339() {
+                            let _ = IndexStore::new(&repo_root_for_heartbeat)
+                                .update_model_preparation(model, |record| {
+                                    if record.status == ModelPreparationStatus::Running {
+                                        record.touch(heartbeat.clone());
+                                    }
+                                });
+                        }
+                    }
+                }
+            }
+        });
+
+    let result = ensure_model_with_toolchain(repo_root, model);
+    drop(stop_tx);
+    let _ = heartbeat_thread.join();
+
+    match result {
+        Ok(()) => {
+            let finished_at = now_rfc3339()?;
+            index_store.update_model_preparation(model, |record| {
+                record.mark_completed(finished_at.clone());
+            })
+        }
+        Err(error) => {
+            let finished_at = now_rfc3339()?;
+            index_store.update_model_preparation(model, |record| {
+                record.mark_failed(finished_at.clone(), error.clone());
+            })?;
+            Err(error)
+        }
+    }
+}
+
+pub fn wait_for_model_preparation(
+    repo_root: &Path,
+    model: ModelKind,
+) -> Result<ModelPreparationRecord, String> {
+    loop {
+        let snapshot = collect_model_status_snapshot(repo_root)?;
+        let entry = snapshot.entry(model).clone();
+        if entry.ready {
+            return Ok(entry.preparation);
+        }
+
+        match entry.preparation.status {
+            ModelPreparationStatus::Running => {
+                if is_model_preparation_stale(&entry.preparation) {
+                    let submission = submit_model_preparation(repo_root, model)?;
+                    if submission.already_ready() {
+                        return Ok(submission.preparation);
+                    }
+                    if submission.should_execute() {
+                        return execute_model_preparation(repo_root, model);
+                    }
+                }
+                thread::sleep(MODEL_PREPARATION_WAIT_POLL_INTERVAL);
+            }
+            ModelPreparationStatus::Failed => {
+                return Err(entry.error.unwrap_or_else(|| {
+                    entry
+                        .preparation
+                        .last_error
+                        .unwrap_or_else(|| format!("{} model preparation failed", model.as_str()))
+                }));
+            }
+            ModelPreparationStatus::Idle => {
+                return Err(format!(
+                    "{} model preparation is not running",
+                    model.as_str()
+                ));
+            }
+            ModelPreparationStatus::Completed => {
+                return Err(entry.error.unwrap_or_else(|| {
+                    format!("{} model is not ready after preparation", model.as_str())
+                }));
+            }
+        }
+    }
+}
+
+pub fn ensure_model_prepared(
+    repo_root: &Path,
+    model: ModelKind,
+) -> Result<ModelPreparationRecord, String> {
+    let submission = submit_model_preparation(repo_root, model)?;
+    if submission.already_ready() {
+        return Ok(submission.preparation);
+    }
+    if submission.should_execute() {
+        return execute_model_preparation(repo_root, model);
+    }
+    wait_for_model_preparation(repo_root, model)
+}
+
+pub fn collect_model_status_snapshot(repo_root: &Path) -> Result<ModelStatusSnapshot, String> {
+    let preparations = IndexStore::new(repo_root).model_preparations()?;
+    Ok(ModelStatusSnapshot {
+        whisper: collect_model_status_entry(repo_root, ModelKind::Whisper, preparations.whisper),
+        llama: collect_model_status_entry(repo_root, ModelKind::Llama, preparations.llama),
+    })
+}
+
+fn collect_model_status_entry(
+    repo_root: &Path,
+    model: ModelKind,
+    preparation: ModelPreparationRecord,
+) -> ModelStatusEntry {
+    match model {
+        ModelKind::Whisper => match WhisperToolchain::discover(repo_root) {
+            Ok(toolchain) => {
+                let ready = toolchain.is_model_ready();
+                let error = if ready {
+                    None
+                } else {
+                    toolchain
+                        .can_prepare_model()
+                        .err()
+                        .or_else(|| failed_model_preparation_error(&preparation))
+                };
+                ModelStatusEntry {
+                    model,
+                    available: true,
+                    ready,
+                    error,
+                    preparation,
+                }
+            }
+            Err(error) => ModelStatusEntry {
+                model,
+                available: false,
+                ready: false,
+                error: Some(error),
+                preparation,
+            },
+        },
+        ModelKind::Llama => match LlamaToolchain::discover(repo_root) {
+            Ok(toolchain) => {
+                let ready = toolchain.is_model_ready();
+                let error = if ready {
+                    None
+                } else {
+                    toolchain
+                        .can_prepare_model()
+                        .err()
+                        .or_else(|| failed_model_preparation_error(&preparation))
+                };
+                ModelStatusEntry {
+                    model,
+                    available: true,
+                    ready,
+                    error,
+                    preparation,
+                }
+            }
+            Err(error) => ModelStatusEntry {
+                model,
+                available: false,
+                ready: false,
+                error: Some(error),
+                preparation,
+            },
+        },
+    }
+}
+
+fn failed_model_preparation_error(preparation: &ModelPreparationRecord) -> Option<String> {
+    if preparation.status == ModelPreparationStatus::Failed {
+        preparation.last_error.clone()
+    } else {
+        None
+    }
+}
+
+fn inspect_model_preparation(
+    repo_root: &Path,
+    model: ModelKind,
+) -> Result<ModelInspection, String> {
+    match model {
+        ModelKind::Whisper => {
+            let toolchain = WhisperToolchain::discover(repo_root)?;
+            if toolchain.is_model_ready() {
+                Ok(ModelInspection { ready: true })
+            } else {
+                toolchain.can_prepare_model()?;
+                Ok(ModelInspection { ready: false })
+            }
+        }
+        ModelKind::Llama => {
+            let toolchain = LlamaToolchain::discover(repo_root)?;
+            if toolchain.is_model_ready() {
+                Ok(ModelInspection { ready: true })
+            } else {
+                toolchain.can_prepare_model()?;
+                Ok(ModelInspection { ready: false })
+            }
+        }
+    }
+}
+
+fn ensure_model_with_toolchain(repo_root: &Path, model: ModelKind) -> Result<(), String> {
+    match model {
+        ModelKind::Whisper => WhisperToolchain::discover(repo_root)?.ensure_model(),
+        ModelKind::Llama => LlamaToolchain::discover(repo_root)?.ensure_model(),
+    }
+}
+
+fn is_model_preparation_stale(record: &ModelPreparationRecord) -> bool {
+    if record.status != ModelPreparationStatus::Running {
+        return false;
+    }
+
+    let Some(heartbeat_at) = record
+        .heartbeat_at
+        .as_deref()
+        .or(record.started_at.as_deref())
+    else {
+        return true;
+    };
+
+    let Ok(cutoff) = (OffsetDateTime::now_utc()
+        - time::Duration::seconds(MODEL_PREPARATION_STALE_THRESHOLD_SECS))
+    .format(&Rfc3339) else {
+        return false;
+    };
+
+    heartbeat_at <= cutoff.as_str()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ModelInspection {
+    ready: bool,
 }
 
 fn run_summary_from_completed_job(job: JobRecord) -> Result<RunSummary, String> {
@@ -1167,6 +1518,7 @@ mod tests {
     use crate::test_support::env_lock;
     use std::fs::{self, File};
     use std::io::Cursor;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn resolves_single_path_argument() {
@@ -1430,7 +1782,7 @@ mod tests {
 
         let index = fs::read_to_string(repo_root.join("db/index.json")).expect("index");
         let parsed: serde_json::Value = serde_json::from_str(&index).expect("valid json");
-        assert_eq!(parsed["version"], 1);
+        assert_eq!(parsed["version"], 2);
         let jobs = parsed["jobs"].as_array().expect("jobs array");
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0]["status"], "completed");
@@ -2015,6 +2367,97 @@ mod tests {
     }
 
     #[test]
+    fn submit_model_preparation_replaces_stale_running_record() {
+        let repo_root = temp_workspace();
+        let whisper_bin = repo_root
+            .join(".build/whisper")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("bin");
+        let stale_heartbeat = "2020-01-01T00:00:00Z".to_string();
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(&whisper_bin).expect("whisper bin");
+
+        write_build_script(&build_script_path(&repo_root, "whisper"));
+        write_fake_whisper_cli(
+            &fake_command_path(&whisper_bin, "whisper-cli"),
+            &repo_root.join("whisper.log"),
+            false,
+        );
+        write_fake_download_script(
+            &whisper_download_script_path(&repo_root),
+            &repo_root.join("download.log"),
+        );
+
+        let store = IndexStore::new(&repo_root);
+        store
+            .update_model_preparation(ModelKind::Whisper, |record| {
+                record.mark_running(stale_heartbeat.clone());
+            })
+            .expect("seed running preparation");
+
+        let submission = submit_model_preparation(&repo_root, ModelKind::Whisper)
+            .expect("submit model preparation");
+
+        assert!(submission.should_execute());
+        assert_eq!(
+            submission.preparation.status,
+            ModelPreparationStatus::Running
+        );
+        assert_ne!(
+            submission.preparation.started_at.as_deref(),
+            Some(stale_heartbeat.as_str())
+        );
+    }
+
+    #[test]
+    fn ensure_model_prepared_waits_for_running_preparation_without_duplicate_download() {
+        let repo_root = temp_workspace();
+        let whisper_bin = repo_root
+            .join(".build/whisper")
+            .join(crate::ffmpeg::target_dir_name())
+            .join("bin");
+        let gate_path = repo_root.join("download.gate");
+        let count_path = repo_root.join("download.count");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        fs::create_dir_all(repo_root.join("whisper.cpp/models")).expect("download dir");
+        fs::create_dir_all(&whisper_bin).expect("whisper bin");
+        fs::write(&gate_path, "gate").expect("gate file");
+
+        write_build_script(&build_script_path(&repo_root, "whisper"));
+        write_fake_whisper_cli(
+            &fake_command_path(&whisper_bin, "whisper-cli"),
+            &repo_root.join("whisper.log"),
+            false,
+        );
+        write_blocking_download_script(
+            &whisper_download_script_path(&repo_root),
+            &count_path,
+            &gate_path,
+        );
+
+        let first_repo_root = repo_root.clone();
+        let first = thread::spawn(move || {
+            ensure_model_prepared(&first_repo_root, ModelKind::Whisper)
+                .expect("first model preparation");
+        });
+        wait_for_path(&count_path);
+
+        let second_repo_root = repo_root.clone();
+        let second = thread::spawn(move || {
+            ensure_model_prepared(&second_repo_root, ModelKind::Whisper)
+                .expect("second model preparation");
+        });
+
+        fs::remove_file(&gate_path).expect("remove gate");
+        first.join().expect("first join");
+        second.join().expect("second join");
+
+        assert!(repo_root.join("models/whisper/ggml-base.bin").is_file());
+        assert_eq!(fs::read_to_string(count_path).expect("count file"), "1");
+    }
+
+    #[test]
     fn load_repo_env_reads_only_dot_env() {
         let _guard = env_lock()
             .lock()
@@ -2187,6 +2630,31 @@ mod tests {
         );
         write_platform_script(path, &unix_script, &windows_script);
     }
+
+    fn write_blocking_download_script(path: &Path, count_path: &Path, gate_path: &Path) {
+        let count = count_path.display();
+        let gate = gate_path.display();
+        let unix_script = format!(
+            "#!/bin/sh\ncount=0\nif [ -f '{count}' ]; then\n  count=$(cat '{count}')\nfi\ncount=$((count + 1))\nprintf '%s' \"$count\" > '{count}'\nmkdir -p \"$2\"\nwhile [ -f '{gate}' ]; do\n  sleep 0.05\ndone\n: > \"$2/ggml-$1.bin\"\n"
+        );
+        let windows_script = format!(
+            "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nset /a count=0\nif exist \"{count}\" set /p count=<\"{count}\"\nset /a count+=1\n> \"{count}\" <nul set /p =!count!\nset \"out_dir=%~2\"\nif \"!out_dir:~0,4!\"==\"\\\\?\\\" set \"out_dir=!out_dir:~4!\"\n:wait\nif exist \"{gate}\" (\n  powershell -NoProfile -Command \"Start-Sleep -Milliseconds 50\" >nul 2>&1\n  goto wait\n)\nif not exist \"!out_dir!\" mkdir \"!out_dir!\"\n> \"!out_dir!\\ggml-%~1.bin\" type nul\nexit /b 0\n"
+        );
+        write_platform_script(path, &unix_script, &windows_script);
+    }
+
+    fn wait_for_path(path: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !path.exists() {
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {}",
+                path.display()
+            );
+            thread::sleep(Duration::from_millis(25));
+        }
+    }
+
     fn write_test_wav(path: &Path, channels: u16) {
         let mut file = File::create(path).expect("fixture wav");
         let sample_rate: u32 = 16_000;

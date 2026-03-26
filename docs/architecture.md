@@ -1,4 +1,4 @@
-# RecordRoute 아키텍처 (현재 코드 기준)
+﻿# RecordRoute 아키텍처 (현재 코드 기준)
 
 이 문서는 `rust/src/*.rs` 구현을 기준으로 현재 RecordRoute 동작 구조를 요약합니다.
 
@@ -13,6 +13,7 @@
 핵심 원칙:
 - FFmpeg/Whisper/Llama 모두 Rust 라이브러리 링크가 아니라 **로컬 CLI 실행 래퍼** 방식
 - API/CLI는 동일한 도메인 함수(`app.rs`, `index.rs`)를 공유
+- job/task/model preparation 상태는 모두 `db/index.json`에 저장한다.
 
 ## 2. CLI 모드
 
@@ -30,6 +31,13 @@
 
 `db/index.json` 구조의 핵심 타입은 다음과 같습니다.
 
+- `version`: 현재 저장 포맷 버전은 `2`
+- `jobs`: `JobRecord` 목록
+- `model_preparations`
+  - `whisper`: `ModelPreparationRecord`
+  - `llama`: `ModelPreparationRecord`
+
+주요 타입:
 - `JobRecord`
   - `job_id`, `status`, `started_at`, `finished_at`
   - `source_path`, `source_file_name`, `job_dir`
@@ -38,8 +46,13 @@
 - `JobStatus`: `running | completed | failed`
 - `TaskType`: `ffmpeg | stt | summary`
 - `TaskStatus`: `running | completed | failed`
+- `ModelKind`: `whisper | llama`
+- `ModelPreparationStatus`: `idle | running | completed | failed`
+- `ModelPreparationRecord`
+  - `status`, `started_at`, `finished_at`, `heartbeat_at`, `last_error`
 
 `IndexStore`는 `db/index.lock` 파일 락 기반으로 읽기/쓰기 동기화를 수행합니다.
+기존 `model_preparations` 필드가 없는 구버전 인덱스도 `serde(default)`로 읽을 수 있습니다.
 
 ## 4. 파이프라인 단계
 
@@ -67,7 +80,7 @@
    - 대상 wav들의 transcript가 모두 존재하면 `Reused`
    - 아니면 STT task를 running으로 upsert하고 `Submitted`
 2. `execute_stt_job()`
-   - whisper toolchain/model 확인
+   - whisper 준비 상태를 `ensure_model_prepared(..., ModelKind::Whisper)`로 확인
    - 각 대상 wav에 대해 `stt/<stem>.txt` 생성
    - 성공 시 STT task completed
 
@@ -83,6 +96,7 @@
    - `force_regenerate=false` + 기존 summary 파일 존재 시 `Reused`
    - 아니면 summary task running으로 upsert 후 `Submitted`
 2. `execute_summary_job()`
+   - llama 준비 상태를 `ensure_model_prepared(..., ModelKind::Llama)`로 확인
    - `stt/*.txt` 모아 프롬프트 파일 생성
    - llama 실행 후 결과 텍스트 저장
    - 임시 프롬프트 파일 정리
@@ -91,15 +105,37 @@
 출력 위치:
 - `db/<job_id>/summary/result.txt`
 
-## 5. 외부 툴체인 통합
+## 5. 모델 준비 오케스트레이션
 
-### 5.1 FFmpeg
+모델 준비는 `app.rs`의 공통 헬퍼로 통합되어 있습니다.
+
+- `submit_model_preparation()`
+  - 모델이 이미 준비돼 있으면 `AlreadyReady`
+  - 같은 모델 준비가 진행 중이고 heartbeat가 살아 있으면 `Deduplicated`
+  - stale 실행이면 `failed`로 정리 후 새 준비를 `Submitted`
+- `execute_model_preparation()`
+  - 실제 다운로드/준비 수행
+  - 실행 중 `heartbeat_at`를 10초 주기로 갱신
+  - 성공 시 `completed`, 실패 시 `failed`와 `last_error` 기록
+- `wait_for_model_preparation()`
+  - blocking 경로(STT/Summary/CLI)에서 기존 실행 중 preparation이 끝날 때까지 대기
+- `ensure_model_prepared()`
+  - submit + execute/wait를 묶어 즉시 모델이 필요한 경로에서 사용
+
+동작 규칙:
+- whisper와 llama는 서로 독립적으로 동시에 준비 가능
+- `running` 상태의 heartbeat가 60초 이상 갱신되지 않으면 stale로 간주
+- HTTP API, CLI(`prepare-llama-model`), STT/Summary 런타임 자동 준비가 같은 상태 저장과 deduplicate 규칙을 공유
+
+## 6. 외부 툴체인 통합
+
+### 6.1 FFmpeg
 
 - 탐색 경로: `.build/ffmpeg/<os>-<arch>/install/bin`
 - 필요 명령: `ffmpeg`, `ffprobe`
 - 빌드 스크립트 안내: `scripts/build_ffmpeg.{sh|bat}`
 
-### 5.2 Whisper
+### 6.2 Whisper
 
 - 탐색 경로: `.build/whisper/<os>-<arch>/bin/whisper-cli`
 - 모델 환경변수: `RECORDROUTE_WHISPER_MODEL`
@@ -107,7 +143,7 @@
 - 모델 부재 시 다운로드 스크립트 실행: `scripts/download_whisper_model.{sh|bat}`
 - 특정 백엔드 실패 시(macOS/Windows) CPU fallback 재시도
 
-### 5.3 Llama
+### 6.3 Llama
 
 - 탐색 경로: `.build/llama/<os>-<arch>/bin/llama-cli`
 - 모델 환경변수: `RECORDROUTE_LLAMA_MODEL`
@@ -117,7 +153,7 @@
 - 캐시 경로: `models/llama/hf/...`
 - 백엔드 실패 시(macOS/Windows) CPU fallback 재시도
 
-## 6. HTTP API 레이어
+## 7. HTTP API 레이어
 
 `server.rs`는 `app.rs` 함수를 호출해 비동기 제출/조회 API를 제공합니다.
 
@@ -127,11 +163,19 @@
 - `POST /jobs/{job_id}/summary`: summary task 제출
 - `GET /jobs`, `GET /jobs/{job_id}`, `GET /jobs/{job_id}/status`
 - `GET /jobs/{job_id}/stt/texts`, `GET /jobs/{job_id}/summary/text`
-- `GET /system/status`: toolchain/model 가용성 점검
+- `GET /system/status`: coarse-grained toolchain/model 가용성 점검
+- `GET /models/status`: 모델별 준비 상세 상태 조회
+- `POST /models/whisper/prepare`: whisper 모델 준비 시작 또는 deduplicate
+- `POST /models/llama/prepare`: llama 모델 준비 시작 또는 deduplicate
 
 실행이 필요한 작업은 `tokio::task::spawn_blocking`으로 백그라운드 수행됩니다.
 
-## 7. 재사용/중복제거 규칙 요약
+모델 준비 API 응답 규칙:
+- 이미 준비된 모델이면 `200 OK` + `already_ready=true`
+- 새 준비 시작 또는 실행 중 준비 합류면 `202 Accepted`
+- 툴체인 탐지 실패나 잘못된 모델 설정으로 시작 자체가 불가능하면 `503`
+
+## 8. 재사용/중복제거 규칙 요약
 
 - FFmpeg: 입력 canonical path 기준
   - 완료 + 파일 유효 -> 재사용
@@ -142,5 +186,9 @@
 - Summary:
   - task running -> 중복제거
   - 결과 파일 존재 + 강제 재생성 아님 -> 재사용
+- Model preparation:
+  - 모델 파일/캐시가 이미 준비됨 -> 재사용 성격의 `AlreadyReady`
+  - same model running + heartbeat 정상 -> 중복제거
+  - stale running -> 실패로 전환 후 새 실행 허용
 
 이 규칙 덕분에 동일 요청 반복 시 불필요한 재연산을 줄이고, API/CLI 간 일관된 동작을 유지합니다.
