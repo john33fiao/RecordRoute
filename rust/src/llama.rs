@@ -1,4 +1,5 @@
 use crate::ffmpeg::{build_script_path, locate_command, target_dir_name};
+use crate::tool_runtime::{apply_cpu_fallback_env, command_output_details, should_retry_with_cpu};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -125,28 +126,18 @@ fn configure_runtime_backend(command: &mut Command, backend: LlamaRuntimeBackend
                 .arg("--no-kv-offload")
                 .arg("--no-mmproj-offload");
 
-            if cfg!(target_os = "macos") {
-                command.env("GGML_METAL", "0");
-                command.env("GGML_METAL_DEVICES", "0");
-            }
+            apply_cpu_fallback_env(command);
         }
         LlamaRuntimeBackend::Preferred => {}
     }
 }
 
 fn should_retry_llama_on_cpu(error: &str) -> bool {
-    if !(cfg!(target_os = "macos") || cfg!(windows)) {
-        return false;
-    }
-
-    let lower = error.to_ascii_lowercase();
-    let backend_markers: &[&str] = if cfg!(target_os = "macos") {
-        &["metal", "ggml-metal", "ggml_metal", "mtl"]
-    } else {
-        &["cuda", "cublas", "ggml-cuda", "ggml_cuda", "nvidia"]
-    };
-
-    backend_markers.iter().any(|marker| lower.contains(marker))
+    should_retry_with_cpu(
+        error,
+        &["metal", "ggml-metal", "ggml_metal", "mtl"],
+        &["cuda", "cublas", "ggml-cuda", "ggml_cuda", "nvidia"],
+    )
 }
 
 pub fn run_summary_generation(
@@ -250,19 +241,10 @@ fn run_summary_generation_once(
 }
 
 fn summary_generation_error(prompt_file: &Path, output: &Output) -> String {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
     format!(
         "llama summary generation failed for {}: {}",
         prompt_file.display(),
-        if !stderr.is_empty() {
-            stderr
-        } else if !stdout.is_empty() {
-            stdout
-        } else {
-            "unknown error".to_string()
-        }
+        command_output_details(output)
     )
 }
 
@@ -430,19 +412,10 @@ fn download_hugging_face_model(
         return Ok(());
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let details = if !stderr.is_empty() {
-        stderr
-    } else if !stdout.is_empty() {
-        stdout
-    } else {
-        "unknown error".to_string()
-    };
-
     Err(format!(
-        "failed to download llama model {repo} to {}: {details}",
-        cache_path.display()
+        "failed to download llama model {repo} to {}: {}",
+        cache_path.display(),
+        command_output_details(&output)
     ))
 }
 

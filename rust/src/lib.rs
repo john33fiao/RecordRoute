@@ -4,6 +4,7 @@ mod ffmpeg;
 mod index;
 mod llama;
 mod server;
+mod tool_runtime;
 mod whisper;
 
 pub use app::main_cli;

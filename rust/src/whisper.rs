@@ -1,4 +1,5 @@
 use crate::ffmpeg::{build_script_path, locate_command, target_dir_name};
+use crate::tool_runtime::{apply_cpu_fallback_env, command_output_details, should_retry_with_cpu};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -188,18 +189,10 @@ fn execute_transcription(
         return Ok(());
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     Err(format!(
         "whisper transcription failed for {}: {}",
         input.display(),
-        if !stderr.is_empty() {
-            stderr
-        } else if !stdout.is_empty() {
-            stdout
-        } else {
-            "unknown error".to_string()
-        }
+        command_output_details(&output)
     ))
 }
 
@@ -213,34 +206,24 @@ fn configure_runtime_backend(command: &mut Command, backend: WhisperRuntimeBacke
     match backend {
         WhisperRuntimeBackend::CpuFallback => {
             command.arg("-ng");
-            if cfg!(target_os = "macos") {
-                command.env("GGML_METAL", "0");
-                command.env("GGML_METAL_DEVICES", "0");
-            }
+            apply_cpu_fallback_env(command);
         }
         WhisperRuntimeBackend::Preferred => {}
     }
 }
 
 fn should_retry_transcription_on_cpu(error: &str) -> bool {
-    if !(cfg!(target_os = "macos") || cfg!(windows)) {
-        return false;
-    }
-
-    let lower = error.to_ascii_lowercase();
-    let backend_markers: &[&str] = if cfg!(target_os = "macos") {
+    should_retry_with_cpu(
+        error,
         &[
             "metal",
             "ggml-metal",
             "ggml_metal",
             "mtl",
             "failed to initialize whisper context",
-        ]
-    } else {
-        &["cuda", "cublas", "ggml-cuda", "ggml_cuda", "nvidia"]
-    };
-
-    backend_markers.iter().any(|marker| lower.contains(marker))
+        ],
+        &["cuda", "cublas", "ggml-cuda", "ggml_cuda", "nvidia"],
+    )
 }
 
 fn should_refresh_managed_model(toolchain: &Toolchain, error: &str) -> bool {
@@ -307,21 +290,11 @@ fn download_model(toolchain: &Toolchain, model_name: &str, model_dir: &Path) -> 
         return Ok(());
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let details = if !stderr.is_empty() {
-        stderr
-    } else if !stdout.is_empty() {
-        stdout
-    } else {
-        "unknown error".to_string()
-    };
-
     Err(format!(
         "failed to download whisper model {} to {}: {}",
         model_name,
         toolchain.model_path.display(),
-        details
+        command_output_details(&output)
     ))
 }
 
