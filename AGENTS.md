@@ -39,6 +39,11 @@
   - `Reused`: 기존 산출물 재사용
   - `Deduplicated`: 동일 작업 실행 중이라 합류
 
+추가 데이터 모델 메모:
+- `JobRecord`에는 `split_strategy`가 포함됩니다.
+- `TaskRecord`는 `task_id`(uuid), `retry_count`, `last_error`를 관리합니다.
+- 모델 준비 상태는 `model_preparations.whisper|llama`에 저장됩니다.
+
 ## 5) 구현 원칙
 - FFmpeg/Whisper/Llama는 Rust 직접 링크가 아닌 **CLI 실행 래핑 모델**입니다.
 - API와 CLI는 동일한 도메인 로직(`app.rs`, `index.rs`)을 공유해야 합니다.
@@ -51,7 +56,18 @@
   - 파일 경로면 로컬 모델로 사용
   - 아니면 Hugging Face repo 문자열로 해석
 
-## 7) 에이전트 문서 규칙
+## 7) API 작업 시 체크포인트
+- 상태/모델 계열:
+  - `/system/status`, `/models/status`, `/models/{whisper|llama}/prepare`
+- Job 계열:
+  - `/jobs`, `/jobs/upload`, `/jobs/completed`, `/jobs/by-source`
+  - `/jobs/{job_id}`, `/jobs/{job_id}/status`
+- 산출물/태스크 계열:
+  - `/jobs/{job_id}/stt`, `/jobs/{job_id}/stt/texts`, `/jobs/{job_id}/stt/texts/{transcript_id}`
+  - `/jobs/{job_id}/summary`, `/jobs/{job_id}/summary/text`
+  - `/jobs/{job_id}/files`, `/jobs/{job_id}/files/{*file_name}`
+
+## 8) 에이전트 문서 규칙
 - 에이전트 전용 추가 문서는 이 파일을 기준 문서로 참조합니다.
 - `CLAUDE.md`, `GEMINI.md`에는 중복 설명을 최소화하고 본 문서 링크/요약만 둡니다.
 - 공통 정책 변경은 우선 `AGENTS.md`에 반영 후, 다른 에이전트 문서는 참조 링크만 갱신하세요.
