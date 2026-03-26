@@ -48,9 +48,8 @@ git submodule update --init --recursive
 
 외부 모듈 소스는 저장소 루트가 아니라 `modules/` 아래에 있으며, 세 모듈 모두 Git submodule로 관리합니다.
 
-현재 migration 진행 중인 HEAD에서는 위 명령이 아직 정상 동작하지 않습니다.
-부모 저장소 index의 gitlink가 아직 루트 `ffmpeg`, `llama.cpp`, `whisper.cpp`를 가리키는 반면 `.gitmodules`는 `modules/*`만 선언하므로, 신규 clone에서는 `fatal: No url found for submodule path 'ffmpeg' in .gitmodules`가 재현됩니다.
-`docs/migration_todo.md`의 Git 메타데이터 정리가 끝난 뒤 다시 검증해야 합니다.
+중간 migration commit에서는 부모 저장소 gitlink가 아직 루트 `ffmpeg`, `llama.cpp`, `whisper.cpp`를 가리키는 반면 `.gitmodules`만 먼저 `modules/*`로 바뀌어 `fatal: No url found for submodule path 'ffmpeg' in .gitmodules`가 날 수 있습니다.
+그런 경우 `docs/migration_todo.md`의 Git 메타데이터 정리 상태를 확인하고, 경로 이전이 반영된 최신 commit 기준으로 다시 clone하는 편이 안전합니다.
 
 - `modules/ffmpeg`
 - `modules/whisper.cpp`

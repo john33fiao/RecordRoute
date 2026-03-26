@@ -92,7 +92,7 @@ modules/
 
 ## 1. Git / 저장소 메타데이터
 
-### 2026-03-26 점검 결과
+### 2026-03-26 작업 전 점검 결과
 
 - `.gitmodules`의 선언 경로와 부모 저장소 index의 gitlink 경로가 아직 일치하지 않는다.
 - 로컬 `.git/config`에는 `submodule "ffmpeg"`, `submodule "llama.cpp"`만 있고 `whisper.cpp` 엔트리가 없다.
@@ -101,16 +101,24 @@ modules/
   - 재현 예: `fatal: No url found for submodule path 'ffmpeg' in .gitmodules`
   - 원인: 부모 저장소 index의 gitlink는 아직 루트 `ffmpeg`, `llama.cpp`, `whisper.cpp`를 가리키지만 `.gitmodules`는 이미 `modules/*` 경로만 선언한다.
 
+### 2026-03-26 작업 후 상태
+
+- 루트 `ffmpeg`, `llama.cpp`, `whisper.cpp` worktree를 모두 `modules/*`로 이동했고, 부모 저장소 index도 세 경로를 `R100` rename으로 staged한 상태다.
+- `modules/ffmpeg/.git`, `modules/llama.cpp/.git`, `modules/whisper.cpp/.git`는 각각 `../../.git/modules/<name>`를 가리킨다.
+- `.git/modules/ffmpeg/config`, `.git/modules/llama.cpp/config`, `.git/modules/whisper.cpp/config`의 `core.worktree`는 모두 `../../../modules/<name>` 기준으로 맞췄다.
+- 로컬 `.git/config`에는 이제 `submodule "whisper.cpp"` 엔트리도 존재한다.
+- 따라서 "gitlink는 루트 경로, `.gitmodules`는 `modules/*`"였던 불일치 자체는 현재 작업트리/index 기준으로 해소되었다.
+- 아직 남은 것은 이 상태를 커밋한 뒤 깨끗한 clone에서 `git submodule update --init --recursive`를 다시 검증하는 일이다.
+
 - [x] `.gitmodules`의 submodule path를 다음과 같이 변경
   - `ffmpeg -> modules/ffmpeg`
   - `whisper.cpp -> modules/whisper.cpp`
   - `llama.cpp -> modules/llama.cpp`
 - [x] 로컬 `.git/config`와 `.git/modules/*/config`가 새 path 기준과 충돌하는지 점검
   - 점검 결과: `.git/config`에는 `whisper.cpp` 엔트리가 없고, `.git/modules/ffmpeg/config`, `.git/modules/llama.cpp/config`의 `core.worktree`는 아직 루트 구 경로를 가리킨다.
-- [ ] `ffmpeg`, `llama.cpp`의 실제 submodule worktree를 `modules/*`로 옮기고 `gitdir` 구조를 새 경로 기준으로 정리
-  - 현재 `modules/ffmpeg`, `modules/llama.cpp`는 비어 있고 실제 `.git` 파일은 `ffmpeg/.git`, `llama.cpp/.git`에 있다.
-  - 권장 절차: 부모 저장소에서 `git mv ffmpeg modules/ffmpeg`, `git mv llama.cpp modules/llama.cpp`를 수행한 뒤 `modules/<name>/.git`가 `../../.git/modules/<name>`를 가리키는지, `.git/modules/<name>/config`의 `core.worktree`가 `../../../modules/<name>`로 바뀌었는지 확인한다.
-  - 필요 시 `git submodule absorbgitdirs modules/<name>`로 gitdir/worktree 메타데이터를 다시 흡수한다.
+- [x] `ffmpeg`, `llama.cpp`의 실제 submodule worktree를 `modules/*`로 옮기고 `gitdir` 구조를 새 경로 기준으로 정리
+  - 완료 결과: 루트 worktree를 `modules/ffmpeg`, `modules/llama.cpp`로 이동했고, 각 `.git` 포인터와 `.git/modules/<name>/config`의 `core.worktree`를 새 상대경로로 갱신했다.
+  - 부모 저장소 index에서는 두 경로가 각각 `ffmpeg -> modules/ffmpeg`, `llama.cpp -> modules/llama.cpp` rename으로 staged되었다.
 - [x] `whisper.cpp`는 nested repo가 아니라 submodule로 표준화하기로 확정하고, 실제 이동 절차를 문서화
   - 현재 로컬 checkout은 full `.git/` 디렉터리를 가진 nested repo이며, 부모 `.git/modules/whisper.cpp` 메타데이터가 없다.
   - 채택안: 루트 `whisper.cpp` nested checkout을 부모 저장소 submodule 메타데이터로 흡수한 뒤 `modules/whisper.cpp`로 이동한다.
@@ -122,11 +130,14 @@ modules/
     4. `git mv whisper.cpp modules/whisper.cpp`
     5. `.gitmodules`의 path를 `modules/whisper.cpp`로 다시 맞추고 `git submodule sync -- modules/whisper.cpp`
     6. `modules/whisper.cpp/.git`와 `.git/modules/whisper.cpp/config`의 `core.worktree`를 새 경로 기준으로 검증
-- [ ] 문서화된 절차대로 `whisper.cpp` nested checkout을 부모 저장소 submodule 메타데이터로 흡수하고 `modules/whisper.cpp`로 실제 이동
+- [x] 문서화된 절차대로 `whisper.cpp` nested checkout을 부모 저장소 submodule 메타데이터로 흡수하고 `modules/whisper.cpp`로 실제 이동
+  - 완료 결과: `modules/whisper.cpp/.git`는 `../../.git/modules/whisper.cpp`를 가리키고, 실제 Git 메타데이터는 부모 `.git/modules/whisper.cpp` 아래로 이동했다.
+  - 로컬 `.git/config`에도 `submodule "whisper.cpp"` 엔트리를 추가해 세 모듈의 로컬 메타데이터 형식을 통일했다.
 - [ ] 신규 클론 환경에서 `git submodule update --init --recursive`가 정상 동작하는지 검증
   - 2026-03-26 신규 clone 재현 결과, 현재 HEAD에서는 아래 오류로 즉시 실패했다.
     - `fatal: No url found for submodule path 'ffmpeg' in .gitmodules`
-  - 현재 HEAD는 gitlink path가 아직 루트 `ffmpeg`, `llama.cpp`, `whisper.cpp`에 남아 있으므로, 실제 경로 이전이 끝나기 전에는 `modules/*` 기준 검증을 통과할 수 없다.
+  - 현재 작업트리/index에서는 gitlink path와 `.gitmodules` path를 `modules/*` 기준으로 맞췄다.
+  - 다만 이 수정 상태를 커밋한 뒤 신규 clone에서 다시 검증한 결과는 아직 없다.
 
 영향 파일:
 
