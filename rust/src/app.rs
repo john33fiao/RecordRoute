@@ -26,6 +26,7 @@ const RUN_ID_FORMAT: &[time::format_description::FormatItem<'static>] =
 const WAIT_FOR_RUNNING_JOB_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const MODEL_PREPARATION_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const MODEL_PREPARATION_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
+const CLI_STT_PROGRESS_INTERVAL: Duration = Duration::from_secs(10);
 const MODEL_PREPARATION_STALE_THRESHOLD_SECS: i64 = 60;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -694,9 +695,17 @@ pub fn run_stt_with_repo_root(
     })?;
 
     let mut transcripts = Vec::new();
-    for audio_file in &selected.audio_files {
+    let total_files = selected.audio_files.len();
+    for (index, audio_file) in selected.audio_files.iter().enumerate() {
         let text_path = transcript_output_path(&stt_dir, audio_file)?;
-        run_transcription(&toolchain, audio_file, &text_path)?;
+        run_transcription_with_cli_progress(
+            &toolchain,
+            audio_file,
+            &text_path,
+            index + 1,
+            total_files,
+            writer,
+        )?;
         transcripts.push(SttTranscriptOutput {
             source_path: audio_file.clone(),
             text_path,
@@ -709,6 +718,65 @@ pub fn run_stt_with_repo_root(
         stt_dir,
         transcripts,
     })
+}
+
+fn run_transcription_with_cli_progress(
+    toolchain: &WhisperToolchain,
+    audio_file: &Path,
+    text_path: &Path,
+    current_index: usize,
+    total_files: usize,
+    writer: &mut dyn Write,
+) -> Result<(), String> {
+    writeln!(
+        writer,
+        "[stt {current_index}/{total_files}] 시작: {}",
+        audio_file.display()
+    )
+    .map_err(|error| error.to_string())?;
+    writer.flush().map_err(|error| error.to_string())?;
+
+    let toolchain = toolchain.clone();
+    let audio_file = audio_file.to_path_buf();
+    let text_path = text_path.to_path_buf();
+    let (result_tx, result_rx) = mpsc::channel::<Result<(), String>>();
+    thread::spawn(move || {
+        let _ = result_tx.send(run_transcription(&toolchain, &audio_file, &text_path));
+    });
+
+    let mut elapsed = 0;
+    loop {
+        match result_rx.recv_timeout(CLI_STT_PROGRESS_INTERVAL) {
+            Ok(result) => {
+                result?;
+                writeln!(
+                    writer,
+                    "[stt {current_index}/{total_files}] 완료: {}",
+                    audio_file.display()
+                )
+                .map_err(|error| error.to_string())?;
+                writer.flush().map_err(|error| error.to_string())?;
+                return Ok(());
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                elapsed += CLI_STT_PROGRESS_INTERVAL.as_secs();
+                writeln!(
+                    writer,
+                    "[stt {current_index}/{total_files}] 진행중... {}초 경과: {}",
+                    elapsed,
+                    audio_file.display()
+                )
+                .map_err(|error| error.to_string())?;
+                writer.flush().map_err(|error| error.to_string())?;
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(format!(
+                    "stt progress channel disconnected unexpectedly for {}",
+                    audio_file.display()
+                ));
+            }
+        }
+    }
 }
 
 pub fn run_summary_with_repo_root(
