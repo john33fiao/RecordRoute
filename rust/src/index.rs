@@ -8,7 +8,7 @@ mod types;
 pub use store::IndexStore;
 pub use types::{
     JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus, ModelKind, ModelPreparationRecord,
-    ModelPreparationStatus, TaskRecord, TaskStatus, TaskType,
+    ModelPreparationStatus, SummaryEmbeddingRecord, TaskRecord, TaskStatus, TaskType,
 };
 
 #[cfg(test)]

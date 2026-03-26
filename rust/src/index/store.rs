@@ -154,6 +154,20 @@ impl IndexStore {
         updated.ok_or_else(|| format!("failed to update {} model preparation", model.as_str()))
     }
 
+    pub fn update_llama_embedding_preparation(
+        &self,
+        update: impl FnOnce(&mut ModelPreparationRecord),
+    ) -> Result<ModelPreparationRecord, String> {
+        let mut updated = None;
+        self.with_locked_index(|index| {
+            let record = index.model_preparations.llama_embedding_mut();
+            update(record);
+            updated = Some(record.clone());
+            Ok(())
+        })?;
+        updated.ok_or_else(|| "failed to update llama embedding preparation".to_string())
+    }
+
     fn with_locked_index(
         &self,
         mutate: impl FnOnce(&mut IndexFile) -> Result<(), String>,

@@ -104,6 +104,10 @@ fn gather_system_status(repo_root: &Path) -> Result<SystemStatusResponse, String
         .as_ref()
         .ok()
         .is_some_and(LlamaToolchain::is_model_ready);
+    let llama_embedding_model_ready = llama_discovery
+        .as_ref()
+        .ok()
+        .is_some_and(|toolchain| toolchain.llama_embedding_path.is_file());
     if llama_available
         && !llama_model_ready
         && let Ok(toolchain) = &llama_discovery
@@ -117,6 +121,7 @@ fn gather_system_status(repo_root: &Path) -> Result<SystemStatusResponse, String
         llama_available,
         whisper_model_ready,
         llama_model_ready,
+        llama_embedding_model_ready,
         errors,
     })
 }

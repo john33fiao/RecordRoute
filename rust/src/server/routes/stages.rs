@@ -1,7 +1,8 @@
 use super::app_api;
 use super::types::{
     AppState, FileListResponse, SttProgressResponse, SttRequest, SttTranscriptListResponse,
-    SummaryRequest, SummaryTextResponse, TaskSubmissionResponse,
+    SummaryEmbeddingResponse, SummaryRequest, SummarySearchRequest, SummarySearchResponse,
+    SummarySearchResultResponse, SummaryTextResponse, TaskSubmissionResponse,
 };
 use super::{error_response, run_blocking, run_blocking_app};
 use crate::index::{IndexStore, TaskType};
@@ -270,6 +271,120 @@ pub(crate) async fn get_summary_text(
         job_id,
         file_name: crate::app::artifacts::summary_file_name().to_string(),
         text: summary,
+    })
+    .into_response()
+}
+
+pub(crate) async fn post_summary_embedding(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+) -> Response {
+    let repo_root = state.repo_root.clone();
+    let submit_job_id = job_id.clone();
+    let submission = match run_blocking_app(move || {
+        app_api::submit_summary_embedding_job(&repo_root, &submit_job_id)
+    })
+    .await
+    {
+        Ok(submission) => submission,
+        Err(error) => return error_response(error),
+    };
+
+    if submission.should_execute() {
+        let repo_root = state.repo_root.clone();
+        let execute_job_id = job_id.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Err(error) = app_api::execute_summary_embedding_job(&repo_root, &execute_job_id)
+            {
+                eprintln!("{error}");
+            }
+        });
+    }
+
+    let body = SummaryEmbeddingResponse {
+        job_id: job_id.clone(),
+        status: "accepted".to_string(),
+        message: if submission.reused() {
+            "summary embedding reused".to_string()
+        } else if submission.deduplicated() {
+            "summary embedding already running".to_string()
+        } else {
+            "summary embedding accepted".to_string()
+        },
+        reused: submission.reused(),
+        deduplicated: submission.deduplicated(),
+        task: submission.job.task(TaskType::Embedding).cloned(),
+        metadata: submission.job.summary_embedding,
+    };
+    (StatusCode::ACCEPTED, Json(body)).into_response()
+}
+
+pub(crate) async fn get_summary_embedding(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+) -> Response {
+    let repo_root = state.repo_root.clone();
+    let lookup_job_id = job_id.clone();
+    let job = match run_blocking(move || IndexStore::new(&repo_root).find_job(&lookup_job_id)).await
+    {
+        Ok(Some(job)) => job,
+        Ok(None) => {
+            return error_response(crate::error::AppError::not_found(format!(
+                "job not found: {job_id}"
+            )));
+        }
+        Err(error) => return error_response(crate::error::AppError::internal(error)),
+    };
+    Json(SummaryEmbeddingResponse {
+        job_id,
+        status: "ok".to_string(),
+        message: "summary embedding task status".to_string(),
+        reused: false,
+        deduplicated: false,
+        task: job.task(TaskType::Embedding).cloned(),
+        metadata: job.summary_embedding,
+    })
+    .into_response()
+}
+
+pub(crate) async fn post_summary_search(
+    State(state): State<AppState>,
+    payload: Result<Json<SummarySearchRequest>, JsonRejection>,
+) -> Response {
+    let request = match payload {
+        Ok(Json(request)) => request,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(state.invalid_request_body.clone()),
+            )
+                .into_response();
+        }
+    };
+    let limit = request.limit.unwrap_or(10).clamp(1, 50);
+    let repo_root = state.repo_root.clone();
+    let query = request.query.clone();
+    let min_score = request.min_score;
+    let results = match run_blocking_app(move || {
+        app_api::search_summaries(&repo_root, &query, limit, min_score)
+    })
+    .await
+    {
+        Ok(results) => results,
+        Err(error) => return error_response(error),
+    };
+    Json(SummarySearchResponse {
+        query: request.query,
+        results: results
+            .into_iter()
+            .map(|row| SummarySearchResultResponse {
+                job_id: row.job_id,
+                score: row.score,
+                source_file_name: row.source_file_name,
+                summary_file_name: row.summary_file_name,
+                summary_excerpt: row.summary_excerpt,
+            })
+            .collect(),
     })
     .into_response()
 }
