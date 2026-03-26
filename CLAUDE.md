@@ -2,12 +2,14 @@
 
 Claude 작업 가이드입니다.
 
-- 기본 작업 규칙과 코드베이스 안내는 루트의 `AGENTS.md`를 단일 기준으로 사용합니다.
-- 이 문서는 `AGENTS.md`를 참조하는 얇은 엔트리 문서입니다.
+- 기본 작업 규칙/코드베이스 기준 문서는 루트 `AGENTS.md`입니다.
+- 아키텍처 최신 설명은 `docs/architecture.md`를 우선 참조합니다.
+- API 스펙이 필요하면 `docs/openapi.yaml`을 확인합니다.
 
 ## 우선 참조 순서
 1. `AGENTS.md` (공통 기준)
-2. 변경 대상 코드 인접 문서(`docs/architecture.md`, `docs/openapi.yaml`, `docs/API_TODO.md` 등)
+2. `docs/architecture.md` (현재 코드 구조)
+3. 변경 대상 코드/문서 (`rust/src/*`, `docs/openapi.yaml`, `docs/API_TODO.md`)
 
 ## 메모
-- 공통 가이드 수정 필요 시 이 파일이 아니라 `AGENTS.md`를 먼저 갱신하세요.
+- 공통 규칙 변경은 이 파일보다 `AGENTS.md`를 먼저 수정하세요.
