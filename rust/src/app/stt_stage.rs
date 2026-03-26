@@ -1,0 +1,253 @@
+use super::{
+    StageJobDisposition, StageJobSubmission, SttRunSummary, SttTranscriptOutput, artifacts,
+    ensure_model_prepared, now_rfc3339, read_line, stages,
+};
+use crate::index::{IndexStore, JobRecord, JobStatus, ModelKind, TaskStatus, TaskType};
+use crate::whisper::{Toolchain as WhisperToolchain, run_transcription};
+use std::fs;
+use std::io::{BufRead, Write};
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SttCandidate {
+    job_id: String,
+    source_file_name: String,
+    job_dir: PathBuf,
+    audio_files: Vec<PathBuf>,
+}
+
+pub fn submit_stt_job(
+    repo_root: &Path,
+    job_id: &str,
+    subset_audio_files: Option<Vec<String>>,
+) -> Result<StageJobSubmission, String> {
+    let index_store = IndexStore::new(repo_root);
+    let mut job = index_store
+        .find_job(job_id)?
+        .ok_or_else(|| format!("job not found: {job_id}"))?;
+    if job.status != JobStatus::Completed {
+        return Err(format!("ffmpeg must be completed before stt: {job_id}"));
+    }
+
+    if let Some(task) = job.task(TaskType::Stt)
+        && task.status == TaskStatus::Running
+    {
+        return Ok(StageJobSubmission {
+            job,
+            disposition: StageJobDisposition::Deduplicated,
+            planned_audio_files: Vec::new(),
+        });
+    }
+
+    let stt_dir = PathBuf::from(&job.job_dir).join("stt");
+    let all_audio_files = artifacts::supported_audio_files(&PathBuf::from(&job.job_dir))?;
+    let audio_files = select_subset_audio_files(&all_audio_files, subset_audio_files)?;
+    if audio_files.is_empty() {
+        return Err(format!("no supported audio files found in job: {job_id}"));
+    }
+
+    let all_transcripts_exist =
+        audio_files
+            .iter()
+            .try_fold(true, |acc, audio| -> Result<bool, String> {
+                let transcript = artifacts::transcript_output_path(&stt_dir, audio)?;
+                Ok(acc && transcript.is_file())
+            })?;
+    if all_transcripts_exist {
+        return Ok(StageJobSubmission {
+            job,
+            disposition: StageJobDisposition::Reused,
+            planned_audio_files: audio_files,
+        });
+    }
+
+    job.upsert_running_task(TaskType::Stt, now_rfc3339()?);
+    index_store.update_job(job_id, |_| job.clone())?;
+    Ok(StageJobSubmission {
+        job,
+        disposition: StageJobDisposition::Submitted,
+        planned_audio_files: audio_files,
+    })
+}
+
+pub fn execute_stt_job(
+    repo_root: &Path,
+    job_id: &str,
+    audio_files: &[PathBuf],
+) -> Result<JobRecord, String> {
+    let index_store = IndexStore::new(repo_root);
+    let job = index_store
+        .find_job(job_id)?
+        .ok_or_else(|| format!("job not found: {job_id}"))?;
+    let job_dir = PathBuf::from(&job.job_dir);
+    let stt_dir = job_dir.join("stt");
+    let result = (|| -> Result<(), String> {
+        if audio_files.is_empty() {
+            return Err(format!("no audio files selected for stt: {job_id}"));
+        }
+        ensure_model_prepared(repo_root, ModelKind::Whisper)?;
+        let toolchain = WhisperToolchain::discover(repo_root)?;
+        fs::create_dir_all(&stt_dir).map_err(|error| {
+            format!(
+                "failed to create stt directory {}: {error}",
+                stt_dir.display()
+            )
+        })?;
+
+        for audio in audio_files {
+            let absolute_audio = if audio.is_absolute() {
+                audio.clone()
+            } else {
+                job_dir.join(audio)
+            };
+            let transcript = artifacts::transcript_output_path(&stt_dir, &absolute_audio)?;
+            run_transcription(&toolchain, &absolute_audio, &transcript)?;
+        }
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => stages::finalize_task_success(repo_root, job, TaskType::Stt, now_rfc3339()?),
+        Err(error) => {
+            stages::finalize_task_failure(
+                repo_root,
+                job,
+                TaskType::Stt,
+                now_rfc3339()?,
+                error.clone(),
+            )?;
+            Err(error)
+        }
+    }
+}
+
+pub fn run_stt_with_repo_root(
+    repo_root: &Path,
+    reader: &mut dyn BufRead,
+    writer: &mut dyn Write,
+) -> Result<SttRunSummary, String> {
+    let index_store = IndexStore::new(repo_root);
+    let candidates = collect_stt_candidates(&index_store)?;
+    if candidates.is_empty() {
+        return Err("no job folders with supported audio files found in db/index.json".to_string());
+    }
+
+    let selected = select_stt_candidate(&candidates, reader, writer)?;
+    let submission = submit_stt_job(repo_root, &selected.job_id, None)?;
+    if submission.should_execute() {
+        execute_stt_job(repo_root, &selected.job_id, &submission.planned_audio_files)?;
+    } else if submission.deduplicated() {
+        stages::wait_for_task_completion(repo_root, &selected.job_id, TaskType::Stt)?;
+    }
+
+    let stt_dir = selected.job_dir.join("stt");
+    let transcripts = selected
+        .audio_files
+        .iter()
+        .map(|audio_file| {
+            let text_path = artifacts::transcript_output_path(&stt_dir, audio_file)?;
+            Ok(SttTranscriptOutput {
+                source_path: audio_file.clone(),
+                text_path,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    Ok(SttRunSummary {
+        job_id: selected.job_id,
+        job_dir: selected.job_dir,
+        stt_dir,
+        transcripts,
+    })
+}
+
+fn collect_stt_candidates(index_store: &IndexStore) -> Result<Vec<SttCandidate>, String> {
+    let mut candidates = Vec::new();
+
+    for job in index_store.list_jobs()? {
+        let job_dir = PathBuf::from(&job.job_dir);
+        if !job_dir.is_dir() {
+            continue;
+        }
+
+        let audio_files = artifacts::supported_audio_files(&job_dir)?;
+        if audio_files.is_empty() {
+            continue;
+        }
+
+        candidates.push(SttCandidate {
+            job_id: job.job_id,
+            source_file_name: job.source_file_name,
+            job_dir,
+            audio_files,
+        });
+    }
+
+    Ok(candidates)
+}
+
+fn select_stt_candidate(
+    candidates: &[SttCandidate],
+    reader: &mut dyn BufRead,
+    writer: &mut dyn Write,
+) -> Result<SttCandidate, String> {
+    loop {
+        writeln!(writer, "Select STT folder:").map_err(|error| error.to_string())?;
+        for (index, candidate) in candidates.iter().enumerate() {
+            writeln!(
+                writer,
+                "{}. {} | {} | {}",
+                index + 1,
+                candidate.job_id,
+                candidate.source_file_name,
+                candidate.job_dir.display()
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        write!(writer, "Enter number: ").map_err(|error| error.to_string())?;
+        writer.flush().map_err(|error| error.to_string())?;
+
+        let line = read_line(reader, "failed to read stt folder selection")?;
+        match line.trim().parse::<usize>() {
+            Ok(selection) if selection >= 1 && selection <= candidates.len() => {
+                return Ok(candidates[selection - 1].clone());
+            }
+            _ => {
+                writeln!(
+                    writer,
+                    "Invalid selection. Enter a number between 1 and {}.",
+                    candidates.len()
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        }
+    }
+}
+
+fn select_subset_audio_files(
+    all_audio_files: &[PathBuf],
+    subset_audio_files: Option<Vec<String>>,
+) -> Result<Vec<PathBuf>, String> {
+    let Some(subset_audio_files) = subset_audio_files else {
+        return Ok(all_audio_files.to_vec());
+    };
+    if subset_audio_files.is_empty() {
+        return Ok(all_audio_files.to_vec());
+    }
+
+    let mut selected = Vec::new();
+    for requested in subset_audio_files {
+        let found = all_audio_files.iter().find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name == requested)
+        });
+        let Some(path) = found else {
+            return Err(format!("requested stt subset file not found: {requested}"));
+        };
+        if !selected.contains(path) {
+            selected.push(path.clone());
+        }
+    }
+    Ok(selected)
+}

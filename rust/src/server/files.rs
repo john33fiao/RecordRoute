@@ -1,4 +1,4 @@
-use super::{SttProgressResponse, SttTranscriptText};
+use super::types::{SttProgressResponse, SttTranscriptText};
 use crate::app::artifacts;
 use crate::error::{AppError, AppResult};
 use crate::index::{IndexStore, JobRecord, TaskStatus, TaskType};

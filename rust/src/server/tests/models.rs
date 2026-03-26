@@ -1,0 +1,322 @@
+use super::super::router_with_repo_root;
+use super::super::types::{ErrorResponse, ModelPrepareResponse, SystemStatusResponse};
+use super::support::*;
+use crate::index::{IndexStore, ModelKind, ModelPreparationStatus};
+use crate::test_support::env_lock;
+use axum::http::StatusCode;
+use std::fs;
+use tower::util::ServiceExt;
+#[tokio::test(flavor = "multi_thread")]
+async fn get_system_status_reports_available_toolchains_and_model_readiness() {
+    let repo_root = temp_workspace();
+    let scripts_dir = repo_root.join("scripts");
+    let ffmpeg_bin = repo_root
+        .join(".build/ffmpeg")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("install/bin");
+    let whisper_bin = repo_root
+        .join(".build/whisper")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    let llama_bin = repo_root
+        .join(".build/llama")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+
+    fs::create_dir_all(&scripts_dir).expect("scripts dir");
+    fs::create_dir_all(&ffmpeg_bin).expect("ffmpeg bin");
+    fs::create_dir_all(&whisper_bin).expect("whisper bin");
+    fs::create_dir_all(&llama_bin).expect("llama bin");
+    fs::create_dir_all(repo_root.join("models/whisper")).expect("whisper model dir");
+    fs::create_dir_all(repo_root.join("models/llama/hf")).expect("llama model dir");
+
+    write_build_script(&build_script_path(&repo_root, "ffmpeg"));
+    write_build_script(&build_script_path(&repo_root, "whisper"));
+    write_build_script(&build_script_path(&repo_root, "llama"));
+    write_simple_command(&fake_command_path(&ffmpeg_bin, "ffmpeg"));
+    write_simple_command(&fake_command_path(&ffmpeg_bin, "ffprobe"));
+    write_simple_command(&fake_command_path(&whisper_bin, "whisper-cli"));
+    write_simple_command(&fake_command_path(&llama_bin, "llama-cli"));
+
+    fs::write(repo_root.join("models/whisper/ggml-base.bin"), "model").expect("whisper model");
+    fs::write(
+        repo_root.join("models/llama/hf/ggml-org__gemma-3-4b-it-GGUF.gguf"),
+        "cached llama model",
+    )
+    .expect("llama model");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(get_request("/system/status"))
+        .await
+        .expect("system status response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: SystemStatusResponse = read_json(response).await;
+    assert!(body.ffmpeg_available);
+    assert!(body.whisper_available);
+    assert!(body.llama_available);
+    assert!(body.whisper_model_ready);
+    assert!(body.llama_model_ready);
+    assert!(body.errors.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_system_status_reports_missing_toolchains_and_models_in_errors() {
+    let repo_root = temp_workspace();
+    let scripts_dir = repo_root.join("scripts");
+    let ffmpeg_bin = repo_root
+        .join(".build/ffmpeg")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("install/bin");
+
+    fs::create_dir_all(&scripts_dir).expect("scripts dir");
+    fs::create_dir_all(&ffmpeg_bin).expect("ffmpeg bin");
+
+    write_build_script(&build_script_path(&repo_root, "ffmpeg"));
+    write_simple_command(&fake_command_path(&ffmpeg_bin, "ffmpeg"));
+    write_simple_command(&fake_command_path(&ffmpeg_bin, "ffprobe"));
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(get_request("/system/status"))
+        .await
+        .expect("system status response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: SystemStatusResponse = read_json(response).await;
+    assert!(body.ffmpeg_available);
+    assert!(!body.whisper_available);
+    assert!(!body.llama_available);
+    assert!(!body.whisper_model_ready);
+    assert!(!body.llama_model_ready);
+    assert!(!body.errors.is_empty());
+    assert!(
+        body.errors
+            .iter()
+            .any(|message| message.contains("whisper"))
+    );
+    assert!(body.errors.iter().any(|message| message.contains("llama")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_prepare_whisper_returns_ok_when_model_is_already_ready() {
+    let repo_root = temp_workspace();
+    let whisper_bin = repo_root
+        .join(".build/whisper")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+    fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
+    fs::create_dir_all(repo_root.join("models/whisper")).expect("model dir");
+    fs::create_dir_all(&whisper_bin).expect("whisper bin");
+
+    write_build_script(&build_script_path(&repo_root, "whisper"));
+    write_simple_command(&fake_command_path(&whisper_bin, "whisper-cli"));
+    fs::write(repo_root.join("models/whisper/ggml-base.bin"), "model").expect("model");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(post_empty_request("/models/whisper/prepare"))
+        .await
+        .expect("prepare response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: ModelPrepareResponse = read_json(response).await;
+    assert_eq!(body.model, ModelKind::Whisper);
+    assert!(body.ready);
+    assert!(body.already_ready);
+    assert!(!body.deduplicated);
+    assert_eq!(body.preparation.status, ModelPreparationStatus::Completed);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_prepare_whisper_runs_background_download_and_updates_model_status() {
+    let repo_root = temp_workspace();
+    let whisper_bin = repo_root
+        .join(".build/whisper")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+    fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
+    fs::create_dir_all(&whisper_bin).expect("whisper bin");
+
+    write_build_script(&build_script_path(&repo_root, "whisper"));
+    write_simple_command(&fake_command_path(&whisper_bin, "whisper-cli"));
+    write_fake_download_script(
+        &whisper_download_script_path(&repo_root),
+        &repo_root.join("download.log"),
+    );
+
+    let app = router_with_repo_root(repo_root.clone());
+    let response = app
+        .clone()
+        .oneshot(post_empty_request("/models/whisper/prepare"))
+        .await
+        .expect("prepare response");
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body: ModelPrepareResponse = read_json(response).await;
+    assert_eq!(body.model, ModelKind::Whisper);
+    assert!(!body.ready);
+    assert!(!body.already_ready);
+    assert!(!body.deduplicated);
+    assert_eq!(body.preparation.status, ModelPreparationStatus::Running);
+
+    let status = wait_for_model_preparation_state(&app, ModelKind::Whisper).await;
+    assert!(status.available);
+    assert!(status.ready);
+    assert_eq!(status.preparation.status, ModelPreparationStatus::Completed);
+    assert!(repo_root.join("models/whisper/ggml-base.bin").is_file());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_prepare_llama_runs_background_download_and_updates_model_status() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    unsafe { std::env::remove_var(crate::llama::MODEL_ENV_VAR) };
+
+    let repo_root = temp_workspace();
+    let llama_bin = repo_root
+        .join(".build/llama")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+    fs::create_dir_all(&llama_bin).expect("llama bin");
+
+    write_build_script(&build_script_path(&repo_root, "llama"));
+    write_fake_llama_download_command(
+        &fake_command_path(&llama_bin, "llama-cli"),
+        &repo_root.join("llama-download.log"),
+    );
+
+    let app = router_with_repo_root(repo_root.clone());
+    let response = app
+        .clone()
+        .oneshot(post_empty_request("/models/llama/prepare"))
+        .await
+        .expect("prepare response");
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body: ModelPrepareResponse = read_json(response).await;
+    assert_eq!(body.model, ModelKind::Llama);
+    assert!(!body.ready);
+    assert!(!body.already_ready);
+    assert!(!body.deduplicated);
+    assert_eq!(body.preparation.status, ModelPreparationStatus::Running);
+
+    let status = wait_for_model_preparation_state(&app, ModelKind::Llama).await;
+    assert!(status.available);
+    assert!(status.ready);
+    assert_eq!(status.preparation.status, ModelPreparationStatus::Completed);
+
+    let log = fs::read_to_string(repo_root.join("llama-download.log")).expect("llama download log");
+    assert!(log.contains("-hf"));
+    assert!(log.contains("LLAMA_CACHE="));
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn post_prepare_llama_deduplicates_running_preparation() {
+    let repo_root = temp_workspace();
+    let llama_bin = repo_root
+        .join(".build/llama")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+    fs::create_dir_all(&llama_bin).expect("llama bin");
+
+    write_build_script(&build_script_path(&repo_root, "llama"));
+    write_simple_command(&fake_command_path(&llama_bin, "llama-cli"));
+    IndexStore::new(&repo_root)
+        .update_model_preparation(ModelKind::Llama, |record| {
+            record.mark_running(crate::app::now_rfc3339().expect("timestamp"));
+        })
+        .expect("seed running preparation");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(post_empty_request("/models/llama/prepare"))
+        .await
+        .expect("prepare response");
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body: ModelPrepareResponse = read_json(response).await;
+    assert_eq!(body.model, ModelKind::Llama);
+    assert!(!body.ready);
+    assert!(!body.already_ready);
+    assert!(body.deduplicated);
+    assert_eq!(body.preparation.status, ModelPreparationStatus::Running);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_prepare_whisper_returns_503_for_invalid_configuration() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    unsafe { std::env::set_var(crate::whisper::MODEL_ENV_VAR, "models/whisper/custom.bin") };
+
+    let repo_root = temp_workspace();
+    let whisper_bin = repo_root
+        .join(".build/whisper")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+    fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
+    fs::create_dir_all(&whisper_bin).expect("whisper bin");
+    write_build_script(&build_script_path(&repo_root, "whisper"));
+    write_simple_command(&fake_command_path(&whisper_bin, "whisper-cli"));
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(post_empty_request("/models/whisper/prepare"))
+        .await
+        .expect("prepare response");
+
+    unsafe { std::env::remove_var(crate::whisper::MODEL_ENV_VAR) };
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body: ErrorResponse = read_json(response).await;
+    assert!(body.message.contains("whisper model not found at"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_prepare_llama_marks_failed_status_when_download_fails() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    unsafe { std::env::remove_var(crate::llama::MODEL_ENV_VAR) };
+
+    let repo_root = temp_workspace();
+    let llama_bin = repo_root
+        .join(".build/llama")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+    fs::create_dir_all(&llama_bin).expect("llama bin");
+    write_build_script(&build_script_path(&repo_root, "llama"));
+    write_failing_llama_cli(&fake_command_path(&llama_bin, "llama-cli"));
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .clone()
+        .oneshot(post_empty_request("/models/llama/prepare"))
+        .await
+        .expect("prepare response");
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body: ModelPrepareResponse = read_json(response).await;
+    assert_eq!(body.model, ModelKind::Llama);
+    assert_eq!(body.preparation.status, ModelPreparationStatus::Running);
+
+    let status = wait_for_model_preparation_state(&app, ModelKind::Llama).await;
+    assert!(status.available);
+    assert!(!status.ready);
+    assert_eq!(status.preparation.status, ModelPreparationStatus::Failed);
+    assert!(
+        status
+            .error
+            .as_deref()
+            .expect("error")
+            .contains("synthetic llama failure")
+    );
+}

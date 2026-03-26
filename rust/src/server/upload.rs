@@ -1,4 +1,5 @@
-use crate::app::{self, submit_ffmpeg_job_for_server};
+use super::app_api;
+use crate::app;
 use crate::error::{AppError, AppResult};
 use axum::body::Bytes;
 use axum::http::HeaderMap;
@@ -29,7 +30,7 @@ pub(crate) fn persist_uploaded_file_and_submit(
         })?;
     }
 
-    submit_ffmpeg_job_for_server(repo_root, &upload_path)
+    app_api::submit_ffmpeg_job(repo_root, &upload_path)
 }
 
 pub(crate) fn parse_uploaded_file(headers: &HeaderMap, body: &Bytes) -> AppResult<UploadedFile> {

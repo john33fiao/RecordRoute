@@ -1,4 +1,4 @@
-use super::ErrorResponse;
+use super::types::ErrorResponse;
 use crate::error::{AppError, AppErrorKind};
 use axum::Json;
 use axum::http::StatusCode;

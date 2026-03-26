@@ -1,4 +1,4 @@
-# Rust 리팩토링 점검 메모 (2026-03-26, 1차 반영 후 기준)
+# Rust 리팩토링 점검 메모 (2026-03-26, P1 반영 후 기준)
 
 ## 범위 재정렬
 
@@ -44,7 +44,6 @@
 
 의미:
 
-- `app.rs`, `server.rs`, `index.rs`는 아직 크지만, 분해 작업은 이미 시작된 상태다.
 - 후속 리팩토링은 전면 재작성보다 남은 responsibility를 단계적으로 떼는 방향이 맞다.
 
 ## 2. 이번 1차에서 정리한 항목
@@ -95,46 +94,33 @@
 - `DependencyUnavailable`: ffmpeg/whisper/llama 툴체인 또는 모델 준비 불가
 - `Internal`: 나머지 저장소/파일시스템/비동기 실행 오류
 
-## 3. 아직 남은 핵심 과제
+## 3. 이번 P1 배치 완료 상태
 
-### P1. `app.rs`, `server.rs` 추가 분리
-
-현재:
-
-- `app.rs`와 `server.rs`는 여전히 2천 라인대다.
-- 이번 단계는 contract와 error 경계 정리에 집중했기 때문에 라우트/CLI/UI 분해는 보류했다.
-
-다음 후보:
-
-- `app.rs`
-  - CLI 입출력
-  - ffmpeg/stt/summary submit/execute orchestration
-  - model preparation 흐름
-- `server.rs`
-  - DTO
-  - router/state
-  - route handlers
-  - 테스트
-
-권장:
-
-- 다음 단계에서는 route별 `server/routes/*` 분리와 app stage별 `app/*_stage.rs` 분리를 진행한다.
-
-### P1. inline test 분리
+### P1. `app.rs`, `server.rs` 추가 분리 완료
 
 현재:
 
-- `app.rs`, `server.rs`, `llama.rs`, `whisper.rs`, `index.rs`는 테스트가 같은 파일 안에 크게 들어 있다.
+- `rust/src/app.rs`는 facade만 남기고 구현을 `app/cli.rs`, `app/ffmpeg_stage.rs`, `app/stt_stage.rs`, `app/summary_stage.rs`, `app/models.rs`로 분리했다.
+- `rust/src/server.rs`는 router bootstrap만 남기고 `server/types.rs`, `server/app_api.rs`, `server/routes/{ping,jobs,models,stages}.rs`로 분리했다.
+- server 전용 `String -> AppError` 분류 래퍼를 `server/app_api.rs`로 이동했고, `server/errors.rs`, `server/files.rs`, `server/upload.rs`는 지원 모듈로 유지했다.
 
-권장:
+의미:
 
-- 1차로 `mod tests;` 분리
-- 필요 시 `rust/tests/` integration test 승격
+- 공개 인터페이스(`router()`, `router_with_repo_root()`, `serve()` 및 HTTP path/request/response shape)는 유지하면서 책임 경계를 분명히 했다.
+- 이후 작업은 `app.rs`, `server.rs`의 대형 파일 구조를 다시 헤치지 않고 세부 모듈 단위로 진행할 수 있다.
 
-효과:
+### P1. inline test 분리 완료
 
-- 프로덕션 코드 리뷰 속도 개선
-- 대형 파일 분리 판단 정확도 개선
+현재:
+
+- `rust/src/app/tests.rs`, `rust/src/server/tests.rs`를 추가하고 기존 inline test를 `app/tests/*`, `server/tests/*`로 옮겼다.
+- fake toolchain/script writer/temp workspace/request helper는 각 `support.rs`로 모았다.
+- `cargo test --manifest-path rust/Cargo.toml` 기준 103개 테스트가 모두 green이다.
+
+의미:
+
+- 프로덕션 코드와 테스트 코드의 읽기 경계가 분리돼 이후 리뷰 속도와 추가 분해 판단이 좋아졌다.
+- 이번 배치는 계약 변경 없이 구조만 바꾸는 P1 목표를 충족했다.
 
 ### P2. `llama.rs`, `whisper.rs` 구조 공통화
 
@@ -149,15 +135,13 @@
 
 ## 4. 우선순위 업데이트
 
-1. lock 경합 안정성과 typed error 경계를 유지하면서 테스트 green 상태를 고정한다.
-2. `app.rs`, `server.rs`에서 남은 큰 responsibility를 모듈로 분리한다.
-3. inline test를 파일 밖으로 분리한다.
-4. `llama.rs`, `whisper.rs` 공통 패턴을 묶는다.
-5. 필요할 때만 OpenAPI/architecture 문서를 코드 상태에 맞춰 후속 동기화한다.
+1. 이번 P1 분리 이후에도 `cargo test --manifest-path rust/Cargo.toml` green 상태를 유지한다.
+2. `llama.rs`, `whisper.rs` 공통 패턴을 helper 수준으로 묶는다.
+3. 필요 시 `rust/tests/` integration 승격 여부를 재평가한다.
+4. contract 변경이 생길 때만 OpenAPI/architecture 문서를 후속 동기화한다.
 
 ## 5. 최종 판단
 
 - 초기 점검에서 가장 급했던 `summary 파일 규약 불일치`와 `index.json 원자성 부족`은 이미 해결됐다.
-- 현재 기준의 진짜 P0는 `index.lock` 경합 안정성과 `문자열 기반 HTTP 에러 분류 제거`다.
-- 큰 파일 분리는 여전히 필요하지만, 다음 단계는 안정성/계약 보존을 유지한 상태에서 점진 분리로 가는 것이 맞다.
-
+- 이번 배치로 `app.rs`, `server.rs` 책임 분리와 inline test 외부화가 완료됐다.
+- 현재 남은 다음 우선순위는 `llama.rs`, `whisper.rs` 공통 패턴 정리이며, public contract 변경 없이 점진 분리로 가는 방향이 맞다.

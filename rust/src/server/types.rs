@@ -1,0 +1,246 @@
+use crate::app;
+use crate::index::{
+    JobOutputs, JobProbe, JobRecord, JobStatus, ModelKind, ModelPreparationRecord, TaskRecord,
+    TaskType,
+};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct PingRequest {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct PingResponse {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct ErrorResponse {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct CreateJobRequest {
+    pub input_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct JobsBySourceQuery {
+    pub source_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct SummaryRequest {
+    #[serde(default)]
+    pub force_regenerate: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct SttRequest {
+    #[serde(default)]
+    pub audio_files: Vec<String>,
+    #[serde(default)]
+    pub mono_mix_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct TaskSubmissionResponse {
+    pub job_id: String,
+    pub task_type: TaskType,
+    pub status: String,
+    pub message: String,
+    pub reused: bool,
+    pub deduplicated: bool,
+    pub task: Option<TaskRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct FileListResponse {
+    pub job_id: String,
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct JobStatusResponse {
+    pub job_id: String,
+    pub job_status: JobStatus,
+    pub tasks: Vec<TaskRecord>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct SystemStatusResponse {
+    pub ffmpeg_available: bool,
+    pub whisper_available: bool,
+    pub llama_available: bool,
+    pub whisper_model_ready: bool,
+    pub llama_model_ready: bool,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct ModelStatusEntryResponse {
+    pub available: bool,
+    pub ready: bool,
+    pub error: Option<String>,
+    pub preparation: ModelPreparationRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct ModelStatusResponse {
+    pub whisper: ModelStatusEntryResponse,
+    pub llama: ModelStatusEntryResponse,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct ModelPrepareResponse {
+    pub model: ModelKind,
+    pub status: String,
+    pub message: String,
+    pub ready: bool,
+    pub already_ready: bool,
+    pub deduplicated: bool,
+    pub preparation: ModelPreparationRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct SttTranscriptText {
+    pub transcript_id: String,
+    pub file_name: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct SttTranscriptListResponse {
+    pub job_id: String,
+    pub transcripts: Vec<SttTranscriptText>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct SttProgressResponse {
+    pub job_id: String,
+    pub task: Option<TaskRecord>,
+    pub phase: String,
+    pub total_files: usize,
+    pub completed_files: usize,
+    pub progress_percent: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct SummaryTextResponse {
+    pub job_id: String,
+    pub file_name: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct JobSubmissionResponse {
+    pub job_id: String,
+    pub status: JobStatus,
+    pub message: String,
+    pub reused: bool,
+    pub deduplicated: bool,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub source_path: String,
+    pub source_file_name: String,
+    pub probe: JobProbe,
+    pub outputs: JobOutputs,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct JobListResponse {
+    pub jobs: Vec<JobRecord>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AppState {
+    pub repo_root: PathBuf,
+    pub invalid_request_body: ErrorResponse,
+}
+
+impl AppState {
+    pub(crate) fn new(repo_root: PathBuf) -> Self {
+        Self {
+            repo_root,
+            invalid_request_body: ErrorResponse {
+                code: "400".to_string(),
+                message: "invalid request body".to_string(),
+            },
+        }
+    }
+}
+
+pub(crate) fn build_job_submission_response(
+    job: &JobRecord,
+    reused: bool,
+    deduplicated: bool,
+) -> JobSubmissionResponse {
+    JobSubmissionResponse {
+        job_id: job.job_id.clone(),
+        status: job.status.clone(),
+        message: if reused {
+            "completed job reused".to_string()
+        } else if deduplicated {
+            "job already running".to_string()
+        } else {
+            "job accepted".to_string()
+        },
+        reused,
+        deduplicated,
+        started_at: job.started_at.clone(),
+        finished_at: job.finished_at.clone(),
+        source_path: job.source_path.clone(),
+        source_file_name: job.source_file_name.clone(),
+        probe: job.probe.clone(),
+        outputs: job.outputs.clone(),
+        error_message: job.error_message.clone(),
+    }
+}
+
+pub(crate) fn build_model_status_response(status: app::ModelStatusSnapshot) -> ModelStatusResponse {
+    ModelStatusResponse {
+        whisper: build_model_status_entry_response(status.whisper),
+        llama: build_model_status_entry_response(status.llama),
+    }
+}
+
+fn build_model_status_entry_response(entry: app::ModelStatusEntry) -> ModelStatusEntryResponse {
+    ModelStatusEntryResponse {
+        available: entry.available,
+        ready: entry.ready,
+        error: entry.error,
+        preparation: entry.preparation,
+    }
+}
+
+pub(crate) fn build_model_prepare_response(
+    submission: &app::ModelPrepareSubmission,
+) -> ModelPrepareResponse {
+    let model_name = submission.model.as_str();
+    ModelPrepareResponse {
+        model: submission.model,
+        status: if submission.already_ready() {
+            "ok".to_string()
+        } else {
+            "accepted".to_string()
+        },
+        message: if submission.already_ready() {
+            format!("{model_name} model already ready")
+        } else if submission.deduplicated() {
+            format!("{model_name} model preparation already running")
+        } else {
+            format!("{model_name} model preparation accepted")
+        },
+        ready: submission.already_ready(),
+        already_ready: submission.already_ready(),
+        deduplicated: submission.deduplicated(),
+        preparation: submission.preparation.clone(),
+    }
+}
