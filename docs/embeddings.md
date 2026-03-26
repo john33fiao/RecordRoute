@@ -258,3 +258,96 @@ query embedding은 요청 시점에만 계산하고, v1에서는 별도 캐시�
 - embedding model env가 없으면 기본값 `Qwen/Qwen3-Embedding-4B`를 사용하고, GGUF가 필요하면 `Qwen/Qwen3-Embedding-4B-GGUF`의 `Q4_K_M.gguf`를 우선 사용한다.
 - embedding model resolve/download/prepare 실패 시 summary 기능은 유지되고, embedding/search 기능만 비활성화되는 방향을 기본 가정으로 둔다.
 - v1은 운영 단순성과 현재 저장소의 파일 기반 SoT 유지에 우선순위를 둔다.
+
+## 10. 구현 로드맵(권장 순서)
+
+아래 순서는 후속 구현자가 리스크를 낮추면서 단계적으로 합칠 수 있도록 정리한 권장안이다.
+
+### Phase 1: 데이터 모델/인덱스 기반 마련
+
+- `IndexFile.version` 3 도입 및 v2 읽기 호환 추가
+- `JobRecord.summary_embedding` metadata 스키마 추가
+- `TaskType::embedding` 추가(기존 상태 전이 규칙 유지)
+- summary embedding stale/reuse 판정 함수(app/index 공용) 추가
+
+Phase 1 DoD:
+
+- v2 인덱스를 로드해도 읽기 실패 없이 기본값으로 해석된다.
+- v3 저장 시 `summary_embedding` 누락/부분값에 대한 방어 로직이 있다.
+- stale/reuse 판정이 `text_sha256 + model_id + 파일 존재` 기준으로 일관되게 동작한다.
+
+### Phase 2: llama embedding 실행 경로 추가
+
+- llama toolchain 탐색에서 `llama-embedding` 탐지 추가
+- summary용/embedding용 모델 resolve 로직 분리(공통 인터페이스 유지)
+- `prepare-llama-model` umbrella prepare로 확장
+- embedding 준비 실패 시 summary 경로 비차단 보장
+
+Phase 2 DoD:
+
+- summary 모델 준비 성공 + embedding 모델 실패 상황에서 prepare 명령/API가 부분 성공 상태를 표현한다.
+- embedding 불가 상태가 `/models/status`, `/system/status`에 반영될 준비가 되어 있다.
+
+### Phase 3: 임베딩 생성/저장 및 자동 연쇄
+
+- `summary/result.md -> embedding.json` 생성 경로 구현
+- summary 성공 직후 embedding task 자동 제출
+- per-job embedding submit/get API 및 app 레이어 진입점 추가
+
+Phase 3 DoD:
+
+- 신규 summary 생성 시 embedding task가 자동으로 제출된다.
+- 같은 입력/같은 모델에 대해 재요청 시 `Reused` 또는 `Deduplicated`가 정확히 반환된다.
+- 산출물 손상/누락 시 자동으로 stale 처리되어 재생성 경로로 진입한다.
+
+### Phase 4: 검색/백필 경로 완성
+
+- `POST /summary/search` 구현(브루트포스 cosine)
+- `embed-summaries` 백필 CLI 구현(또는 동등 app 경로)
+- empty corpus, `limit`, `min_score` 정책 확정 및 에러 핸들링
+
+Phase 4 DoD:
+
+- 검색 결과가 score 내림차순으로 안정 정렬된다.
+- backfill이 missing summary를 건너뛰고, stale만 재생성한다.
+- query 임베딩 실패/모델 미준비 시 명확한 오류 또는 not ready 응답을 반환한다.
+
+## 11. 테스트 전략(구현 단계 체크리스트)
+
+단위 테스트(우선):
+
+- `summary text -> sha256` 변경 감지 테스트
+- stale 판정 조합 테스트
+  - 동일 text/hash + 동일 model + 파일 존재 = 재사용
+  - text 변경/모델 변경/파일 누락 = stale
+- cosine similarity 계산/정렬 테스트
+
+통합 테스트(가능 범위):
+
+- summary 완료 후 embedding task 자동 제출
+- per-job embedding submit/get 상태 전이
+- global search 결과 스키마/기본 limit 적용
+
+수동 검증(운영 시나리오):
+
+- `RECORDROUTE_LLAMA_EMBEDDING_MODEL` 유/무에 따른 준비 경로 확인
+- embedding 모델 준비 실패 시 summary 파이프라인이 계속 동작하는지 확인
+- 기존 v2 index 데이터에서 backfill 정상 동작 확인
+
+## 12. 롤백/장애 대응 기준
+
+- 기능 플래그 관점:
+  - embedding 준비 실패 시 검색 기능만 비활성화하고 summary는 유지
+  - 필요 시 embedding task 제출 자체를 일시 비활성화할 수 있어야 함
+- 데이터 관점:
+  - `summary_embedding` metadata 제거/무시 시에도 기존 summary 조회 기능은 유지
+  - `embedding.json` 파일 손상 시 재생성 가능해야 하며, 수동 삭제만으로도 복구 가능해야 함
+- 릴리스 관점:
+  - Phase 단위로 분리 배포하여 장애 발생 시 직전 Phase로 되돌릴 수 있도록 구성
+
+## 13. 오픈 이슈(구현 전 확정 필요)
+
+- `llama-embedding` 실행 파라미터 표준화(차원/정규화 옵션 고정 여부)
+- `summary_excerpt` 생성 규칙(길이, 마크다운 제거 여부, 멀티바이트 안전 자르기)
+- 검색 응답 스키마에 `model_id`/`created_at` 노출 여부
+- embedding 준비 상태 표현 시 `error` 필드의 민감 정보 마스킹 수준
