@@ -1,0 +1,4 @@
+interface:
+  display_name: "RTD After"
+  short_description: "Post-change quality, regression, and release gate"
+  default_prompt: "Use $rtd-after to review completed changes for regressions, risk, and deployment readiness in this repository."

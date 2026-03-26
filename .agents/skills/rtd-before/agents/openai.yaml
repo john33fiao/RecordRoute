@@ -1,0 +1,4 @@
+interface:
+  display_name: "RTD Before"
+  short_description: "Pre-change planning, scope, and risk gate"
+  default_prompt: "Use $rtd-before to review scope, assumptions, and simplification before changing code in this repository."
