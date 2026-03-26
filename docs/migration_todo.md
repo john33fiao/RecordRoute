@@ -137,7 +137,7 @@ modules/
 
 ## 5. 문서 갱신
 
-- [ ] `README.md`에 모듈 위치 변경 사실 반영
+- [x] `README.md`에 모듈 위치 변경 사실 반영
 - [ ] `README.md`의 submodule 초기화 가이드가 새 구조에서도 유효한지 검증
 - [x] `docs/API_Audit.md`의 `whisper.cpp/models/download-ggml-model.*` 경로를 `modules/whisper.cpp/models/...` 기준으로 갱신
 - [ ] 필요 시 `docs/architecture.md`에 외부 모듈 소스 위치를 별도 명시
@@ -149,7 +149,7 @@ modules/
 
 ## 6. 실행 검증
 
-- [ ] Windows에서 `setup.bat` 실행 검증
+- [x] Windows에서 `setup.bat` 실행 검증
 - [ ] Linux/macOS에서 `setup.sh` 실행 검증
 - [ ] `cargo test --manifest-path rust/Cargo.toml` 실행
 - [ ] 최소 1회 `ffmpeg -> stt -> summary` 흐름을 실제 또는 fixture 기반으로 점검

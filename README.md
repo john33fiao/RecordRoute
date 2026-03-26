@@ -46,6 +46,14 @@ RecordRoute는 오디오 파일을 **회의록 작업 흐름에 맞춰 순차적
 git submodule update --init --recursive
 ```
 
+외부 모듈 소스는 저장소 루트가 아니라 `modules/` 아래에 있습니다.
+
+- `modules/ffmpeg`
+- `modules/whisper.cpp`
+- `modules/llama.cpp`
+
+이 경로는 빌드용 소스 위치이며, 런타임 바이너리는 계속 `.build/...`, 모델 캐시는 `models/...`를 사용합니다.
+
 ### Linux/macOS
 ```bash
 ./setup.sh
