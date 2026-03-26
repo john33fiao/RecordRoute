@@ -142,6 +142,16 @@ struct SttTranscriptListResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct SttProgressResponse {
+    pub job_id: String,
+    pub task: Option<TaskRecord>,
+    pub phase: String,
+    pub total_files: usize,
+    pub completed_files: usize,
+    pub progress_percent: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct SummaryTextResponse {
     pub job_id: String,
     pub file_name: String,
@@ -194,6 +204,7 @@ pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
         .route("/jobs/{job_id}", get(get_job))
         .route("/jobs/{job_id}/status", get(get_job_status))
         .route("/jobs/{job_id}/stt", post(post_stt).get(get_stt))
+        .route("/jobs/{job_id}/stt/progress", get(get_stt_progress))
         .route("/jobs/{job_id}/stt/texts", get(get_stt_texts))
         .route(
             "/jobs/{job_id}/stt/texts/{transcript_id}",
@@ -759,6 +770,24 @@ async fn get_stt(State(state): State<AppState>, AxumPath(job_id): AxumPath<Strin
     Json(body).into_response()
 }
 
+async fn get_stt_progress(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+) -> Response {
+    let repo_root = state.repo_root.clone();
+    let lookup_job_id = job_id.clone();
+    let progress =
+        match run_blocking(move || read_stt_progress_snapshot(&repo_root, &lookup_job_id)).await {
+            Ok(progress) => progress,
+            Err(error) if error.starts_with("job not found:") => {
+                return error_response(StatusCode::NOT_FOUND, error);
+            }
+            Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
+        };
+
+    Json(progress).into_response()
+}
+
 async fn get_stt_texts(
     State(state): State<AppState>,
     AxumPath(job_id): AxumPath<String>,
@@ -1177,6 +1206,97 @@ fn read_stt_transcripts(
     }
     transcripts.sort_by(|a, b| a.file_name.cmp(&b.file_name));
     Ok(transcripts)
+}
+
+fn read_stt_progress_snapshot(
+    repo_root: &std::path::Path,
+    job_id: &str,
+) -> Result<SttProgressResponse, String> {
+    let store = IndexStore::new(repo_root);
+    let job = store
+        .find_job(job_id)?
+        .ok_or_else(|| format!("job not found: {job_id}"))?;
+    let task = job.task(TaskType::Stt).cloned();
+    let job_dir = PathBuf::from(job.job_dir);
+    let total_files = count_supported_audio_files(&job_dir)?;
+    let completed_files = count_stt_transcript_files(&job_dir.join("stt"))?;
+    let phase = match task.as_ref().map(|record| &record.status) {
+        Some(crate::index::TaskStatus::Running) => "running",
+        Some(crate::index::TaskStatus::Completed) => "completed",
+        Some(crate::index::TaskStatus::Failed) => "failed",
+        None => "idle",
+    }
+    .to_string();
+    let progress_percent = match task.as_ref().map(|record| &record.status) {
+        Some(crate::index::TaskStatus::Completed) => 100,
+        _ => calculate_progress_percent(completed_files, total_files),
+    };
+
+    Ok(SttProgressResponse {
+        job_id: job_id.to_string(),
+        task,
+        phase,
+        total_files,
+        completed_files,
+        progress_percent,
+    })
+}
+
+fn count_supported_audio_files(job_dir: &std::path::Path) -> Result<usize, String> {
+    let mut count = 0usize;
+    for entry in fs::read_dir(job_dir)
+        .map_err(|error| format!("failed to read {}: {error}", job_dir.display()))?
+    {
+        let entry = entry.map_err(|error| format!("failed to read job dir entry: {error}"))?;
+        let path = entry.path();
+        if path.is_file() && is_supported_audio_file(&path) {
+            count = count.saturating_add(1);
+        }
+    }
+    Ok(count)
+}
+
+fn count_stt_transcript_files(stt_dir: &std::path::Path) -> Result<usize, String> {
+    if !stt_dir.is_dir() {
+        return Ok(0);
+    }
+
+    let mut count = 0usize;
+    for entry in fs::read_dir(stt_dir)
+        .map_err(|error| format!("failed to read {}: {error}", stt_dir.display()))?
+    {
+        let entry = entry.map_err(|error| format!("failed to read stt entry: {error}"))?;
+        let path = entry.path();
+        if path.is_file()
+            && path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("txt"))
+        {
+            count = count.saturating_add(1);
+        }
+    }
+
+    Ok(count)
+}
+
+fn is_supported_audio_file(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some(extension)
+            if extension.eq_ignore_ascii_case("wav")
+                || extension.eq_ignore_ascii_case("mp3")
+                || extension.eq_ignore_ascii_case("flac")
+                || extension.eq_ignore_ascii_case("ogg")
+    )
+}
+
+fn calculate_progress_percent(completed_files: usize, total_files: usize) -> u8 {
+    if total_files == 0 {
+        return 0;
+    }
+    let ratio = completed_files.saturating_mul(100) / total_files;
+    ratio.min(100) as u8
 }
 
 fn read_stt_transcript(
@@ -2254,6 +2374,43 @@ mod tests {
         assert_eq!(body.transcripts[0].text, "channel transcript");
         assert_eq!(body.transcripts[1].transcript_id, "mono_mix");
         assert_eq!(body.transcripts[1].text, "mono transcript");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_stt_progress_returns_polling_snapshot() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let job_id = "job-stt-progress";
+        let job_dir = store.job_dir(job_id);
+        fs::create_dir_all(job_dir.join("stt")).expect("stt dir");
+        fs::write(job_dir.join("channel_01.wav"), "audio-1").expect("audio-1");
+        fs::write(job_dir.join("channel_02.wav"), "audio-2").expect("audio-2");
+        fs::write(job_dir.join("mono_mix.wav"), "audio-3").expect("audio-3");
+        fs::write(job_dir.join("stt/channel_01.txt"), "channel transcript").expect("transcript");
+
+        let mut job = JobRecord::new(
+            job_id.to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/stt-progress.wav"),
+            job_dir,
+        );
+        job.upsert_running_task(TaskType::Stt, "2026-01-01T00:00:10Z".to_string());
+        store.insert_job(job).expect("insert job");
+
+        let app = router_with_repo_root(repo_root);
+        let response = app
+            .oneshot(get_request("/jobs/job-stt-progress/stt/progress"))
+            .await
+            .expect("stt progress response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: SttProgressResponse = read_json(response).await;
+        assert_eq!(body.job_id, job_id);
+        assert_eq!(body.phase, "running");
+        assert_eq!(body.total_files, 3);
+        assert_eq!(body.completed_files, 1);
+        assert_eq!(body.progress_percent, 33);
+        assert!(body.task.is_some());
     }
 
     #[tokio::test(flavor = "multi_thread")]

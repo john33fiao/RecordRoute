@@ -413,6 +413,33 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /jobs/{job_id}/stt/progress:
+    get:
+      tags: [stt]
+      summary: Poll current STT progress snapshot
+      operationId: getSttProgress
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: STT progress snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SttProgressResponse'
+        '400':
+          description: Invalid state/path
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /jobs/{job_id}/stt/texts:
     get:
       tags: [stt]
@@ -858,6 +885,30 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SttTranscriptText'
+
+    SttProgressResponse:
+      type: object
+      required: [job_id, task, phase, total_files, completed_files, progress_percent]
+      properties:
+        job_id:
+          type: string
+        task:
+          oneOf:
+            - $ref: '#/components/schemas/TaskRecord'
+            - type: 'null'
+        phase:
+          type: string
+          enum: [idle, running, completed, failed]
+        total_files:
+          type: integer
+          minimum: 0
+        completed_files:
+          type: integer
+          minimum: 0
+        progress_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
 
     SummaryTextResponse:
       type: object
