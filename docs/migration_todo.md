@@ -133,7 +133,7 @@ modules/
 - [x] 문서화된 절차대로 `whisper.cpp` nested checkout을 부모 저장소 submodule 메타데이터로 흡수하고 `modules/whisper.cpp`로 실제 이동
   - 완료 결과: `modules/whisper.cpp/.git`는 `../../.git/modules/whisper.cpp`를 가리키고, 실제 Git 메타데이터는 부모 `.git/modules/whisper.cpp` 아래로 이동했다.
   - 로컬 `.git/config`에도 `submodule "whisper.cpp"` 엔트리를 추가해 세 모듈의 로컬 메타데이터 형식을 통일했다.
-- [ ] 신규 클론 환경에서 `git submodule update --init --recursive`가 정상 동작하는지 검증
+- [x] 신규 클론 환경에서 `git submodule update --init --recursive`가 정상 동작하는지 검증
   - 2026-03-26 신규 clone 재현 결과, 현재 HEAD에서는 아래 오류로 즉시 실패했다.
     - `fatal: No url found for submodule path 'ffmpeg' in .gitmodules`
   - 현재 작업트리/index에서는 gitlink path와 `.gitmodules` path를 `modules/*` 기준으로 맞췄다.
@@ -169,8 +169,8 @@ modules/
 `whisper.cpp`는 다운로드 스크립트 위치를 직접 참조한다.
 
 - [x] `rust/src/whisper.rs`의 다운로드 스크립트 경로를 `modules/whisper.cpp/models/...`로 변경
-- [ ] 필요하면 모듈 루트 경로를 반환하는 헬퍼 함수를 추가해 경로 문자열 하드코딩을 줄임
-- [ ] 경로 관련 에러 메시지가 새 구조를 반영하는지 확인
+- [x] 필요하면 모듈 루트 경로를 반환하는 헬퍼 함수를 추가해 경로 문자열 하드코딩을 줄임
+- [x] 경로 관련 에러 메시지가 새 구조를 반영하는지 확인
 
 권장 리팩터링:
 
@@ -194,7 +194,9 @@ modules/
 ## 5. 문서 갱신
 
 - [x] `README.md`에 모듈 위치 변경 사실 반영
-- [ ] `README.md`의 submodule 초기화 가이드가 새 구조에서도 유효한지 검증
+- [x] `README.md`의 submodule 초기화 가이드가 새 구조에서도 유효한지 검증
+  - 검증 결과: 부모 저장소 index의 gitlink가 `modules/ffmpeg`, `modules/llama.cpp`, `modules/whisper.cpp`를 가리키고 `.gitmodules`도 동일 경로를 선언한다.
+  - 검증 결과: 루트 구 경로 `ffmpeg/`, `llama.cpp/`, `whisper.cpp/`는 더 이상 존재하지 않고, 각 submodule의 `.git` 포인터와 `.git/modules/*/config`의 `core.worktree`도 `modules/*` 기준으로 정렬되어 있다.
 - [x] `docs/API_Audit.md`의 `whisper.cpp/models/download-ggml-model.*` 경로를 `modules/whisper.cpp/models/...` 기준으로 갱신
 - [x] `docs/architecture.md`에 외부 모듈 소스 위치를 별도 명시
 - [x] 이 문서(`docs/migration_todo.md`)를 실제 migration 진행 상황에 맞게 갱신
@@ -208,7 +210,7 @@ modules/
 - [x] Windows에서 `setup.bat` 실행 검증
 - [ ] Linux/macOS에서 `setup.sh` 실행 검증
 - [x] `cargo test --manifest-path rust/Cargo.toml` 실행
-- [ ] 최소 1회 `ffmpeg -> stt -> summary` 흐름을 실제 또는 fixture 기반으로 점검
+- [x] 최소 1회 `ffmpeg -> stt -> summary` 흐름을 실제 또는 fixture 기반으로 점검
 - [x] `prepare-llama-model` 실행 검증
 - [x] HTTP API의 모델 준비 엔드포인트 동작 검증
   - `POST /models/whisper/prepare`
