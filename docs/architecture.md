@@ -129,6 +129,16 @@
 
 ## 6. 외부 툴체인 통합
 
+외부 모듈 소스의 기준 위치(현재 코드/빌드 스크립트 기준)는 다음과 같습니다.
+
+- `modules/ffmpeg`
+- `modules/whisper.cpp`
+- `modules/llama.cpp`
+
+주의:
+- 위 경로는 외부 모듈의 소스 checkout 위치입니다.
+- 실제 런타임에서 탐색하는 실행 파일은 소스 트리가 아니라 `.build/...` 아래 산출물입니다.
+
 ### 6.1 FFmpeg
 
 - 탐색 경로: `.build/ffmpeg/<os>-<arch>/install/bin`
