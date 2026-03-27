@@ -29,6 +29,7 @@ export function UploadSection() {
   const [uploading, setUploading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragEnterCounterRef = useRef(0);
 
   const showStatus = useCallback((text: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration = 3000) => {
     setStatusMessage({ text, type });
@@ -39,20 +40,33 @@ export function UploadSection() {
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    setIsDragging(true);
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragEnterCounterRef.current += 1;
     setIsDragging(true);
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
-    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+    e.stopPropagation();
+    dragEnterCounterRef.current = Math.max(0, dragEnterCounterRef.current - 1);
+    if (dragEnterCounterRef.current === 0) {
       setIsDragging(false);
     }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsDragging(false);
-    const files = Array.from(e.dataTransfer.files);
+    dragEnterCounterRef.current = 0;
+    const files = Array.from(e.dataTransfer.files).filter(file => file.size > 0);
     addFiles(files);
   };
 
@@ -166,6 +180,7 @@ export function UploadSection() {
 
           {/* Drop Zone */}
           <div
+            onDragEnter={handleDragEnter}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
