@@ -152,19 +152,29 @@ set "backend_name=%~1"
 set "backend_build_dir=%build_root%\build\%backend_name%"
 set "built_llama_bin=%backend_build_dir%\bin\llama-cli.exe"
 set "built_llama_release_bin=%backend_build_dir%\bin\Release\llama-cli.exe"
+set "built_llama_embedding_bin=%backend_build_dir%\bin\llama-embedding.exe"
+set "built_llama_embedding_release_bin=%backend_build_dir%\bin\Release\llama-embedding.exe"
 if not exist "%runtime_bin%" mkdir "%runtime_bin%"
 if exist "%built_llama_bin%" (
   copy /y "%built_llama_bin%" "%llama_bin%" >nul
 )
-if exist "%llama_bin%" (
+if exist "%built_llama_embedding_bin%" (
+  copy /y "%built_llama_embedding_bin%" "%llama_embedding_bin%" >nul
+)
+if exist "%llama_bin%" if exist "%llama_embedding_bin%" (
   echo llama_cli=%llama_bin%
+  echo llama_embedding=%llama_embedding_bin%
   exit /b 0
 )
 if exist "%built_llama_release_bin%" (
   copy /y "%built_llama_release_bin%" "%llama_bin%" >nul
 )
-if exist "%llama_bin%" (
+if exist "%built_llama_embedding_release_bin%" (
+  copy /y "%built_llama_embedding_release_bin%" "%llama_embedding_bin%" >nul
+)
+if exist "%llama_bin%" if exist "%llama_embedding_bin%" (
   echo llama_cli=%llama_bin%
+  echo llama_embedding=%llama_embedding_bin%
   exit /b 0
 )
 exit /b 1
@@ -189,6 +199,8 @@ set "backend_build_dir=%build_root%\build\%backend_name%"
 set "backend_runtime_bin=%backend_build_dir%\bin"
 set "built_llama_bin=%backend_runtime_bin%\llama-cli.exe"
 set "built_llama_release_bin=%backend_runtime_bin%\Release\llama-cli.exe"
+set "built_llama_embedding_bin=%backend_runtime_bin%\llama-embedding.exe"
+set "built_llama_embedding_release_bin=%backend_runtime_bin%\Release\llama-embedding.exe"
 
 if not exist "%backend_build_dir%" mkdir "%backend_build_dir%"
 if not exist "%backend_runtime_bin%" mkdir "%backend_runtime_bin%"
@@ -208,19 +220,26 @@ if not exist "%runtime_bin%" mkdir "%runtime_bin%"
   %backend_cmake_flags%
 if errorlevel 1 exit /b %errorlevel%
 
-"%cmake_exe%" --build "%backend_build_dir%" --target llama-cli --parallel %jobs%
+"%cmake_exe%" --build "%backend_build_dir%" --target llama-cli llama-embedding --parallel %jobs%
 if errorlevel 1 exit /b %errorlevel%
 
 if exist "%built_llama_bin%" copy /y "%built_llama_bin%" "%llama_bin%" >nul
 if exist "%built_llama_release_bin%" copy /y "%built_llama_release_bin%" "%llama_bin%" >nul
+if exist "%built_llama_embedding_bin%" copy /y "%built_llama_embedding_bin%" "%llama_embedding_bin%" >nul
+if exist "%built_llama_embedding_release_bin%" copy /y "%built_llama_embedding_release_bin%" "%llama_embedding_bin%" >nul
 
 if not exist "%llama_bin%" (
   >&2 echo llama-cli binary not found after build: %built_llama_bin%
   exit /b 1
 )
+if not exist "%llama_embedding_bin%" (
+  >&2 echo llama-embedding binary not found after build: %built_llama_embedding_bin%
+  exit /b 1
+)
 
 call :write_build_stamp "%backend_name%"
 echo llama_cli=%llama_bin%
+echo llama_embedding=%llama_embedding_bin%
 exit /b 0
 
 :main
@@ -240,13 +259,15 @@ set "target=windows-%platform_arch%"
 set "build_root=%repo_root%\.build\llama\%target%"
 set "runtime_bin=%build_root%\bin"
 set "llama_bin=%runtime_bin%\llama-cli.exe"
+set "llama_embedding_bin=%runtime_bin%\llama-embedding.exe"
 set "build_stamp=%build_root%\build-flags.txt"
 
 call :read_build_stamp
 if /I not "%cached_backend%"=="cuda" if /I not "%cached_backend%"=="cpu" set "cached_backend="
 
-if defined cached_backend if exist "%llama_bin%" (
+if defined cached_backend if exist "%llama_bin%" if exist "%llama_embedding_bin%" (
   echo llama_cli=%llama_bin%
+  echo llama_embedding=%llama_embedding_bin%
   exit /b 0
 )
 

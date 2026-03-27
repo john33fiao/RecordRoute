@@ -111,6 +111,7 @@ pub fn run_transcription(
     }
 
     if output_text.is_file() {
+        postprocess_transcript(output_text)?;
         return Ok(());
     }
 
@@ -118,6 +119,49 @@ pub fn run_transcription(
         "whisper-cli completed without creating transcript {}",
         output_text.display()
     ))
+}
+
+fn postprocess_transcript(output_text: &Path) -> Result<(), String> {
+    let original = fs::read_to_string(output_text).map_err(|error| {
+        format!(
+            "failed to read transcript for post-processing {}: {error}",
+            output_text.display()
+        )
+    })?;
+    let deduplicated = deduplicate_consecutive_lines(&original);
+    if deduplicated == original {
+        return Ok(());
+    }
+
+    fs::write(output_text, deduplicated).map_err(|error| {
+        format!(
+            "failed to write post-processed transcript {}: {error}",
+            output_text.display()
+        )
+    })
+}
+
+fn deduplicate_consecutive_lines(content: &str) -> String {
+    let mut deduplicated = String::with_capacity(content.len());
+    let mut previous_line: Option<String> = None;
+
+    for segment in content.split_inclusive('\n') {
+        let line = segment.strip_suffix('\n').unwrap_or(segment);
+        let normalized = line.trim_end_matches('\r').trim();
+        let is_duplicate = !normalized.is_empty() && previous_line.as_deref() == Some(normalized);
+        if is_duplicate {
+            continue;
+        }
+
+        deduplicated.push_str(segment);
+        previous_line = if normalized.is_empty() {
+            None
+        } else {
+            Some(normalized.to_string())
+        };
+    }
+
+    deduplicated
 }
 
 fn resolve_model_path(repo_root: &Path) -> PathBuf {
@@ -420,6 +464,10 @@ mod tests {
 
     #[test]
     fn discovers_toolchain_with_default_model_path() {
+        let _guard = crate::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe { std::env::remove_var(MODEL_ENV_VAR) };
         let repo_root = temp_workspace();
         let build_bin = repo_root
             .join(".build/whisper")
@@ -622,6 +670,45 @@ mod tests {
         assert!(!log.contains("ARG=-ng"));
         assert!(!log.contains("GGML_METAL=0"));
         assert!(!log.contains("GGML_METAL_DEVICES=0"));
+    }
+
+    #[test]
+    fn run_transcription_deduplicates_consecutive_transcript_lines() {
+        let _guard = crate::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let repo_root = temp_workspace();
+        let build_bin = repo_root
+            .join(".build/whisper")
+            .join(target_dir_name())
+            .join("bin");
+        let input = repo_root.join("sample.wav");
+        let output = repo_root.join("stt/sample.txt");
+        fs::create_dir_all(&build_bin).expect("build bin");
+        write_test_audio(&input);
+        write_executable(
+            &fake_whisper_cli_path(&build_bin),
+            "#!/bin/sh\nnext=''\nout=''\nfor arg in \"$@\"; do\n  if [ \"$next\" = 'of' ]; then\n    out=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -of)\n      next='of'\n      ;;\n  esac\ndone\nmkdir -p \"$(dirname \"$out\")\"\nprintf 'intro\\nrepeat me\\nrepeat me\\n\\nrepeat me\\noutro\\n' > \"$out.txt\"\n",
+            "@echo off\r\nsetlocal EnableExtensions EnableDelayedExpansion\r\nset \"out=\"\r\nset \"next=\"\r\n:loop\r\nif \"%~1\"==\"\" goto done\r\nif /I \"!next!\"==\"of\" (\r\n  set \"out=%~1\"\r\n  set \"next=\"\r\n) else if /I \"%~1\"==\"-of\" (\r\n  set \"next=of\"\r\n)\r\nshift\r\ngoto loop\r\n:done\r\nif defined out (\r\n  for %%I in (\"!out!\") do if not exist \"%%~dpI\" mkdir \"%%~dpI\"\r\n  > \"!out!.txt\" echo intro\r\n  >> \"!out!.txt\" echo repeat me\r\n  >> \"!out!.txt\" echo repeat me\r\n  >> \"!out!.txt\" echo.\r\n  >> \"!out!.txt\" echo repeat me\r\n  >> \"!out!.txt\" echo outro\r\n)\r\nexit /b 0\r\n",
+        );
+
+        let toolchain = Toolchain {
+            whisper_cli_path: fake_whisper_cli_path(&build_bin),
+            build_script_path: build_script_path(&repo_root, "whisper"),
+            download_script_path: download_script_path(&repo_root),
+            model_path: repo_root.join("models/whisper/ggml-base.bin"),
+        };
+        fs::create_dir_all(repo_root.join("models/whisper")).expect("models dir");
+        fs::write(&toolchain.model_path, "model").expect("model file");
+
+        run_transcription(&toolchain, &input, &output).expect("transcription");
+
+        assert_eq!(
+            fs::read_to_string(output)
+                .expect("transcript")
+                .replace("\r\n", "\n"),
+            "intro\nrepeat me\n\nrepeat me\noutro\n"
+        );
     }
 
     #[cfg(any(target_os = "macos", windows))]
