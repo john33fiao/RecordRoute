@@ -1,6 +1,21 @@
 const POLL_INTERVAL_MS = 2000;
 const UPLOAD_FILE_MAX_BYTES = 512 * 1024 * 1024;
 const UPLOAD_FILE_MAX_LABEL = "512MB";
+const AUDIO_FILE_EXTENSIONS = [
+  ".wav",
+  ".mp3",
+  ".flac",
+  ".ogg",
+  ".m4a",
+  ".aac",
+  ".wma",
+  ".aiff",
+  ".aif",
+  ".opus",
+  ".webm",
+  ".mp4",
+  ".m4b",
+];
 
 const state = {
   jobs: [],
@@ -17,6 +32,7 @@ const state = {
   systemStatus: null,
   modelsStatus: null,
   searchResults: [],
+  uploadQueue: [],
   pollers: new Map(),
   loading: {
     upload: false,
@@ -63,6 +79,7 @@ function captureElements() {
   elements.uploadDropzone = document.getElementById("upload-dropzone");
   elements.uploadInput = document.getElementById("upload-input");
   elements.uploadSubmitButton = document.getElementById("upload-submit-button");
+  elements.uploadQueue = document.getElementById("upload-queue");
   elements.sttForm = document.getElementById("stt-form");
   elements.sttSubmitButton = document.getElementById("stt-submit-button");
   elements.summarySubmitButton = document.getElementById("summary-submit-button");
@@ -90,6 +107,7 @@ function bindEvents() {
     refreshSelectedJob(state.selectedJobId, { showMessage: true });
   });
   elements.uploadForm.addEventListener("submit", onUploadSubmit);
+  elements.uploadInput.addEventListener("change", onUploadInputChange);
   elements.uploadDropzone.addEventListener("dragenter", onUploadDragEnter);
   elements.uploadDropzone.addEventListener("dragover", onUploadDragOver);
   elements.uploadDropzone.addEventListener("dragleave", onUploadDragLeave);
@@ -106,44 +124,61 @@ async function bootstrap() {
 
 async function onUploadSubmit(event) {
   event.preventDefault();
-  const file = elements.uploadInput.files?.[0];
-  if (!file) {
+  const files = Array.from(elements.uploadInput.files || []);
+  if (files.length === 0) {
     setMessage("upload", "업로드할 파일을 선택해 주세요.", "error");
     return;
   }
-  if (file.size > UPLOAD_FILE_MAX_BYTES) {
-    setMessage(
-      "upload",
-      `업로드 가능한 최대 파일 크기는 ${UPLOAD_FILE_MAX_LABEL}입니다.`,
-      "error"
-    );
-    return;
-  }
 
-  const formData = new FormData();
-  formData.append("file", file);
   setLoading("upload", true);
   try {
-    const { status, data } = await fetchJson("/jobs/upload", {
-      method: "POST",
-      body: formData,
-    });
-    setMessage(
-      "upload",
-      data.message || successMessage(status, "업로드 요청이 접수되었습니다."),
-      status === 202 ? "info" : "success"
-    );
+    let successCount = 0;
+    let failedCount = 0;
+    let selectedJobId = null;
+
+    for (const file of files) {
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const { data } = await fetchJson("/jobs/upload", {
+          method: "POST",
+          body: formData,
+        });
+        successCount += 1;
+        if (data?.job_id) {
+          selectedJobId = data.job_id;
+        }
+      } catch (error) {
+        failedCount += 1;
+      }
+    }
+
+    const summaryParts = [];
+    if (successCount > 0) {
+      summaryParts.push(`${successCount}개 업로드 성공`);
+    }
+    if (failedCount > 0) {
+      summaryParts.push(`${failedCount}개 업로드 실패`);
+    }
+    setMessage("upload", summaryParts.join(" / ") || "업로드 요청이 접수되었습니다.", failedCount > 0 ? "info" : "success");
+
     elements.uploadForm.reset();
+    state.uploadQueue = [];
+    renderUploadQueue();
     setUploadDropzoneDragState(false);
     await refreshJobs();
-    if (data?.job_id) {
-      await refreshSelectedJob(data.job_id, { showMessage: true });
+    if (selectedJobId) {
+      await refreshSelectedJob(selectedJobId, { showMessage: true });
     }
   } catch (error) {
     setMessage("upload", error.message, "error");
   } finally {
     setLoading("upload", false);
   }
+}
+
+function onUploadInputChange(event) {
+  applyUploadSelection(event.target.files, { source: "선택" });
 }
 
 function onUploadDragEnter(event) {
@@ -169,20 +204,93 @@ function onUploadDrop(event) {
   event.preventDefault();
   setUploadDropzoneDragState(false);
 
-  const droppedFiles = event.dataTransfer?.files;
-  if (!droppedFiles || droppedFiles.length === 0) {
-    return;
-  }
-
-  const firstFile = droppedFiles[0];
-  const transfer = new DataTransfer();
-  transfer.items.add(firstFile);
-  elements.uploadInput.files = transfer.files;
-  setMessage("upload", `선택된 파일: ${firstFile.name}`, "info");
+  applyUploadSelection(event.dataTransfer?.files, { source: "드래그 앤 드롭" });
 }
 
 function setUploadDropzoneDragState(isDragOver) {
   elements.uploadDropzone.classList.toggle("is-dragover", isDragOver);
+}
+
+function applyUploadSelection(fileList, { source }) {
+  const files = Array.from(fileList || []);
+  const accepted = [];
+  const rejectedNonAudio = [];
+  const rejectedOversized = [];
+
+  for (const file of files) {
+    if (!isAudioFile(file)) {
+      rejectedNonAudio.push(file.name);
+      continue;
+    }
+    if (file.size > UPLOAD_FILE_MAX_BYTES) {
+      rejectedOversized.push(file.name);
+      continue;
+    }
+    accepted.push(file);
+  }
+
+  const transfer = new DataTransfer();
+  accepted.forEach((file) => transfer.items.add(file));
+  elements.uploadInput.files = transfer.files;
+  state.uploadQueue = accepted.map((file) => ({ name: file.name, size: file.size }));
+  renderUploadQueue();
+
+  if (accepted.length === 0) {
+    const reasons = [];
+    if (rejectedNonAudio.length > 0) {
+      reasons.push("오디오 파일이 없습니다");
+    }
+    if (rejectedOversized.length > 0) {
+      reasons.push(`${UPLOAD_FILE_MAX_LABEL} 초과 파일 제외`);
+    }
+    setMessage("upload", `${source}: 업로드 가능한 파일이 없습니다 (${reasons.join(", ")}).`, "error");
+    return;
+  }
+
+  const messageParts = [`${source}: ${accepted.length}개 파일을 대기열에 추가했습니다.`];
+  if (rejectedNonAudio.length > 0) {
+    messageParts.push(`오디오 아님 ${rejectedNonAudio.length}개 제외`);
+  }
+  if (rejectedOversized.length > 0) {
+    messageParts.push(`${UPLOAD_FILE_MAX_LABEL} 초과 ${rejectedOversized.length}개 제외`);
+  }
+  setMessage("upload", messageParts.join(" "), "info");
+}
+
+function isAudioFile(file) {
+  if (!file) {
+    return false;
+  }
+  if (typeof file.type === "string" && file.type.startsWith("audio/")) {
+    return true;
+  }
+  const lowerName = (file.name || "").toLowerCase();
+  return AUDIO_FILE_EXTENSIONS.some((extension) => lowerName.endsWith(extension));
+}
+
+function renderUploadQueue() {
+  if (!elements.uploadQueue) {
+    return;
+  }
+  if (state.uploadQueue.length === 0) {
+    elements.uploadQueue.innerHTML = '<p class="muted">대기열이 비어 있습니다.</p>';
+    return;
+  }
+
+  elements.uploadQueue.innerHTML = `
+    <ul class="upload-queue-list">
+      ${state.uploadQueue
+        .map(
+          (file) => `
+            <li>
+              <span>${escapeHtml(file.name)}</span>
+              <code>${formatBytes(file.size)}</code>
+            </li>
+          `
+        )
+        .join("")}
+    </ul>
+  `;
 }
 
 async function onSttSubmit() {
@@ -465,6 +573,7 @@ async function prepareModel(kind) {
 }
 
 function renderAll() {
+  renderUploadQueue();
   renderSystem();
   renderJobs();
   renderSelectedJob();
@@ -873,6 +982,20 @@ function setInlineStatus(id, message, tone = "info") {
 function setLoading(key, value) {
   state.loading[key] = value;
   updateActionStates();
+}
+
+function formatBytes(bytes) {
+  const amount = Number(bytes) || 0;
+  if (amount < 1024) {
+    return `${amount} B`;
+  }
+  if (amount < 1024 * 1024) {
+    return `${(amount / 1024).toFixed(1)} KB`;
+  }
+  if (amount < 1024 * 1024 * 1024) {
+    return `${(amount / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${(amount / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 async function fetchJson(path, options = {}) {
