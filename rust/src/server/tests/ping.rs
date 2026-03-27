@@ -1,11 +1,18 @@
-use super::super::router;
+use super::super::router_with_repo_root;
+use axum::Router;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use http_body_util::BodyExt;
 use tower::util::ServiceExt;
+
+fn app() -> Router {
+    let repo_root = crate::app::repo_root().expect("failed to resolve repository root");
+    router_with_repo_root(repo_root)
+}
+
 #[tokio::test]
 async fn ping_returns_expected_success_payload() {
-    let app = router();
+    let app = app();
     let request = Request::builder()
         .method(Method::POST)
         .uri("/server/ping")
@@ -30,7 +37,7 @@ async fn ping_returns_expected_success_payload() {
 
 #[tokio::test]
 async fn ping_returns_400_for_malformed_json() {
-    let app = router();
+    let app = app();
     let request = Request::builder()
         .method(Method::POST)
         .uri("/server/ping")
@@ -55,7 +62,7 @@ async fn ping_returns_400_for_malformed_json() {
 
 #[tokio::test]
 async fn ping_returns_400_when_message_is_missing() {
-    let app = router();
+    let app = app();
     let request = Request::builder()
         .method(Method::POST)
         .uri("/server/ping")
@@ -80,7 +87,7 @@ async fn ping_returns_400_when_message_is_missing() {
 
 #[tokio::test]
 async fn ping_returns_400_when_code_is_missing() {
-    let app = router();
+    let app = app();
     let request = Request::builder()
         .method(Method::POST)
         .uri("/server/ping")
@@ -105,7 +112,7 @@ async fn ping_returns_400_when_code_is_missing() {
 
 #[tokio::test]
 async fn ping_rejects_get_method() {
-    let app = router();
+    let app = app();
     let request = Request::builder()
         .method(Method::GET)
         .uri("/server/ping")

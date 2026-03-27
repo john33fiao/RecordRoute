@@ -29,11 +29,6 @@ use types::AppState;
 
 pub const SERVER_BIND: &str = "127.0.0.1:38080";
 
-pub fn router() -> Router {
-    let repo_root = app::repo_root().expect("failed to resolve repository root for server");
-    router_with_repo_root(repo_root)
-}
-
 pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
     Router::new()
         .route("/", get(web::get_index))
