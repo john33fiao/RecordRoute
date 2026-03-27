@@ -12,6 +12,8 @@ const APP_URL: &str = "http://127.0.0.1:38080/";
 const PING_PATH: &str = "/server/ping";
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
 const READY_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const TERMINATION_GRACE_TIMEOUT: Duration = Duration::from_secs(3);
+const TERMINATION_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 pub fn run_launcher() -> Result<(), String> {
     let runtime_root = runtime_root::resolve_runtime_root()?;
@@ -188,22 +190,66 @@ fn terminate_child(child: &mut Child) -> Result<(), String> {
         return Ok(());
     }
 
-    let _ = child.kill();
-    let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(3) {
-        if child
-            .try_wait()
-            .map_err(|error| error.to_string())?
-            .is_some()
-        {
-            return Ok(());
-        }
-        thread::sleep(Duration::from_millis(100));
+    let graceful_signal_sent = send_termination_signal(child).is_ok();
+    if graceful_signal_sent && wait_for_child_exit(child, TERMINATION_GRACE_TIMEOUT)? {
+        return Ok(());
     }
 
     child
         .kill()
         .map_err(|error| format!("failed to terminate child process: {error}"))?;
-    let _ = child.wait();
-    Ok(())
+    if wait_for_child_exit(child, TERMINATION_GRACE_TIMEOUT)? {
+        return Ok(());
+    }
+
+    Err("child process did not terminate after forced kill".to_string())
+}
+
+fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> Result<bool, String> {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if child
+            .try_wait()
+            .map_err(|error| error.to_string())?
+            .is_some()
+        {
+            return Ok(true);
+        }
+        thread::sleep(TERMINATION_POLL_INTERVAL);
+    }
+
+    Ok(child
+        .try_wait()
+        .map_err(|error| error.to_string())?
+        .is_some())
+}
+
+fn send_termination_signal(child: &Child) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        let pid = child.id().to_string();
+        let status = Command::new("kill")
+            .args(["-TERM", pid.as_str()])
+            .status()
+            .map_err(|error| format!("failed to execute kill -TERM: {error}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("kill -TERM exited with status {status}"))
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        let pid = child.id().to_string();
+        let status = Command::new("taskkill")
+            .args(["/PID", pid.as_str(), "/T"])
+            .status()
+            .map_err(|error| format!("failed to execute taskkill: {error}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("taskkill exited with status {status}"))
+        }
+    }
 }
