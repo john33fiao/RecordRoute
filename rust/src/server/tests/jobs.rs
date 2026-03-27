@@ -1,4 +1,5 @@
 use super::super::router_with_repo_root;
+use super::super::router_with_repo_root_and_upload_limits;
 use super::super::types::{
     ErrorResponse, JobListResponse, JobStatusResponse, JobSubmissionResponse,
 };
@@ -139,16 +140,15 @@ async fn post_jobs_returns_400_for_invalid_input_path() {
 async fn post_jobs_upload_returns_400_for_missing_file_field() {
     let repo_root = temp_workspace();
     let app = router_with_repo_root(repo_root);
-    let boundary = "recordroute-boundary";
     let request = Request::builder()
         .method(Method::POST)
         .uri("/jobs/upload")
         .header(
             "content-type",
-            format!("multipart/form-data; boundary={boundary}"),
+            format!("multipart/form-data; boundary={UPLOAD_BOUNDARY}"),
         )
         .body(Body::from(format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\nmissing file\r\n--{boundary}--\r\n"
+            "--{UPLOAD_BOUNDARY}\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\nmissing file\r\n--{UPLOAD_BOUNDARY}--\r\n"
         )))
         .expect("upload request");
 
@@ -160,6 +160,128 @@ async fn post_jobs_upload_returns_400_for_missing_file_field() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let body: ErrorResponse = read_json(response).await;
     assert_eq!(body.message, "multipart field 'file' is required");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_jobs_upload_returns_400_for_duplicate_file_field() {
+    let repo_root = temp_workspace();
+    let app = router_with_repo_root(repo_root);
+    let mut body = Vec::new();
+
+    for (filename, bytes) in [
+        ("first.wav", b"one".as_slice()),
+        ("second.wav", b"two".as_slice()),
+    ] {
+        body.extend_from_slice(format!("--{UPLOAD_BOUNDARY}\r\n").as_bytes());
+        body.extend_from_slice(
+            format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
+                .as_bytes(),
+        );
+        body.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
+        body.extend_from_slice(bytes);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{UPLOAD_BOUNDARY}--\r\n").as_bytes());
+
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/jobs/upload")
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={UPLOAD_BOUNDARY}"),
+        )
+        .body(Body::from(body))
+        .expect("duplicate upload request");
+
+    let response = app
+        .oneshot(request)
+        .await
+        .expect("duplicate upload response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: ErrorResponse = read_json(response).await;
+    assert_eq!(body.message, "multipart field 'file' must appear only once");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_jobs_upload_returns_400_for_empty_file() {
+    let repo_root = temp_workspace();
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(post_upload_request("/jobs/upload", "empty.wav", b""))
+        .await
+        .expect("empty upload response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: ErrorResponse = read_json(response).await;
+    assert_eq!(body.message, "uploaded file is empty");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_jobs_upload_returns_413_and_cleans_temp_files_when_file_exceeds_limit() {
+    let repo_root = temp_workspace();
+    let app = router_with_repo_root_and_upload_limits(
+        repo_root.clone(),
+        super::super::upload::UploadLimits::new(16, 4096),
+    );
+    let oversized = vec![b'a'; 17];
+    let response = app
+        .oneshot(post_upload_request(
+            "/jobs/upload",
+            "too-big.wav",
+            &oversized,
+        ))
+        .await
+        .expect("oversized upload response");
+
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let body: ErrorResponse = read_json(response).await;
+    assert_eq!(body.message, super::super::upload::upload_limit_message(16));
+
+    let temp_dir = repo_root.join("db/uploads/.tmp");
+    if temp_dir.is_dir() {
+        let entries = fs::read_dir(&temp_dir)
+            .expect("temp dir")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("temp dir entries");
+        assert!(entries.is_empty());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_jobs_upload_returns_400_and_cleans_temp_files_for_malformed_multipart() {
+    let repo_root = temp_workspace();
+    let app = router_with_repo_root(repo_root.clone());
+    let body = format!(
+        "--{UPLOAD_BOUNDARY}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"sample.wav\"\r\nContent-Type: application/octet-stream\r\n\r\nhello\r\n--{UPLOAD_BOUNDARY}\r\nContent-Disposition: form-data; name=\"note\"\r\n"
+    );
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/jobs/upload")
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={UPLOAD_BOUNDARY}"),
+        )
+        .body(Body::from(body))
+        .expect("malformed upload request");
+
+    let response = app
+        .oneshot(request)
+        .await
+        .expect("malformed upload response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: ErrorResponse = read_json(response).await;
+    assert_eq!(body.message, "invalid multipart body");
+
+    let temp_dir = repo_root.join("db/uploads/.tmp");
+    if temp_dir.is_dir() {
+        let entries = fs::read_dir(&temp_dir)
+            .expect("temp dir")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("temp dir entries");
+        assert!(entries.is_empty());
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -185,7 +185,8 @@
 ### 7.2 Job 생성/조회
 
 - `POST /jobs`: 로컬 파일 경로 기반 ffmpeg job 제출
-- `POST /jobs/upload`: multipart 업로드 파일을 `db/uploads/<hash>.bin`에 저장 후 ffmpeg job 제출
+- `POST /jobs/upload`: multipart 업로드 파일을 스트리밍으로 `db/uploads/<hash>.bin`에 저장 후 ffmpeg job 제출
+  - 업로드 가능한 최대 파일 크기는 512MB이며, 초과 시 `413 Payload Too Large`를 반환
 - `GET /jobs`: 전체 job 목록
 - `GET /jobs/completed`: 완료 job 목록
 - `GET /jobs/by-source?source_path=...`: 원본 경로 기준 job 목록

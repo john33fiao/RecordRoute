@@ -11,6 +11,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tower::util::ServiceExt;
 use uuid::Uuid;
+
+pub(super) const UPLOAD_BOUNDARY: &str = "recordroute-boundary";
+
 pub(super) fn temp_workspace() -> PathBuf {
     let path = std::env::temp_dir().join(format!("recordroute-server-{}", Uuid::now_v7()));
     fs::create_dir_all(&path).expect("temp workspace");
@@ -161,9 +164,8 @@ pub(super) fn make_executable(path: &Path) {
 }
 
 pub(super) fn post_upload_request(uri: &str, filename: &str, file_bytes: &[u8]) -> Request<Body> {
-    let boundary = "recordroute-boundary";
     let mut body = Vec::new();
-    body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+    body.extend_from_slice(format!("--{UPLOAD_BOUNDARY}\r\n").as_bytes());
     body.extend_from_slice(
         format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
             .as_bytes(),
@@ -171,14 +173,14 @@ pub(super) fn post_upload_request(uri: &str, filename: &str, file_bytes: &[u8]) 
     body.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
     body.extend_from_slice(file_bytes);
     body.extend_from_slice(b"\r\n");
-    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    body.extend_from_slice(format!("--{UPLOAD_BOUNDARY}--\r\n").as_bytes());
 
     Request::builder()
         .method(Method::POST)
         .uri(uri)
         .header(
             "content-type",
-            format!("multipart/form-data; boundary={boundary}"),
+            format!("multipart/form-data; boundary={UPLOAD_BOUNDARY}"),
         )
         .body(Body::from(body))
         .expect("upload request")

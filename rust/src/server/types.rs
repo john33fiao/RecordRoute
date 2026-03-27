@@ -199,13 +199,15 @@ pub(crate) struct JobListResponse {
 #[derive(Debug, Clone)]
 pub(crate) struct AppState {
     pub repo_root: PathBuf,
+    pub upload_limits: super::upload::UploadLimits,
     pub invalid_request_body: ErrorResponse,
 }
 
 impl AppState {
-    pub(crate) fn new(repo_root: PathBuf) -> Self {
+    pub(crate) fn new(repo_root: PathBuf, upload_limits: super::upload::UploadLimits) -> Self {
         Self {
             repo_root,
+            upload_limits,
             invalid_request_body: ErrorResponse {
                 code: "400".to_string(),
                 message: "invalid request body".to_string(),

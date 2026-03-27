@@ -5,12 +5,13 @@ use super::types::{
 use super::{error_response, run_blocking, run_blocking_app};
 use crate::index::IndexStore;
 use axum::Json;
-use axum::body::Bytes;
+use axum::extract::Multipart;
 use axum::extract::Path as AxumPath;
 use axum::extract::Query;
 use axum::extract::State;
+use axum::extract::multipart::MultipartRejection;
 use axum::extract::rejection::JsonRejection;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use std::path::PathBuf;
 
@@ -64,17 +65,22 @@ pub(crate) async fn post_jobs(
 
 pub(crate) async fn post_jobs_upload(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    body: Bytes,
+    multipart: Result<Multipart, MultipartRejection>,
 ) -> Response {
-    let upload = match super::upload::parse_uploaded_file(&headers, &body) {
-        Ok(upload) => upload,
+    let upload_path = match super::upload::persist_uploaded_file(
+        &state.repo_root,
+        state.upload_limits,
+        multipart,
+    )
+    .await
+    {
+        Ok(upload_path) => upload_path,
         Err(error) => return error_response(error),
     };
 
     let repo_root = state.repo_root.clone();
     let submission = match run_blocking_app(move || {
-        super::upload::persist_uploaded_file_and_submit(&repo_root, &upload.bytes)
+        app_api::submit_ffmpeg_job(&repo_root, &upload_path)
     })
     .await
     {

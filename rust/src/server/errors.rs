@@ -111,6 +111,7 @@ pub(crate) fn status_code(error: &AppError) -> StatusCode {
     match error.kind() {
         AppErrorKind::BadRequest => StatusCode::BAD_REQUEST,
         AppErrorKind::NotFound => StatusCode::NOT_FOUND,
+        AppErrorKind::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
         AppErrorKind::DependencyUnavailable => StatusCode::SERVICE_UNAVAILABLE,
         AppErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
     }

@@ -1,4 +1,6 @@
 const POLL_INTERVAL_MS = 2000;
+const UPLOAD_FILE_MAX_BYTES = 512 * 1024 * 1024;
+const UPLOAD_FILE_MAX_LABEL = "512MB";
 
 const state = {
   jobs: [],
@@ -102,6 +104,14 @@ async function onUploadSubmit(event) {
   const file = elements.uploadInput.files?.[0];
   if (!file) {
     setMessage("upload", "업로드할 파일을 선택해 주세요.", "error");
+    return;
+  }
+  if (file.size > UPLOAD_FILE_MAX_BYTES) {
+    setMessage(
+      "upload",
+      `업로드 가능한 최대 파일 크기는 ${UPLOAD_FILE_MAX_LABEL}입니다.`,
+      "error"
+    );
     return;
   }
 
@@ -920,5 +930,4 @@ function escapeHtml(value) {
 function escapeAttribute(value) {
   return escapeHtml(value);
 }
-
 

@@ -5,6 +5,7 @@ use std::fmt;
 pub(crate) enum AppErrorKind {
     BadRequest,
     NotFound,
+    PayloadTooLarge,
     DependencyUnavailable,
     Internal,
 }
@@ -35,6 +36,10 @@ impl AppError {
 
     pub(crate) fn dependency_unavailable(message: impl Into<String>) -> Self {
         Self::new(AppErrorKind::DependencyUnavailable, message)
+    }
+
+    pub(crate) fn payload_too_large(message: impl Into<String>) -> Self {
+        Self::new(AppErrorKind::PayloadTooLarge, message)
     }
 
     pub(crate) fn internal(message: impl Into<String>) -> Self {

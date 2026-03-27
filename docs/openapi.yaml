@@ -211,6 +211,9 @@ paths:
     post:
       tags: [jobs]
       summary: Upload file and create or reuse ffmpeg job
+      description: |
+        multipart 업로드를 스트리밍으로 저장한 뒤 ffmpeg job을 제출합니다.
+        업로드 가능한 최대 파일 크기는 512MB입니다.
       operationId: postJobsUpload
       requestBody:
         required: true
@@ -238,6 +241,12 @@ paths:
                 $ref: '#/components/schemas/JobSubmissionResponse'
         '400':
           description: Invalid multipart body or missing file field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Uploaded file exceeds the 512MB limit
           content:
             application/json:
               schema:

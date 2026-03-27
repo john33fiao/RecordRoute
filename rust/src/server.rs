@@ -22,7 +22,9 @@ mod web;
 use crate::app;
 use crate::error::{AppError, AppResult};
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::response::Response;
+use axum::routing::MethodRouter;
 use axum::routing::{get, post};
 use std::path::PathBuf;
 use types::AppState;
@@ -30,6 +32,13 @@ use types::AppState;
 pub const SERVER_BIND: &str = "127.0.0.1:38080";
 
 pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
+    router_with_repo_root_and_upload_limits(repo_root, upload::DEFAULT_UPLOAD_LIMITS)
+}
+
+pub(crate) fn router_with_repo_root_and_upload_limits(
+    repo_root: PathBuf,
+    upload_limits: upload::UploadLimits,
+) -> Router {
     Router::new()
         .route("/", get(web::get_index))
         .route("/app.js", get(web::get_app_js))
@@ -48,7 +57,7 @@ pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
         .route("/jobs", post(jobs::post_jobs).get(jobs::get_jobs))
         .route("/jobs/completed", get(jobs::get_completed_jobs))
         .route("/jobs/by-source", get(jobs::get_jobs_by_source))
-        .route("/jobs/upload", post(jobs::post_jobs_upload))
+        .route("/jobs/upload", jobs_upload_route(upload_limits))
         .route("/jobs/{job_id}", get(jobs::get_job))
         .route("/jobs/{job_id}/status", get(jobs::get_job_status))
         .route(
@@ -76,7 +85,11 @@ pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
             "/jobs/{job_id}/files/{*file_name}",
             get(stages::get_job_file),
         )
-        .with_state(AppState::new(repo_root))
+        .with_state(AppState::new(repo_root, upload_limits))
+}
+
+fn jobs_upload_route(upload_limits: upload::UploadLimits) -> MethodRouter<AppState> {
+    post(jobs::post_jobs_upload).layer(DefaultBodyLimit::max(upload_limits.request_max_bytes))
 }
 
 pub async fn serve() -> Result<(), String> {
