@@ -45,6 +45,25 @@ ensure_file_exists() {
   fi
 }
 
+touch_packaged_outputs() {
+  local output_files=(
+    "${package_dir}/RecordRoute"
+    "${package_dir}/RecordRouteServer"
+    "${package_dir}/.build/ffmpeg/${target_dir}/install/bin/ffmpeg"
+    "${package_dir}/.build/ffmpeg/${target_dir}/install/bin/ffprobe"
+    "${package_dir}/.build/whisper/${target_dir}/bin/whisper-cli"
+    "${package_dir}/.build/llama/${target_dir}/bin/llama-cli"
+    "${package_dir}/.build/llama/${target_dir}/bin/llama-embedding"
+  )
+  local path
+
+  for path in "${output_files[@]}"; do
+    if [[ -f "${path}" ]]; then
+      touch "${path}"
+    fi
+  done
+}
+
 ensure_bundled_sources
 
 bash "${script_dir}/scripts/build_ffmpeg.sh"
@@ -107,6 +126,7 @@ mv "${next_dir}" "${package_dir}"
 
 echo "Starting runtime model preparation..."
 RECORDROUTE_RUNTIME_ROOT="${package_dir}" "${script_dir}/rust/target/release/recordroute_rust" prepare-models
+touch_packaged_outputs
 echo "Runtime model preparation finished."
 
 echo "Package ready: ${package_dir}/RecordRoute"

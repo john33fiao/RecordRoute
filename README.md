@@ -77,6 +77,8 @@ run.bat
 공식 사용자 실행 경로는 `package/RecordRoute(.exe)`입니다. `run.sh`/`run.bat`는 해당 런처를 호출하는 보조 스크립트입니다.
 
 - 런처(`RecordRoute`)는 foreground supervisor로 동작하며 `RecordRouteServer`를 직접 소유합니다.
+- `run.sh`/`run.bat`는 package 전용 실행 경로입니다. Rust 소스, `setup`, 빌드 스크립트, 현재 플랫폼 `.build` 툴체인을 바꾼 뒤에는 `./setup.sh` 또는 `setup.bat`를 다시 실행해 package를 갱신해야 합니다.
+- package가 repo 입력보다 오래되었거나 package 내부 산출물이 비어 있으면 `run.sh`/`run.bat`는 실행을 중단하고 재패키징을 안내합니다.
 - `./run.sh`를 실행하면 브라우저를 연 뒤에도 터미널이 유지되며, Rust 서버 로그가 터미널과 `package/logs/server.log`에 함께 출력됩니다.
 - `Ctrl-C` 또는 터미널 종료 시 런처가 자신이 띄운 `RecordRouteServer`를 함께 종료합니다.
 - 서버는 기본적으로 `127.0.0.1:38080`에 바인딩되며 웹 UI는 [http://127.0.0.1:38080/](http://127.0.0.1:38080/)에서 접근합니다.

@@ -79,6 +79,8 @@ set "RECORDROUTE_RUNTIME_ROOT=%package_dir%"
 echo Starting runtime model preparation...
 "%repo_root%\rust\target\release\recordroute_rust.exe" prepare-models
 if errorlevel 1 exit /b 1
+call :touch_packaged_outputs "%package_dir%" "%target_dir%"
+if errorlevel 1 exit /b 1
 echo Runtime model preparation finished.
 
 echo Package ready: %package_dir%\RecordRoute.exe
@@ -99,3 +101,24 @@ set "label=%~2"
 if exist "%pattern%" exit /b 0
 >&2 echo missing %label% ^(pattern: %pattern%^)
 exit /b 1
+
+:touch_packaged_outputs
+set "touch_root=%~1"
+set "touch_target=%~2"
+for %%F in (
+  "%touch_root%\RecordRoute.exe"
+  "%touch_root%\RecordRouteServer.exe"
+  "%touch_root%\.build\ffmpeg\%touch_target%\install\bin\ffmpeg.exe"
+  "%touch_root%\.build\ffmpeg\%touch_target%\install\bin\ffprobe.exe"
+  "%touch_root%\.build\whisper\%touch_target%\bin\whisper-cli.exe"
+  "%touch_root%\.build\llama\%touch_target%\bin\llama-cli.exe"
+  "%touch_root%\.build\llama\%touch_target%\bin\llama-embedding.exe"
+) do (
+  if exist "%%~fF" (
+    set "RECORDROUTE_TOUCH_PATH=%%~fF"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$path = [System.Environment]::GetEnvironmentVariable('RECORDROUTE_TOUCH_PATH'); if (-not $path) { exit 1 }; (Get-Item -LiteralPath $path).LastWriteTime = Get-Date" >nul
+    set "RECORDROUTE_TOUCH_PATH="
+  )
+  if errorlevel 1 exit /b 1
+)
+exit /b 0
