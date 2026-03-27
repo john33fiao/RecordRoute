@@ -60,6 +60,7 @@ function captureElements() {
   elements.jobsRefreshButton = document.getElementById("jobs-refresh-button");
   elements.selectedJobRefreshButton = document.getElementById("selected-job-refresh-button");
   elements.uploadForm = document.getElementById("upload-form");
+  elements.uploadDropzone = document.getElementById("upload-dropzone");
   elements.uploadInput = document.getElementById("upload-input");
   elements.uploadSubmitButton = document.getElementById("upload-submit-button");
   elements.sttForm = document.getElementById("stt-form");
@@ -89,6 +90,10 @@ function bindEvents() {
     refreshSelectedJob(state.selectedJobId, { showMessage: true });
   });
   elements.uploadForm.addEventListener("submit", onUploadSubmit);
+  elements.uploadDropzone.addEventListener("dragenter", onUploadDragEnter);
+  elements.uploadDropzone.addEventListener("dragover", onUploadDragOver);
+  elements.uploadDropzone.addEventListener("dragleave", onUploadDragLeave);
+  elements.uploadDropzone.addEventListener("drop", onUploadDrop);
   elements.sttSubmitButton.addEventListener("click", onSttSubmit);
   elements.summarySubmitButton.addEventListener("click", onSummarySubmit);
   elements.embeddingSubmitButton.addEventListener("click", onEmbeddingSubmit);
@@ -129,6 +134,7 @@ async function onUploadSubmit(event) {
       status === 202 ? "info" : "success"
     );
     elements.uploadForm.reset();
+    setUploadDropzoneDragState(false);
     await refreshJobs();
     if (data?.job_id) {
       await refreshSelectedJob(data.job_id, { showMessage: true });
@@ -138,6 +144,45 @@ async function onUploadSubmit(event) {
   } finally {
     setLoading("upload", false);
   }
+}
+
+function onUploadDragEnter(event) {
+  event.preventDefault();
+  setUploadDropzoneDragState(true);
+}
+
+function onUploadDragOver(event) {
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+  setUploadDropzoneDragState(true);
+}
+
+function onUploadDragLeave(event) {
+  event.preventDefault();
+  if (event.currentTarget.contains(event.relatedTarget)) {
+    return;
+  }
+  setUploadDropzoneDragState(false);
+}
+
+function onUploadDrop(event) {
+  event.preventDefault();
+  setUploadDropzoneDragState(false);
+
+  const droppedFiles = event.dataTransfer?.files;
+  if (!droppedFiles || droppedFiles.length === 0) {
+    return;
+  }
+
+  const firstFile = droppedFiles[0];
+  const transfer = new DataTransfer();
+  transfer.items.add(firstFile);
+  elements.uploadInput.files = transfer.files;
+  setMessage("upload", `선택된 파일: ${firstFile.name}`, "info");
+}
+
+function setUploadDropzoneDragState(isDragOver) {
+  elements.uploadDropzone.classList.toggle("is-dragover", isDragOver);
 }
 
 async function onSttSubmit() {
@@ -930,4 +975,3 @@ function escapeHtml(value) {
 function escapeAttribute(value) {
   return escapeHtml(value);
 }
-
