@@ -1,0 +1,90 @@
+use super::super::router_with_repo_root;
+use super::support::{get_request, temp_workspace};
+use axum::http::StatusCode;
+use http_body_util::BodyExt;
+use tower::util::ServiceExt;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_root_serves_html_shell_with_expected_sections() {
+    let app = router_with_repo_root(temp_workspace());
+    let response = app.oneshot(get_request("/")).await.expect("root response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("text/html; charset=utf-8")
+    );
+
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("collect html body")
+        .to_bytes();
+    let html = String::from_utf8(body.to_vec()).expect("utf-8 html");
+
+    assert!(html.contains("id=\"upload-panel\""));
+    assert!(html.contains("id=\"jobs-panel\""));
+    assert!(html.contains("id=\"search-panel\""));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_app_js_serves_script_asset() {
+    let app = router_with_repo_root(temp_workspace());
+    let response = app
+        .oneshot(get_request("/app.js"))
+        .await
+        .expect("js response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("text/javascript; charset=utf-8")
+    );
+
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("collect js body")
+        .to_bytes();
+    let js = String::from_utf8(body.to_vec()).expect("utf-8 js");
+
+    assert!(js.contains("const state ="));
+    assert!(js.contains("async function refreshJobs"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_app_css_serves_stylesheet_asset() {
+    let app = router_with_repo_root(temp_workspace());
+    let response = app
+        .oneshot(get_request("/app.css"))
+        .await
+        .expect("css response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("text/css; charset=utf-8")
+    );
+
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("collect css body")
+        .to_bytes();
+    let css = String::from_utf8(body.to_vec()).expect("utf-8 css");
+
+    assert!(css.contains(".panel"));
+    assert!(css.contains(".jobs-list"));
+}

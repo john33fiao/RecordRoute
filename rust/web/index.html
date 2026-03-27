@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RecordRoute Web Console</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="page-header">
+        <div class="header-copy">
+          <p class="eyebrow">RecordRoute</p>
+          <h1>Web Console</h1>
+          <p class="header-summary">
+            업로드부터 STT, 요약, embedding, 검색, 파일 다운로드까지 현재 서버 기능을 한
+            화면에서 다룹니다.
+          </p>
+        </div>
+        <div class="header-meta">
+          <p class="meta-label">Server</p>
+          <p class="meta-value">127.0.0.1:38080</p>
+          <p class="meta-caption" id="global-caption">
+            Same-origin static shell on top of the existing axum API.
+          </p>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel" id="system-panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">System / Models</p>
+              <h2>런타임과 모델 준비 상태</h2>
+            </div>
+            <button class="ghost-button" id="system-refresh-button" type="button">새로고침</button>
+          </div>
+          <div class="notice" id="system-message" aria-live="polite"></div>
+          <div class="system-grid" id="system-grid"></div>
+          <div class="model-grid" id="model-grid"></div>
+        </section>
+
+        <section class="panel" id="upload-panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Upload</p>
+              <h2>오디오 업로드로 새 Job 생성</h2>
+            </div>
+          </div>
+          <div class="notice" id="upload-message" aria-live="polite"></div>
+          <form class="upload-form" id="upload-form">
+            <label class="field">
+              <span>Audio File</span>
+              <input id="upload-input" name="file" type="file" accept=".wav,.mp3,.flac,.ogg,audio/*" required />
+            </label>
+            <button class="primary-button" id="upload-submit-button" type="submit">업로드 후 처리 시작</button>
+          </form>
+        </section>
+
+        <section class="panel" id="jobs-panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Jobs</p>
+              <h2>작업 목록</h2>
+            </div>
+            <button class="ghost-button" id="jobs-refresh-button" type="button">목록 새로고침</button>
+          </div>
+          <div class="notice" id="jobs-message" aria-live="polite"></div>
+          <ul class="jobs-list" id="jobs-list"></ul>
+        </section>
+
+        <section class="panel panel-wide" id="selected-job-panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Selected Job</p>
+              <h2 id="selected-job-title">선택된 Job 없음</h2>
+            </div>
+            <button class="ghost-button" id="selected-job-refresh-button" type="button">상세 새로고침</button>
+          </div>
+          <div class="notice" id="selected-job-message" aria-live="polite"></div>
+
+          <div class="subgrid">
+            <section class="subpanel">
+              <h3>개요</h3>
+              <dl class="kv-list" id="job-overview"></dl>
+              <div class="task-list" id="job-tasks"></div>
+            </section>
+
+            <section class="subpanel">
+              <div class="subpanel-head">
+                <h3>STT</h3>
+                <button class="primary-button" id="stt-submit-button" type="button">STT 실행</button>
+              </div>
+              <div class="inline-status" id="stt-status"></div>
+              <form class="stack" id="stt-form">
+                <label class="choice">
+                  <input type="radio" name="stt-mode" value="all" checked />
+                  <span>전체 audio 파일</span>
+                </label>
+                <label class="choice">
+                  <input type="radio" name="stt-mode" value="mono" />
+                  <span><code>mono_mix.wav</code>만</span>
+                </label>
+                <label class="choice">
+                  <input type="radio" name="stt-mode" value="selected" />
+                  <span>선택한 audio만</span>
+                </label>
+                <div class="checkbox-grid" id="stt-audio-options"></div>
+              </form>
+              <div class="content-view" id="transcripts-view"></div>
+            </section>
+
+            <section class="subpanel">
+              <div class="subpanel-head">
+                <h3>Summary</h3>
+                <button class="primary-button" id="summary-submit-button" type="button">요약 실행</button>
+              </div>
+              <label class="choice compact">
+                <input type="checkbox" id="summary-force-checkbox" />
+                <span>기존 결과가 있어도 강제 재생성</span>
+              </label>
+              <div class="inline-status" id="summary-status"></div>
+              <pre class="content-view text-view" id="summary-text-view"></pre>
+            </section>
+
+            <section class="subpanel">
+              <div class="subpanel-head">
+                <h3>Embedding</h3>
+                <button class="primary-button" id="embedding-submit-button" type="button">Embedding 생성</button>
+              </div>
+              <div class="inline-status" id="embedding-status"></div>
+              <dl class="kv-list" id="embedding-metadata"></dl>
+            </section>
+
+            <section class="subpanel">
+              <h3>Files</h3>
+              <div class="file-list" id="files-view"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="panel panel-wide" id="search-panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Search</p>
+              <h2>Summary Similarity Search</h2>
+            </div>
+          </div>
+          <div class="notice" id="search-message" aria-live="polite"></div>
+          <form class="search-form" id="search-form">
+            <label class="field field-wide">
+              <span>Query</span>
+              <input id="search-query-input" name="query" type="text" placeholder="찾고 싶은 회의 내용 또는 핵심 문장을 입력" required />
+            </label>
+            <label class="field">
+              <span>Limit</span>
+              <input id="search-limit-input" name="limit" type="number" min="1" max="50" value="10" />
+            </label>
+            <label class="field">
+              <span>Min Score</span>
+              <input id="search-min-score-input" name="min_score" type="number" min="-1" max="1" step="0.01" placeholder="optional" />
+            </label>
+            <button class="primary-button" id="search-submit-button" type="submit">검색</button>
+          </form>
+          <div class="results-table" id="search-results"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

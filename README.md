@@ -69,7 +69,7 @@ git submodule update --init --recursive
 setup.bat
 ```
 
-`setup` 스크립트는 FFmpeg/Whisper/Llama 빌드, Rust release 빌드, llama 모델 준비까지 한 번에 수행합니다.
+`setup` 스크립트는 `frontend/package.json`이 존재하면 프론트 의존성 설치까지 함께 수행하고, FFmpeg/Whisper/Llama 빌드, Rust release 빌드, llama 모델 준비까지 한 번에 처리합니다.
 
 ---
 
@@ -88,6 +88,7 @@ run.bat
 ```
 
 서버는 기본적으로 `127.0.0.1:38080`에 바인딩됩니다.
+웹 콘솔도 같은 프로세스로 함께 제공되며, 실행 후 브라우저에서 `http://127.0.0.1:38080/`로 접속하면 됩니다.
 
 ### 2) CLI 실행
 
@@ -274,3 +275,4 @@ HF_TOKEN=
 5. `db/<job_id>` 산출물 확인
 
 이 순서를 따르면 가장 적은 시행착오로 전체 워크플로를 경험할 수 있습니다.
+

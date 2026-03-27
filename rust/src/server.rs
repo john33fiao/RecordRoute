@@ -16,6 +16,8 @@ mod stages;
 mod types;
 #[path = "server/upload.rs"]
 mod upload;
+#[path = "server/routes/web.rs"]
+mod web;
 
 use crate::app;
 use crate::error::{AppError, AppResult};
@@ -34,6 +36,9 @@ pub fn router() -> Router {
 
 pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
     Router::new()
+        .route("/", get(web::get_index))
+        .route("/app.js", get(web::get_app_js))
+        .route("/app.css", get(web::get_app_css))
         .route("/server/ping", post(ping::post_server_ping))
         .route("/system/status", get(models::get_system_status))
         .route("/models/status", get(models::get_models_status))
