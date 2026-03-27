@@ -467,8 +467,9 @@ fn download_hugging_face_model(
     let mut command = Command::new(&toolchain.llama_cli_path);
     command
         .env(LLAMA_CACHE_ENV_VAR, &download_cache_dir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
         .arg("--single-turn")
         .arg("--simple-io")
         .arg("--no-display-prompt")
@@ -476,6 +477,11 @@ fn download_hugging_face_model(
         .arg("--no-warmup")
         .arg("--no-mmproj");
     configure_runtime_backend(&mut command, backend);
+    eprintln!(
+        "Downloading {repo} via {} into {}. First-time download can take several minutes.",
+        toolchain.llama_cli_path.display(),
+        cache_path.display()
+    );
     let mut child = command
         .arg("-n")
         .arg("0")
@@ -491,7 +497,7 @@ fn download_hugging_face_model(
             )
         })?;
 
-    loop {
+    let exit_status = loop {
         if cache_path.is_file() {
             return Ok(());
         }
@@ -511,19 +517,12 @@ fn download_hugging_face_model(
                 toolchain.llama_cli_path.display()
             )
         })? {
-            Some(_) => break,
+            Some(status) => break status,
             None => thread::sleep(Duration::from_millis(500)),
         }
-    }
+    };
 
-    let output = child.wait_with_output().map_err(|error| {
-        format!(
-            "failed to collect llama-cli {} output after model download: {error}",
-            toolchain.llama_cli_path.display()
-        )
-    })?;
-
-    if output.status.success() {
+    if exit_status.success() {
         if cache_path.is_file() {
             return Ok(());
         }
@@ -535,9 +534,8 @@ fn download_hugging_face_model(
     }
 
     Err(format!(
-        "failed to download llama model {repo} to {}: {}",
+        "failed to download llama model {repo} to {}: llama-cli exited with {exit_status}",
         cache_path.display(),
-        command_output_details(&output)
     ))
 }
 
@@ -566,13 +564,19 @@ fn hf_download_cache_dir(toolchain: &Toolchain, repo: &str) -> PathBuf {
 }
 
 fn gguf_files_in(dir: &Path) -> Result<BTreeSet<PathBuf>, String> {
+    let mut files = BTreeSet::new();
+    collect_gguf_files(dir, &mut files)?;
+
+    Ok(files)
+}
+
+fn collect_gguf_files(dir: &Path, files: &mut BTreeSet<PathBuf>) -> Result<(), String> {
     let entries = fs::read_dir(dir).map_err(|error| {
         format!(
             "failed to read llama cache directory {}: {error}",
             dir.display()
         )
     })?;
-    let mut files = BTreeSet::new();
 
     for entry in entries {
         let entry = entry.map_err(|error| {
@@ -582,16 +586,28 @@ fn gguf_files_in(dir: &Path) -> Result<BTreeSet<PathBuf>, String> {
             )
         })?;
         let path = entry.path();
+        let file_type = entry.file_type().map_err(|error| {
+            format!(
+                "failed to inspect llama cache entry type in {}: {error}",
+                path.display()
+            )
+        })?;
+
+        if file_type.is_dir() {
+            collect_gguf_files(&path, files)?;
+            continue;
+        }
+
         if path
             .extension()
             .is_some_and(|extension| extension == "gguf")
-            && path.is_file()
+            && (path.is_file() || file_type.is_symlink())
         {
             files.insert(path);
         }
     }
 
-    Ok(files)
+    Ok(())
 }
 
 fn detect_downloaded_model_file(
@@ -716,9 +732,9 @@ fn normalized_heading_text(line: &str) -> &str {
 }
 
 fn finalize_downloaded_model(downloaded_model: &Path, cache_path: &Path) -> Result<(), String> {
-    fs::rename(downloaded_model, cache_path).map_err(|error| {
+    fs::copy(downloaded_model, cache_path).map_err(|error| {
         format!(
-            "failed to move downloaded llama model from {} to {}: {error}",
+            "failed to copy downloaded llama model from {} to {}: {error}",
             downloaded_model.display(),
             cache_path.display()
         )
@@ -1002,6 +1018,48 @@ mod tests {
         assert!(log.contains("-hf"));
         assert!(log.contains(DEFAULT_MODEL_REPOSITORY));
         assert!(log.contains("LLAMA_CACHE="));
+    }
+
+    #[test]
+    fn downloads_hugging_face_model_from_nested_cache_layout() {
+        let _guard = crate::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe { std::env::remove_var(MODEL_ENV_VAR) };
+
+        let repo_root = temp_workspace();
+        let build_bin = repo_root
+            .join(".build/llama")
+            .join(target_dir_name())
+            .join("bin");
+        let llama_log = repo_root.join("llama-nested-download.log");
+        fs::create_dir_all(&build_bin).expect("build bin");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        write_build_script(&build_script_path(&repo_root, "llama"));
+        write_executable(
+            &fake_llama_cli_path(&build_bin),
+            &format!(
+                "#!/bin/sh\n: > '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\ndone\nprintf 'LLAMA_CACHE=%s\\n' \"${{LLAMA_CACHE:-}}\" >> '{log}'\nnested=\"$LLAMA_CACHE/models--ggml-org--gemma-3-4b-it-GGUF/snapshots/main\"\nmkdir -p \"$nested\"\nprintf 'synthetic nested model' > \"$nested/model.gguf\"\n",
+                log = llama_log.display()
+            ),
+            &format!(
+                "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\n> \"{log}\" type nul\n:loop\nif \"%~1\"==\"\" goto after\n>> \"{log}\" echo %~1\nshift\ngoto loop\n:after\n>> \"{log}\" echo LLAMA_CACHE=!LLAMA_CACHE!\nset \"nested=!LLAMA_CACHE!\\models--ggml-org--gemma-3-4b-it-GGUF\\snapshots\\main\"\nif not exist \"!nested!\" mkdir \"!nested!\"\n> \"!nested!\\model.gguf\" <nul set /p =synthetic nested model\nexit /b 0\n",
+                log = llama_log.display()
+            ),
+        );
+
+        let toolchain = Toolchain::discover(&repo_root).expect("toolchain");
+        toolchain.ensure_model().expect("nested model download");
+
+        let cache_path = toolchain
+            .cached_model_path
+            .clone()
+            .expect("cached model path");
+        assert!(cache_path.is_file());
+        assert_eq!(
+            fs::read_to_string(cache_path).expect("cached model"),
+            "synthetic nested model"
+        );
     }
 
     #[test]

@@ -593,7 +593,10 @@ fn prepare_model_with_progress(
         return execute_model_preparation(repo_root, model);
     }
 
-    eprintln!("{} model preparation already running. Waiting...", model.as_str());
+    eprintln!(
+        "{} model preparation already running. Waiting...",
+        model.as_str()
+    );
     wait_for_model_preparation(repo_root, model)
 }
 
