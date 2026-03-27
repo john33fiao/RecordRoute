@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Similarity Graph View</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; background: #10131a; color: #e6edf3; }
+      header { padding: 12px 16px; border-bottom: 1px solid #2d3748; display: flex; gap: 8px; align-items: center; }
+      #graph { width: 100%; height: calc(100vh - 180px); background: #0b0f14; }
+      #preview { padding: 12px 16px; border-top: 1px solid #2d3748; min-height: 92px; }
+      .node { fill: #60a5fa; cursor: pointer; }
+      .edge { stroke: #334155; stroke-width: 1.3; }
+      .hint { color: #94a3b8; font-size: 13px; }
+      label { font-size: 14px; }
+      input, button { background: #1f2937; color: white; border: 1px solid #374151; border-radius: 6px; padding: 6px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <label>min similarity <input id="minSimilarity" type="number" value="0.65" step="0.05" min="0" max="1"/></label>
+      <button id="reload">Reload Graph</button>
+      <span id="stats" class="hint"></span>
+    </header>
+    <svg id="graph"></svg>
+    <div id="preview">노드를 클릭하면 해당 문서 다운로드로 이동합니다.</div>
+
+    <script>
+      const svg = document.getElementById('graph');
+      const preview = document.getElementById('preview');
+      const stats = document.getElementById('stats');
+      const minSimilarityInput = document.getElementById('minSimilarity');
+
+      function randomPos(max) { return 30 + Math.random() * Math.max(30, max - 60); }
+
+      function renderGraph(data) {
+        const width = svg.clientWidth || window.innerWidth;
+        const height = svg.clientHeight || 500;
+        svg.innerHTML = '';
+
+        const positions = {};
+        data.nodes.forEach((node) => {
+          positions[node.id] = { x: randomPos(width), y: randomPos(height) };
+        });
+
+        data.edges.forEach((edge) => {
+          const s = positions[edge.source];
+          const t = positions[edge.target];
+          if (!s || !t) return;
+          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('class', 'edge');
+          line.setAttribute('x1', s.x);
+          line.setAttribute('y1', s.y);
+          line.setAttribute('x2', t.x);
+          line.setAttribute('y2', t.y);
+          line.setAttribute('opacity', Math.max(0.2, edge.weight || 0));
+          svg.appendChild(line);
+        });
+
+        data.nodes.forEach((node) => {
+          const p = positions[node.id];
+          const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          circle.setAttribute('class', 'node');
+          circle.setAttribute('cx', p.x);
+          circle.setAttribute('cy', p.y);
+          circle.setAttribute('r', 7);
+          circle.addEventListener('click', () => openDocument(node));
+          svg.appendChild(circle);
+        });
+
+        stats.textContent = `nodes: ${data.nodes.length}, edges: ${data.edges.length}`;
+      }
+
+      function openDocument(node) {
+        preview.innerHTML = `<b>${node.label || node.id}</b><br/>문서로 이동합니다...`;
+        window.location.href = `/download/${encodeURIComponent(node.id)}`;
+      }
+
+      async function loadGraph() {
+        const minSimilarity = minSimilarityInput.value || '0.65';
+        const resp = await fetch(`/api/similarity-graph?min_similarity=${minSimilarity}&max_nodes=150&sampling=hybrid`);
+        const data = await resp.json();
+        renderGraph(data);
+      }
+
+      document.getElementById('reload').addEventListener('click', loadGraph);
+      window.addEventListener('resize', loadGraph);
+      loadGraph();
+    </script>
+  </body>
+</html>
