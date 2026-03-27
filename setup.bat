@@ -4,8 +4,8 @@ setlocal EnableExtensions
 for %%I in ("%~dp0.") do set "repo_root=%%~fI"
 set "rust_manifest=%repo_root%\rust\Cargo.toml"
 set "package_dir=%repo_root%\package"
-set "staging_dir=%package_dir%\.staging"
-set "next_dir=%package_dir%\.next"
+set "staging_dir=%repo_root%\.package-staging"
+set "next_dir=%repo_root%\.package-next"
 
 call :detect_arch
 if errorlevel 1 exit /b 1
@@ -32,7 +32,7 @@ if errorlevel 1 exit /b 1
 call :require_artifact "%repo_root%\.build\llama\%target_dir%\bin\llama-embedding.exe" "llama-embedding binary"
 if errorlevel 1 exit /b 1
 
-cargo build --manifest-path "%rust_manifest%" --release --bin recordroute --bin recordroute_server
+cargo build --manifest-path "%rust_manifest%" --release --bin recordroute --bin recordroute_server --bin recordroute_rust
 if errorlevel 1 exit /b 1
 
 if exist "%staging_dir%" rmdir /s /q "%staging_dir%"
@@ -76,7 +76,7 @@ if exist "%package_dir%" rmdir /s /q "%package_dir%"
 move "%next_dir%" "%package_dir%" >nul
 
 set "RECORDROUTE_RUNTIME_ROOT=%package_dir%"
-"%repo_root%\rust\target\release\recordroute.exe" prepare-models
+"%repo_root%\rust\target\release\recordroute_rust.exe" prepare-models
 if errorlevel 1 exit /b 1
 
 echo Package ready: %package_dir%\RecordRoute.exe

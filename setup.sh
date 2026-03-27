@@ -4,8 +4,8 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 rust_manifest="${script_dir}/rust/Cargo.toml"
 package_dir="${script_dir}/package"
-staging_dir="${package_dir}/.staging"
-next_dir="${package_dir}/.next"
+staging_dir="${script_dir}/.package-staging"
+next_dir="${script_dir}/.package-next"
 
 ensure_bundled_sources() {
   local required_modules=(

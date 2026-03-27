@@ -30,3 +30,4 @@ rust/target/
 
 # Packaged runtime artifacts
 package/
+.package-staging/
