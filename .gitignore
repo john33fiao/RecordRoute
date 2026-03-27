@@ -27,3 +27,6 @@ models/whisper/
 
 # Rust build artifacts
 rust/target/
+
+# Packaged runtime artifacts
+package/

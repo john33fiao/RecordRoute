@@ -18,6 +18,7 @@ mod summary_stage;
 
 use crate::ffmpeg::ConversionOutputs;
 use crate::index::{JobRecord, ModelKind, ModelPreparationRecord};
+use crate::runtime_root;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
@@ -199,10 +200,7 @@ pub use summary_stage::{execute_summary_job, run_summary_with_repo_root, submit_
 pub(crate) use cli::resolve_cli_command;
 
 pub(crate) fn repo_root() -> Result<PathBuf, String> {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| "failed to resolve repository root".to_string())
+    runtime_root::resolve_runtime_root()
 }
 
 pub(crate) fn read_line(reader: &mut dyn BufRead, error_context: &str) -> Result<String, String> {

@@ -1,14 +1,11 @@
 @echo off
 setlocal EnableExtensions
 
-set "binary_path=%~dp0rust\target\release\recordroute_rust.exe"
-if not exist "%binary_path%" (
-  echo RecordRoute runtime binary is missing. Run setup.bat first.
+set "launcher_path=%~dp0package\RecordRoute.exe"
+if not exist "%launcher_path%" (
+  echo RecordRoute package launcher is missing. Run setup.bat first.
   exit /b 1
 )
 
-echo RecordRoute server starting on http://127.0.0.1:38080/
-echo Web UI: http://127.0.0.1:38080/
-
-"%binary_path%" server
+"%launcher_path%"
 exit /b %errorlevel%

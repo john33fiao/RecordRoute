@@ -50,15 +50,15 @@ RecordRoute는 오디오 파일을 **회의록 작업 흐름에 맞춰 순차적
 setup.bat
 ```
 
-`setup` 스크립트는 다음을 한 번에 처리합니다.
+`setup` 스크립트는 `package/`에 실행 가능한 런타임 번들을 조립하며(immutable 교체 + 사용자 데이터 보존), 다음을 처리합니다.
 
 - 필요한 submodule 초기화
 - `frontend/package.json`이 있을 때 프론트 의존성 설치
 - FFmpeg/Whisper/Llama 툴체인 빌드
-- Rust release 빌드
-- Whisper 모델 준비
-- Llama 요약 모델 준비
-- Llama embedding 모델 준비
+- Rust release 빌드(런처/서버/CLI)
+- package 조립(`RecordRoute(.exe)`, `RecordRouteServer(.exe)`, `.build`, `models`, 런타임 마커)
+- package 첫 생성 시 `.env` 시드 복사(`.env` 우선, 없으면 `.env.example`)
+- 런타임 모델 준비
 
 ---
 
@@ -74,7 +74,11 @@ setup.bat
 run.bat
 ```
 
-서버는 기본적으로 `127.0.0.1:38080`에 바인딩됩니다. 웹 콘솔도 같은 프로세스로 함께 제공되며, 실행 후 브라우저에서 [http://127.0.0.1:38080/](http://127.0.0.1:38080/)로 접속하면 됩니다. `run`은 `setup`이 만든 release binary만 실행하며, 바이너리가 없으면 `setup` 재실행을 안내합니다.
+공식 사용자 실행 경로는 `package/RecordRoute(.exe)`입니다. `run.sh`/`run.bat`는 해당 런처를 호출하는 보조 스크립트입니다.
+
+- 런처(`RecordRoute`)는 기존 서버를 `/server/ping`으로 확인 후 재사용하거나, 없으면 `RecordRouteServer`를 spawn합니다.
+- 런처가 spawn한 서버 로그는 `package/logs/server.log`에 append됩니다.
+- 서버는 기본적으로 `127.0.0.1:38080`에 바인딩되며 웹 UI는 [http://127.0.0.1:38080/](http://127.0.0.1:38080/)에서 접근합니다.
 
 ---
 
@@ -148,7 +152,7 @@ curl http://127.0.0.1:38080/jobs/<job_id>/files/stt/mono_mix.txt
 
 ## 기본 설정(.env)
 
-루트에 `.env`를 두고 아래 값을 조정할 수 있습니다. 샘플은 `.env.example`에 있습니다.
+패키지 실행 시 기준 `.env`는 `package/.env`입니다(최초 setup에서 자동 시드). 개발 모드에서는 repo 루트 `.env` fallback이 유지됩니다.
 
 - `RECORDROUTE_WHISPER_MODEL`
   - Whisper 모델 경로(또는 shorthand)
@@ -169,7 +173,7 @@ HF_TOKEN=
 
 ## 결과물 위치
 
-기본적으로 결과는 `db/<job_id>/` 아래에 쌓입니다.
+패키지 실행 기준 결과는 `package/db/<job_id>/` 아래에 쌓입니다(개발 모드 fallback은 repo `db/`).
 
 - `mono_mix.wav`
 - `channel_01.wav`, `channel_02.wav`, ...
