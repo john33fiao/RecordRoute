@@ -3,75 +3,65 @@ setlocal EnableExtensions
 
 for %%I in ("%~dp0.") do set "repo_root=%%~fI"
 set "rust_manifest=%repo_root%\rust\Cargo.toml"
-set "frontend_dir=%repo_root%\frontend"
-set "frontend_package_json=%frontend_dir%\package.json"
-set "frontend_lockfile=%frontend_dir%\package-lock.json"
+set "package_dir=%repo_root%\package"
+set "staging_dir=%package_dir%\.staging"
+set "next_dir=%package_dir%\.next"
 
-call :ensure_bundled_sources
-if errorlevel 1 exit /b %errorlevel%
-
-if exist "%frontend_package_json%" (
-  where npm >nul 2>nul
-  if errorlevel 1 (
-    echo frontend\package.json found, but npm is not installed or not on PATH.
-    exit /b 1
-  )
-
-  if exist "%frontend_lockfile%" (
-    echo Installing frontend dependencies with npm ci...
-    npm ci --prefix "%frontend_dir%"
-  ) else (
-    echo Installing frontend dependencies with npm install...
-    npm install --prefix "%frontend_dir%"
-  )
-  if errorlevel 1 exit /b %errorlevel%
-) else (
-  echo No frontend\package.json found, skipping frontend dependency install.
-)
-
-echo Building ffmpeg...
-call "%repo_root%\scripts\build_ffmpeg.bat"
-if errorlevel 1 exit /b %errorlevel%
-
-echo Building whisper...
-call "%repo_root%\scripts\build_whisper.bat"
-if errorlevel 1 exit /b %errorlevel%
-
-echo Building llama...
-call "%repo_root%\scripts\build_llama.bat"
-if errorlevel 1 exit /b %errorlevel%
-
-echo Building rust (release)...
-cargo build --manifest-path "%rust_manifest%" --release
-if errorlevel 1 exit /b %errorlevel%
-
-echo Preparing runtime models...
-cargo run --manifest-path "%rust_manifest%" --release -- prepare-models
-if errorlevel 1 exit /b %errorlevel%
-
-exit /b 0
-
-:ensure_bundled_sources
-if exist "%repo_root%\modules\ffmpeg" if exist "%repo_root%\modules\whisper.cpp" if exist "%repo_root%\modules\llama.cpp" (
-  exit /b 0
-)
-
-where git >nul 2>nul
-if errorlevel 1 (
-  echo setup requires Git to initialize bundled sources under modules/. Install Git and rerun setup.
-  exit /b 1
-)
-
-echo Initializing bundled sources with git submodule update --init --recursive...
 git -C "%repo_root%" submodule update --init --recursive
-if errorlevel 1 (
-  echo setup could not initialize bundled sources under modules/. Make sure this repository is a normal Git checkout, then rerun setup.
-  exit /b 1
+if errorlevel 1 exit /b 1
+
+call "%repo_root%\scripts\build_ffmpeg.bat"
+if errorlevel 1 exit /b 1
+call "%repo_root%\scripts\build_whisper.bat"
+if errorlevel 1 exit /b 1
+call "%repo_root%\scripts\build_llama.bat"
+if errorlevel 1 exit /b 1
+
+cargo build --manifest-path "%rust_manifest%" --release --bin recordroute --bin recordroute_server --bin recordroute_rust
+if errorlevel 1 exit /b 1
+
+if exist "%staging_dir%" rmdir /s /q "%staging_dir%"
+if exist "%next_dir%" rmdir /s /q "%next_dir%"
+mkdir "%staging_dir%"
+
+copy /Y "%repo_root%\rust\target\release\recordroute.exe" "%staging_dir%\RecordRoute.exe" >nul
+copy /Y "%repo_root%\rust\target\release\recordroute_server.exe" "%staging_dir%\RecordRouteServer.exe" >nul
+if exist "%repo_root%\.build" xcopy "%repo_root%\.build" "%staging_dir%\.build" /E /I /Y >nul
+if exist "%repo_root%\models" xcopy "%repo_root%\models" "%staging_dir%\models" /E /I /Y >nul
+> "%staging_dir%\.recordroute-runtime-root" echo.
+
+mkdir "%next_dir%"
+xcopy "%staging_dir%" "%next_dir%" /E /I /Y >nul
+
+if exist "%package_dir%\db" (
+  if exist "%next_dir%\db" rmdir /s /q "%next_dir%\db"
+  xcopy "%package_dir%\db" "%next_dir%\db" /E /I /Y >nul
+)
+if exist "%package_dir%\models" (
+  if exist "%next_dir%\models" rmdir /s /q "%next_dir%\models"
+  xcopy "%package_dir%\models" "%next_dir%\models" /E /I /Y >nul
+)
+if exist "%package_dir%\logs" (
+  if exist "%next_dir%\logs" rmdir /s /q "%next_dir%\logs"
+  xcopy "%package_dir%\logs" "%next_dir%\logs" /E /I /Y >nul
 )
 
-if exist "%repo_root%\modules\ffmpeg" if exist "%repo_root%\modules\whisper.cpp" if exist "%repo_root%\modules\llama.cpp" (
-  exit /b 0
+if exist "%package_dir%\.env" (
+  copy /Y "%package_dir%\.env" "%next_dir%\.env" >nul
+) else if exist "%repo_root%\.env" (
+  copy /Y "%repo_root%\.env" "%next_dir%\.env" >nul
+) else if exist "%repo_root%\.env.example" (
+  copy /Y "%repo_root%\.env.example" "%next_dir%\.env" >nul
 )
 
-echo setup could not find bundled sources after initialization under modules\.
-exit /b 1
+if not exist "%next_dir%\db" mkdir "%next_dir%\db"
+if not exist "%next_dir%\logs" mkdir "%next_dir%\logs"
+
+if exist "%package_dir%" rmdir /s /q "%package_dir%"
+move "%next_dir%" "%package_dir%" >nul
+
+set "RECORDROUTE_RUNTIME_ROOT=%package_dir%"
+"%repo_root%\rust\target\release\recordroute_rust.exe" prepare-models
+if errorlevel 1 exit /b 1
+
+echo Package ready: %package_dir%\RecordRoute.exe

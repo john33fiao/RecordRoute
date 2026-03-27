@@ -3,9 +3,9 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 rust_manifest="${script_dir}/rust/Cargo.toml"
-frontend_dir="${script_dir}/frontend"
-frontend_package_json="${frontend_dir}/package.json"
-frontend_lockfile="${frontend_dir}/package-lock.json"
+package_dir="${script_dir}/package"
+staging_dir="${package_dir}/.staging"
+next_dir="${package_dir}/.next"
 
 ensure_bundled_sources() {
   local required_modules=(
@@ -14,7 +14,6 @@ ensure_bundled_sources() {
     "${script_dir}/modules/llama.cpp"
   )
   local missing=0
-
   for module_path in "${required_modules[@]}"; do
     if [[ ! -d "${module_path}" ]]; then
       missing=1
@@ -26,55 +25,56 @@ ensure_bundled_sources() {
     return 0
   fi
 
-  if ! command -v git >/dev/null 2>&1; then
-    printf 'setup requires Git to initialize bundled sources under modules/. Install Git and rerun setup.\n' >&2
-    exit 1
-  fi
+  git -C "${script_dir}" submodule update --init --recursive
+}
 
-  printf 'Initializing bundled sources with git submodule update --init --recursive...\n'
-  if ! git -C "${script_dir}" submodule update --init --recursive; then
-    printf 'setup could not initialize bundled sources under modules/. Make sure this repository is a normal Git checkout, then rerun setup.\n' >&2
-    exit 1
+copy_if_exists() {
+  local src="$1"
+  local dst="$2"
+  if [[ -e "${src}" ]]; then
+    cp -a "${src}" "${dst}"
   fi
-
-  for module_path in "${required_modules[@]}"; do
-    if [[ ! -d "${module_path}" ]]; then
-      printf 'setup could not find bundled sources after initialization: %s\n' "${module_path}" >&2
-      exit 1
-    fi
-  done
 }
 
 ensure_bundled_sources
 
-if [[ -f "${frontend_package_json}" ]]; then
-  if ! command -v npm >/dev/null 2>&1; then
-    printf 'frontend/package.json found, but npm is not installed or not on PATH.\n' >&2
-    exit 1
-  fi
-
-  if [[ -f "${frontend_lockfile}" ]]; then
-    printf 'Installing frontend dependencies with npm ci...\n'
-    npm ci --prefix "${frontend_dir}"
-  else
-    printf 'Installing frontend dependencies with npm install...\n'
-    npm install --prefix "${frontend_dir}"
-  fi
-else
-  printf 'No frontend/package.json found, skipping frontend dependency install.\n'
-fi
-
-printf 'Building ffmpeg...\n'
 bash "${script_dir}/scripts/build_ffmpeg.sh"
-
-printf 'Building whisper...\n'
 bash "${script_dir}/scripts/build_whisper.sh"
-
-printf 'Building llama...\n'
 bash "${script_dir}/scripts/build_llama.sh"
 
-printf 'Building rust (release)...\n'
-cargo build --manifest-path "${rust_manifest}" --release
+cargo build --manifest-path "${rust_manifest}" --release --bin recordroute --bin recordroute_server --bin recordroute_rust
 
-printf 'Preparing runtime models...\n'
-cargo run --manifest-path "${rust_manifest}" --release -- prepare-models
+rm -rf "${staging_dir}" "${next_dir}"
+mkdir -p "${staging_dir}"
+
+cp "${script_dir}/rust/target/release/recordroute" "${staging_dir}/RecordRoute"
+cp "${script_dir}/rust/target/release/recordroute_server" "${staging_dir}/RecordRouteServer"
+copy_if_exists "${script_dir}/.build" "${staging_dir}/.build"
+copy_if_exists "${script_dir}/models" "${staging_dir}/models"
+touch "${staging_dir}/.recordroute-runtime-root"
+
+mkdir -p "${next_dir}"
+cp -a "${staging_dir}/." "${next_dir}/"
+
+for preserve in db models logs; do
+  if [[ -d "${package_dir}/${preserve}" ]]; then
+    rm -rf "${next_dir:?}/${preserve}"
+    cp -a "${package_dir}/${preserve}" "${next_dir}/${preserve}"
+  fi
+done
+
+if [[ -f "${package_dir}/.env" ]]; then
+  cp -a "${package_dir}/.env" "${next_dir}/.env"
+elif [[ -f "${script_dir}/.env" ]]; then
+  cp -a "${script_dir}/.env" "${next_dir}/.env"
+elif [[ -f "${script_dir}/.env.example" ]]; then
+  cp -a "${script_dir}/.env.example" "${next_dir}/.env"
+fi
+
+mkdir -p "${next_dir}/db" "${next_dir}/logs"
+rm -rf "${package_dir}"
+mv "${next_dir}" "${package_dir}"
+
+RECORDROUTE_RUNTIME_ROOT="${package_dir}" "${script_dir}/rust/target/release/recordroute_rust" prepare-models
+
+echo "Package ready: ${package_dir}/RecordRoute"

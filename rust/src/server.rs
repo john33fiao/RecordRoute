@@ -27,7 +27,7 @@ use axum::routing::{get, post};
 use std::path::PathBuf;
 use types::AppState;
 
-const SERVER_BIND: &str = "127.0.0.1:38080";
+pub const SERVER_BIND: &str = "127.0.0.1:38080";
 
 pub fn router() -> Router {
     let repo_root = app::repo_root().expect("failed to resolve repository root for server");
@@ -85,11 +85,16 @@ pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
 }
 
 pub async fn serve() -> Result<(), String> {
+    let repo_root = app::repo_root()?;
+    serve_with_runtime_root(repo_root).await
+}
+
+pub async fn serve_with_runtime_root(repo_root: PathBuf) -> Result<(), String> {
     let listener = tokio::net::TcpListener::bind(SERVER_BIND)
         .await
         .map_err(|error| format!("failed to bind {SERVER_BIND}: {error}"))?;
 
-    axum::serve(listener, router())
+    axum::serve(listener, router_with_repo_root(repo_root))
         .await
         .map_err(|error| format!("server error: {error}"))
 }

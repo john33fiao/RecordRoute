@@ -7,6 +7,10 @@ use std::process::Command;
 
 pub const MODEL_ENV_VAR: &str = "RECORDROUTE_WHISPER_MODEL";
 const DEFAULT_MODEL_RELATIVE_PATH: &str = "models/whisper/ggml-base.bin";
+const MODEL_URL_TEMPLATE_ENV_VAR: &str = "RECORDROUTE_WHISPER_MODEL_URL_TEMPLATE";
+const MODEL_SOURCE_DIR_ENV_VAR: &str = "RECORDROUTE_WHISPER_MODEL_SOURCE_DIR";
+const DEFAULT_MODEL_URL_TEMPLATE: &str =
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{model}.bin";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Toolchain {
@@ -48,17 +52,8 @@ impl Toolchain {
             return Ok(());
         }
 
-        let model_name = managed_model_name(&self.model_path)?;
-        let model_dir = model_directory(&self.model_path)?;
-        let _ = model_name;
-        let _ = model_dir;
-        if !self.download_script_path.is_file() {
-            return Err(format!(
-                "whisper model not found at {} and download script is missing: {}",
-                self.model_path.display(),
-                self.download_script_path.display()
-            ));
-        }
+        let _ = managed_model_name(&self.model_path)?;
+        let _ = model_directory(&self.model_path)?;
         Ok(())
     }
 
@@ -304,14 +299,6 @@ fn refresh_managed_model(toolchain: &Toolchain) -> Result<(), String> {
 }
 
 fn download_model(toolchain: &Toolchain, model_name: &str, model_dir: &Path) -> Result<(), String> {
-    if !toolchain.download_script_path.is_file() {
-        return Err(format!(
-            "whisper model not found at {} and download script is missing: {}",
-            toolchain.model_path.display(),
-            toolchain.download_script_path.display()
-        ));
-    }
-
     fs::create_dir_all(model_dir).map_err(|error| {
         format!(
             "failed to create whisper model directory {}: {error}",
@@ -319,27 +306,46 @@ fn download_model(toolchain: &Toolchain, model_name: &str, model_dir: &Path) -> 
         )
     })?;
 
-    let output = Command::new(&toolchain.download_script_path)
-        .arg(model_name)
-        .arg(model_dir)
-        .output()
-        .map_err(|error| {
-            format!(
-                "failed to execute whisper model download script {}: {error}",
-                toolchain.download_script_path.display()
-            )
-        })?;
-
-    if output.status.success() && toolchain.model_path.is_file() {
-        return Ok(());
+    if let Some(source_dir) = std::env::var_os(MODEL_SOURCE_DIR_ENV_VAR) {
+        let source = PathBuf::from(source_dir).join(format!("ggml-{model_name}.bin"));
+        if source.is_file() {
+            fs::copy(&source, &toolchain.model_path).map_err(|error| {
+                format!(
+                    "failed to copy whisper model from {} to {}: {error}",
+                    source.display(),
+                    toolchain.model_path.display()
+                )
+            })?;
+            return Ok(());
+        }
     }
 
-    Err(format!(
-        "failed to download whisper model {} to {}: {}",
-        model_name,
-        toolchain.model_path.display(),
-        command_output_details(&output)
-    ))
+    let template = std::env::var(MODEL_URL_TEMPLATE_ENV_VAR)
+        .unwrap_or_else(|_| DEFAULT_MODEL_URL_TEMPLATE.to_string());
+    let url = template.replace("{model}", model_name);
+
+    let response = reqwest::blocking::get(&url)
+        .and_then(|response| response.error_for_status())
+        .map_err(|error| {
+            format!(
+                "failed to download whisper model {} from {}: {error}",
+                model_name, url
+            )
+        })?;
+    let bytes = response.bytes().map_err(|error| {
+        format!(
+            "failed to read whisper model response body from {}: {error}",
+            url
+        )
+    })?;
+
+    fs::write(&toolchain.model_path, &bytes).map_err(|error| {
+        format!(
+            "failed to write whisper model {} to {}: {error}",
+            model_name,
+            toolchain.model_path.display()
+        )
+    })
 }
 
 fn managed_model_name(model_path: &Path) -> Result<String, String> {
@@ -364,9 +370,7 @@ fn model_directory(model_path: &Path) -> Result<&Path, String> {
 
 fn managed_repo_root(toolchain: &Toolchain) -> Option<PathBuf> {
     toolchain
-        .download_script_path
-        .parent()?
-        .parent()?
+        .build_script_path
         .parent()
         .and_then(Path::parent)
         .map(Path::to_path_buf)

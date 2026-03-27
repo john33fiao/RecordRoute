@@ -128,4 +128,3 @@ pub(crate) fn error_response(error: AppError) -> Response {
     };
     (status, Json(body)).into_response()
 }
-
