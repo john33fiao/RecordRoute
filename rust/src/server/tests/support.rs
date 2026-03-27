@@ -257,7 +257,19 @@ pub(super) async fn wait_for_model_preparation_state(
             ModelKind::Llama => status.llama,
         };
 
-        if entry.preparation.status != ModelPreparationStatus::Running {
+        if model == ModelKind::Whisper
+            && entry.preparation.status != ModelPreparationStatus::Running
+        {
+            return entry;
+        }
+
+        if model == ModelKind::Llama
+            && entry.preparation.status != ModelPreparationStatus::Running
+            && (entry.preparation.status == ModelPreparationStatus::Failed
+                || entry.embedding_ready
+                || entry.embedding_error.is_some()
+                || !entry.embedding_available)
+        {
             return entry;
         }
 

@@ -189,7 +189,7 @@ pub use ffmpeg_stage::{execute_ffmpeg_job, run_with_repo_root, submit_ffmpeg_job
 pub use models::wait_for_model_preparation;
 pub use models::{
     collect_model_status_snapshot, ensure_model_prepared, execute_llama_umbrella_preparation,
-    execute_model_preparation, prepare_llama_model_with_repo_root,
+    execute_model_preparation, prepare_llama_model_with_repo_root, prepare_models_with_repo_root,
     submit_llama_umbrella_preparation, submit_model_preparation,
 };
 pub use stt_stage::{execute_stt_job, run_stt_with_repo_root, submit_stt_job};

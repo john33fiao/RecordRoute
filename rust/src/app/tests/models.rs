@@ -30,6 +30,11 @@ fn prepare_llama_model_downloads_default_hugging_face_repo() {
         &repo_root.join("unused-prompt.txt"),
         false,
     );
+    write_platform_script(
+        &fake_command_path(&llama_bin, "llama-embedding"),
+        "#!/bin/sh\nexit 0\n",
+        "@echo off\nexit /b 0\n",
+    );
 
     prepare_llama_model_with_repo_root(&repo_root).expect("prepare llama model");
 
@@ -46,6 +51,7 @@ fn prepare_llama_model_downloads_default_hugging_face_repo() {
     let llama_log = fs::read_to_string(llama_log).expect("llama log");
     assert!(llama_log.contains("-hf"));
     assert!(llama_log.contains("ggml-org/gemma-3-4b-it-GGUF"));
+    assert!(llama_log.contains("Qwen/Qwen3-Embedding-4B-GGUF"));
     assert!(llama_log.contains("HF_TOKEN=prepare-token"));
     assert!(llama_log.contains("LLAMA_CACHE="));
 }
@@ -139,4 +145,66 @@ fn ensure_model_prepared_waits_for_running_preparation_without_duplicate_downloa
 
     assert!(repo_root.join("models/whisper/ggml-base.bin").is_file());
     assert_eq!(fs::read_to_string(count_path).expect("count file"), "1");
+}
+
+#[test]
+fn prepare_models_with_repo_root_prepares_whisper_and_llama_models() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    unsafe {
+        std::env::remove_var("RECORDROUTE_LLAMA_MODEL");
+        std::env::remove_var("RECORDROUTE_LLAMA_EMBEDDING_MODEL");
+    }
+
+    let repo_root = temp_workspace();
+    let whisper_bin = repo_root
+        .join(".build/whisper")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    let llama_bin = repo_root
+        .join(".build/llama")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+    fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
+    fs::create_dir_all(&whisper_bin).expect("whisper bin");
+    fs::create_dir_all(&llama_bin).expect("llama bin");
+
+    write_build_script(&build_script_path(&repo_root, "whisper"));
+    write_build_script(&build_script_path(&repo_root, "llama"));
+    write_fake_whisper_cli(
+        &fake_command_path(&whisper_bin, "whisper-cli"),
+        &repo_root.join("whisper.log"),
+        false,
+    );
+    write_fake_download_script(
+        &whisper_download_script_path(&repo_root),
+        &repo_root.join("download.log"),
+    );
+    write_fake_llama_cli(
+        &fake_command_path(&llama_bin, "llama-cli"),
+        &repo_root.join("llama.log"),
+        &repo_root.join("unused-prompt.txt"),
+        false,
+    );
+    write_platform_script(
+        &fake_command_path(&llama_bin, "llama-embedding"),
+        "#!/bin/sh\nexit 0\n",
+        "@echo off\nexit /b 0\n",
+    );
+
+    prepare_models_with_repo_root(&repo_root).expect("prepare models");
+
+    assert!(repo_root.join("models/whisper/ggml-base.bin").is_file());
+    assert!(
+        repo_root
+            .join("models/llama/hf/ggml-org__gemma-3-4b-it-GGUF.gguf")
+            .is_file()
+    );
+    assert!(
+        repo_root
+            .join("models/llama/hf/Qwen__Qwen3-Embedding-4B-GGUF.gguf")
+            .is_file()
+    );
 }

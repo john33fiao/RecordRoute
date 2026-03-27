@@ -148,11 +148,12 @@ fn gather_system_status(repo_root: &Path) -> Result<SystemStatusResponse, String
         whisper_model_ready,
         llama_model_ready,
         llama_embedding_model_ready,
-        errors,
+        errors: super::errors::sanitize_system_errors(errors),
     })
 }
 
 fn push_unique_error(errors: &mut Vec<String>, error: String) {
+    let error = super::errors::sanitize_dependency_message(&error);
     if !errors.iter().any(|existing| existing == &error) {
         errors.push(error);
     }

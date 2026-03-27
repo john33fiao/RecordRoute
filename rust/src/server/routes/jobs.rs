@@ -110,7 +110,10 @@ pub(crate) async fn post_jobs_upload(
 pub(crate) async fn get_jobs(State(state): State<AppState>) -> Response {
     let repo_root = state.repo_root.clone();
     match run_blocking(move || IndexStore::new(&repo_root).list_jobs()).await {
-        Ok(jobs) => Json(JobListResponse { jobs }).into_response(),
+        Ok(jobs) => Json(JobListResponse {
+            jobs: super::errors::sanitize_jobs(jobs),
+        })
+        .into_response(),
         Err(error) => error_response(crate::error::AppError::internal(error)),
     }
 }
@@ -118,7 +121,10 @@ pub(crate) async fn get_jobs(State(state): State<AppState>) -> Response {
 pub(crate) async fn get_completed_jobs(State(state): State<AppState>) -> Response {
     let repo_root = state.repo_root.clone();
     match run_blocking(move || IndexStore::new(&repo_root).list_completed_jobs()).await {
-        Ok(jobs) => Json(JobListResponse { jobs }).into_response(),
+        Ok(jobs) => Json(JobListResponse {
+            jobs: super::errors::sanitize_jobs(jobs),
+        })
+        .into_response(),
         Err(error) => error_response(crate::error::AppError::internal(error)),
     }
 }
@@ -145,7 +151,10 @@ pub(crate) async fn get_jobs_by_source(
     match run_blocking(move || IndexStore::new(&repo_root).list_jobs_by_source_path(&source_path))
         .await
     {
-        Ok(jobs) => Json(JobListResponse { jobs }).into_response(),
+        Ok(jobs) => Json(JobListResponse {
+            jobs: super::errors::sanitize_jobs(jobs),
+        })
+        .into_response(),
         Err(error) => error_response(crate::error::AppError::internal(error)),
     }
 }
@@ -158,7 +167,7 @@ pub(crate) async fn get_job(
     let job_id_for_lookup = job_id.clone();
 
     match run_blocking(move || IndexStore::new(&repo_root).find_job(&job_id_for_lookup)).await {
-        Ok(Some(job)) => Json(job).into_response(),
+        Ok(Some(job)) => Json(super::errors::sanitize_job(job)).into_response(),
         Ok(None) => error_response(crate::error::AppError::not_found(format!(
             "job not found: {job_id}"
         ))),
@@ -174,13 +183,16 @@ pub(crate) async fn get_job_status(
     let lookup_job_id = job_id.clone();
 
     match run_blocking(move || IndexStore::new(&repo_root).find_job(&lookup_job_id)).await {
-        Ok(Some(job)) => Json(JobStatusResponse {
-            job_id,
-            job_status: job.status,
-            tasks: job.tasks,
-            error_message: job.error_message,
-        })
-        .into_response(),
+        Ok(Some(job)) => {
+            let job = super::errors::sanitize_job(job);
+            Json(JobStatusResponse {
+                job_id,
+                job_status: job.status,
+                tasks: job.tasks,
+                error_message: job.error_message,
+            })
+            .into_response()
+        }
         Ok(None) => error_response(crate::error::AppError::not_found(format!(
             "job not found: {job_id}"
         ))),

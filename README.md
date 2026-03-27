@@ -1,4 +1,4 @@
-# RecordRoute
+﻿# RecordRoute
 
 RecordRoute는 오디오 파일을 **회의록 작업 흐름에 맞춰 순차적으로 처리**할 수 있게 만든 도구입니다.
 
@@ -6,7 +6,7 @@ RecordRoute는 오디오 파일을 **회의록 작업 흐름에 맞춰 순차적
 - 2단계: 텍스트 전사(STT)
 - 3단계: 요약 생성
 
-사용자는 CLI 또는 HTTP API로 같은 흐름을 실행할 수 있고, 이미 처리한 입력은 재사용되어 반복 작업을 줄일 수 있습니다.
+사용자는 웹 UI 또는 HTTP API로 같은 흐름을 실행할 수 있고, 이미 처리한 입력은 재사용되어 반복 작업을 줄일 수 있습니다.
 
 ---
 
@@ -17,19 +17,15 @@ RecordRoute는 오디오 파일을 **회의록 작업 흐름에 맞춰 순차적
 - 동일 입력을 다시 요청하면 기존 완료 결과를 재사용합니다.
 
 ### 2) 기존 작업(Job) 기반으로 STT를 실행함
-- STT는 아무 폴더가 아니라, 기존 변환이 끝난 Job을 대상으로 실행됩니다.
-- `wav/mp3/flac/ogg` 파일을 대상으로 `stt/*.txt`가 생성됩니다.
+- STT는 기존 변환이 끝난 Job을 대상으로 실행됩니다.
+- `wav`, `mp3`, `flac`, `ogg` 파일을 대상으로 `stt/*.txt`가 생성됩니다.
 - 특정 파일만 선택하거나(`audio_files`), `mono_mix.wav`만 대상으로 실행할 수 있습니다.
 
 ### 3) STT 결과 기반으로 요약을 생성함
 - 요약은 해당 Job의 `stt/*.txt`를 모아 생성됩니다.
 - 이미 요약 파일이 있으면 기본적으로 재사용하고, 원할 때 재생성할 수 있습니다.
 
-### 4) 입력 인자가 없어도 모드 선택형으로 사용 가능
-- 인자 없이 실행하면 `ffmpeg / stt / summary / server` 중 번호를 고르는 UX를 제공합니다.
-- 즉, 명령을 정확히 몰라도 인터랙티브하게 사용할 수 있습니다.
-
-### 5) 서버 모드에서 비동기 시작 UX 제공
+### 4) 서버 모드에서 비동기 시작 UX 제공
 - 서버 모드에서는 작업 요청 후 즉시 accepted 응답을 받고, 상태/결과 조회 엔드포인트로 진행 상태를 확인할 수 있습니다.
 
 ---
@@ -40,24 +36,9 @@ RecordRoute는 오디오 파일을 **회의록 작업 흐름에 맞춰 순차적
 
 ### 공통
 - Rust/Cargo 설치
-- Git submodule 포함 저장소 준비
+- Git
 
-```bash
-git submodule update --init --recursive
-```
-
-외부 모듈 소스는 저장소 루트가 아니라 `modules/` 아래에 있으며, 세 모듈 모두 Git submodule로 관리합니다.
-
-중간 migration commit에서는 부모 저장소 gitlink가 아직 루트 `ffmpeg`, `llama.cpp`, `whisper.cpp`를 가리키는 반면 `.gitmodules`만 먼저 `modules/*`로 바뀌어 `fatal: No url found for submodule path 'ffmpeg' in .gitmodules`가 날 수 있습니다.
-그런 경우 `docs/migration_todo.md`의 Git 메타데이터 정리 상태를 확인하고, 경로 이전이 반영된 최신 commit 기준으로 다시 clone하는 편이 안전합니다.
-
-- `modules/ffmpeg`
-- `modules/whisper.cpp`
-- `modules/llama.cpp`
-
-기존 로컬 checkout에 루트 `whisper.cpp/` nested repo가 남아 있다면 `docs/migration_todo.md`의 표준화 절차를 먼저 적용해야 합니다.
-
-이 경로는 빌드용 소스 위치이며, 런타임 바이너리는 계속 `.build/...`, 모델 캐시는 `models/...`를 사용합니다.
+`setup` 스크립트는 fresh clone에서도 `modules/` 아래 bundled source submodule을 자동으로 초기화합니다. `setup` 중 submodule 초기화가 실패하면 Git 설치 상태 또는 저장소 checkout 상태를 먼저 확인하세요.
 
 ### Linux/macOS
 ```bash
@@ -69,56 +50,31 @@ git submodule update --init --recursive
 setup.bat
 ```
 
-`setup` 스크립트는 `frontend/package.json`이 존재하면 프론트 의존성 설치까지 함께 수행하고, FFmpeg/Whisper/Llama 빌드, Rust release 빌드, llama 모델 준비까지 한 번에 처리합니다.
+`setup` 스크립트는 다음을 한 번에 처리합니다.
+
+- 필요한 submodule 초기화
+- `frontend/package.json`이 있을 때 프론트 의존성 설치
+- FFmpeg/Whisper/Llama 툴체인 빌드
+- Rust release 빌드
+- Whisper 모델 준비
+- Llama 요약 모델 준비
+- Llama embedding 모델 준비
 
 ---
 
 ## 실행 방법
 
-### 1) 서버 실행
-
-#### Linux/macOS
+### Linux/macOS
 ```bash
 ./run.sh
 ```
 
-#### Windows
+### Windows
 ```bat
 run.bat
 ```
 
-서버는 기본적으로 `127.0.0.1:38080`에 바인딩됩니다.
-웹 콘솔도 같은 프로세스로 함께 제공되며, 실행 후 브라우저에서 `http://127.0.0.1:38080/`로 접속하면 됩니다.
-
-### 2) CLI 실행
-
-`rust` 디렉터리에서 직접 실행할 수 있습니다.
-
-```bash
-cd rust
-cargo run --release -- <mode>
-```
-
-지원 모드:
-- `ffmpeg <input>`
-- `stt`
-- `summary`
-- `prepare-llama-model`
-- `server`
-- `<input>` (기존 호환: `ffmpeg <input>`처럼 동작)
-
-예시:
-
-```bash
-# 오디오 변환
-cargo run --release -- ffmpeg /path/to/input.wav
-
-# STT 실행 (대상 Job 선택)
-cargo run --release -- stt
-
-# 요약 실행 (대상 Job 선택)
-cargo run --release -- summary
-```
+서버는 기본적으로 `127.0.0.1:38080`에 바인딩됩니다. 웹 콘솔도 같은 프로세스로 함께 제공되며, 실행 후 브라우저에서 [http://127.0.0.1:38080/](http://127.0.0.1:38080/)로 접속하면 됩니다.
 
 ---
 
@@ -192,7 +148,7 @@ curl http://127.0.0.1:38080/jobs/<job_id>/files/stt/mono_mix.txt
 
 ## 기본 설정(.env)
 
-루트에 `.env`를 두고 아래 값을 조정할 수 있습니다(샘플: `.env.example`).
+루트에 `.env`를 두고 아래 값을 조정할 수 있습니다. 샘플은 `.env.example`에 있습니다.
 
 - `RECORDROUTE_WHISPER_MODEL`
   - Whisper 모델 경로(또는 shorthand)
@@ -226,23 +182,22 @@ HF_TOKEN=
 
 ## 트러블슈팅
 
-### 1) "toolchain not found"류 에러
+### 1) "환경 준비가 필요합니다" 또는 "toolchain not found"류 에러
 원인:
-- 로컬 빌드 산출물(.build)이 없거나 깨짐
+- 로컬 빌드 산출물(`.build`)이 없거나 깨짐
+- 모델 캐시가 없거나 준비 중 실패함
 
 해결:
-- 전체 재빌드
-  - Linux/macOS: `./setup.sh`
-  - Windows: `setup.bat`
+- `setup`을 다시 실행한 뒤 `run`으로 서버를 다시 시작
 
 ### 2) STT/요약 메뉴에서 선택할 항목이 없음
 원인:
 - 먼저 ffmpeg 단계가 완료된 Job이 없거나,
-- STT 대상 오디오 파일/요약 대상 transcript가 없음
+- STT 대상 오디오 파일 또는 요약 대상 transcript가 없음
 
 해결:
-1. 먼저 `ffmpeg <input>` 또는 `POST /jobs` 실행
-2. `GET /jobs/<job_id>`로 상태가 completed인지 확인
+1. 웹 콘솔 또는 `POST /jobs`로 오디오 처리를 먼저 시작
+2. `GET /jobs/<job_id>`로 상태가 `completed`인지 확인
 3. 필요 시 `GET /jobs/<job_id>/files`로 실제 파일 존재 확인
 
 ### 3) STT 요청이 400으로 실패 (`audio_files cannot be combined with mono_mix_only`)
@@ -258,21 +213,52 @@ HF_TOKEN=
 - 포트 충돌 확인(`127.0.0.1:38080`)
 - 요청 body가 JSON 형식인지 확인 (잘못된 body는 `invalid request body`)
 
-### 5) 요약 품질/속도가 기대와 다름
+### 5) 요약 품질 또는 속도가 기대와 다름
 점검:
 - `RECORDROUTE_LLAMA_MODEL`이 의도한 모델인지 확인
-- 모델 다운로드/캐시가 정상인지 확인
-- 필요 시 `prepare-llama-model`을 먼저 실행
+- 모델 다운로드 또는 캐시가 정상인지 확인
+- 모델이나 설정을 바꾼 뒤에는 `setup`을 다시 실행
 
 ---
 
 ## 권장 사용 순서
 
 1. `setup`으로 환경 준비
-2. 오디오 처리 (`ffmpeg` 또는 `POST /jobs`)
-3. STT 실행
-4. 요약 실행
-5. `db/<job_id>` 산출물 확인
+2. `run`으로 서버 실행
+3. 웹 콘솔 또는 API로 오디오 처리 시작
+4. STT 실행
+5. 요약 실행
+6. `db/<job_id>` 산출물 확인
 
 이 순서를 따르면 가장 적은 시행착오로 전체 워크플로를 경험할 수 있습니다.
 
+---
+
+## 개발자 참고
+
+일반 사용자 흐름은 `setup`과 `run` 두 파일만 사용하면 됩니다. 아래 내용은 개발 또는 디버깅 용도입니다.
+
+```bash
+cargo run --manifest-path rust/Cargo.toml --release -- <mode>
+```
+
+대표 모드:
+- `ffmpeg <input>`
+- `stt`
+- `summary`
+- `embed-summaries`
+- `search-summaries <query>`
+- `prepare-models`
+- `prepare-llama-model`
+- `server`
+
+테스트:
+
+```bash
+cargo test --manifest-path rust/Cargo.toml
+```
+
+관련 문서:
+- 아키텍처: `docs/architecture.md`
+- OpenAPI: `docs/openapi.yaml`
+- API 설계 TODO: `docs/API_TODO.md`

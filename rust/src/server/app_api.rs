@@ -74,7 +74,7 @@ pub(crate) fn search_summaries(
     min_score: Option<f32>,
 ) -> AppResult<Vec<SummarySearchResult>> {
     app::search_summaries(repo_root, query, limit, min_score).map_err(|error| {
-        if is_model_dependency_error(&error) {
+        if super::errors::is_setup_related_error(&error) {
             AppError::dependency_unavailable(error)
         } else {
             AppError::internal(error)
@@ -120,7 +120,7 @@ fn classify_create_job_error(error: String) -> AppError {
         || error.starts_with("failed to resolve input path ")
     {
         AppError::bad_request(error)
-    } else if error.starts_with("local ffmpeg toolchain not found.") {
+    } else if super::errors::is_setup_related_error(&error) {
         AppError::dependency_unavailable(error)
     } else {
         AppError::internal(error)
@@ -130,7 +130,7 @@ fn classify_create_job_error(error: String) -> AppError {
 fn classify_ffmpeg_runtime_error(error: String) -> AppError {
     if error.starts_with("job not found in index:") {
         AppError::not_found(error)
-    } else if error.starts_with("local ffmpeg toolchain not found.") {
+    } else if super::errors::is_setup_related_error(&error) {
         AppError::dependency_unavailable(error)
     } else {
         AppError::internal(error)
@@ -148,7 +148,7 @@ fn classify_stage_submission_error(error: String) -> AppError {
 fn classify_stage_runtime_error(error: String) -> AppError {
     if error.starts_with("job not found:") || error.starts_with("job not found in index:") {
         AppError::not_found(error)
-    } else if is_model_dependency_error(&error) {
+    } else if super::errors::is_setup_related_error(&error) {
         AppError::dependency_unavailable(error)
     } else {
         AppError::internal(error)
@@ -156,21 +156,9 @@ fn classify_stage_runtime_error(error: String) -> AppError {
 }
 
 fn classify_model_prepare_error(error: String) -> AppError {
-    if is_model_dependency_error(&error) {
+    if super::errors::is_setup_related_error(&error) {
         AppError::dependency_unavailable(error)
     } else {
         AppError::internal(error)
     }
-}
-
-fn is_model_dependency_error(error: &str) -> bool {
-    error.starts_with("local whisper toolchain not found.")
-        || error.starts_with("local llama toolchain not found.")
-        || error.starts_with("local llama embedding toolchain not found.")
-        || error.starts_with("whisper model not found at ")
-        || error.starts_with("whisper model path has no parent directory:")
-        || error.starts_with("llama model file not found:")
-        || error.starts_with("llama model cache path is unavailable")
-        || error.starts_with("llama embedding model file not found:")
-        || error.starts_with("llama embedding model cache path is unavailable")
 }

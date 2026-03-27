@@ -1,5 +1,7 @@
 use super::super::router_with_repo_root;
-use super::super::types::{ErrorResponse, ModelPrepareResponse, SystemStatusResponse};
+use super::super::types::{
+    ErrorResponse, ModelPrepareResponse, ModelStatusResponse, SystemStatusResponse,
+};
 use super::support::*;
 use crate::index::{IndexStore, ModelKind, ModelPreparationStatus};
 use crate::test_support::env_lock;
@@ -106,12 +108,17 @@ async fn get_system_status_reports_missing_toolchains_and_models_in_errors() {
     assert!(!body.whisper_model_ready);
     assert!(!body.llama_model_ready);
     assert!(!body.errors.is_empty());
+    assert!(body.errors.iter().all(|message| message.contains("setup")));
     assert!(
         body.errors
             .iter()
-            .any(|message| message.contains("whisper"))
+            .all(|message| !message.contains("build_whisper"))
     );
-    assert!(body.errors.iter().any(|message| message.contains("llama")));
+    assert!(
+        body.errors
+            .iter()
+            .all(|message| !message.contains("build_llama"))
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -208,6 +215,7 @@ async fn post_prepare_llama_runs_background_download_and_updates_model_status() 
         &fake_command_path(&llama_bin, "llama-cli"),
         &repo_root.join("llama-download.log"),
     );
+    write_simple_command(&fake_command_path(&llama_bin, "llama-embedding"));
 
     let app = router_with_repo_root(repo_root.clone());
     let response = app
@@ -227,6 +235,7 @@ async fn post_prepare_llama_runs_background_download_and_updates_model_status() 
     let status = wait_for_model_preparation_state(&app, ModelKind::Llama).await;
     assert!(status.available);
     assert!(status.ready);
+    assert!(status.embedding_ready);
     assert_eq!(status.preparation.status, ModelPreparationStatus::Completed);
 
     let log = fs::read_to_string(repo_root.join("llama-download.log")).expect("llama download log");
@@ -300,7 +309,8 @@ async fn post_prepare_whisper_returns_503_for_invalid_configuration() {
 
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     let body: ErrorResponse = read_json(response).await;
-    assert!(body.message.contains("whisper model not found at"));
+    assert!(body.message.contains("setup"));
+    assert!(!body.message.contains("models/whisper/custom.bin"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -322,6 +332,7 @@ async fn post_prepare_llama_marks_failed_status_when_download_fails() {
     fs::create_dir_all(&llama_bin).expect("llama bin");
     write_build_script(&build_script_path(&repo_root, "llama"));
     write_failing_llama_cli(&fake_command_path(&llama_bin, "llama-cli"));
+    write_simple_command(&fake_command_path(&llama_bin, "llama-embedding"));
 
     let app = router_with_repo_root(repo_root);
     let response = app
@@ -339,11 +350,33 @@ async fn post_prepare_llama_marks_failed_status_when_download_fails() {
     assert!(status.available);
     assert!(!status.ready);
     assert_eq!(status.preparation.status, ModelPreparationStatus::Failed);
-    assert!(
-        status
-            .error
-            .as_deref()
-            .expect("error")
-            .contains("synthetic llama failure")
+    assert_eq!(
+        status.error.as_deref(),
+        Some("환경 준비가 필요합니다. setup을 다시 실행하세요."),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_models_status_sanitizes_setup_errors() {
+    let repo_root = temp_workspace();
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(get_request("/models/status"))
+        .await
+        .expect("models status response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: ModelStatusResponse = read_json(response).await;
+    assert_eq!(
+        body.whisper.error.as_deref(),
+        Some("환경 준비가 필요합니다. setup을 다시 실행하세요."),
+    );
+    assert_eq!(
+        body.llama.error.as_deref(),
+        Some("환경 준비가 필요합니다. setup을 다시 실행하세요."),
+    );
+    assert_eq!(
+        body.llama.embedding_error.as_deref(),
+        Some("환경 준비가 필요합니다. setup을 다시 실행하세요."),
     );
 }

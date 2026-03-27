@@ -13,6 +13,7 @@ pub(crate) enum CliCommand {
     Ffmpeg { input: Option<PathBuf> },
     Stt,
     Summary,
+    PrepareModels,
     PrepareLlamaModel,
     EmbedSummaries,
     SearchSummaries { query: String },
@@ -44,6 +45,9 @@ pub fn main_cli() -> Result<(), String> {
         CliCommand::Summary => {
             let summary = run_summary_with_repo_root(&repo_root, &mut reader, &mut writer)?;
             print_summary_run_summary(&summary, &mut writer)?;
+        }
+        CliCommand::PrepareModels => {
+            super::prepare_models_with_repo_root(&repo_root)?;
         }
         CliCommand::PrepareLlamaModel => {
             super::prepare_llama_model_with_repo_root(&repo_root)?;
@@ -100,6 +104,10 @@ pub(crate) fn resolve_cli_command(
         [mode] if mode == OsStr::new("summary") => Ok(CliCommand::Summary),
         [mode, ..] if mode == OsStr::new("summary") => {
             Err("summary mode does not accept additional arguments".to_string())
+        }
+        [mode] if mode == OsStr::new("prepare-models") => Ok(CliCommand::PrepareModels),
+        [mode, ..] if mode == OsStr::new("prepare-models") => {
+            Err("prepare-models mode does not accept additional arguments".to_string())
         }
         [mode] if mode == OsStr::new("prepare-llama-model") => Ok(CliCommand::PrepareLlamaModel),
         [mode, ..] if mode == OsStr::new("prepare-llama-model") => {

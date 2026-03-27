@@ -146,6 +146,16 @@ fn resolves_prepare_llama_model_command() {
 
     assert_eq!(command, CliCommand::PrepareLlamaModel);
 }
+#[test]
+fn resolves_prepare_models_command() {
+    let args = vec![OsString::from("prepare-models")];
+    let mut reader = Cursor::new(Vec::<u8>::new());
+    let mut output = Vec::new();
+
+    let command = resolve_cli_command(&args, &mut reader, &mut output).expect("command");
+
+    assert_eq!(command, CliCommand::PrepareModels);
+}
 
 #[test]
 fn resolves_server_command() {
@@ -209,6 +219,19 @@ fn prepare_llama_model_command_rejects_extra_arguments() {
     assert_eq!(
         error,
         "prepare-llama-model mode does not accept additional arguments"
+    );
+}
+#[test]
+fn prepare_models_command_rejects_extra_arguments() {
+    let args = vec![OsString::from("prepare-models"), OsString::from("extra")];
+    let mut reader = Cursor::new(Vec::<u8>::new());
+    let mut output = Vec::new();
+
+    let error = resolve_cli_command(&args, &mut reader, &mut output).expect_err("should fail");
+
+    assert_eq!(
+        error,
+        "prepare-models mode does not accept additional arguments"
     );
 }
 

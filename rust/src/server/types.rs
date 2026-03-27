@@ -237,11 +237,14 @@ pub(crate) fn build_job_submission_response(
         source_file_name: job.source_file_name.clone(),
         probe: job.probe.clone(),
         outputs: job.outputs.clone(),
-        error_message: job.error_message.clone(),
+        error_message: super::errors::sanitize_optional_dependency_message(
+            job.error_message.clone(),
+        ),
     }
 }
 
 pub(crate) fn build_model_status_response(status: app::ModelStatusSnapshot) -> ModelStatusResponse {
+    let status = super::errors::sanitize_model_status_snapshot(status);
     ModelStatusResponse {
         whisper: build_model_status_entry_response(status.whisper),
         llama: build_model_status_entry_response(status.llama),
@@ -256,7 +259,7 @@ fn build_model_status_entry_response(entry: app::ModelStatusEntry) -> ModelStatu
         embedding_available: entry.embedding_available,
         embedding_ready: entry.embedding_ready,
         embedding_error: entry.embedding_error,
-        preparation: entry.preparation,
+        preparation: super::errors::sanitize_model_preparation(entry.preparation),
     }
 }
 
@@ -281,6 +284,6 @@ pub(crate) fn build_model_prepare_response(
         ready: submission.already_ready(),
         already_ready: submission.already_ready(),
         deduplicated: submission.deduplicated(),
-        preparation: submission.preparation.clone(),
+        preparation: super::errors::sanitize_model_preparation(submission.preparation.clone()),
     }
 }

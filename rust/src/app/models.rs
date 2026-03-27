@@ -19,28 +19,34 @@ struct ModelInspection {
 
 pub fn prepare_llama_model_with_repo_root(repo_root: &Path) -> Result<(), String> {
     let _ = ensure_model_prepared(repo_root, ModelKind::Llama)?;
-    let _ = ensure_llama_embedding_model_prepared(repo_root);
+    let _ = ensure_llama_embedding_model_prepared(repo_root)?;
+    Ok(())
+}
+
+pub fn prepare_models_with_repo_root(repo_root: &Path) -> Result<(), String> {
+    let _ = ensure_model_prepared(repo_root, ModelKind::Whisper)?;
+    prepare_llama_model_with_repo_root(repo_root)?;
     Ok(())
 }
 
 pub fn submit_llama_umbrella_preparation(
     repo_root: &Path,
 ) -> Result<ModelPrepareSubmission, String> {
+    inspect_model_preparation(repo_root, ModelKind::Llama)?;
+    if let Err(error) = inspect_llama_embedding_preparation(repo_root) {
+        let _ = mark_llama_embedding_preparation_failed(repo_root, error.clone());
+        return Err(error);
+    }
+
     let summary = submit_model_preparation(repo_root, ModelKind::Llama)?;
-    let embedding = submit_llama_embedding_preparation(repo_root).ok();
-    let embedding_should_execute = embedding
-        .as_ref()
-        .is_some_and(|submission| submission.execute_embedding_requested);
+    let embedding = submit_llama_embedding_preparation(repo_root)?;
+    let embedding_should_execute = embedding.execute_embedding_requested;
 
     Ok(ModelPrepareSubmission {
         model: ModelKind::Llama,
         disposition: if summary.should_execute() || embedding_should_execute {
             ModelPrepareDisposition::Submitted
-        } else if summary.deduplicated()
-            || embedding
-                .as_ref()
-                .is_some_and(ModelPrepareSubmission::deduplicated)
-        {
+        } else if summary.deduplicated() || embedding.deduplicated() {
             ModelPrepareDisposition::Deduplicated
         } else {
             ModelPrepareDisposition::AlreadyReady
@@ -62,7 +68,7 @@ pub fn execute_llama_umbrella_preparation(
     };
 
     if submission.execute_embedding_requested {
-        let _ = execute_llama_embedding_preparation(repo_root);
+        execute_llama_embedding_preparation(repo_root)?;
     }
 
     Ok(preparation)

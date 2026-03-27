@@ -69,7 +69,7 @@ pub(crate) async fn post_stt(
         },
         reused: submission.reused(),
         deduplicated: submission.deduplicated(),
-        task,
+        task: task.map(super::errors::sanitize_task),
     };
     (StatusCode::ACCEPTED, Json(body)).into_response()
 }
@@ -111,7 +111,10 @@ pub(crate) async fn get_stt(
         message: "stt task status".to_string(),
         reused: false,
         deduplicated: false,
-        task: job.task(TaskType::Stt).cloned(),
+        task: job
+            .task(TaskType::Stt)
+            .cloned()
+            .map(super::errors::sanitize_task),
     };
     Json(body).into_response()
 }
@@ -219,7 +222,11 @@ pub(crate) async fn post_summary(
         },
         reused: submission.reused(),
         deduplicated: submission.deduplicated(),
-        task: submission.job.task(TaskType::Summary).cloned(),
+        task: submission
+            .job
+            .task(TaskType::Summary)
+            .cloned()
+            .map(super::errors::sanitize_task),
     };
     (StatusCode::ACCEPTED, Json(body)).into_response()
 }
@@ -248,7 +255,10 @@ pub(crate) async fn get_summary(
         message: "summary task status".to_string(),
         reused: false,
         deduplicated: false,
-        task: job.task(TaskType::Summary).cloned(),
+        task: job
+            .task(TaskType::Summary)
+            .cloned()
+            .map(super::errors::sanitize_task),
     })
     .into_response()
 }
@@ -313,7 +323,11 @@ pub(crate) async fn post_summary_embedding(
         },
         reused: submission.reused(),
         deduplicated: submission.deduplicated(),
-        task: submission.job.task(TaskType::Embedding).cloned(),
+        task: submission
+            .job
+            .task(TaskType::Embedding)
+            .cloned()
+            .map(super::errors::sanitize_task),
         metadata: submission.job.summary_embedding,
     };
     (StatusCode::ACCEPTED, Json(body)).into_response()
@@ -341,7 +355,10 @@ pub(crate) async fn get_summary_embedding(
         message: "summary embedding task status".to_string(),
         reused: false,
         deduplicated: false,
-        task: job.task(TaskType::Embedding).cloned(),
+        task: job
+            .task(TaskType::Embedding)
+            .cloned()
+            .map(super::errors::sanitize_task),
         metadata: job.summary_embedding,
     })
     .into_response()

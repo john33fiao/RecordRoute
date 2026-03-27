@@ -398,7 +398,7 @@ async function prepareModel(kind) {
     const { status, data } = await fetchJson(route, { method: "POST" });
     setMessage(
       "system",
-      data.message || successMessage(status, `${kind} 모델 준비 요청이 접수되었습니다.`),
+      data.message || successMessage(status, "환경 준비 요청이 접수되었습니다."),
       status === 202 ? "info" : "success"
     );
     await refreshSystemAndModels();
@@ -503,8 +503,8 @@ function renderSystem() {
   const errorCount = Array.isArray(system.errors) ? system.errors.length : 0;
   elements.globalCaption.textContent =
     errorCount > 0
-      ? `Server reported ${errorCount} issue(s).`
-      : "All primary toolchains and model paths look reachable.";
+      ? "환경 준비가 필요합니다. setup을 다시 실행하세요."
+      : "모든 런타임과 모델이 준비되었습니다.";
 }
 
 function renderJobs() {
@@ -843,16 +843,22 @@ async function fetchJson(path, options = {}) {
 
 function collectModelErrors(modelStatus) {
   const messages = [];
+  const seen = new Set();
   if (modelStatus?.error) {
-    messages.push(modelStatus.error);
+    seen.add(modelStatus.error);
   }
   if (modelStatus?.embedding_error) {
-    messages.push(modelStatus.embedding_error);
+    seen.add(modelStatus.embedding_error);
   }
   if (modelStatus?.preparation?.last_error) {
-    messages.push(modelStatus.preparation.last_error);
+    seen.add(modelStatus.preparation.last_error);
   }
-  return messages.filter(Boolean);
+  for (const message of seen) {
+    if (message) {
+      messages.push(message);
+    }
+  }
+  return messages;
 }
 
 function statusBadge(status, label = status) {
@@ -914,3 +920,5 @@ function escapeHtml(value) {
 function escapeAttribute(value) {
   return escapeHtml(value);
 }
+
+

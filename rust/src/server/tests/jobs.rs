@@ -547,3 +547,42 @@ async fn post_jobs_marks_failed_job_and_preserves_error_message() {
     assert!(!job_dir.join("channel_02.wav").exists());
     assert!(!job_dir.join("mono_mix.wav").exists());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_job_status_sanitizes_setup_related_task_errors() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+
+    let mut job = JobRecord::new(
+        "job-setup-error".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+        PathBuf::from("/tmp/setup-error.wav"),
+        store.job_dir("job-setup-error"),
+    );
+    job.upsert_running_task(TaskType::Summary, "2026-01-01T00:00:01Z".to_string());
+    job.fail_task(
+        TaskType::Summary,
+        "2026-01-01T00:00:02Z".to_string(),
+        "local llama toolchain not found. Build it first with /tmp/build_llama.sh".to_string(),
+    )
+    .expect("fail summary task");
+    store.insert_job(job).expect("insert job");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(get_request("/jobs/job-setup-error/status"))
+        .await
+        .expect("get job status response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: JobStatusResponse = read_json(response).await;
+    let summary_task = body
+        .tasks
+        .iter()
+        .find(|task| task.task_type == TaskType::Summary)
+        .expect("summary task");
+    assert_eq!(
+        summary_task.last_error.as_deref(),
+        Some("환경 준비가 필요합니다. setup을 다시 실행하세요."),
+    );
+}
