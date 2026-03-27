@@ -49,10 +49,14 @@
           </div>
           <div class="notice" id="upload-message" aria-live="polite"></div>
           <form class="upload-form" id="upload-form">
-            <label class="field">
+            <div class="field">
               <span>Audio File</span>
-              <input id="upload-input" name="file" type="file" accept=".wav,.mp3,.flac,.ogg,audio/*" required />
-            </label>
+              <label class="upload-dropzone" id="upload-dropzone">
+                <input id="upload-input" name="file" type="file" accept=".wav,.mp3,.flac,.ogg,audio/*" required />
+                <strong>파일을 여기로 드래그 앤 드롭</strong>
+                <p>또는 클릭해서 파일 선택</p>
+              </label>
+            </div>
             <button class="primary-button" id="upload-submit-button" type="submit">업로드 후 처리 시작</button>
           </form>
         </section>
