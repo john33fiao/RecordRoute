@@ -34,7 +34,7 @@ fn end_to_end_flow_uses_fake_toolchain() {
 
     let index = fs::read_to_string(repo_root.join("db/index.json")).expect("index");
     let parsed: serde_json::Value = serde_json::from_str(&index).expect("valid json");
-    assert_eq!(parsed["version"], 2);
+    assert_eq!(parsed["version"], 3);
     let jobs = parsed["jobs"].as_array().expect("jobs array");
     assert_eq!(jobs.len(), 1);
     assert_eq!(jobs[0]["status"], "completed");

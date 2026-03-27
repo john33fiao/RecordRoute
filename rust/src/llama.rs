@@ -10,7 +10,7 @@ use std::time::Duration;
 pub const MODEL_ENV_VAR: &str = "RECORDROUTE_LLAMA_MODEL";
 pub const EMBEDDING_MODEL_ENV_VAR: &str = "RECORDROUTE_LLAMA_EMBEDDING_MODEL";
 const DEFAULT_MODEL_REPOSITORY: &str = "ggml-org/gemma-3-4b-it-GGUF";
-const DEFAULT_EMBEDDING_MODEL_REPOSITORY: &str = "Qwen/Qwen3-Embedding-4B";
+const DEFAULT_EMBEDDING_MODEL_REPOSITORY: &str = "Qwen/Qwen3-Embedding-4B-GGUF";
 const DEFAULT_PREDICT_TOKENS: &str = "1024";
 const HF_CACHE_RELATIVE_DIR: &str = "models/llama/hf";
 const LLAMA_CACHE_ENV_VAR: &str = "LLAMA_CACHE";
@@ -28,6 +28,8 @@ pub struct Toolchain {
     pub build_script_path: PathBuf,
     pub model_source: ModelSource,
     pub cached_model_path: Option<PathBuf>,
+    pub embedding_model_source: ModelSource,
+    pub embedding_cached_model_path: Option<PathBuf>,
 }
 
 impl Toolchain {
@@ -47,7 +49,12 @@ impl Toolchain {
             .unwrap_or_else(|| llama_bin.join("llama-embedding"));
 
         let model_source = resolve_model_source(repo_root);
-        let cached_model_path = match &model_source {
+        let summary_cached_model_path = match &model_source {
+            ModelSource::LocalPath(_) => None,
+            ModelSource::HuggingFaceRepo(repo) => Some(cached_model_path(repo_root, repo)),
+        };
+        let embedding_model_source = resolve_embedding_model_source(repo_root);
+        let embedding_cached_model_path = match &embedding_model_source {
             ModelSource::LocalPath(_) => None,
             ModelSource::HuggingFaceRepo(repo) => Some(cached_model_path(repo_root, repo)),
         };
@@ -57,75 +64,60 @@ impl Toolchain {
             llama_embedding_path,
             build_script_path,
             model_source,
-            cached_model_path,
+            cached_model_path: summary_cached_model_path,
+            embedding_model_source,
+            embedding_cached_model_path,
         })
     }
 
     pub fn is_model_ready(&self) -> bool {
-        match (&self.model_source, &self.cached_model_path) {
-            (ModelSource::LocalPath(path), _) => path.is_file(),
-            (ModelSource::HuggingFaceRepo(_), Some(cache_path)) => cache_path.is_file(),
-            (ModelSource::HuggingFaceRepo(_), None) => false,
-        }
+        source_is_ready(&self.model_source, &self.cached_model_path)
     }
 
     pub fn can_prepare_model(&self) -> Result<(), String> {
-        match (&self.model_source, &self.cached_model_path) {
-            (ModelSource::LocalPath(path), _) => {
-                if path.is_file() {
-                    Ok(())
-                } else {
-                    Err(format!("llama model file not found: {}", path.display()))
-                }
-            }
-            (ModelSource::HuggingFaceRepo(_), Some(_)) => Ok(()),
-            (ModelSource::HuggingFaceRepo(repo), None) => Err(format!(
-                "llama model cache path is unavailable for configured Hugging Face repo: {repo}"
-            )),
-        }
+        can_prepare_source("llama", &self.model_source, &self.cached_model_path)
     }
-
     pub fn ensure_model(&self) -> Result<(), String> {
-        match (&self.model_source, &self.cached_model_path) {
-            (ModelSource::LocalPath(path), _) => {
-                if path.is_file() {
-                    Ok(())
-                } else {
-                    Err(format!("llama model file not found: {}", path.display()))
-                }
-            }
-            (ModelSource::HuggingFaceRepo(repo), Some(cache_path)) => {
-                ensure_hugging_face_model(self, repo, cache_path)
-            }
-            (ModelSource::HuggingFaceRepo(repo), None) => Err(format!(
-                "llama model cache path is unavailable for configured Hugging Face repo: {repo}"
-            )),
-        }
+        ensure_source(self, "llama", &self.model_source, &self.cached_model_path)
+    }
+    pub fn is_embedding_model_ready(&self) -> bool {
+        source_is_ready(
+            &self.embedding_model_source,
+            &self.embedding_cached_model_path,
+        )
+    }
+    pub fn can_prepare_embedding_model(&self) -> Result<(), String> {
+        can_prepare_source(
+            "llama embedding",
+            &self.embedding_model_source,
+            &self.embedding_cached_model_path,
+        )
+    }
+    pub fn ensure_embedding_model(&self) -> Result<(), String> {
+        ensure_source(
+            self,
+            "llama embedding",
+            &self.embedding_model_source,
+            &self.embedding_cached_model_path,
+        )
     }
 
     fn runtime_model_source(&self) -> ModelSource {
-        match (&self.model_source, &self.cached_model_path) {
-            (ModelSource::LocalPath(path), _) => ModelSource::LocalPath(path.clone()),
-            (ModelSource::HuggingFaceRepo(_), Some(cache_path)) if cache_path.is_file() => {
-                ModelSource::LocalPath(cache_path.clone())
-            }
-            (ModelSource::HuggingFaceRepo(repo), _) => ModelSource::HuggingFaceRepo(repo.clone()),
-        }
+        runtime_source(&self.model_source, &self.cached_model_path)
+    }
+
+    fn runtime_embedding_model_source(&self) -> ModelSource {
+        runtime_source(
+            &self.embedding_model_source,
+            &self.embedding_cached_model_path,
+        )
     }
 }
 
-pub fn embedding_model_id(repo_root: &Path) -> String {
+pub fn embedding_model_id(_repo_root: &Path) -> String {
     match std::env::var(EMBEDDING_MODEL_ENV_VAR) {
         Ok(value) if !value.trim().is_empty() => value,
-        _ => {
-            let default_gguf =
-                repo_root.join("models/llama/hf/Qwen_Qwen3-Embedding-4B-GGUF-Q4_K_M.gguf");
-            if default_gguf.is_file() {
-                "Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M.gguf".to_string()
-            } else {
-                DEFAULT_EMBEDDING_MODEL_REPOSITORY.to_string()
-            }
-        }
+        _ => DEFAULT_EMBEDDING_MODEL_REPOSITORY.to_string(),
     }
 }
 
@@ -142,7 +134,7 @@ pub fn run_summary_embedding(toolchain: &Toolchain, input: &str) -> Result<Vec<f
         .arg("-p")
         .arg(input);
 
-    match toolchain.runtime_model_source() {
+    match toolchain.runtime_embedding_model_source() {
         ModelSource::LocalPath(path) => {
             command.arg("-m").arg(path);
         }
@@ -308,13 +300,21 @@ fn summary_generation_error(prompt_file: &Path, output: &Output) -> String {
         command_output_details(output)
     )
 }
-
 fn resolve_model_source(repo_root: &Path) -> ModelSource {
     match std::env::var_os(MODEL_ENV_VAR) {
         Some(value) if !value.is_empty() => {
             resolve_model_source_override(repo_root, PathBuf::from(value))
         }
         _ => ModelSource::HuggingFaceRepo(DEFAULT_MODEL_REPOSITORY.to_string()),
+    }
+}
+
+fn resolve_embedding_model_source(repo_root: &Path) -> ModelSource {
+    match std::env::var_os(EMBEDDING_MODEL_ENV_VAR) {
+        Some(value) if !value.is_empty() => {
+            resolve_model_source_override(repo_root, PathBuf::from(value))
+        }
+        _ => ModelSource::HuggingFaceRepo(DEFAULT_EMBEDDING_MODEL_REPOSITORY.to_string()),
     }
 }
 
@@ -329,6 +329,67 @@ fn resolve_model_source_override(repo_root: &Path, configured: PathBuf) -> Model
         ModelSource::LocalPath(local_candidate)
     } else {
         ModelSource::HuggingFaceRepo(configured.to_string_lossy().into_owned())
+    }
+}
+
+fn source_is_ready(source: &ModelSource, cached_path: &Option<PathBuf>) -> bool {
+    match (source, cached_path) {
+        (ModelSource::LocalPath(path), _) => path.is_file(),
+        (ModelSource::HuggingFaceRepo(_), Some(cache_path)) => cache_path.is_file(),
+        (ModelSource::HuggingFaceRepo(_), None) => false,
+    }
+}
+
+fn can_prepare_source(
+    label: &str,
+    source: &ModelSource,
+    cached_path: &Option<PathBuf>,
+) -> Result<(), String> {
+    match (source, cached_path) {
+        (ModelSource::LocalPath(path), _) => {
+            if path.is_file() {
+                Ok(())
+            } else {
+                Err(format!("{label} model file not found: {}", path.display()))
+            }
+        }
+        (ModelSource::HuggingFaceRepo(_), Some(_)) => Ok(()),
+        (ModelSource::HuggingFaceRepo(repo), None) => Err(format!(
+            "{label} model cache path is unavailable for configured Hugging Face repo: {repo}"
+        )),
+    }
+}
+
+fn ensure_source(
+    toolchain: &Toolchain,
+    label: &str,
+    source: &ModelSource,
+    cached_path: &Option<PathBuf>,
+) -> Result<(), String> {
+    match (source, cached_path) {
+        (ModelSource::LocalPath(path), _) => {
+            if path.is_file() {
+                Ok(())
+            } else {
+                Err(format!("{label} model file not found: {}", path.display()))
+            }
+        }
+        (ModelSource::HuggingFaceRepo(repo), Some(cache_path)) => {
+            ensure_hugging_face_model(toolchain, repo, cache_path)
+        }
+        (ModelSource::HuggingFaceRepo(repo), None) => Err(format!(
+            "{label} model cache path is unavailable for configured Hugging Face repo: {repo}"
+        )),
+    }
+}
+
+fn runtime_source(source: &ModelSource, cached_path: &Option<PathBuf>) -> ModelSource {
+    match (source, cached_path) {
+        (ModelSource::LocalPath(path), _) => ModelSource::LocalPath(path.clone()),
+        (ModelSource::HuggingFaceRepo(_), Some(cache_path)) if cache_path.is_file() => {
+            ModelSource::LocalPath(cache_path.clone())
+        }
+        (ModelSource::HuggingFaceRepo(repo), _) => ModelSource::HuggingFaceRepo(repo.clone()),
     }
 }
 
@@ -794,10 +855,12 @@ mod tests {
 
         let toolchain = Toolchain {
             llama_cli_path: fake_llama_cli_path(&build_bin),
-            llama_embedding_path: fake_command_path(build_bin.clone(), "llama-embedding"),
+            llama_embedding_path: crate::ffmpeg::fake_command_path(&build_bin, "llama-embedding"),
             build_script_path: build_script_path(&repo_root, "llama"),
             model_source: ModelSource::LocalPath(model_path.clone()),
             cached_model_path: None,
+            embedding_model_source: ModelSource::LocalPath(model_path.clone()),
+            embedding_cached_model_path: None,
         };
 
         run_summary_generation(&toolchain, &prompt_file, &output_file).expect("summary");
@@ -862,10 +925,12 @@ mod tests {
 
         let toolchain = Toolchain {
             llama_cli_path: fake_llama_cli_path(&build_bin),
-            llama_embedding_path: fake_command_path(build_bin.clone(), "llama-embedding"),
+            llama_embedding_path: crate::ffmpeg::fake_command_path(&build_bin, "llama-embedding"),
             build_script_path: build_script_path(&repo_root, "llama"),
-            model_source: ModelSource::LocalPath(model_path),
+            model_source: ModelSource::LocalPath(model_path.clone()),
             cached_model_path: None,
+            embedding_model_source: ModelSource::LocalPath(model_path),
+            embedding_cached_model_path: None,
         };
 
         run_summary_generation(&toolchain, &prompt_file, &output_file).expect("summary");

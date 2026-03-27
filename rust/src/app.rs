@@ -137,6 +137,8 @@ pub struct ModelPrepareSubmission {
     pub model: ModelKind,
     pub disposition: ModelPrepareDisposition,
     pub preparation: ModelPreparationRecord,
+    pub execute_requested: bool,
+    pub execute_embedding_requested: bool,
 }
 
 impl ModelPrepareSubmission {
@@ -191,8 +193,9 @@ pub use ffmpeg_stage::{execute_ffmpeg_job, run_with_repo_root, submit_ffmpeg_job
 #[allow(unused_imports)]
 pub use models::wait_for_model_preparation;
 pub use models::{
-    collect_model_status_snapshot, ensure_model_prepared, execute_model_preparation,
-    prepare_llama_model_with_repo_root, submit_model_preparation,
+    collect_model_status_snapshot, ensure_model_prepared, execute_llama_umbrella_preparation,
+    execute_model_preparation, prepare_llama_model_with_repo_root,
+    submit_llama_umbrella_preparation, submit_model_preparation,
 };
 pub use stt_stage::{execute_stt_job, run_stt_with_repo_root, submit_stt_job};
 pub use summary_stage::{execute_summary_job, run_summary_with_repo_root, submit_summary_job};

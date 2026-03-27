@@ -8,6 +8,14 @@ use std::fs;
 use tower::util::ServiceExt;
 #[tokio::test(flavor = "multi_thread")]
 async fn get_system_status_reports_available_toolchains_and_model_readiness() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    unsafe {
+        std::env::remove_var(crate::llama::MODEL_ENV_VAR);
+        std::env::remove_var(crate::llama::EMBEDDING_MODEL_ENV_VAR);
+    }
+
     let repo_root = temp_workspace();
     let scripts_dir = repo_root.join("scripts");
     let ffmpeg_bin = repo_root
@@ -37,6 +45,7 @@ async fn get_system_status_reports_available_toolchains_and_model_readiness() {
     write_simple_command(&fake_command_path(&ffmpeg_bin, "ffprobe"));
     write_simple_command(&fake_command_path(&whisper_bin, "whisper-cli"));
     write_simple_command(&fake_command_path(&llama_bin, "llama-cli"));
+    write_simple_command(&fake_command_path(&llama_bin, "llama-embedding"));
 
     fs::write(repo_root.join("models/whisper/ggml-base.bin"), "model").expect("whisper model");
     fs::write(
@@ -44,6 +53,11 @@ async fn get_system_status_reports_available_toolchains_and_model_readiness() {
         "cached llama model",
     )
     .expect("llama model");
+    fs::write(
+        repo_root.join("models/llama/hf/Qwen__Qwen3-Embedding-4B-GGUF.gguf"),
+        "cached llama embedding model",
+    )
+    .expect("llama embedding model");
 
     let app = router_with_repo_root(repo_root);
     let response = app
@@ -58,6 +72,7 @@ async fn get_system_status_reports_available_toolchains_and_model_readiness() {
     assert!(body.llama_available);
     assert!(body.whisper_model_ready);
     assert!(body.llama_model_ready);
+    assert!(body.llama_embedding_model_ready);
     assert!(body.errors.is_empty());
 }
 
@@ -175,7 +190,10 @@ async fn post_prepare_llama_runs_background_download_and_updates_model_status() 
     let _guard = env_lock()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    unsafe { std::env::remove_var(crate::llama::MODEL_ENV_VAR) };
+    unsafe {
+        std::env::remove_var(crate::llama::MODEL_ENV_VAR);
+        std::env::remove_var(crate::llama::EMBEDDING_MODEL_ENV_VAR);
+    }
 
     let repo_root = temp_workspace();
     let llama_bin = repo_root
@@ -227,11 +245,17 @@ async fn post_prepare_llama_deduplicates_running_preparation() {
 
     write_build_script(&build_script_path(&repo_root, "llama"));
     write_simple_command(&fake_command_path(&llama_bin, "llama-cli"));
+    write_simple_command(&fake_command_path(&llama_bin, "llama-embedding"));
     IndexStore::new(&repo_root)
         .update_model_preparation(ModelKind::Llama, |record| {
             record.mark_running(crate::app::now_rfc3339().expect("timestamp"));
         })
         .expect("seed running preparation");
+    IndexStore::new(&repo_root)
+        .update_llama_embedding_preparation(|record| {
+            record.mark_running(crate::app::now_rfc3339().expect("timestamp"));
+        })
+        .expect("seed running embedding preparation");
 
     let app = router_with_repo_root(repo_root);
     let response = app
@@ -284,7 +308,10 @@ async fn post_prepare_llama_marks_failed_status_when_download_fails() {
     let _guard = env_lock()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    unsafe { std::env::remove_var(crate::llama::MODEL_ENV_VAR) };
+    unsafe {
+        std::env::remove_var(crate::llama::MODEL_ENV_VAR);
+        std::env::remove_var(crate::llama::EMBEDDING_MODEL_ENV_VAR);
+    }
 
     let repo_root = temp_workspace();
     let llama_bin = repo_root

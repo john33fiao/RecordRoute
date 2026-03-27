@@ -1,8 +1,8 @@
 # RecordRoute 임베딩 및 유사도 검색 계획
 
-이 문서는 RecordRoute에 summary 결과물 기준 임베딩 및 유사도 검색 기능을 도입하기 위한 계획 초안이다.
-현재 구현 상태를 설명하는 문서가 아니라, 후속 구현 범위와 설계 방향을 고정하기 위한 기준 문서다.
-이번 작업 범위는 이 문서 작성까지이며, 코드, OpenAPI, 아키텍처 문서는 아직 변경하지 않는다.
+이 문서는 RecordRoute의 summary 결과물 기준 임베딩 및 유사도 검색 기능에 대한 설계/검증 문서다.
+초기에는 계획 초안으로 시작했지만, 현재는 코드베이스와 대조한 구현 상태와 남은 TODO까지 함께 기록한다.
+1~9장은 설계 기준과 운영 가정을, 10장 이후는 2026-03-27 기준 구현 검증 결과를 정리한다.
 
 ## 1. 배경과 목표
 
@@ -43,19 +43,19 @@ v1 범위:
 현재 구현 기준 사실:
 
 - summary 출력 경로는 `db/<job_id>/summary/result.md`다.
-- `db/index.json`은 현재 버전 `2`이고, `jobs` 및 `model_preparations`를 저장한다.
-- `TaskType`은 현재 `ffmpeg`, `stt`, `summary`만 가진다.
-- Llama 모델 준비는 `prepare-llama-model` CLI와 `POST /models/llama/prepare` API에서 공통 로직을 사용한다.
-- summary 생성은 `submit_summary_job()` / `execute_summary_job()`에서 수행되며, `ensure_model_prepared(..., ModelKind::Llama)` 이후 `llama-cli`를 실행한다.
-- 현재 HTTP 인터페이스는 `/jobs/{job_id}/summary`, `/jobs/{job_id}/summary/text`까지 제공하며, 임베딩 또는 검색용 엔드포인트는 없다.
-- 현재 llama toolchain 탐색은 `.build/llama/<os>-<arch>/bin/llama-cli` 기준이다.
+- `db/index.json`은 현재 버전 `3`이고, `jobs`, `model_preparations`, `summary_embedding` 호환 데이터를 함께 저장한다.
+- `TaskType`은 `ffmpeg`, `stt`, `summary`, `embedding`을 가진다.
+- Llama 모델 준비는 `prepare-llama-model` CLI와 `POST /models/llama/prepare` API에서 공통 로직을 사용하며, summary model + embedding model umbrella prepare로 동작한다.
+- summary 생성은 `submit_summary_job()` / `execute_summary_job()`에서 수행되고, 성공 직후 embedding task가 자동 제출될 수 있다.
+- HTTP 인터페이스는 `/jobs/{job_id}/summary/embedding`, `POST /summary/search`까지 제공한다.
+- `/models/status`는 `embedding_available`, `embedding_ready`, `embedding_error`를, `/system/status`는 `llama_embedding_model_ready`를 노출한다.
+- llama toolchain 탐색은 `.build/llama/<os>-<arch>/bin/llama-cli`와 `llama-embedding` 둘 다를 찾는다.
 
 현재 한계:
 
-- summary 텍스트는 생성 후 그대로 파일로만 남고 검색용 구조가 없다.
-- summary가 바뀌었는지, 어떤 모델로 임베딩했는지 추적하는 메타데이터가 없다.
-- embedding model 준비 상태를 따로 표현할 방법이 없다.
-- 질의를 벡터화하고 corpus 전체와 비교하는 공통 경로가 없다.
+- 검색은 여전히 brute-force cosine scan이며 corpus가 커질수록 비용이 증가한다.
+- query embedding은 요청 시점에만 계산하고 별도 캐시는 없다.
+- transcript chunk 검색, section-level retrieval, reranker, ANN, external vector DB는 아직 범위 밖이다.
 
 ## 3. 제안 아키텍처
 
@@ -65,9 +65,9 @@ v1 범위:
 
 - 기존 summary model은 `RECORDROUTE_LLAMA_MODEL`을 계속 사용한다.
 - 새 embedding model override는 `RECORDROUTE_LLAMA_EMBEDDING_MODEL`을 사용한다.
-- `RECORDROUTE_LLAMA_EMBEDDING_MODEL`이 비어 있으면 기본값은 `Qwen/Qwen3-Embedding-4B`로 간주한다.
-- llama.cpp 실행 경로에서 GGUF artifact가 필요하면 `Qwen/Qwen3-Embedding-4B-GGUF`에서 가져다 쓴다.
-- 특별한 이유가 없다면 기본 GGUF 선택은 `Q4_K_M.gguf`로 둔다.
+- `RECORDROUTE_LLAMA_EMBEDDING_MODEL`이 비어 있으면 기본값은 `Qwen/Qwen3-Embedding-4B-GGUF`를 사용한다.
+- llama.cpp 실행 경로는 로컬 GGUF 파일 또는 Hugging Face repo 문자열 둘 다를 지원한다.
+- 현재 구현은 다운로드된 GGUF를 `models/llama/hf/<cache-key>.gguf` 경로에 캐시해 재사용한다.
 - 값 해석 규칙은 기존 llama model과 유사하게 유지한다.
   - 파일 경로면 로컬 모델 파일로 사용
   - 파일이 아니면 Hugging Face repo 문자열로 해석
@@ -85,7 +85,7 @@ v1 범위:
 계획 방향:
 
 - summary model 준비 로직은 기존 동작을 유지한다.
-- embedding model override가 있으면 그 값을, 없으면 기본값 `Qwen/Qwen3-Embedding-4B`를 기준으로 같은 prepare 경로에서 함께 준비한다.
+- embedding model override가 있으면 그 값을, 없으면 기본값 `Qwen/Qwen3-Embedding-4B-GGUF`를 기준으로 같은 prepare 경로에서 함께 준비한다.
 - embedding model resolve/download/prepare가 실패한 경우 prepare 전체가 실패하지는 않으며, embedding 관련 상태만 비활성화한다.
 - build 스크립트는 `llama-cli`뿐 아니라 `llama-embedding`도 산출하도록 확장한다.
 - Rust 쪽 toolchain discovery도 summary용 실행 파일과 embedding용 실행 파일을 함께 찾도록 바꾼다.
@@ -108,7 +108,7 @@ v1 범위:
 - `file_path`: `embedding.json` 경로
 - `created_at`: 생성 시각
 
-후속 구현 시 `IndexFile.version`은 `3`으로 올리고, version 2 index는 `summary_embedding` 없이도 읽히도록 호환성을 유지한다.
+현재 구현은 `IndexFile.version`이 `3`이며, version 2 index는 `summary_embedding` 없이도 읽히도록 호환성을 유지한다.
 
 ### 3.4 Task 및 상태 모델
 
@@ -169,14 +169,11 @@ query embedding은 요청 시점에만 계산하고, v1에서는 별도 캐시�
 - `limit` 최대값은 `50`
 - `min_score`는 선택값
 
-## 5. 인터페이스 초안
+## 5. 인터페이스 현황
 
-이 절은 구현된 인터페이스가 아니라 향후 도입 후보를 정리한 것이다.
-이번 문서 작업에서 `docs/openapi.yaml` 또는 Rust 코드는 수정하지 않는다.
+이 절은 현재 구현된 HTTP/CLI 인터페이스를 요약한다. 상세 스키마는 `docs/openapi.yaml`을 기준으로 본다.
 
-### 5.1 HTTP 후보
-
-추가 후보:
+### 5.1 HTTP
 
 - `POST /jobs/{job_id}/summary/embedding`
   - summary 임베딩 생성 제출, 재사용, 중복 합류
@@ -193,9 +190,7 @@ query embedding은 요청 시점에만 계산하고, v1에서는 별도 캐시�
   - 기존 `llama_model_ready`는 summary readiness 의미로 유지
   - `llama_embedding_model_ready` 추가
 
-### 5.2 CLI 후보
-
-추가 후보:
+### 5.2 CLI
 
 - `prepare-llama-model`
   - summary model + embedding model umbrella prepare
@@ -203,8 +198,6 @@ query embedding은 요청 시점에만 계산하고, v1에서는 별도 캐시�
   - 기존 completed summary backfill 및 stale 재생성
 - `search-summaries "<query>"`
   - 동일 검색 로직을 CLI에서 직접 호출
-
-문서 독자가 혼동하지 않도록, 위 항목은 모두 계획안이며 현재 구현은 아니다.
 
 ## 6. Backfill 및 운영 고려사항
 
@@ -242,24 +235,23 @@ query embedding은 요청 시점에만 계산하고, v1에서는 별도 캐시�
 - 모델 정책, 저장 위치, 재사용 규칙, 검색 단위, 제외 범위가 모두 명시되어 있다.
 - 후속 구현자가 이 문서만 보고 필요한 코드 변경 축을 파악할 수 있다.
 
-## 8. 이번 작업에 포함하지 않는 것
+## 8. 현재도 범위 밖인 것
 
-이번 문서 작성 작업에는 아래가 포함되지 않는다.
-
-- `docs/openapi.yaml` 직접 수정
-- `docs/architecture.md` 직접 수정
-- Rust 타입, 도메인 로직, API, CLI 구현
-- ANN, chunk retrieval, reranker, external vector DB 설계 구체화
+- transcript chunk 단위 임베딩/검색
+- summary 섹션 단위 분할 검색
+- reranker
+- ANN 인덱스
+- external vector DB 또는 검색엔진 연동
 
 ## 9. 가정
 
 - 현재 저장소에는 `docs/API_Doc.md`가 없으므로, 이 문서는 `docs/architecture.md`와 `docs/openapi.yaml`을 기준으로 작성한다.
 - separate embedding model 정책을 기본안으로 채택한다.
-- embedding model env가 없으면 기본값 `Qwen/Qwen3-Embedding-4B`를 사용하고, GGUF가 필요하면 `Qwen/Qwen3-Embedding-4B-GGUF`의 `Q4_K_M.gguf`를 우선 사용한다.
+- embedding model env가 없으면 기본값 `Qwen/Qwen3-Embedding-4B-GGUF`를 사용한다.
 - embedding model resolve/download/prepare 실패 시 summary 기능은 유지되고, embedding/search 기능만 비활성화되는 방향을 기본 가정으로 둔다.
 - v1은 운영 단순성과 현재 저장소의 파일 기반 SoT 유지에 우선순위를 둔다.
 
-## 10. 구현 상태 체크리스트 (코드베이스 기준, 2026-03-26)
+## 10. 구현 상태 체크리스트 (코드베이스 기준, 2026-03-27)
 
 > 기준: 현재 `rust/src`와 `docs/openapi.yaml` 구현을 대조해 완료/미완료를 표기한다.
 > 상태 표기: `완료`, `부분 완료`, `미완료`
@@ -274,11 +266,11 @@ query embedding은 요청 시점에만 계산하고, v1에서는 별도 캐시�
 
 ### 10.2 모델 정책/준비
 
-- `부분 완료`: `RECORDROUTE_LLAMA_EMBEDDING_MODEL` 값 자체는 metadata 식별(`model_id`)에 반영됨
-- `미완료`: 임베딩 실행 모델이 summary 모델과 완전히 분리되어 동작하는 정책
-- `부분 완료`: llama toolchain에서 `llama-embedding` 실행 파일 탐색
-- `미완료`: `prepare-llama-model`/`/models/llama/prepare`가 summary+embedding umbrella prepare로 동작
-- `미완료`: embedding prepare 실패를 독립 상태(`embedding_error`)로 반영하고 summary와 분리 노출
+- `완료`: `RECORDROUTE_LLAMA_EMBEDDING_MODEL`이 metadata 식별(`model_id`)과 실제 embedding 실행 경로 둘 다에 반영됨
+- `완료`: 임베딩 실행 모델이 summary 모델과 분리되어 동작함
+- `완료`: llama toolchain에서 `llama-cli`와 `llama-embedding` 실행 파일을 함께 탐색함
+- `완료`: `prepare-llama-model`/`/models/llama/prepare`가 summary+embedding umbrella prepare로 동작함
+- `완료`: embedding prepare 실패를 독립 상태(`embedding_error`)로 반영하고 summary와 분리 노출함
 
 ### 10.3 저장 구조/인덱스
 
@@ -307,12 +299,12 @@ query embedding은 요청 시점에만 계산하고, v1에서는 별도 캐시�
 - `완료`: `POST/GET /jobs/{job_id}/summary/embedding` 구현
 - `완료`: `POST /summary/search` 구현
 - `완료`: `embed-summaries`, `search-summaries "<query>"` CLI 구현
-- `부분 완료`: `/models/status`, `/system/status`에 embedding 관련 필드 노출
-- `미완료`: OpenAPI에 임베딩/검색 신규 경로 반영(현재 schema 일부만 반영됨)
+- `완료`: `/models/status`, `/system/status`에 embedding 관련 필드 노출
+- `완료`: OpenAPI에 임베딩/검색 경로 및 스키마 반영
 
 ### 10.7 이번 작업 범위(문서 전용)와의 정합성
 
-- `미완료`: 본 문서의 “이번 작업에는 Rust/OpenAPI 변경이 없다”는 설명은 현재 저장소 상태와 불일치
+- `완료`: 문서 상단, 인터페이스 절, 범위 절을 현재 코드 기준 표현으로 정리함
 
 ## 11. 구현 로드맵(권장 순서)
 

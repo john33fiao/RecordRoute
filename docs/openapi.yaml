@@ -118,7 +118,7 @@ paths:
   /models/llama/prepare:
     post:
       tags: [models]
-      summary: Prepare llama model in background
+      summary: Prepare llama summary and embedding models in background
       operationId: postPrepareLlamaModel
       responses:
         '200':
@@ -579,6 +579,102 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /jobs/{job_id}/summary/embedding:
+    post:
+      tags: [summary]
+      summary: Submit summary embedding task for a job
+      operationId: postSummaryEmbedding
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '202':
+          description: Summary embedding accepted/reused/deduplicated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryEmbeddingResponse'
+        '400':
+          description: Summary artifact missing or invalid job state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags: [summary]
+      summary: Get summary embedding task status and metadata
+      operationId: getSummaryEmbedding
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Summary embedding task status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryEmbeddingResponse'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /summary/search:
+    post:
+      tags: [summary]
+      summary: Search summaries by embedding similarity
+      operationId: postSummarySearch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SummarySearchRequest'
+      responses:
+        '200':
+          description: Summary similarity search result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummarySearchResponse'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Embedding toolchain or model unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /jobs/{job_id}/files:
     get:
       tags: [files]
@@ -934,6 +1030,91 @@ components:
           type: string
           description: Markdown summary body
 
+    SummarySearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+        limit:
+          oneOf:
+            - type: integer
+              minimum: 1
+            - type: 'null'
+          description: Defaults to 10 and is clamped to 50.
+        min_score:
+          oneOf:
+            - type: number
+            - type: 'null'
+
+    SummarySearchResultResponse:
+      type: object
+      required: [job_id, score, source_file_name, summary_file_name, summary_excerpt]
+      properties:
+        job_id:
+          type: string
+        score:
+          type: number
+        source_file_name:
+          type: string
+        summary_file_name:
+          type: string
+        summary_excerpt:
+          type: string
+
+    SummarySearchResponse:
+      type: object
+      required: [query, results]
+      properties:
+        query:
+          type: string
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SummarySearchResultResponse'
+
+    SummaryEmbeddingRecord:
+      type: object
+      required: [model_id, text_sha256, dimension, normalized, created_at, file_path]
+      properties:
+        model_id:
+          type: string
+        text_sha256:
+          type: string
+        dimension:
+          type: integer
+          minimum: 0
+        normalized:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        file_path:
+          type: string
+
+    SummaryEmbeddingResponse:
+      type: object
+      required: [job_id, status, message, reused, deduplicated, task, metadata]
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+        message:
+          type: string
+        reused:
+          type: boolean
+        deduplicated:
+          type: boolean
+        task:
+          oneOf:
+            - $ref: '#/components/schemas/TaskRecord'
+            - type: 'null'
+        metadata:
+          oneOf:
+            - $ref: '#/components/schemas/SummaryEmbeddingRecord'
+            - type: 'null'
+
     JobSubmissionResponse:
       type: object
       required:
@@ -980,7 +1161,7 @@ components:
     JobRecord:
       type: object
       required:
-        [job_id, status, started_at, finished_at, source_path, source_file_name, job_dir, probe, split_strategy, outputs, error_message, tasks]
+        [job_id, status, started_at, finished_at, source_path, source_file_name, job_dir, probe, split_strategy, outputs, error_message, summary_embedding, tasks]
       properties:
         job_id:
           type: string
@@ -1007,6 +1188,10 @@ components:
         error_message:
           oneOf:
             - type: string
+            - type: 'null'
+        summary_embedding:
+          oneOf:
+            - $ref: '#/components/schemas/SummaryEmbeddingRecord'
             - type: 'null'
         tasks:
           type: array

@@ -89,11 +89,25 @@ pub(crate) fn submit_model_preparation(
     app::submit_model_preparation(repo_root, model).map_err(classify_model_prepare_error)
 }
 
+pub(crate) fn submit_llama_umbrella_preparation(
+    repo_root: &Path,
+) -> AppResult<ModelPrepareSubmission> {
+    app::submit_llama_umbrella_preparation(repo_root).map_err(classify_model_prepare_error)
+}
+
 pub(crate) fn execute_model_preparation(
     repo_root: &Path,
     model: ModelKind,
 ) -> AppResult<ModelPreparationRecord> {
     app::execute_model_preparation(repo_root, model).map_err(classify_model_prepare_error)
+}
+
+pub(crate) fn execute_llama_umbrella_preparation(
+    repo_root: &Path,
+    submission: &ModelPrepareSubmission,
+) -> AppResult<ModelPreparationRecord> {
+    app::execute_llama_umbrella_preparation(repo_root, submission)
+        .map_err(classify_model_prepare_error)
 }
 
 pub(crate) fn collect_model_status_snapshot(repo_root: &Path) -> AppResult<ModelStatusSnapshot> {
@@ -157,4 +171,6 @@ fn is_model_dependency_error(error: &str) -> bool {
         || error.starts_with("whisper model path has no parent directory:")
         || error.starts_with("llama model file not found:")
         || error.starts_with("llama model cache path is unavailable")
+        || error.starts_with("llama embedding model file not found:")
+        || error.starts_with("llama embedding model cache path is unavailable")
 }
