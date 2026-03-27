@@ -76,8 +76,9 @@ run.bat
 
 공식 사용자 실행 경로는 `package/RecordRoute(.exe)`입니다. `run.sh`/`run.bat`는 해당 런처를 호출하는 보조 스크립트입니다.
 
-- 런처(`RecordRoute`)는 기존 서버를 `/server/ping`으로 확인 후 재사용하거나, 없으면 `RecordRouteServer`를 spawn합니다.
-- 런처가 spawn한 서버 로그는 `package/logs/server.log`에 append됩니다.
+- 런처(`RecordRoute`)는 foreground supervisor로 동작하며 `RecordRouteServer`를 직접 소유합니다.
+- `./run.sh`를 실행하면 브라우저를 연 뒤에도 터미널이 유지되며, Rust 서버 로그가 터미널과 `package/logs/server.log`에 함께 출력됩니다.
+- `Ctrl-C` 또는 터미널 종료 시 런처가 자신이 띄운 `RecordRouteServer`를 함께 종료합니다.
 - 서버는 기본적으로 `127.0.0.1:38080`에 바인딩되며 웹 UI는 [http://127.0.0.1:38080/](http://127.0.0.1:38080/)에서 접근합니다.
 
 ---
@@ -216,6 +217,7 @@ HF_TOKEN=
 - 서버 프로세스가 떠 있는지 확인
 - 포트 충돌 확인(`127.0.0.1:38080`)
 - 요청 body가 JSON 형식인지 확인 (잘못된 body는 `invalid request body`)
+- `run.sh`가 `127.0.0.1:38080 is already in use by a server not owned by this launcher`로 실패하면, 예전 detached 서버를 수동 종료한 뒤 다시 실행
 
 ### 5) 요약 품질 또는 속도가 기대와 다름
 점검:
@@ -266,4 +268,3 @@ cargo test --manifest-path rust/Cargo.toml
 - 아키텍처: `docs/architecture.md`
 - OpenAPI: `docs/openapi.yaml`
 - API 설계 TODO: `docs/API_TODO.md`
-
