@@ -7,6 +7,10 @@ set "package_dir=%repo_root%\package"
 set "staging_dir=%package_dir%\.staging"
 set "next_dir=%package_dir%\.next"
 
+call :detect_arch
+if errorlevel 1 exit /b 1
+set "target_dir=windows-%platform_arch%"
+
 git -C "%repo_root%" submodule update --init --recursive
 if errorlevel 1 exit /b 1
 
@@ -17,18 +21,18 @@ if errorlevel 1 exit /b 1
 call "%repo_root%\scripts\build_llama.bat"
 if errorlevel 1 exit /b 1
 
-call :require_artifact "%repo_root%\.build\ffmpeg\windows-*\install\bin\ffmpeg.exe" "ffmpeg binary"
+call :require_artifact "%repo_root%\.build\ffmpeg\%target_dir%\install\bin\ffmpeg.exe" "ffmpeg binary"
 if errorlevel 1 exit /b 1
-call :require_artifact "%repo_root%\.build\ffmpeg\windows-*\install\bin\ffprobe.exe" "ffprobe binary"
+call :require_artifact "%repo_root%\.build\ffmpeg\%target_dir%\install\bin\ffprobe.exe" "ffprobe binary"
 if errorlevel 1 exit /b 1
-call :require_artifact "%repo_root%\.build\whisper\windows-*\bin\whisper-cli.exe" "whisper-cli binary"
+call :require_artifact "%repo_root%\.build\whisper\%target_dir%\bin\whisper-cli.exe" "whisper-cli binary"
 if errorlevel 1 exit /b 1
-call :require_artifact "%repo_root%\.build\llama\windows-*\bin\llama-cli.exe" "llama-cli binary"
+call :require_artifact "%repo_root%\.build\llama\%target_dir%\bin\llama-cli.exe" "llama-cli binary"
 if errorlevel 1 exit /b 1
-call :require_artifact "%repo_root%\.build\llama\windows-*\bin\llama-embedding.exe" "llama-embedding binary"
+call :require_artifact "%repo_root%\.build\llama\%target_dir%\bin\llama-embedding.exe" "llama-embedding binary"
 if errorlevel 1 exit /b 1
 
-cargo build --manifest-path "%rust_manifest%" --release --bin recordroute --bin recordroute_server --bin recordroute_rust
+cargo build --manifest-path "%rust_manifest%" --release --bin recordroute --bin recordroute_server
 if errorlevel 1 exit /b 1
 
 if exist "%staging_dir%" rmdir /s /q "%staging_dir%"
@@ -72,19 +76,24 @@ if exist "%package_dir%" rmdir /s /q "%package_dir%"
 move "%next_dir%" "%package_dir%" >nul
 
 set "RECORDROUTE_RUNTIME_ROOT=%package_dir%"
-"%repo_root%\rust\target\release\recordroute_rust.exe" prepare-models
+"%repo_root%\rust\target\release\recordroute.exe" prepare-models
 if errorlevel 1 exit /b 1
 
 echo Package ready: %package_dir%\RecordRoute.exe
 exit /b 0
 
+:detect_arch
+set "machine=%PROCESSOR_ARCHITECTURE%"
+if defined PROCESSOR_ARCHITEW6432 set "machine=%PROCESSOR_ARCHITEW6432%"
+set "platform_arch="
+if /I "%machine%"=="AMD64" set "platform_arch=x86_64"
+if /I "%machine%"=="ARM64" set "platform_arch=aarch64"
+if not defined platform_arch set "platform_arch=%machine%"
+exit /b 0
+
 :require_artifact
 set "pattern=%~1"
 set "label=%~2"
-set "found_path="
-for /f "delims=" %%P in ('dir /b /s "%pattern%" 2^>nul') do (
-  if not defined found_path set "found_path=%%~fP"
-)
-if defined found_path exit /b 0
+if exist "%pattern%" exit /b 0
 >&2 echo missing %label% ^(pattern: %pattern%^)
 exit /b 1
