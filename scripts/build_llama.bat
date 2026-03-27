@@ -9,7 +9,7 @@ set "platform_arch="
 if /I "%machine%"=="AMD64" set "platform_arch=x86_64"
 if /I "%machine%"=="ARM64" set "platform_arch=aarch64"
 if not defined platform_arch set "platform_arch=%machine%"
-goto :eof
+exit /b 0
 
 :ensure_msvc_env
 if not defined VSCMD_ARG_TGT_ARCH call :load_vsdevcmd
@@ -48,7 +48,7 @@ if errorlevel 1 (
   >&2 echo mt.exe not found. Install the Windows SDK or the Desktop development with C++ workload.
   exit /b 1
 )
-goto :eof
+exit /b 0
 
 :ensure_windows_sdk_bin
 set "sdk_arch=x64"
@@ -74,7 +74,7 @@ if defined sdk_bin (
   set "WindowsSdkDir=!sdk_root!\"
   set "WindowsSDKVersion=!sdk_version!\"
 )
-goto :eof
+exit /b 0
 
 :load_vsdevcmd
 if not defined vsdevcmd_path call :resolve_vsdevcmd
@@ -87,7 +87,7 @@ set "vs_arch=x64"
 if /I "%platform_arch%"=="aarch64" set "vs_arch=arm64"
 call "%vsdevcmd_path%" -arch=%vs_arch% >nul
 if errorlevel 1 exit /b %errorlevel%
-goto :eof
+exit /b 0
 
 :resolve_vsdevcmd
 set "vsdevcmd_path="
@@ -102,7 +102,7 @@ for %%R in ("%ProgramFiles%" "%ProgramFiles(x86)%") do (
     )
   )
 )
-goto :eof
+exit /b 0
 
 :resolve_cmake
 set "cmake_exe="
@@ -129,15 +129,15 @@ if not defined cmake_exe (
   >&2 echo cmake.exe not found. Install CMake or Visual Studio CMake components.
   exit /b 1
 )
-goto :eof
+exit /b 0
 
 :read_build_stamp
 set "cached_backend="
-if not exist "%build_stamp%" goto :eof
+if not exist "%build_stamp%" exit /b 0
 for /f "usebackq tokens=1,* delims==" %%A in ("%build_stamp%") do (
   if /I "%%~A"=="GGML_BACKEND" set "cached_backend=%%~B"
 )
-goto :eof
+exit /b 0
 
 :write_build_stamp
 > "%build_stamp%" (
@@ -145,7 +145,7 @@ goto :eof
   echo GGML_BACKEND=%~1
   echo LLAMA_TLS_PROVIDER=boringssl
 )
-goto :eof
+exit /b 0
 
 :restore_cached_binary
 set "backend_name=%~1"
@@ -188,7 +188,25 @@ if not defined backend_cmake_flags (
   >&2 echo Unsupported llama backend: %backend_name%
   exit /b 1
 )
-goto :eof
+exit /b 0
+
+:maybe_reset_stale_backend_build_dir
+set "cache_path=%backend_build_dir%\CMakeCache.txt"
+if not exist "%cache_path%" exit /b 0
+set "configured_source="
+for /f "usebackq tokens=2 delims==" %%I in (`findstr /b /c:"CMAKE_HOME_DIRECTORY:INTERNAL=" "%cache_path%"`) do (
+  if not defined configured_source set "configured_source=%%~I"
+)
+if not defined configured_source exit /b 0
+if /I "%configured_source%"=="%source_dir%" exit /b 0
+echo Resetting stale llama build cache for %backend_name%...
+set "preserve_deps=%build_root%\_deps-preserve-%backend_name%"
+if exist "%preserve_deps%" rmdir /s /q "%preserve_deps%"
+if exist "%backend_build_dir%\_deps" move "%backend_build_dir%\_deps" "%preserve_deps%" >nul
+if exist "%backend_build_dir%" rmdir /s /q "%backend_build_dir%"
+mkdir "%backend_build_dir%"
+if exist "%preserve_deps%" move "%preserve_deps%" "%backend_build_dir%\_deps" >nul
+exit /b 0
 
 :build_backend
 set "backend_name=%~1"
@@ -202,6 +220,9 @@ set "built_llama_release_bin=%backend_runtime_bin%\Release\llama-cli.exe"
 set "built_llama_embedding_bin=%backend_runtime_bin%\llama-embedding.exe"
 set "built_llama_embedding_release_bin=%backend_runtime_bin%\Release\llama-embedding.exe"
 
+call :maybe_reset_stale_backend_build_dir
+if errorlevel 1 exit /b %errorlevel%
+
 if not exist "%backend_build_dir%" mkdir "%backend_build_dir%"
 if not exist "%backend_runtime_bin%" mkdir "%backend_runtime_bin%"
 if not exist "%runtime_bin%" mkdir "%runtime_bin%"
@@ -214,7 +235,7 @@ if not exist "%runtime_bin%" mkdir "%runtime_bin%"
   -DLLAMA_BUILD_TOOLS=ON ^
   -DLLAMA_BUILD_TESTS=OFF ^
   -DLLAMA_BUILD_SERVER=ON ^
-  -DLLAMA_BUILD_EXAMPLES=OFF ^
+  -DLLAMA_BUILD_EXAMPLES=ON ^
   -DLLAMA_OPENSSL=OFF ^
   -DLLAMA_BUILD_BORINGSSL=ON ^
   %backend_cmake_flags%

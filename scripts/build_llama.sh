@@ -67,6 +67,31 @@ is_known_backend() {
   esac
 }
 
+reset_stale_backend_build_dir() {
+  local build_dir="$1"
+  local backend="$2"
+  local cache_path="${build_dir}/CMakeCache.txt"
+  local configured_source
+  local preserve_deps
+
+  [[ -f "${cache_path}" ]] || return 0
+
+  configured_source="$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "${cache_path}" | head -n 1)"
+  [[ -z "${configured_source}" || "${configured_source}" == "${source_dir}" ]] && return 0
+
+  printf 'Resetting stale llama build cache for %s\n' "${backend}"
+  preserve_deps="${build_root}/_deps-preserve-${backend}"
+  rm -rf "${preserve_deps}"
+  if [[ -d "${build_dir}/_deps" ]]; then
+    mv "${build_dir}/_deps" "${preserve_deps}"
+  fi
+  rm -rf "${build_dir}"
+  mkdir -p "${build_dir}"
+  if [[ -d "${preserve_deps}" ]]; then
+    mv "${preserve_deps}" "${build_dir}/_deps"
+  fi
+}
+
 build_backend() {
   local backend="$1"
   local build_dir
@@ -80,6 +105,8 @@ build_backend() {
   built_llama_bin="${backend_runtime_bin}/llama-cli"
   built_llama_embedding_bin="${backend_runtime_bin}/llama-embedding"
 
+  reset_stale_backend_build_dir "${build_dir}" "${backend}"
+
   mkdir -p "${build_dir}" "${backend_runtime_bin}" "${runtime_bin}"
 
   cmake_args=(
@@ -90,7 +117,7 @@ build_backend() {
     -DLLAMA_BUILD_TOOLS=ON
     -DLLAMA_BUILD_TESTS=OFF
     -DLLAMA_BUILD_SERVER=ON
-    -DLLAMA_BUILD_EXAMPLES=OFF
+    -DLLAMA_BUILD_EXAMPLES=ON
   )
 
   case "${backend}" in

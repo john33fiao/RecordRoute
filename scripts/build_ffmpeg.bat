@@ -9,7 +9,7 @@ set "platform_arch="
 if /I "%machine%"=="AMD64" set "platform_arch=x86_64"
 if /I "%machine%"=="ARM64" set "platform_arch=aarch64"
 if not defined platform_arch set "platform_arch=%machine%"
-goto :eof
+exit /b 0
 
 :ensure_msvc_env
 if not defined VSCMD_ARG_TGT_ARCH call :load_vsdevcmd
@@ -48,7 +48,7 @@ if errorlevel 1 (
   >&2 echo mt.exe not found. Install the Windows SDK or the Desktop development with C++ workload.
   exit /b 1
 )
-goto :eof
+exit /b 0
 
 :ensure_windows_sdk_bin
 set "sdk_arch=x64"
@@ -74,7 +74,7 @@ if defined sdk_bin (
   set "WindowsSdkDir=!sdk_root!\"
   set "WindowsSDKVersion=!sdk_version!\"
 )
-goto :eof
+exit /b 0
 
 :load_vsdevcmd
 if not defined vsdevcmd_path call :resolve_vsdevcmd
@@ -87,7 +87,7 @@ set "vs_arch=x64"
 if /I "%platform_arch%"=="aarch64" set "vs_arch=arm64"
 call "%vsdevcmd_path%" -arch=%vs_arch% >nul
 if errorlevel 1 exit /b %errorlevel%
-goto :eof
+exit /b 0
 
 :resolve_vsdevcmd
 set "vsdevcmd_path="
@@ -102,7 +102,7 @@ for %%R in ("%ProgramFiles%" "%ProgramFiles(x86)%") do (
     )
   )
 )
-goto :eof
+exit /b 0
 
 :find_posix_shell
 set "posix_shell="
@@ -150,7 +150,7 @@ if not defined posix_shell (
   >&2 echo GNU make was not found in any detected POSIX shell environment. Install make in MSYS2 or set RECORDROUTE_POSIX_SHELL to a shell that can run make.
   exit /b 1
 )
-goto :eof
+exit /b 0
 
 :run_posix_shell
 "%posix_shell%" -lc "%shell_cmd%"

@@ -9,7 +9,7 @@ set "platform_arch="
 if /I "%machine%"=="AMD64" set "platform_arch=x86_64"
 if /I "%machine%"=="ARM64" set "platform_arch=aarch64"
 if not defined platform_arch set "platform_arch=%machine%"
-goto :eof
+exit /b 0
 
 :ensure_msvc_env
 if not defined VSCMD_ARG_TGT_ARCH call :load_vsdevcmd
@@ -48,7 +48,7 @@ if errorlevel 1 (
   >&2 echo mt.exe not found. Install the Windows SDK or the Desktop development with C++ workload.
   exit /b 1
 )
-goto :eof
+exit /b 0
 
 :ensure_windows_sdk_bin
 set "sdk_arch=x64"
@@ -74,7 +74,7 @@ if defined sdk_bin (
   set "WindowsSdkDir=!sdk_root!\"
   set "WindowsSDKVersion=!sdk_version!\"
 )
-goto :eof
+exit /b 0
 
 :load_vsdevcmd
 if not defined vsdevcmd_path call :resolve_vsdevcmd
@@ -87,7 +87,7 @@ set "vs_arch=x64"
 if /I "%platform_arch%"=="aarch64" set "vs_arch=arm64"
 call "%vsdevcmd_path%" -arch=%vs_arch% >nul
 if errorlevel 1 exit /b %errorlevel%
-goto :eof
+exit /b 0
 
 :resolve_vsdevcmd
 set "vsdevcmd_path="
@@ -102,7 +102,7 @@ for %%R in ("%ProgramFiles%" "%ProgramFiles(x86)%") do (
     )
   )
 )
-goto :eof
+exit /b 0
 
 :resolve_cmake
 set "cmake_exe="
@@ -129,22 +129,22 @@ if not defined cmake_exe (
   >&2 echo cmake.exe not found. Install CMake or Visual Studio CMake components.
   exit /b 1
 )
-goto :eof
+exit /b 0
 
 :read_build_stamp
 set "cached_backend="
-if not exist "%build_stamp%" goto :eof
+if not exist "%build_stamp%" exit /b 0
 for /f "usebackq tokens=1,* delims==" %%A in ("%build_stamp%") do (
   if /I "%%~A"=="GGML_BACKEND" set "cached_backend=%%~B"
 )
-goto :eof
+exit /b 0
 
 :write_build_stamp
 > "%build_stamp%" (
   echo SCHEMA=2
   echo GGML_BACKEND=%~1
 )
-goto :eof
+exit /b 0
 
 :restore_cached_binary
 set "backend_name=%~1"
@@ -177,7 +177,7 @@ if not defined backend_cmake_flags (
   >&2 echo Unsupported whisper backend: %backend_name%
   exit /b 1
 )
-goto :eof
+exit /b 0
 
 :build_backend
 set "backend_name=%~1"
