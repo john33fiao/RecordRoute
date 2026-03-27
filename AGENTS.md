@@ -4,17 +4,18 @@
 
 ## 1) 프로젝트 개요
 - 핵심 애플리케이션은 `rust/` 크레이트(`recordroute_rust`)입니다.
-- 파이프라인 단계는 `ffmpeg -> stt -> summary` 순서입니다.
+- 파이프라인 단계는 `ffmpeg -> stt -> summary -> embedding` 순서로 확장되었습니다.
 - 상태/결과 저장소 SoT는 `db/index.json`이며, 락 파일(`db/index.lock`)을 통해 동기화됩니다.
 
 ## 2) 주요 코드 위치
 - 바이너리 엔트리: `rust/src/main.rs`
-- CLI/작업 오케스트레이션: `rust/src/app.rs`
+- CLI/작업 오케스트레이션: `rust/src/app.rs`, `rust/src/app/cli.rs`
 - HTTP 서버(axum): `rust/src/server.rs`
-- 인덱스/작업 상태 저장: `rust/src/index.rs`
+- API 라우트: `rust/src/server/routes/*.rs`
+- 인덱스/작업 상태 저장: `rust/src/index.rs`, `rust/src/index/types.rs`
 - FFmpeg 래퍼: `rust/src/ffmpeg.rs`
 - Whisper 래퍼: `rust/src/whisper.rs`
-- Llama 래퍼: `rust/src/llama.rs`
+- Llama(요약/임베딩) 래퍼: `rust/src/llama.rs`
 - 아키텍처 문서(최신 기준): `docs/architecture.md`
 - OpenAPI 명세: `docs/openapi.yaml`
 - API 설계 TODO: `docs/API_TODO.md`
@@ -24,7 +25,15 @@
   - `./run.sh`
 - Rust 실행:
   - `cargo run --manifest-path rust/Cargo.toml -- <mode>`
-  - mode: `ffmpeg <input>`, `stt`, `summary`, `prepare-llama-model`, `server`
+  - mode:
+    - `ffmpeg <input>`
+    - `stt`
+    - `summary`
+    - `prepare-models`
+    - `prepare-llama-model`
+    - `embed-summaries`
+    - `search-summaries <query>`
+    - `server`
 - 테스트:
   - `cargo test --manifest-path rust/Cargo.toml`
 - 전체 초기 빌드(의존 툴체인 포함):
@@ -32,7 +41,7 @@
 
 ## 4) 작업 모델 이해
 - Job 상태(`JobStatus`): `running`, `completed`, `failed`
-- Task 타입(`TaskType`): `ffmpeg`, `stt`, `summary`
+- Task 타입(`TaskType`): `ffmpeg`, `stt`, `summary`, `embedding`
 - Task 상태(`TaskStatus`): `running`, `completed`, `failed`
 - 제출 결과 disposition:
   - `Submitted`: 실제 실행 필요
@@ -40,31 +49,40 @@
   - `Deduplicated`: 동일 작업 실행 중이라 합류
 
 추가 데이터 모델 메모:
-- `JobRecord`에는 `split_strategy`가 포함됩니다.
+- `JobRecord`에는 `split_strategy`, `summary_embedding`이 포함됩니다.
 - `TaskRecord`는 `task_id`(uuid), `retry_count`, `last_error`를 관리합니다.
-- 모델 준비 상태는 `model_preparations.whisper|llama`에 저장됩니다.
+- 인덱스 포맷 버전은 현재 `3`입니다.
+- 모델 준비 상태는 `model_preparations.whisper|llama|llama_embedding`에 저장됩니다.
 
 ## 5) 구현 원칙
 - FFmpeg/Whisper/Llama는 Rust 직접 링크가 아닌 **CLI 실행 래핑 모델**입니다.
 - API와 CLI는 동일한 도메인 로직(`app.rs`, `index.rs`)을 공유해야 합니다.
 - 변경 시 재사용/중복방지 규칙이 깨지지 않는지 우선 검증하세요.
-- Job/Task 상태 전이는 인덱스 기록과 함께 원자적으로 다뤄야 합니다.
+- Job/Task/Model preparation 상태 전이는 인덱스 기록과 함께 원자적으로 다뤄야 합니다.
 
 ## 6) 환경 변수/모델 관련
 - Whisper 모델: `RECORDROUTE_WHISPER_MODEL` (기본: `models/whisper/ggml-base.bin`)
-- Llama 모델/레포: `RECORDROUTE_LLAMA_MODEL`
+- Llama 요약 모델/레포: `RECORDROUTE_LLAMA_MODEL`
+  - 파일 경로면 로컬 모델로 사용
+  - 아니면 Hugging Face repo 문자열로 해석
+- Llama 임베딩 모델/레포: `RECORDROUTE_LLAMA_EMBEDDING_MODEL`
   - 파일 경로면 로컬 모델로 사용
   - 아니면 Hugging Face repo 문자열로 해석
 
 ## 7) API 작업 시 체크포인트
 - 상태/모델 계열:
-  - `/system/status`, `/models/status`, `/models/{whisper|llama}/prepare`
+  - `/server/ping`
+  - `/system/status`, `/models/status`
+  - `/models/{whisper|llama}/prepare`
 - Job 계열:
   - `/jobs`, `/jobs/upload`, `/jobs/completed`, `/jobs/by-source`
   - `/jobs/{job_id}`, `/jobs/{job_id}/status`
 - 산출물/태스크 계열:
-  - `/jobs/{job_id}/stt`, `/jobs/{job_id}/stt/texts`, `/jobs/{job_id}/stt/texts/{transcript_id}`
+  - `/jobs/{job_id}/stt`, `/jobs/{job_id}/stt/progress`
+  - `/jobs/{job_id}/stt/texts`, `/jobs/{job_id}/stt/texts/{transcript_id}`
   - `/jobs/{job_id}/summary`, `/jobs/{job_id}/summary/text`
+  - `/jobs/{job_id}/summary/embedding`
+  - `/summary/search`
   - `/jobs/{job_id}/files`, `/jobs/{job_id}/files/{*file_name}`
 
 ## 8) 에이전트 문서 규칙
