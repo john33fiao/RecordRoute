@@ -1,4 +1,4 @@
-﻿use super::types::ErrorResponse;
+use super::types::ErrorResponse;
 use crate::app;
 use crate::error::{AppError, AppErrorKind};
 use crate::index::{JobRecord, ModelPreparationRecord, TaskRecord};

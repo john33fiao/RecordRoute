@@ -1,4 +1,4 @@
-﻿# RecordRoute
+# RecordRoute
 
 RecordRoute는 오디오 파일을 **회의록 작업 흐름에 맞춰 순차적으로 처리**할 수 있게 만든 도구입니다.
 
@@ -74,7 +74,7 @@ setup.bat
 run.bat
 ```
 
-서버는 기본적으로 `127.0.0.1:38080`에 바인딩됩니다. 웹 콘솔도 같은 프로세스로 함께 제공되며, 실행 후 브라우저에서 [http://127.0.0.1:38080/](http://127.0.0.1:38080/)로 접속하면 됩니다.
+서버는 기본적으로 `127.0.0.1:38080`에 바인딩됩니다. 웹 콘솔도 같은 프로세스로 함께 제공되며, 실행 후 브라우저에서 [http://127.0.0.1:38080/](http://127.0.0.1:38080/)로 접속하면 됩니다. `run`은 `setup`이 만든 release binary만 실행하며, 바이너리가 없으면 `setup` 재실행을 안내합니다.
 
 ---
 
@@ -262,3 +262,4 @@ cargo test --manifest-path rust/Cargo.toml
 - 아키텍처: `docs/architecture.md`
 - OpenAPI: `docs/openapi.yaml`
 - API 설계 TODO: `docs/API_TODO.md`
+
