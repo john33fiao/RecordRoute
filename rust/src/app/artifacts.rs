@@ -188,10 +188,6 @@ pub(crate) fn summary_file_name() -> &'static str {
     SUMMARY_FILE_NAME
 }
 
-pub(crate) fn summary_embedding_file_name() -> &'static str {
-    SUMMARY_EMBEDDING_FILE_NAME
-}
-
 pub(crate) fn summary_embedding_output_path(summary_dir: &Path) -> PathBuf {
     summary_dir.join(SUMMARY_EMBEDDING_FILE_NAME)
 }

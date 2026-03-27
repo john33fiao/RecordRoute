@@ -285,10 +285,6 @@ impl JobRecord {
         self.tasks.iter().find(|task| task.task_type == task_type)
     }
 
-    pub fn clear_embedding(&mut self) {
-        self.summary_embedding = None;
-    }
-
     fn set_task(&mut self, record: TaskRecord) {
         if let Some(existing) = self
             .tasks

@@ -64,11 +64,6 @@ pub struct SummaryRunSummary {
     pub summary_file: PathBuf,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EmbeddingRunSummary {
-    pub processed_jobs: Vec<(String, bool)>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StageJobDisposition {
     Submitted,
