@@ -76,8 +76,10 @@ if exist "%package_dir%" rmdir /s /q "%package_dir%"
 move "%next_dir%" "%package_dir%" >nul
 
 set "RECORDROUTE_RUNTIME_ROOT=%package_dir%"
+echo Starting runtime model preparation...
 "%repo_root%\rust\target\release\recordroute_rust.exe" prepare-models
 if errorlevel 1 exit /b 1
+echo Runtime model preparation finished.
 
 echo Package ready: %package_dir%\RecordRoute.exe
 exit /b 0

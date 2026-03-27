@@ -105,6 +105,8 @@ mkdir -p "${next_dir}/db" "${next_dir}/logs"
 rm -rf "${package_dir}"
 mv "${next_dir}" "${package_dir}"
 
+echo "Starting runtime model preparation..."
 RECORDROUTE_RUNTIME_ROOT="${package_dir}" "${script_dir}/rust/target/release/recordroute_rust" prepare-models
+echo "Runtime model preparation finished."
 
 echo "Package ready: ${package_dir}/RecordRoute"

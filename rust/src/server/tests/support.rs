@@ -149,7 +149,7 @@ pub(super) fn write_platform_script(path: &Path, unix_content: &str, windows_con
     make_executable(path);
 }
 
-pub(super) fn make_executable(_path: &Path) {
+pub(super) fn make_executable(path: &Path) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

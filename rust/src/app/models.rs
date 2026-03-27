@@ -4,9 +4,9 @@ use super::{
     ModelStatusEntry, ModelStatusSnapshot, now_rfc3339,
 };
 use crate::index::{IndexStore, ModelKind, ModelPreparationRecord, ModelPreparationStatus};
-use crate::llama::Toolchain as LlamaToolchain;
+use crate::llama::{ModelSource, Toolchain as LlamaToolchain};
 use crate::whisper::Toolchain as WhisperToolchain;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
 use time::OffsetDateTime;
@@ -18,14 +18,16 @@ struct ModelInspection {
 }
 
 pub fn prepare_llama_model_with_repo_root(repo_root: &Path) -> Result<(), String> {
-    let _ = ensure_model_prepared(repo_root, ModelKind::Llama)?;
-    let _ = ensure_llama_embedding_model_prepared(repo_root)?;
+    let _ = prepare_llama_summary_model_with_progress(repo_root)?;
+    let _ = prepare_llama_embedding_model_with_progress(repo_root)?;
     Ok(())
 }
 
 pub fn prepare_models_with_repo_root(repo_root: &Path) -> Result<(), String> {
-    let _ = ensure_model_prepared(repo_root, ModelKind::Whisper)?;
+    eprintln!("Preparing runtime models...");
+    let _ = prepare_whisper_model_with_progress(repo_root)?;
     prepare_llama_model_with_repo_root(repo_root)?;
+    eprintln!("Runtime models ready.");
     Ok(())
 }
 
@@ -527,17 +529,82 @@ fn wait_for_llama_embedding_model_prepared(
     }
 }
 
-fn ensure_llama_embedding_model_prepared(
+fn prepare_whisper_model_with_progress(repo_root: &Path) -> Result<ModelPreparationRecord, String> {
+    let toolchain = WhisperToolchain::discover(repo_root)?;
+    eprintln!(
+        "Preparing whisper model at {}...",
+        toolchain.model_path.display()
+    );
+
+    let preparation = prepare_model_with_progress(repo_root, ModelKind::Whisper)?;
+    eprintln!("Whisper model ready.");
+    Ok(preparation)
+}
+
+fn prepare_llama_summary_model_with_progress(
     repo_root: &Path,
 ) -> Result<ModelPreparationRecord, String> {
+    let toolchain = LlamaToolchain::discover(repo_root)?;
+    eprintln!(
+        "Preparing llama summary model from {}...",
+        describe_model_source(&toolchain.model_source, &toolchain.cached_model_path)
+    );
+
+    let preparation = prepare_model_with_progress(repo_root, ModelKind::Llama)?;
+    eprintln!("Llama summary model ready.");
+    Ok(preparation)
+}
+
+fn prepare_llama_embedding_model_with_progress(
+    repo_root: &Path,
+) -> Result<ModelPreparationRecord, String> {
+    let toolchain = LlamaToolchain::discover(repo_root)?;
+    eprintln!(
+        "Preparing llama embedding model from {}...",
+        describe_model_source(
+            &toolchain.embedding_model_source,
+            &toolchain.embedding_cached_model_path,
+        )
+    );
+
     let submission = submit_llama_embedding_preparation(repo_root)?;
+    let preparation = if submission.already_ready() {
+        submission.preparation
+    } else if submission.should_execute() {
+        execute_llama_embedding_preparation(repo_root)?
+    } else {
+        eprintln!("Llama embedding model preparation already running. Waiting...");
+        wait_for_llama_embedding_model_prepared(repo_root)?
+    };
+
+    eprintln!("Llama embedding model ready.");
+    Ok(preparation)
+}
+
+fn prepare_model_with_progress(
+    repo_root: &Path,
+    model: ModelKind,
+) -> Result<ModelPreparationRecord, String> {
+    let submission = submit_model_preparation(repo_root, model)?;
     if submission.already_ready() {
         return Ok(submission.preparation);
     }
     if submission.should_execute() {
-        return execute_llama_embedding_preparation(repo_root);
+        return execute_model_preparation(repo_root, model);
     }
-    wait_for_llama_embedding_model_prepared(repo_root)
+
+    eprintln!("{} model preparation already running. Waiting...", model.as_str());
+    wait_for_model_preparation(repo_root, model)
+}
+
+fn describe_model_source(source: &ModelSource, cached_path: &Option<PathBuf>) -> String {
+    match (source, cached_path) {
+        (ModelSource::LocalPath(path), _) => path.display().to_string(),
+        (ModelSource::HuggingFaceRepo(repo), Some(cache_path)) => {
+            format!("{repo} -> {}", cache_path.display())
+        }
+        (ModelSource::HuggingFaceRepo(repo), None) => repo.clone(),
+    }
 }
 
 fn ensure_model_with_toolchain(repo_root: &Path, model: ModelKind) -> Result<(), String> {
