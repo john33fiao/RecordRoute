@@ -36,11 +36,41 @@ copy_if_exists() {
   fi
 }
 
+ensure_file_exists() {
+  local path="$1"
+  local description="$2"
+  if [[ ! -f "${path}" ]]; then
+    printf 'missing %s: %s\n' "${description}" "${path}" >&2
+    exit 1
+  fi
+}
+
 ensure_bundled_sources
 
 bash "${script_dir}/scripts/build_ffmpeg.sh"
 bash "${script_dir}/scripts/build_whisper.sh"
 bash "${script_dir}/scripts/build_llama.sh"
+
+os_name="$(uname -s)"
+case "${os_name}" in
+  Darwin) platform_os="macos" ;;
+  Linux) platform_os="linux" ;;
+  *) platform_os="$(printf '%s' "${os_name}" | tr '[:upper:]' '[:lower:]')" ;;
+esac
+
+arch_name="$(uname -m)"
+case "${arch_name}" in
+  arm64) platform_arch="aarch64" ;;
+  amd64) platform_arch="x86_64" ;;
+  *) platform_arch="${arch_name}" ;;
+esac
+
+target_dir="${platform_os}-${platform_arch}"
+ensure_file_exists "${script_dir}/.build/ffmpeg/${target_dir}/install/bin/ffmpeg" "ffmpeg binary"
+ensure_file_exists "${script_dir}/.build/ffmpeg/${target_dir}/install/bin/ffprobe" "ffprobe binary"
+ensure_file_exists "${script_dir}/.build/whisper/${target_dir}/bin/whisper-cli" "whisper-cli binary"
+ensure_file_exists "${script_dir}/.build/llama/${target_dir}/bin/llama-cli" "llama-cli binary"
+ensure_file_exists "${script_dir}/.build/llama/${target_dir}/bin/llama-embedding" "llama-embedding binary"
 
 cargo build --manifest-path "${rust_manifest}" --release --bin recordroute --bin recordroute_server --bin recordroute_rust
 

@@ -17,6 +17,17 @@ if errorlevel 1 exit /b 1
 call "%repo_root%\scripts\build_llama.bat"
 if errorlevel 1 exit /b 1
 
+call :require_artifact "%repo_root%\.build\ffmpeg\windows-*\install\bin\ffmpeg.exe" "ffmpeg binary"
+if errorlevel 1 exit /b 1
+call :require_artifact "%repo_root%\.build\ffmpeg\windows-*\install\bin\ffprobe.exe" "ffprobe binary"
+if errorlevel 1 exit /b 1
+call :require_artifact "%repo_root%\.build\whisper\windows-*\bin\whisper-cli.exe" "whisper-cli binary"
+if errorlevel 1 exit /b 1
+call :require_artifact "%repo_root%\.build\llama\windows-*\bin\llama-cli.exe" "llama-cli binary"
+if errorlevel 1 exit /b 1
+call :require_artifact "%repo_root%\.build\llama\windows-*\bin\llama-embedding.exe" "llama-embedding binary"
+if errorlevel 1 exit /b 1
+
 cargo build --manifest-path "%rust_manifest%" --release --bin recordroute --bin recordroute_server --bin recordroute_rust
 if errorlevel 1 exit /b 1
 
@@ -65,3 +76,15 @@ set "RECORDROUTE_RUNTIME_ROOT=%package_dir%"
 if errorlevel 1 exit /b 1
 
 echo Package ready: %package_dir%\RecordRoute.exe
+exit /b 0
+
+:require_artifact
+set "pattern=%~1"
+set "label=%~2"
+set "found_path="
+for /f "delims=" %%P in ('dir /b /s "%pattern%" 2^>nul') do (
+  if not defined found_path set "found_path=%%~fP"
+)
+if defined found_path exit /b 0
+>&2 echo missing %label% ^(pattern: %pattern%^)
+exit /b 1
