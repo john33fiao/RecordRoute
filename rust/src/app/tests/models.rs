@@ -52,6 +52,7 @@ fn prepare_llama_model_downloads_default_hugging_face_repo() {
     assert!(llama_log.contains("-hf"));
     assert!(llama_log.contains("ggml-org/gemma-3-4b-it-GGUF"));
     assert!(llama_log.contains("Qwen/Qwen3-Embedding-4B-GGUF"));
+    assert!(llama_log.contains("/exit"));
     assert!(llama_log.contains("HF_TOKEN=prepare-token"));
     assert!(llama_log.contains("LLAMA_CACHE="));
 }

@@ -1,6 +1,7 @@
 use crate::ffmpeg::{build_script_path, locate_command, target_dir_name};
 use crate::tool_runtime::{apply_cpu_fallback_env, command_output_details, should_retry_with_cpu};
 use std::collections::BTreeSet;
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -11,6 +12,7 @@ pub const MODEL_ENV_VAR: &str = "RECORDROUTE_LLAMA_MODEL";
 pub const EMBEDDING_MODEL_ENV_VAR: &str = "RECORDROUTE_LLAMA_EMBEDDING_MODEL";
 const DEFAULT_MODEL_REPOSITORY: &str = "ggml-org/gemma-3-4b-it-GGUF";
 const DEFAULT_EMBEDDING_MODEL_REPOSITORY: &str = "Qwen/Qwen3-Embedding-4B-GGUF";
+const DEFAULT_HF_QUANT_TAG: &str = "Q4_K_M";
 const DEFAULT_PREDICT_TOKENS: &str = "1024";
 const HF_CACHE_RELATIVE_DIR: &str = "models/llama/hf";
 const LLAMA_CACHE_ENV_VAR: &str = "LLAMA_CACHE";
@@ -458,7 +460,7 @@ fn download_hugging_face_model(
     let existing_downloads = gguf_files_in(&download_cache_dir)?;
 
     if let Ok(downloaded_model) =
-        detect_downloaded_model_file(&download_cache_dir, &BTreeSet::new())
+        detect_cached_hugging_face_model_file(&download_cache_dir, &BTreeSet::new(), repo)
     {
         finalize_downloaded_model(&downloaded_model, cache_path)?;
         return Ok(());
@@ -488,7 +490,7 @@ fn download_hugging_face_model(
         .arg("-hf")
         .arg(repo)
         .arg("-p")
-        .arg("")
+        .arg("/exit")
         .spawn()
         .map_err(|error| {
             format!(
@@ -503,7 +505,7 @@ fn download_hugging_face_model(
         }
 
         if let Ok(downloaded_model) =
-            detect_downloaded_model_file(&download_cache_dir, &existing_downloads)
+            detect_cached_hugging_face_model_file(&download_cache_dir, &existing_downloads, repo)
         {
             let _ = child.kill();
             let _ = child.wait();
@@ -528,7 +530,7 @@ fn download_hugging_face_model(
         }
 
         let downloaded_model =
-            detect_downloaded_model_file(&download_cache_dir, &existing_downloads)?;
+            detect_cached_hugging_face_model_file(&download_cache_dir, &existing_downloads, repo)?;
         finalize_downloaded_model(&downloaded_model, cache_path)?;
         return Ok(());
     }
@@ -632,6 +634,94 @@ fn detect_downloaded_model_file(
         "could not determine downloaded llama model file in {}",
         download_cache_dir.display()
     ))
+}
+
+fn detect_cached_hugging_face_model_file(
+    download_cache_dir: &Path,
+    existing_downloads: &BTreeSet<PathBuf>,
+    repo: &str,
+) -> Result<PathBuf, String> {
+    detect_downloaded_model_file(download_cache_dir, existing_downloads)
+        .or_else(|_| detect_hugging_face_hub_model_file(repo))
+}
+
+fn detect_hugging_face_hub_model_file(repo: &str) -> Result<PathBuf, String> {
+    let (repo_path, preferred_quant) = split_hugging_face_repo_tag(repo);
+    let (owner, model) = repo_path.split_once('/').ok_or_else(|| {
+        format!("invalid Hugging Face repo format, expected owner/model[:quant]: {repo}")
+    })?;
+    let hub_cache_dir = default_hugging_face_hub_cache_dir().ok_or_else(|| {
+        format!("could not determine Hugging Face hub cache directory for repo {repo}")
+    })?;
+    let repo_cache_dir = hub_cache_dir.join(format!("models--{owner}--{model}"));
+    let snapshot_dir = repo_cache_dir.join("snapshots");
+    let search_dir = if snapshot_dir.is_dir() {
+        snapshot_dir
+    } else {
+        repo_cache_dir
+    };
+    let downloads = gguf_files_in(&search_dir)?;
+    choose_hugging_face_model_file(downloads, preferred_quant).ok_or_else(|| {
+        format!(
+            "could not determine downloaded llama model file in {}",
+            search_dir.display()
+        )
+    })
+}
+
+fn split_hugging_face_repo_tag(repo: &str) -> (&str, Option<&str>) {
+    match repo.rsplit_once(':') {
+        Some((repo_path, tag)) if repo_path.contains('/') && !tag.is_empty() => {
+            (repo_path, Some(tag))
+        }
+        _ => (repo, None),
+    }
+}
+
+fn choose_hugging_face_model_file(
+    downloads: BTreeSet<PathBuf>,
+    preferred_quant: Option<&str>,
+) -> Option<PathBuf> {
+    if downloads.is_empty() {
+        return None;
+    }
+
+    let preferred_quant = preferred_quant
+        .unwrap_or(DEFAULT_HF_QUANT_TAG)
+        .to_ascii_uppercase();
+    downloads
+        .iter()
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.to_ascii_uppercase().contains(&preferred_quant))
+                .unwrap_or(false)
+        })
+        .cloned()
+        .or_else(|| downloads.into_iter().next())
+}
+
+fn default_hugging_face_hub_cache_dir() -> Option<PathBuf> {
+    if let Some(hf_home) = env::var_os("HF_HOME").filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(hf_home).join("hub"));
+    }
+
+    if let Some(xdg_cache_home) = env::var_os("XDG_CACHE_HOME").filter(|value| !value.is_empty()) {
+        return Some(
+            PathBuf::from(xdg_cache_home)
+                .join("huggingface")
+                .join("hub"),
+        );
+    }
+
+    env::var_os("HOME")
+        .filter(|value| !value.is_empty())
+        .map(|home| {
+            PathBuf::from(home)
+                .join(".cache")
+                .join("huggingface")
+                .join("hub")
+        })
 }
 
 fn extract_summary_text(stdout: &str, prompt: &str) -> String {
@@ -1060,6 +1150,61 @@ mod tests {
             fs::read_to_string(cache_path).expect("cached model"),
             "synthetic nested model"
         );
+    }
+
+    #[test]
+    fn downloads_embedding_model_from_hf_home_cache_layout() {
+        let _guard = crate::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe {
+            std::env::remove_var(MODEL_ENV_VAR);
+            std::env::remove_var(EMBEDDING_MODEL_ENV_VAR);
+        }
+
+        let repo_root = temp_workspace();
+        let build_bin = repo_root
+            .join(".build/llama")
+            .join(target_dir_name())
+            .join("bin");
+        let hf_home = repo_root.join("hf-home");
+        let llama_log = repo_root.join("llama-hf-home-download.log");
+        fs::create_dir_all(&build_bin).expect("build bin");
+        fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+        write_build_script(&build_script_path(&repo_root, "llama"));
+
+        unsafe { std::env::set_var("HF_HOME", &hf_home) };
+        write_executable(
+            &fake_llama_cli_path(&build_bin),
+            &format!(
+                "#!/bin/sh\n: > '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\ndone\nprintf 'HF_HOME=%s\\n' \"${{HF_HOME:-}}\" >> '{log}'\nhub=\"$HF_HOME/hub/models--Qwen--Qwen3-Embedding-4B-GGUF/snapshots/main\"\nmkdir -p \"$hub\"\nprintf 'synthetic hf home model' > \"$hub/Qwen3-Embedding-4B-Q4_K_M.gguf\"\n",
+                log = llama_log.display()
+            ),
+            &format!(
+                "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\n> \"{log}\" type nul\n:loop\nif \"%~1\"==\"\" goto after\n>> \"{log}\" echo %~1\nshift\ngoto loop\n:after\nset \"hf_home=!HF_HOME!\"\nif \"!hf_home:~0,4!\"==\"\\\\?\\\" set \"hf_home=!hf_home:~4!\"\n>> \"{log}\" echo HF_HOME=!hf_home!\nset \"hub=!hf_home!\\hub\\models--Qwen--Qwen3-Embedding-4B-GGUF\\snapshots\\main\"\nif not exist \"!hub!\" mkdir \"!hub!\"\n> \"!hub!\\Qwen3-Embedding-4B-Q4_K_M.gguf\" <nul set /p =synthetic hf home model\nexit /b 0\n",
+                log = llama_log.display()
+            ),
+        );
+
+        let toolchain = Toolchain::discover(&repo_root).expect("toolchain");
+        let download_result = toolchain.ensure_embedding_model();
+        unsafe { std::env::remove_var("HF_HOME") };
+        download_result.expect("embedding model download");
+
+        let cache_path = toolchain
+            .embedding_cached_model_path
+            .clone()
+            .expect("embedding cached model path");
+        assert!(cache_path.is_file());
+        assert_eq!(
+            fs::read_to_string(cache_path).expect("cached embedding model"),
+            "synthetic hf home model"
+        );
+
+        let log = fs::read_to_string(llama_log).expect("llama log");
+        assert!(log.contains(DEFAULT_EMBEDDING_MODEL_REPOSITORY));
+        assert!(log.contains("/exit"));
+        assert!(log.contains("HF_HOME="));
     }
 
     #[test]
