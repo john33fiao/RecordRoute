@@ -9,6 +9,8 @@ mod embedding_stage;
 mod ffmpeg_stage;
 #[path = "app/models.rs"]
 mod models;
+#[path = "app/queue.rs"]
+mod queue;
 #[path = "app/stages.rs"]
 mod stages;
 #[path = "app/stt_stage.rs"]
@@ -77,6 +79,7 @@ pub struct StageJobSubmission {
     pub job: JobRecord,
     pub disposition: StageJobDisposition,
     pub planned_audio_files: Vec<PathBuf>,
+    pub queue: Option<QueueTicket>,
 }
 
 impl StageJobSubmission {
@@ -105,6 +108,7 @@ pub struct FfmpegJobSubmission {
     pub job: JobRecord,
     pub input_path: PathBuf,
     pub disposition: FfmpegJobDisposition,
+    pub queue: Option<QueueTicket>,
 }
 
 impl FfmpegJobSubmission {
@@ -182,10 +186,10 @@ pub use cli::main_cli;
 #[allow(unused_imports)]
 pub use cli::resolve_input_path;
 pub use embedding_stage::{
-    SummarySearchResult, backfill_summary_embeddings, execute_summary_embedding_job,
-    search_summaries, submit_summary_embedding_job,
+    SummarySearchResult, backfill_summary_embeddings, search_summaries,
+    submit_summary_embedding_job,
 };
-pub use ffmpeg_stage::{execute_ffmpeg_job, run_with_repo_root, submit_ffmpeg_job};
+pub use ffmpeg_stage::{run_with_repo_root, submit_ffmpeg_job};
 #[allow(unused_imports)]
 pub use models::wait_for_model_preparation;
 pub use models::{
@@ -193,8 +197,8 @@ pub use models::{
     execute_model_preparation, prepare_llama_model_with_repo_root, prepare_models_with_repo_root,
     submit_llama_umbrella_preparation, submit_model_preparation,
 };
-pub use stt_stage::{execute_stt_job, run_stt_with_repo_root, submit_stt_job};
-pub use summary_stage::{execute_summary_job, run_summary_with_repo_root, submit_summary_job};
+pub use stt_stage::{run_stt_with_repo_root, submit_stt_job};
+pub use summary_stage::{run_summary_with_repo_root, submit_summary_job};
 
 #[cfg(test)]
 pub(crate) use cli::resolve_cli_command;
@@ -245,3 +249,6 @@ pub(crate) fn path_to_string(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests;
+pub use queue::{
+    DispatchState, QueueTicket, dispatch_one, queue_snapshot, recover_interrupted_active_entry,
+};

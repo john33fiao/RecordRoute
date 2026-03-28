@@ -391,7 +391,11 @@ fn resolve_model_override_path(repo_root: &Path, configured: PathBuf) -> PathBuf
         return explicit_path;
     }
 
-    let normalized_name = normalized_model_file_name(file_name);
+    let normalized_name = if Path::new(file_name).extension().is_some() {
+        file_name.to_string()
+    } else {
+        normalized_model_file_name(file_name)
+    };
     let normalized_parent = if configured.is_absolute() {
         explicit_path.parent().map(Path::to_path_buf)
     } else if configured.components().count() > 1 {

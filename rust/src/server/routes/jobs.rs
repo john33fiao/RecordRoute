@@ -39,14 +39,7 @@ pub(crate) async fn post_jobs(
         };
 
     if submission.should_execute() {
-        let repo_root = state.repo_root.clone();
-        let job_id = submission.job.job_id.clone();
-        let input_path = submission.input_path.clone();
-        tokio::task::spawn_blocking(move || {
-            if let Err(error) = app_api::execute_ffmpeg_job(&repo_root, &job_id, &input_path) {
-                eprintln!("{error}");
-            }
-        });
+        state.queue_dispatcher.wake();
     }
 
     let status = if submission.reused() {
@@ -58,6 +51,7 @@ pub(crate) async fn post_jobs(
         &submission.job,
         submission.reused(),
         submission.deduplicated(),
+        submission.queue.clone(),
     );
 
     (status, Json(response)).into_response()
@@ -89,14 +83,7 @@ pub(crate) async fn post_jobs_upload(
     };
 
     if submission.should_execute() {
-        let repo_root = state.repo_root.clone();
-        let job_id = submission.job.job_id.clone();
-        let input_path = submission.input_path.clone();
-        tokio::task::spawn_blocking(move || {
-            if let Err(error) = app_api::execute_ffmpeg_job(&repo_root, &job_id, &input_path) {
-                eprintln!("{error}");
-            }
-        });
+        state.queue_dispatcher.wake();
     }
 
     let status = if submission.reused() {
@@ -108,6 +95,7 @@ pub(crate) async fn post_jobs_upload(
         &submission.job,
         submission.reused(),
         submission.deduplicated(),
+        submission.queue.clone(),
     );
 
     (status, Json(response)).into_response()

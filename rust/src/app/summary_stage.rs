@@ -1,6 +1,6 @@
 use super::{
     StageJobDisposition, StageJobSubmission, SummaryRunSummary, artifacts, ensure_model_prepared,
-    execute_summary_embedding_job, now_rfc3339, read_line, stages, submit_summary_embedding_job,
+    now_rfc3339, queue, read_line, stages, submit_summary_embedding_job,
 };
 use crate::index::{IndexStore, JobRecord, ModelKind, TaskStatus, TaskType};
 use crate::llama::{Toolchain as LlamaToolchain, run_summary_generation};
@@ -22,7 +22,7 @@ pub fn submit_summary_job(
     force_regenerate: bool,
 ) -> Result<StageJobSubmission, String> {
     let index_store = IndexStore::new(repo_root);
-    let mut job = index_store
+    let job = index_store
         .find_job(job_id)?
         .ok_or_else(|| format!("job not found: {job_id}"))?;
     let job_dir = PathBuf::from(&job.job_dir);
@@ -30,12 +30,20 @@ pub fn submit_summary_job(
     let summary_file = artifacts::ensure_summary_output_path(&summary_dir, &job.source_file_name)?;
 
     if let Some(task) = job.task(TaskType::Summary)
-        && task.status == TaskStatus::Running
+        && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
     {
+        let queue = if task.status == TaskStatus::Queued {
+            index_store.with_index_read(|index| {
+                Ok(queue::find_ticket(index, &job.job_id, TaskType::Summary))
+            })?
+        } else {
+            None
+        };
         return Ok(StageJobSubmission {
             job,
             disposition: StageJobDisposition::Deduplicated,
             planned_audio_files: Vec::new(),
+            queue,
         });
     }
     if !force_regenerate && summary_file.is_file() {
@@ -43,15 +51,30 @@ pub fn submit_summary_job(
             job,
             disposition: StageJobDisposition::Reused,
             planned_audio_files: Vec::new(),
+            queue: None,
         });
     }
 
-    job.upsert_running_task(TaskType::Summary, now_rfc3339()?);
-    index_store.update_job(job_id, |_| job.clone())?;
+    let queued_at = now_rfc3339()?;
+    let entry = queue::build_summary_entry(job_id, force_regenerate, queued_at.clone());
+    let (job, ticket) = index_store.with_index_mut(|index| {
+        let job_index = index
+            .jobs
+            .iter()
+            .position(|record| record.job_id == job_id)
+            .ok_or_else(|| format!("job not found in index: {job_id}"))?;
+        {
+            let job = &mut index.jobs[job_index];
+            job.enqueue_task(TaskType::Summary, queued_at.clone());
+        }
+        let ticket = queue::enqueue_entry(index, entry);
+        Ok((index.jobs[job_index].clone(), ticket))
+    })?;
     Ok(StageJobSubmission {
         job,
         disposition: StageJobDisposition::Submitted,
         planned_audio_files: Vec::new(),
+        queue: Some(ticket),
     })
 }
 
@@ -105,11 +128,7 @@ pub fn execute_summary_job(
         Ok(()) => {
             let completed =
                 stages::finalize_task_success(repo_root, job, TaskType::Summary, now_rfc3339()?)?;
-            if let Ok(submission) = submit_summary_embedding_job(repo_root, &completed.job_id)
-                && submission.should_execute()
-            {
-                let _ = execute_summary_embedding_job(repo_root, &completed.job_id);
-            }
+            let _ = submit_summary_embedding_job(repo_root, &completed.job_id);
             Ok(completed)
         }
         Err(error) => {
@@ -139,7 +158,14 @@ pub fn run_summary_with_repo_root(
     let selected = select_summary_candidate(&candidates, reader, writer)?;
     let submission = submit_summary_job(repo_root, &selected.job_id, false)?;
     if submission.should_execute() {
-        execute_summary_job(repo_root, &selected.job_id, false)?;
+        queue::dispatch_until_task_terminal(repo_root, &selected.job_id, TaskType::Summary)?;
+        if let Some(task) = IndexStore::new(repo_root)
+            .find_job(&selected.job_id)?
+            .and_then(|job| job.task(TaskType::Embedding).cloned())
+            && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
+        {
+            queue::dispatch_until_task_terminal(repo_root, &selected.job_id, TaskType::Embedding)?;
+        }
     } else if submission.deduplicated() {
         stages::wait_for_task_completion(repo_root, &selected.job_id, TaskType::Summary)?;
     }

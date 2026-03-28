@@ -1,6 +1,6 @@
 use super::{
     StageJobDisposition, StageJobSubmission, SttRunSummary, SttTranscriptOutput, artifacts,
-    ensure_model_prepared, now_rfc3339, read_line, stages,
+    ensure_model_prepared, now_rfc3339, queue, read_line, stages,
 };
 use crate::index::{IndexStore, JobRecord, JobStatus, ModelKind, TaskStatus, TaskType};
 use crate::whisper::{Toolchain as WhisperToolchain, run_transcription};
@@ -22,7 +22,7 @@ pub fn submit_stt_job(
     subset_audio_files: Option<Vec<String>>,
 ) -> Result<StageJobSubmission, String> {
     let index_store = IndexStore::new(repo_root);
-    let mut job = index_store
+    let job = index_store
         .find_job(job_id)?
         .ok_or_else(|| format!("job not found: {job_id}"))?;
     if job.status != JobStatus::Completed {
@@ -30,12 +30,20 @@ pub fn submit_stt_job(
     }
 
     if let Some(task) = job.task(TaskType::Stt)
-        && task.status == TaskStatus::Running
+        && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
     {
+        let queue = if task.status == TaskStatus::Queued {
+            index_store.with_index_read(|index| {
+                Ok(queue::find_ticket(index, &job.job_id, TaskType::Stt))
+            })?
+        } else {
+            None
+        };
         return Ok(StageJobSubmission {
             job,
             disposition: StageJobDisposition::Deduplicated,
             planned_audio_files: Vec::new(),
+            queue,
         });
     }
 
@@ -58,15 +66,30 @@ pub fn submit_stt_job(
             job,
             disposition: StageJobDisposition::Reused,
             planned_audio_files: audio_files,
+            queue: None,
         });
     }
 
-    job.upsert_running_task(TaskType::Stt, now_rfc3339()?);
-    index_store.update_job(job_id, |_| job.clone())?;
+    let queued_at = now_rfc3339()?;
+    let entry = queue::build_stt_entry(job_id, &audio_files, queued_at.clone());
+    let (job, ticket) = index_store.with_index_mut(|index| {
+        let job_index = index
+            .jobs
+            .iter()
+            .position(|record| record.job_id == job_id)
+            .ok_or_else(|| format!("job not found in index: {job_id}"))?;
+        {
+            let job = &mut index.jobs[job_index];
+            job.enqueue_task(TaskType::Stt, queued_at.clone());
+        }
+        let ticket = queue::enqueue_entry(index, entry);
+        Ok((index.jobs[job_index].clone(), ticket))
+    })?;
     Ok(StageJobSubmission {
         job,
         disposition: StageJobDisposition::Submitted,
         planned_audio_files: audio_files,
+        queue: Some(ticket),
     })
 }
 
@@ -135,7 +158,7 @@ pub fn run_stt_with_repo_root(
     let selected = select_stt_candidate(&candidates, reader, writer)?;
     let submission = submit_stt_job(repo_root, &selected.job_id, None)?;
     if submission.should_execute() {
-        execute_stt_job(repo_root, &selected.job_id, &submission.planned_audio_files)?;
+        queue::dispatch_until_task_terminal(repo_root, &selected.job_id, TaskType::Stt)?;
     } else if submission.deduplicated() {
         stages::wait_for_task_completion(repo_root, &selected.job_id, TaskType::Stt)?;
     }

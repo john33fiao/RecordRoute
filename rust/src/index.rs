@@ -7,8 +7,10 @@ mod types;
 
 pub use store::IndexStore;
 pub use types::{
-    JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus, ModelKind, ModelPreparationRecord,
-    ModelPreparationStatus, SummaryEmbeddingRecord, TaskRecord, TaskStatus, TaskType,
+    ActiveQueueBatch, IndexFile, JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus,
+    ModelKind, ModelPreparationRecord, ModelPreparationStatus, QueueBatch, QueueCategory,
+    QueueEntry, QueuePayload, SummaryEmbeddingRecord, TaskQueueState, TaskRecord, TaskStatus,
+    TaskType,
 };
 
 #[cfg(test)]
@@ -42,12 +44,45 @@ mod tests {
 
         let index = store.read_index().expect("read legacy index");
 
-        assert_eq!(index.version, 1);
+        assert_eq!(index.version, 4);
         assert_eq!(
             index.model_preparations,
             types::ModelPreparations::default()
         );
+        assert_eq!(index.task_queue, TaskQueueState::default());
         assert!(index.jobs.is_empty());
+    }
+
+    #[test]
+    fn migrates_version_3_index_to_v4_on_read_and_write() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        store.ensure_db_dir().expect("db dir");
+        fs::write(
+            repo_root.join("db/index.json"),
+            r#"{"version":3,"jobs":[]}"#,
+        )
+        .expect("legacy v3 index");
+
+        let index = store.read_index().expect("read migrated index");
+        assert_eq!(index.version, 4);
+        assert_eq!(index.task_queue, TaskQueueState::default());
+
+        store
+            .insert_job(JobRecord::new(
+                "job-1".to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+                PathBuf::from("/tmp/input.wav"),
+                store.job_dir("job-1"),
+            ))
+            .expect("insert migrated job");
+
+        let persisted: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(repo_root.join("db/index.json")).expect("persisted index"),
+        )
+        .expect("persisted json");
+        assert_eq!(persisted["version"].as_u64(), Some(4));
+        assert_eq!(persisted["task_queue"]["burst_limit"].as_u64(), Some(3));
     }
 
     #[test]

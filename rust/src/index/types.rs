@@ -7,6 +7,8 @@ pub struct IndexFile {
     pub version: u32,
     #[serde(default)]
     pub model_preparations: ModelPreparations,
+    #[serde(default)]
+    pub task_queue: TaskQueueState,
     pub jobs: Vec<JobRecord>,
 }
 
@@ -29,15 +31,16 @@ pub struct JobRecord {
     pub tasks: Vec<TaskRecord>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum JobStatus {
+    Queued,
     Running,
     Completed,
     Failed,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskType {
     Ffmpeg,
@@ -59,7 +62,71 @@ impl TaskType {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum QueueCategory {
+    Ffmpeg,
+    Stt,
+    Llm,
+    Embed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActiveQueueBatch {
+    pub category: QueueCategory,
+    #[serde(default)]
+    pub running: Option<QueueEntry>,
+    #[serde(default)]
+    pub entries: Vec<QueueEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QueueBatch {
+    pub category: QueueCategory,
+    #[serde(default)]
+    pub entries: Vec<QueueEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QueueEntry {
+    pub job_id: String,
+    pub task_type: TaskType,
+    pub category: QueueCategory,
+    pub queued_at: String,
+    pub payload: QueuePayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum QueuePayload {
+    Ffmpeg { input_path: String },
+    Stt { audio_files: Vec<String> },
+    Summary { force_regenerate: bool },
+    Embedding,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TaskQueueState {
+    #[serde(default)]
+    pub active_batch: Option<ActiveQueueBatch>,
+    #[serde(default)]
+    pub pending_batches: Vec<QueueBatch>,
+    #[serde(default = "default_queue_burst_limit")]
+    pub burst_limit: u32,
+}
+
+impl Default for TaskQueueState {
+    fn default() -> Self {
+        Self {
+            active_batch: None,
+            pending_batches: Vec::new(),
+            burst_limit: default_queue_burst_limit(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
+    Queued,
     Running,
     Completed,
     Failed,
@@ -141,7 +208,10 @@ pub struct TaskRecord {
     pub task_id: String,
     pub task_type: TaskType,
     pub status: TaskStatus,
-    pub started_at: String,
+    #[serde(default)]
+    pub queued_at: Option<String>,
+    #[serde(default)]
+    pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub last_error: Option<String>,
     pub retry_count: u32,
@@ -175,8 +245,9 @@ pub struct JobSplitOutput {
 impl IndexFile {
     pub(crate) fn empty() -> Self {
         Self {
-            version: 3,
+            version: 4,
             model_preparations: ModelPreparations::default(),
+            task_queue: TaskQueueState::default(),
             jobs: Vec::new(),
         }
     }
@@ -191,7 +262,7 @@ impl JobRecord {
 
         Self {
             job_id,
-            status: JobStatus::Running,
+            status: JobStatus::Queued,
             started_at: started_at.clone(),
             finished_at: None,
             source_path: source_path.to_string_lossy().into_owned(),
@@ -202,12 +273,15 @@ impl JobRecord {
             outputs: JobOutputs::default(),
             error_message: None,
             summary_embedding: None,
-            tasks: vec![TaskRecord::new(
-                TaskType::Ffmpeg,
-                TaskStatus::Running,
-                started_at,
-            )],
+            tasks: vec![TaskRecord::new_queued(TaskType::Ffmpeg, started_at)],
         }
+    }
+
+    pub fn mark_ffmpeg_running(&mut self, started_at: String) -> Result<(), String> {
+        self.status = JobStatus::Running;
+        self.finished_at = None;
+        self.error_message = None;
+        self.update_existing_task(TaskType::Ffmpeg, |task| task.mark_running(started_at))
     }
 
     pub fn mark_completed(
@@ -219,12 +293,7 @@ impl JobRecord {
         self.finished_at = Some(finished_at.clone());
         self.outputs = outputs;
         self.error_message = None;
-        self.update_existing_task(
-            TaskType::Ffmpeg,
-            TaskStatus::Completed,
-            Some(finished_at),
-            None,
-        )
+        self.update_existing_task(TaskType::Ffmpeg, |task| task.mark_completed(finished_at))
     }
 
     pub fn mark_failed(
@@ -235,14 +304,31 @@ impl JobRecord {
         self.status = JobStatus::Failed;
         self.finished_at = Some(finished_at.clone());
         self.error_message = Some(error_message.clone());
-        self.update_existing_task(
-            TaskType::Ffmpeg,
-            TaskStatus::Failed,
-            Some(finished_at),
-            Some(error_message),
-        )
+        self.update_existing_task(TaskType::Ffmpeg, |task| {
+            task.mark_failed(finished_at, error_message)
+        })
     }
 
+    pub fn mark_ffmpeg_queued(&mut self, queued_at: String) {
+        self.status = JobStatus::Queued;
+        self.finished_at = None;
+        self.error_message = None;
+        self.enqueue_task(TaskType::Ffmpeg, queued_at);
+    }
+
+    pub fn enqueue_task(&mut self, task_type: TaskType, queued_at: String) {
+        let retry_count = self
+            .task(task_type)
+            .map(|task| task.retry_count.saturating_add(1))
+            .unwrap_or(0);
+        self.set_task(TaskRecord::new_queued_with_retry(
+            task_type,
+            queued_at,
+            retry_count,
+        ));
+    }
+
+    #[cfg(test)]
     pub fn upsert_running_task(&mut self, task_type: TaskType, started_at: String) {
         let retry_count = self
             .task(task_type)
@@ -252,11 +338,16 @@ impl JobRecord {
             task_id: build_task_id(),
             task_type,
             status: TaskStatus::Running,
-            started_at,
+            queued_at: None,
+            started_at: Some(started_at),
             finished_at: None,
             last_error: None,
             retry_count,
         });
+    }
+
+    pub fn start_task(&mut self, task_type: TaskType, started_at: String) -> Result<(), String> {
+        self.update_existing_task(task_type, |task| task.mark_running(started_at))
     }
 
     pub fn complete_task(
@@ -264,7 +355,7 @@ impl JobRecord {
         task_type: TaskType,
         finished_at: String,
     ) -> Result<(), String> {
-        self.update_existing_task(task_type, TaskStatus::Completed, Some(finished_at), None)
+        self.update_existing_task(task_type, |task| task.mark_completed(finished_at))
     }
 
     pub fn fail_task(
@@ -273,12 +364,7 @@ impl JobRecord {
         finished_at: String,
         error: String,
     ) -> Result<(), String> {
-        self.update_existing_task(
-            task_type,
-            TaskStatus::Failed,
-            Some(finished_at),
-            Some(error),
-        )
+        self.update_existing_task(task_type, |task| task.mark_failed(finished_at, error))
     }
 
     pub fn task(&self, task_type: TaskType) -> Option<&TaskRecord> {
@@ -300,9 +386,7 @@ impl JobRecord {
     fn update_existing_task(
         &mut self,
         task_type: TaskType,
-        status: TaskStatus,
-        finished_at: Option<String>,
-        last_error: Option<String>,
+        update: impl FnOnce(&mut TaskRecord),
     ) -> Result<(), String> {
         let Some(task) = self
             .tasks
@@ -316,24 +400,52 @@ impl JobRecord {
             ));
         };
 
-        task.status = status;
-        task.finished_at = finished_at;
-        task.last_error = last_error;
+        update(task);
         Ok(())
     }
 }
 
 impl TaskRecord {
-    pub fn new(task_type: TaskType, status: TaskStatus, started_at: String) -> Self {
+    pub fn new_queued(task_type: TaskType, queued_at: String) -> Self {
+        Self::new_queued_with_retry(task_type, queued_at, 0)
+    }
+
+    pub fn new_queued_with_retry(task_type: TaskType, queued_at: String, retry_count: u32) -> Self {
         Self {
             task_id: build_task_id(),
             task_type,
-            status,
-            started_at,
+            status: TaskStatus::Queued,
+            queued_at: Some(queued_at),
+            started_at: None,
             finished_at: None,
             last_error: None,
-            retry_count: 0,
+            retry_count,
         }
+    }
+
+    pub fn mark_running(&mut self, started_at: String) {
+        self.status = TaskStatus::Running;
+        self.started_at = Some(started_at);
+        self.finished_at = None;
+        self.last_error = None;
+    }
+
+    pub fn mark_completed(&mut self, finished_at: String) {
+        self.status = TaskStatus::Completed;
+        if self.started_at.is_none() {
+            self.started_at = Some(finished_at.clone());
+        }
+        self.finished_at = Some(finished_at);
+        self.last_error = None;
+    }
+
+    pub fn mark_failed(&mut self, finished_at: String, error: String) {
+        self.status = TaskStatus::Failed;
+        if self.started_at.is_none() {
+            self.started_at = Some(finished_at.clone());
+        }
+        self.finished_at = Some(finished_at);
+        self.last_error = Some(error);
     }
 }
 
@@ -414,6 +526,10 @@ impl JobOutputs {
 
 fn build_task_id() -> String {
     Uuid::now_v7().to_string()
+}
+
+fn default_queue_burst_limit() -> u32 {
+    3
 }
 
 fn default_task_id() -> String {

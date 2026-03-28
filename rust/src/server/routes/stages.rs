@@ -3,6 +3,7 @@ use super::types::{
     AppState, FileListResponse, SttProgressResponse, SttRequest, SttTranscriptListResponse,
     SummaryEmbeddingResponse, SummaryRequest, SummarySearchRequest, SummarySearchResponse,
     SummarySearchResultResponse, SummaryTextResponse, TaskSubmissionResponse,
+    build_queue_info_response,
 };
 use super::{error_response, run_blocking, run_blocking_app};
 use crate::index::{IndexStore, TaskType};
@@ -43,16 +44,7 @@ pub(crate) async fn post_stt(
         };
 
     if submission.should_execute() {
-        let repo_root = state.repo_root.clone();
-        let execute_job_id = job_id.clone();
-        let planned_audio_files = submission.planned_audio_files.clone();
-        tokio::task::spawn_blocking(move || {
-            if let Err(error) =
-                app_api::execute_stt_job(&repo_root, &execute_job_id, &planned_audio_files)
-            {
-                eprintln!("{error}");
-            }
-        });
+        state.queue_dispatcher.wake();
     }
 
     let task = submission.job.task(TaskType::Stt).cloned();
@@ -69,6 +61,7 @@ pub(crate) async fn post_stt(
         },
         reused: submission.reused(),
         deduplicated: submission.deduplicated(),
+        queue: submission.queue.clone().map(build_queue_info_response),
         task: task.map(super::errors::sanitize_task),
     };
     (StatusCode::ACCEPTED, Json(body)).into_response()
@@ -111,6 +104,7 @@ pub(crate) async fn get_stt(
         message: "stt task status".to_string(),
         reused: false,
         deduplicated: false,
+        queue: None,
         task: job
             .task(TaskType::Stt)
             .cloned()
@@ -198,15 +192,7 @@ pub(crate) async fn post_summary(
     };
 
     if submission.should_execute() {
-        let repo_root = state.repo_root.clone();
-        let execute_job_id = job_id.clone();
-        tokio::task::spawn_blocking(move || {
-            if let Err(error) =
-                app_api::execute_summary_job(&repo_root, &execute_job_id, force_regenerate)
-            {
-                eprintln!("{error}");
-            }
-        });
+        state.queue_dispatcher.wake();
     }
 
     let body = TaskSubmissionResponse {
@@ -222,6 +208,7 @@ pub(crate) async fn post_summary(
         },
         reused: submission.reused(),
         deduplicated: submission.deduplicated(),
+        queue: submission.queue.clone().map(build_queue_info_response),
         task: submission
             .job
             .task(TaskType::Summary)
@@ -255,6 +242,7 @@ pub(crate) async fn get_summary(
         message: "summary task status".to_string(),
         reused: false,
         deduplicated: false,
+        queue: None,
         task: job
             .task(TaskType::Summary)
             .cloned()
@@ -301,14 +289,7 @@ pub(crate) async fn post_summary_embedding(
     };
 
     if submission.should_execute() {
-        let repo_root = state.repo_root.clone();
-        let execute_job_id = job_id.clone();
-        tokio::task::spawn_blocking(move || {
-            if let Err(error) = app_api::execute_summary_embedding_job(&repo_root, &execute_job_id)
-            {
-                eprintln!("{error}");
-            }
-        });
+        state.queue_dispatcher.wake();
     }
 
     let body = SummaryEmbeddingResponse {
@@ -323,6 +304,7 @@ pub(crate) async fn post_summary_embedding(
         },
         reused: submission.reused(),
         deduplicated: submission.deduplicated(),
+        queue: submission.queue.clone().map(build_queue_info_response),
         task: submission
             .job
             .task(TaskType::Embedding)
@@ -355,6 +337,7 @@ pub(crate) async fn get_summary_embedding(
         message: "summary embedding task status".to_string(),
         reused: false,
         deduplicated: false,
+        queue: None,
         task: job
             .task(TaskType::Embedding)
             .cloned()

@@ -1,6 +1,7 @@
 use super::lock::LockGuard;
 use super::types::{
     IndexFile, JobRecord, JobStatus, ModelKind, ModelPreparationRecord, ModelPreparations,
+    TaskQueueState,
 };
 use std::fs::{self, File};
 use std::io::Write;
@@ -38,8 +39,9 @@ impl IndexStore {
         self.db_dir.join(job_id)
     }
 
+    #[cfg(test)]
     pub fn insert_job(&self, record: JobRecord) -> Result<(), String> {
-        self.with_locked_index(|index| {
+        self.with_index_mut(|index| {
             index.jobs.push(record);
             Ok(())
         })
@@ -50,7 +52,7 @@ impl IndexStore {
         job_id: &str,
         update: impl FnOnce(&mut JobRecord) -> JobRecord,
     ) -> Result<(), String> {
-        self.with_locked_index(|index| {
+        self.with_index_mut(|index| {
             let job = index
                 .jobs
                 .iter_mut()
@@ -67,7 +69,7 @@ impl IndexStore {
         source_path: &Path,
     ) -> Result<Option<JobRecord>, String> {
         let source_path = source_path.to_string_lossy().into_owned();
-        self.with_locked_index_read(|index| {
+        self.with_index_read(|index| {
             Ok(index
                 .jobs
                 .iter()
@@ -81,33 +83,44 @@ impl IndexStore {
         })
     }
 
-    pub fn find_running_job_by_source(
+    pub fn find_inflight_job_by_source(
         &self,
         source_path: &Path,
     ) -> Result<Option<JobRecord>, String> {
         let source_path = source_path.to_string_lossy().into_owned();
-        self.with_locked_index_read(|index| {
+        self.with_index_read(|index| {
             Ok(index
                 .jobs
                 .iter()
                 .rev()
-                .find(|job| job.status == JobStatus::Running && job.source_path == source_path)
+                .find(|job| {
+                    matches!(job.status, JobStatus::Queued | JobStatus::Running)
+                        && job.source_path == source_path
+                })
                 .cloned())
         })
     }
 
+    #[cfg(test)]
+    pub fn find_running_job_by_source(
+        &self,
+        source_path: &Path,
+    ) -> Result<Option<JobRecord>, String> {
+        self.find_inflight_job_by_source(source_path)
+    }
+
     pub fn find_job(&self, job_id: &str) -> Result<Option<JobRecord>, String> {
-        self.with_locked_index_read(|index| {
+        self.with_index_read(|index| {
             Ok(index.jobs.iter().find(|job| job.job_id == job_id).cloned())
         })
     }
 
     pub fn list_jobs(&self) -> Result<Vec<JobRecord>, String> {
-        self.with_locked_index_read(|index| Ok(index.jobs.iter().rev().cloned().collect()))
+        self.with_index_read(|index| Ok(index.jobs.iter().rev().cloned().collect()))
     }
 
     pub fn list_completed_jobs(&self) -> Result<Vec<JobRecord>, String> {
-        self.with_locked_index_read(|index| {
+        self.with_index_read(|index| {
             Ok(index
                 .jobs
                 .iter()
@@ -119,7 +132,7 @@ impl IndexStore {
     }
 
     pub fn list_jobs_by_source_path(&self, source_path: &str) -> Result<Vec<JobRecord>, String> {
-        self.with_locked_index_read(|index| {
+        self.with_index_read(|index| {
             Ok(index
                 .jobs
                 .iter()
@@ -131,12 +144,16 @@ impl IndexStore {
     }
 
     pub fn model_preparations(&self) -> Result<ModelPreparations, String> {
-        self.with_locked_index_read(|index| Ok(index.model_preparations.clone()))
+        self.with_index_read(|index| Ok(index.model_preparations.clone()))
     }
 
     #[cfg(test)]
     pub fn model_preparation(&self, model: ModelKind) -> Result<ModelPreparationRecord, String> {
-        self.with_locked_index_read(|index| Ok(index.model_preparations.record(model).clone()))
+        self.with_index_read(|index| Ok(index.model_preparations.record(model).clone()))
+    }
+
+    pub fn task_queue(&self) -> Result<TaskQueueState, String> {
+        self.with_index_read(|index| Ok(index.task_queue.clone()))
     }
 
     pub fn update_model_preparation(
@@ -145,7 +162,7 @@ impl IndexStore {
         update: impl FnOnce(&mut ModelPreparationRecord),
     ) -> Result<ModelPreparationRecord, String> {
         let mut updated = None;
-        self.with_locked_index(|index| {
+        self.with_index_mut(|index| {
             let record = index.model_preparations.record_mut(model);
             update(record);
             updated = Some(record.clone());
@@ -159,7 +176,7 @@ impl IndexStore {
         update: impl FnOnce(&mut ModelPreparationRecord),
     ) -> Result<ModelPreparationRecord, String> {
         let mut updated = None;
-        self.with_locked_index(|index| {
+        self.with_index_mut(|index| {
             let record = index.model_preparations.llama_embedding_mut();
             update(record);
             updated = Some(record.clone());
@@ -168,18 +185,19 @@ impl IndexStore {
         updated.ok_or_else(|| "failed to update llama embedding preparation".to_string())
     }
 
-    fn with_locked_index(
+    pub fn with_index_mut<T>(
         &self,
-        mutate: impl FnOnce(&mut IndexFile) -> Result<(), String>,
-    ) -> Result<(), String> {
+        mutate: impl FnOnce(&mut IndexFile) -> Result<T, String>,
+    ) -> Result<T, String> {
         self.ensure_db_dir()?;
         let _guard = LockGuard::acquire(&self.lock_path)?;
         let mut index = self.read_index()?;
-        mutate(&mut index)?;
-        self.write_index(&index)
+        let output = mutate(&mut index)?;
+        self.write_index(&index)?;
+        Ok(output)
     }
 
-    fn with_locked_index_read<T>(
+    pub fn with_index_read<T>(
         &self,
         read: impl FnOnce(&IndexFile) -> Result<T, String>,
     ) -> Result<T, String> {
@@ -200,8 +218,10 @@ impl IndexStore {
         let content = fs::read_to_string(&self.index_path)
             .map_err(|error| format!("failed to read {}: {error}", self.index_path.display()))?;
 
-        serde_json::from_str(&content)
-            .map_err(|error| format!("failed to parse {}: {error}", self.index_path.display()))
+        let mut index: IndexFile = serde_json::from_str(&content)
+            .map_err(|error| format!("failed to parse {}: {error}", self.index_path.display()))?;
+        migrate_index(&mut index);
+        Ok(index)
     }
 
     fn write_index(&self, index: &IndexFile) -> Result<(), String> {
@@ -216,6 +236,15 @@ impl IndexStore {
             .map_err(|error| format!("failed to sync {}: {error}", temp_path.display()))?;
         drop(file);
         replace_index_file(&temp_path, &self.index_path)
+    }
+}
+
+fn migrate_index(index: &mut IndexFile) {
+    if index.version < 4 {
+        index.version = 4;
+    }
+    if index.task_queue.burst_limit == 0 {
+        index.task_queue = TaskQueueState::default();
     }
 }
 

@@ -76,6 +76,7 @@ pub(crate) fn read_stt_progress_snapshot(
         artifacts::count_supported_audio_files(&job_dir).map_err(AppError::internal)?;
     let completed_files = count_stt_transcript_files(&job_dir.join("stt"))?;
     let phase = match task.as_ref().map(|record| record.status) {
+        Some(TaskStatus::Queued) => "queued",
         Some(TaskStatus::Running) => "running",
         Some(TaskStatus::Completed) => "completed",
         Some(TaskStatus::Failed) => "failed",

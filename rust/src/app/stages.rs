@@ -44,7 +44,7 @@ pub(crate) fn wait_for_task_completion(
             .ok_or_else(|| format!("task not found for job {job_id}: {}", task_type.as_str()))?;
 
         match task.status {
-            TaskStatus::Running => thread::sleep(TASK_POLL_INTERVAL),
+            TaskStatus::Queued | TaskStatus::Running => thread::sleep(TASK_POLL_INTERVAL),
             TaskStatus::Completed => return Ok(job),
             TaskStatus::Failed => {
                 return Err(task.last_error.unwrap_or_else(|| {

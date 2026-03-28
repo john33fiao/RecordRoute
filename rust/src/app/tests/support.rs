@@ -1,7 +1,5 @@
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::{Duration, Instant};
 use uuid::Uuid;
 pub(super) fn temp_workspace() -> PathBuf {
     let path = std::env::temp_dir().join(format!("recordroute-{}", Uuid::now_v7()));
@@ -134,6 +132,17 @@ pub(super) fn write_fake_llama_cli(
     };
     write_platform_script(path, &unix_script, &windows_script);
 }
+
+pub(super) fn write_fake_llama_embedding(path: &Path, log_path: &Path) {
+    let log = log_path.display();
+    let unix_script = format!(
+        "#!/bin/sh\n: > '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\ndone\nprintf '[[0.25,0.75]]'\n"
+    );
+    let windows_script = format!(
+        "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\n> \"{log}\" type nul\n:loop\nif \"%~1\"==\"\" goto after\nset \"arg=%~1\"\nif \"!arg:~0,4!\"==\"\\\\?\\\" set \"arg=!arg:~4!\"\n>> \"{log}\" echo(!arg!\nshift\ngoto loop\n:after\n<nul set /p =[[0.25,0.75]]\nexit /b 0\n"
+    );
+    write_platform_script(path, &unix_script, &windows_script);
+}
 pub(super) fn write_fake_download_script(path: &Path, log_path: &Path) {
     let log = log_path.display();
     let unix_script = format!(
@@ -143,30 +152,6 @@ pub(super) fn write_fake_download_script(path: &Path, log_path: &Path) {
         "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nset \"model=%~1\"\nset \"out_dir=%~2\"\nif \"!out_dir:~0,4!\"==\"\\\\?\\\" set \"out_dir=!out_dir:~4!\"\n> \"{log}\" echo(!model! !out_dir!\nif not exist \"!out_dir!\" mkdir \"!out_dir!\"\n> \"!out_dir!\\ggml-!model!.bin\" type nul\nexit /b 0\n"
     );
     write_platform_script(path, &unix_script, &windows_script);
-}
-
-pub(super) fn write_blocking_download_script(path: &Path, count_path: &Path, gate_path: &Path) {
-    let count = count_path.display();
-    let gate = gate_path.display();
-    let unix_script = format!(
-        "#!/bin/sh\ncount=0\nif [ -f '{count}' ]; then\n  count=$(cat '{count}')\nfi\ncount=$((count + 1))\nprintf '%s' \"$count\" > '{count}'\nmkdir -p \"$2\"\nwhile [ -f '{gate}' ]; do\n  sleep 0.05\ndone\n: > \"$2/ggml-$1.bin\"\n"
-    );
-    let windows_script = format!(
-        "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nset /a count=0\nif exist \"{count}\" set /p count=<\"{count}\"\nset /a count+=1\n> \"{count}\" <nul set /p =!count!\nset \"out_dir=%~2\"\nif \"!out_dir:~0,4!\"==\"\\\\?\\\" set \"out_dir=!out_dir:~4!\"\n:wait\nif exist \"{gate}\" (\n  powershell -NoProfile -Command \"Start-Sleep -Milliseconds 50\" >nul 2>&1\n  goto wait\n)\nif not exist \"!out_dir!\" mkdir \"!out_dir!\"\n> \"!out_dir!\\ggml-%~1.bin\" type nul\nexit /b 0\n"
-    );
-    write_platform_script(path, &unix_script, &windows_script);
-}
-
-pub(super) fn wait_for_path(path: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !path.exists() {
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for {}",
-            path.display()
-        );
-        thread::sleep(Duration::from_millis(25));
-    }
 }
 
 pub(super) fn write_test_wav(path: &Path, channels: u16) {

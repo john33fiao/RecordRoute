@@ -1,6 +1,6 @@
 use super::{
     FfmpegJobDisposition, FfmpegJobSubmission, RunSummary, WAIT_FOR_RUNNING_JOB_POLL_INTERVAL,
-    build_run_id, now_rfc3339, path_to_string,
+    build_run_id, now_rfc3339, path_to_string, queue,
 };
 use crate::ffmpeg::{
     ConversionOutputs, SplitMonoOutput, Toolchain as FfmpegToolchain, probe_audio_input,
@@ -17,8 +17,14 @@ pub fn run_with_repo_root(repo_root: &Path, input: &Path) -> Result<RunSummary, 
     match submission.disposition {
         FfmpegJobDisposition::Reused => run_summary_from_completed_job(submission.job),
         FfmpegJobDisposition::Submitted => {
-            let job =
-                execute_ffmpeg_job(repo_root, &submission.job.job_id, &submission.input_path)?;
+            queue::dispatch_until_task_terminal(
+                repo_root,
+                &submission.job.job_id,
+                crate::index::TaskType::Ffmpeg,
+            )?;
+            let job = IndexStore::new(repo_root)
+                .find_job(&submission.job.job_id)?
+                .ok_or_else(|| format!("job not found in index: {}", submission.job.job_id))?;
             run_summary_from_completed_job(job)
         }
         FfmpegJobDisposition::Deduplicated => {
@@ -37,14 +43,27 @@ pub fn submit_ffmpeg_job(repo_root: &Path, input: &Path) -> Result<FfmpegJobSubm
             job,
             input_path,
             disposition: FfmpegJobDisposition::Reused,
+            queue: None,
         });
     }
 
-    if let Some(job) = index_store.find_running_job_by_source(&input_path)? {
+    if let Some(job) = index_store.find_inflight_job_by_source(&input_path)? {
+        let queue = if job.status == JobStatus::Queued {
+            index_store.with_index_read(|index| {
+                Ok(queue::find_ticket(
+                    index,
+                    &job.job_id,
+                    crate::index::TaskType::Ffmpeg,
+                ))
+            })?
+        } else {
+            None
+        };
         return Ok(FfmpegJobSubmission {
             job,
             input_path,
             disposition: FfmpegJobDisposition::Deduplicated,
+            queue,
         });
     }
 
@@ -61,13 +80,19 @@ pub fn submit_ffmpeg_job(repo_root: &Path, input: &Path) -> Result<FfmpegJobSubm
         )
     })?;
 
-    let job = JobRecord::new(job_id, started_at, input_path.clone(), job_dir);
-    index_store.insert_job(job.clone())?;
+    let job = JobRecord::new(job_id, started_at.clone(), input_path.clone(), job_dir);
+    let entry = queue::build_ffmpeg_entry(&job.job_id, &input_path, started_at);
+    let (job, ticket) = index_store.with_index_mut(|index| {
+        index.jobs.push(job.clone());
+        let ticket = queue::enqueue_entry(index, entry);
+        Ok((job.clone(), ticket))
+    })?;
 
     Ok(FfmpegJobSubmission {
         job,
         input_path,
         disposition: FfmpegJobDisposition::Submitted,
+        queue: Some(ticket),
     })
 }
 
@@ -138,7 +163,9 @@ fn wait_for_ffmpeg_job_completion(repo_root: &Path, job_id: &str) -> Result<JobR
             .ok_or_else(|| format!("job not found in index: {job_id}"))?;
 
         match job.status {
-            JobStatus::Running => thread::sleep(WAIT_FOR_RUNNING_JOB_POLL_INTERVAL),
+            JobStatus::Queued | JobStatus::Running => {
+                thread::sleep(WAIT_FOR_RUNNING_JOB_POLL_INTERVAL)
+            }
             JobStatus::Completed => return Ok(job),
             JobStatus::Failed => {
                 return Err(job

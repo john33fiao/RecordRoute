@@ -3,19 +3,11 @@ use crate::app::{
     SummarySearchResult,
 };
 use crate::error::{AppError, AppResult};
-use crate::index::{JobRecord, ModelKind, ModelPreparationRecord};
-use std::path::{Path, PathBuf};
+use crate::index::{ModelKind, ModelPreparationRecord};
+use std::path::Path;
 
 pub(crate) fn submit_ffmpeg_job(repo_root: &Path, input: &Path) -> AppResult<FfmpegJobSubmission> {
     app::submit_ffmpeg_job(repo_root, input).map_err(classify_create_job_error)
-}
-
-pub(crate) fn execute_ffmpeg_job(
-    repo_root: &Path,
-    job_id: &str,
-    input_path: &Path,
-) -> AppResult<JobRecord> {
-    app::execute_ffmpeg_job(repo_root, job_id, input_path).map_err(classify_ffmpeg_runtime_error)
 }
 
 pub(crate) fn submit_stt_job(
@@ -27,14 +19,6 @@ pub(crate) fn submit_stt_job(
         .map_err(classify_stage_submission_error)
 }
 
-pub(crate) fn execute_stt_job(
-    repo_root: &Path,
-    job_id: &str,
-    audio_files: &[PathBuf],
-) -> AppResult<JobRecord> {
-    app::execute_stt_job(repo_root, job_id, audio_files).map_err(classify_stage_runtime_error)
-}
-
 pub(crate) fn submit_summary_job(
     repo_root: &Path,
     job_id: &str,
@@ -44,27 +28,11 @@ pub(crate) fn submit_summary_job(
         .map_err(classify_stage_submission_error)
 }
 
-pub(crate) fn execute_summary_job(
-    repo_root: &Path,
-    job_id: &str,
-    force_regenerate: bool,
-) -> AppResult<JobRecord> {
-    app::execute_summary_job(repo_root, job_id, force_regenerate)
-        .map_err(classify_stage_runtime_error)
-}
-
 pub(crate) fn submit_summary_embedding_job(
     repo_root: &Path,
     job_id: &str,
 ) -> AppResult<StageJobSubmission> {
     app::submit_summary_embedding_job(repo_root, job_id).map_err(classify_stage_submission_error)
-}
-
-pub(crate) fn execute_summary_embedding_job(
-    repo_root: &Path,
-    job_id: &str,
-) -> AppResult<JobRecord> {
-    app::execute_summary_embedding_job(repo_root, job_id).map_err(classify_stage_runtime_error)
 }
 
 pub(crate) fn search_summaries(
@@ -127,31 +95,11 @@ fn classify_create_job_error(error: String) -> AppError {
     }
 }
 
-fn classify_ffmpeg_runtime_error(error: String) -> AppError {
-    if error.starts_with("job not found in index:") {
-        AppError::not_found(error)
-    } else if super::errors::is_setup_related_error(&error) {
-        AppError::dependency_unavailable(error)
-    } else {
-        AppError::internal(error)
-    }
-}
-
 fn classify_stage_submission_error(error: String) -> AppError {
     if error.starts_with("job not found:") {
         AppError::not_found(error)
     } else {
         AppError::bad_request(error)
-    }
-}
-
-fn classify_stage_runtime_error(error: String) -> AppError {
-    if error.starts_with("job not found:") || error.starts_with("job not found in index:") {
-        AppError::not_found(error)
-    } else if super::errors::is_setup_related_error(&error) {
-        AppError::dependency_unavailable(error)
-    } else {
-        AppError::internal(error)
     }
 }
 

@@ -91,25 +91,6 @@ pub(super) fn write_failing_llama_cli(path: &Path) {
     write_platform_script(path, unix_script, windows_script);
 }
 
-pub(super) fn whisper_download_script_path(repo_root: &Path) -> PathBuf {
-    if cfg!(windows) {
-        repo_root.join("modules/whisper.cpp/models/download-ggml-model.cmd")
-    } else {
-        repo_root.join("modules/whisper.cpp/models/download-ggml-model.sh")
-    }
-}
-
-pub(super) fn write_fake_download_script(path: &Path, log_path: &Path) {
-    let log = log_path.display();
-    let unix_script = format!(
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{log}'\nmkdir -p \"$2\"\n: > \"$2/ggml-$1.bin\"\n"
-    );
-    let windows_script = format!(
-        "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nset \"model=%~1\"\nset \"out_dir=%~2\"\nif \"!out_dir:~0,4!\"==\"\\\\?\\\" set \"out_dir=!out_dir:~4!\"\n> \"{log}\" echo(!model! !out_dir!\nif not exist \"!out_dir!\" mkdir \"!out_dir!\"\n> \"!out_dir!\\ggml-!model!.bin\" type nul\nexit /b 0\n"
-    );
-    write_platform_script(path, &unix_script, &windows_script);
-}
-
 pub(super) fn write_test_wav(path: &Path, channels: u16) {
     let mut file = File::create(path).expect("fixture wav");
     let sample_rate: u32 = 16_000;
@@ -295,7 +276,7 @@ pub(super) async fn wait_for_job_terminal_state(app: &Router, job_id: &str) -> J
             .expect("job status response");
         let job: JobRecord = read_json(response).await;
 
-        if job.status != JobStatus::Running {
+        if !matches!(job.status, JobStatus::Queued | JobStatus::Running) {
             return job;
         }
 

@@ -1,11 +1,15 @@
 use super::super::*;
 use super::support::*;
 use crate::index::{IndexStore, JobOutputs, JobRecord};
+use crate::test_support::env_lock;
 use std::fs;
 use std::io::Cursor;
 use std::path::PathBuf;
 #[test]
 fn run_stt_processes_audio_files_in_selected_job_dir() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let repo_root = temp_workspace();
     let selected_job_dir = repo_root.join("db/job-1");
     let ignored_job_dir = repo_root.join("db/job-2");
@@ -14,11 +18,11 @@ fn run_stt_processes_audio_files_in_selected_job_dir() {
         .join(crate::ffmpeg::target_dir_name())
         .join("bin");
     let whisper_log = repo_root.join("whisper-args.log");
-    let download_log = repo_root.join("download.log");
+    let source_dir = repo_root.join("whisper-source");
     fs::create_dir_all(&selected_job_dir).expect("selected job dir");
     fs::create_dir_all(&ignored_job_dir).expect("ignored job dir");
     fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
-    fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
+    fs::create_dir_all(&source_dir).expect("source dir");
     fs::create_dir_all(&whisper_bin).expect("whisper bin");
 
     write_test_wav(&selected_job_dir.join("channel_01.wav"), 1);
@@ -32,7 +36,8 @@ fn run_stt_processes_audio_files_in_selected_job_dir() {
         &whisper_log,
         false,
     );
-    write_fake_download_script(&whisper_download_script_path(&repo_root), &download_log);
+    fs::write(source_dir.join("ggml-base.bin"), "model").expect("source model");
+    unsafe { std::env::set_var("RECORDROUTE_WHISPER_MODEL_SOURCE_DIR", &source_dir) };
 
     let store = IndexStore::new(&repo_root);
     let mut selected_job = JobRecord::new(
@@ -59,16 +64,14 @@ fn run_stt_processes_audio_files_in_selected_job_dir() {
 
     let summary = run_stt_with_repo_root(&repo_root, &mut reader, &mut output).expect("stt run");
 
+    unsafe { std::env::remove_var("RECORDROUTE_WHISPER_MODEL_SOURCE_DIR") };
+
     assert_eq!(summary.job_id, "job-1");
     assert_eq!(summary.transcripts.len(), 2);
     assert!(summary.stt_dir.is_dir());
     assert!(summary.stt_dir.join("channel_01.txt").is_file());
     assert!(summary.stt_dir.join("mono_mix.txt").is_file());
-    assert!(
-        fs::read_to_string(download_log)
-            .expect("download log")
-            .contains("base")
-    );
+    assert!(repo_root.join("models/whisper/ggml-base.bin").is_file());
 
     let whisper_log = fs::read_to_string(whisper_log).expect("whisper log");
     assert!(whisper_log.contains("-l"));
@@ -87,7 +90,6 @@ fn run_stt_retries_invalid_folder_selection() {
         .join("bin");
     fs::create_dir_all(&selected_job_dir).expect("selected job dir");
     fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
-    fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
     fs::create_dir_all(repo_root.join("models/whisper")).expect("models dir");
     fs::create_dir_all(&whisper_bin).expect("whisper bin");
 
@@ -97,10 +99,6 @@ fn run_stt_retries_invalid_folder_selection() {
         &fake_command_path(&whisper_bin, "whisper-cli"),
         &repo_root.join("whisper.log"),
         false,
-    );
-    write_fake_download_script(
-        &whisper_download_script_path(&repo_root),
-        &repo_root.join("download.log"),
     );
     fs::write(repo_root.join("models/whisper/ggml-base.bin"), "model").expect("model");
 

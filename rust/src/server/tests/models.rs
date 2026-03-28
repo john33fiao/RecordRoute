@@ -154,21 +154,23 @@ async fn post_prepare_whisper_returns_ok_when_model_is_already_ready() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn post_prepare_whisper_runs_background_download_and_updates_model_status() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let repo_root = temp_workspace();
     let whisper_bin = repo_root
         .join(".build/whisper")
         .join(crate::ffmpeg::target_dir_name())
         .join("bin");
+    let source_dir = repo_root.join("whisper-source");
     fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
-    fs::create_dir_all(repo_root.join("modules/whisper.cpp/models")).expect("download dir");
+    fs::create_dir_all(&source_dir).expect("source dir");
     fs::create_dir_all(&whisper_bin).expect("whisper bin");
 
     write_build_script(&build_script_path(&repo_root, "whisper"));
     write_simple_command(&fake_command_path(&whisper_bin, "whisper-cli"));
-    write_fake_download_script(
-        &whisper_download_script_path(&repo_root),
-        &repo_root.join("download.log"),
-    );
+    fs::write(source_dir.join("ggml-base.bin"), "model").expect("source model");
+    unsafe { std::env::set_var("RECORDROUTE_WHISPER_MODEL_SOURCE_DIR", &source_dir) };
 
     let app = router_with_repo_root(repo_root.clone());
     let response = app
@@ -186,6 +188,7 @@ async fn post_prepare_whisper_runs_background_download_and_updates_model_status(
     assert_eq!(body.preparation.status, ModelPreparationStatus::Running);
 
     let status = wait_for_model_preparation_state(&app, ModelKind::Whisper).await;
+    unsafe { std::env::remove_var("RECORDROUTE_WHISPER_MODEL_SOURCE_DIR") };
     assert!(status.available);
     assert!(status.ready);
     assert_eq!(status.preparation.status, ModelPreparationStatus::Completed);

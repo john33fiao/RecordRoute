@@ -1,4 +1,4 @@
-use super::{StageJobDisposition, StageJobSubmission, artifacts, now_rfc3339, stages};
+use super::{StageJobDisposition, StageJobSubmission, artifacts, now_rfc3339, queue, stages};
 use crate::index::{IndexStore, JobRecord, SummaryEmbeddingRecord, TaskStatus, TaskType};
 use crate::llama::{Toolchain as LlamaToolchain, embedding_model_id, run_summary_embedding};
 use sha2::{Digest, Sha256};
@@ -29,7 +29,7 @@ pub fn submit_summary_embedding_job(
     job_id: &str,
 ) -> Result<StageJobSubmission, String> {
     let index_store = IndexStore::new(repo_root);
-    let mut job = index_store
+    let job = index_store
         .find_job(job_id)?
         .ok_or_else(|| format!("job not found: {job_id}"))?;
     let (summary_file, summary_dir) = summary_path_for_job(&job)?;
@@ -37,12 +37,20 @@ pub fn submit_summary_embedding_job(
         return Err(format!("summary not found: {}", summary_file.display()));
     }
     if let Some(task) = job.task(TaskType::Embedding)
-        && task.status == TaskStatus::Running
+        && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
     {
+        let queue = if task.status == TaskStatus::Queued {
+            index_store.with_index_read(|index| {
+                Ok(queue::find_ticket(index, &job.job_id, TaskType::Embedding))
+            })?
+        } else {
+            None
+        };
         return Ok(StageJobSubmission {
             job,
             disposition: StageJobDisposition::Deduplicated,
             planned_audio_files: Vec::new(),
+            queue,
         });
     }
 
@@ -51,6 +59,7 @@ pub fn submit_summary_embedding_job(
             job,
             disposition: StageJobDisposition::Reused,
             planned_audio_files: Vec::new(),
+            queue: None,
         });
     }
 
@@ -63,12 +72,26 @@ pub fn submit_summary_embedding_job(
         })?;
     }
 
-    job.upsert_running_task(TaskType::Embedding, now_rfc3339()?);
-    index_store.update_job(job_id, |_| job.clone())?;
+    let queued_at = now_rfc3339()?;
+    let entry = queue::build_embedding_entry(job_id, queued_at.clone());
+    let (job, ticket) = index_store.with_index_mut(|index| {
+        let job_index = index
+            .jobs
+            .iter()
+            .position(|record| record.job_id == job_id)
+            .ok_or_else(|| format!("job not found in index: {job_id}"))?;
+        {
+            let job = &mut index.jobs[job_index];
+            job.enqueue_task(TaskType::Embedding, queued_at.clone());
+        }
+        let ticket = queue::enqueue_entry(index, entry);
+        Ok((index.jobs[job_index].clone(), ticket))
+    })?;
     Ok(StageJobSubmission {
         job,
         disposition: StageJobDisposition::Submitted,
         planned_audio_files: Vec::new(),
+        queue: Some(ticket),
     })
 }
 
@@ -149,7 +172,8 @@ pub fn backfill_summary_embeddings(repo_root: &Path) -> Result<Vec<(String, bool
             Err(_) => continue,
         };
         if submission.should_execute() {
-            let _ = execute_summary_embedding_job(repo_root, &job.job_id);
+            let _ =
+                queue::dispatch_until_task_terminal(repo_root, &job.job_id, TaskType::Embedding);
             output.push((job.job_id, true));
         } else {
             output.push((job.job_id, false));

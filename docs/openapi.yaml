@@ -17,6 +17,7 @@ tags:
   - name: server
   - name: system
   - name: models
+  - name: queue
   - name: jobs
   - name: stt
   - name: summary
@@ -179,6 +180,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /queue:
+    get:
+      tags: [queue]
+      summary: Inspect persisted category queue state
+      operationId: getQueue
+      responses:
+        '200':
+          description: Queue snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueStatusResponse'
         '500':
           description: Internal server error
           content:
@@ -889,6 +909,10 @@ components:
           type: boolean
         deduplicated:
           type: boolean
+        queue:
+          oneOf:
+            - $ref: '#/components/schemas/QueueInfoResponse'
+            - type: 'null'
         task:
           oneOf:
             - $ref: '#/components/schemas/TaskRecord'
@@ -1066,7 +1090,7 @@ components:
             - type: 'null'
         phase:
           type: string
-          enum: [idle, running, completed, failed]
+          enum: [idle, queued, running, completed, failed]
         total_files:
           type: integer
           minimum: 0
@@ -1167,6 +1191,10 @@ components:
           type: boolean
         deduplicated:
           type: boolean
+        queue:
+          oneOf:
+            - $ref: '#/components/schemas/QueueInfoResponse'
+            - type: 'null'
         task:
           oneOf:
             - $ref: '#/components/schemas/TaskRecord'
@@ -1191,6 +1219,10 @@ components:
           type: boolean
         deduplicated:
           type: boolean
+        queue:
+          oneOf:
+            - $ref: '#/components/schemas/QueueInfoResponse'
+            - type: 'null'
         started_at:
           type: string
         finished_at:
@@ -1261,7 +1293,7 @@ components:
 
     TaskRecord:
       type: object
-      required: [task_id, task_type, status, started_at, finished_at, last_error, retry_count]
+      required: [task_id, task_type, status, queued_at, started_at, finished_at, last_error, retry_count]
       properties:
         task_id:
           type: string
@@ -1269,11 +1301,20 @@ components:
           $ref: '#/components/schemas/TaskType'
         status:
           $ref: '#/components/schemas/TaskStatus'
+        queued_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
         started_at:
-          type: string
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
         finished_at:
           oneOf:
             - type: string
+              format: date-time
             - type: 'null'
         last_error:
           oneOf:
@@ -1322,11 +1363,73 @@ components:
 
     JobStatus:
       type: string
-      enum: [running, completed, failed]
+      enum: [queued, running, completed, failed]
 
     TaskStatus:
       type: string
-      enum: [running, completed, failed]
+      enum: [queued, running, completed, failed]
+
+    QueueCategory:
+      type: string
+      enum: [ffmpeg, stt, llm, embed]
+
+    QueueInfoResponse:
+      type: object
+      required: [category, position, queued_at]
+      properties:
+        category:
+          $ref: '#/components/schemas/QueueCategory'
+        position:
+          type: integer
+          minimum: 1
+        queued_at:
+          type: string
+          format: date-time
+
+    QueueEntryResponse:
+      type: object
+      required: [job_id, task_type, category, queued_at]
+      properties:
+        job_id:
+          type: string
+        task_type:
+          $ref: '#/components/schemas/TaskType'
+        category:
+          $ref: '#/components/schemas/QueueCategory'
+        queued_at:
+          type: string
+          format: date-time
+
+    QueueBatchResponse:
+      type: object
+      required: [category, running, entries]
+      properties:
+        category:
+          $ref: '#/components/schemas/QueueCategory'
+        running:
+          oneOf:
+            - $ref: '#/components/schemas/QueueEntryResponse'
+            - type: 'null'
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/QueueEntryResponse'
+
+    QueueStatusResponse:
+      type: object
+      required: [burst_limit, active_batch, pending_batches]
+      properties:
+        burst_limit:
+          type: integer
+          minimum: 1
+        active_batch:
+          oneOf:
+            - $ref: '#/components/schemas/QueueBatchResponse'
+            - type: 'null'
+        pending_batches:
+          type: array
+          items:
+            $ref: '#/components/schemas/QueueBatchResponse'
 
     TaskType:
       type: string

@@ -55,6 +55,8 @@
   - summary embedding 생성, backfill, 검색
 - `rust/src/app/models.rs`
   - whisper/llama 준비 상태 관리, heartbeat, umbrella prepare
+- `rust/src/app/queue.rs`
+  - 영속 카테고리 큐, 단일 디스패치, recovery
 - `rust/src/app/artifacts.rs`
   - 산출물 경로 규약과 legacy 파일명 승격
 - `rust/src/app/cli.rs`
@@ -63,7 +65,9 @@
 ### 2.2 서버 계층
 
 - `rust/src/server.rs`
-  - axum router 조립, `spawn_blocking` 경계, 서버 바인드
+  - axum router 조립, queue dispatcher 기동, 서버 바인드
+- `rust/src/server/queue.rs`
+  - 서버 부팅 시 큐 dispatcher thread 생성/깨우기
 - `rust/src/server/routes/*.rs`
   - 기능별 HTTP 핸들러
 - `rust/src/server/types.rs`
@@ -117,7 +121,8 @@
 
 ### 4.2 인덱스 포맷
 
-현재 `IndexFile.version`은 `3`이다.
+현재 `IndexFile.version`은 `4`다.
+legacy index(`1`~`3`)는 읽을 때 기본 queue state를 채우고 `4`로 올려서 다시 저장한다.
 
 핵심 필드:
 
@@ -125,6 +130,10 @@
   - `whisper`
   - `llama`
   - `llama_embedding`
+- `task_queue`
+  - `active_batch`
+  - `pending_batches`
+  - `burst_limit` (기본 3)
 - `jobs`
 
 ### 4.3 Job / Task
@@ -132,7 +141,7 @@
 `JobRecord` 핵심 필드:
 
 - `job_id`
-- `status`: `running | completed | failed`
+- `status`: `queued | running | completed | failed`
 - `source_path`, `source_file_name`
 - `job_dir`
 - `probe`
@@ -152,10 +161,17 @@
 `TaskRecord`:
 
 - `task_id` (uuid)
-- `status`: `running | completed | failed`
-- `started_at`, `finished_at`
+- `status`: `queued | running | completed | failed`
+- `queued_at`, `started_at`, `finished_at`
 - `last_error`
 - `retry_count`
+
+`TaskQueueState`:
+
+- category는 `ffmpeg | stt | llm | embed`
+- 한 시점에는 active batch 하나만 실행된다
+- 같은 category 요청은 기존 batch에 병합된다
+- 다른 category가 기다리면 한 category는 최대 3건 실행 후 rotate 된다
 
 ### 4.4 모델 준비 상태
 
@@ -212,8 +228,9 @@ legacy 호환:
 
 1. 입력 경로 canonicalize
 2. 동일 `source_path` 완료 job이 있고 산출물이 유효하면 `Reused`
-3. 동일 입력의 running job이 있으면 `Deduplicated`
-4. 아니면 새 job 생성 후 `ffprobe`, `ffmpeg` 실행
+3. 동일 입력의 queued/running job이 있으면 `Deduplicated`
+4. 아니면 새 job을 `queued`로 기록하고 `ffmpeg` category queue에 enqueue
+5. dispatcher가 `ffprobe`, `ffmpeg`를 실행
 
 특징:
 
@@ -228,8 +245,9 @@ legacy 호환:
 1. ffmpeg 완료 job만 허용
 2. `audio_files` subset 또는 `mono_mix_only=true`를 해석
 3. 대상 transcript가 이미 모두 있으면 `Reused`
-4. task running이면 `Deduplicated`
-5. 아니면 whisper 모델 준비 후 `whisper-cli` 실행
+4. task queued/running이면 `Deduplicated`
+5. 아니면 `stt` category queue에 enqueue
+6. dispatcher가 whisper 모델 준비 후 `whisper-cli` 실행
 
 특징:
 
@@ -241,9 +259,9 @@ legacy 호환:
 흐름:
 
 1. `stt/*.txt`를 읽어 프롬프트 파일 생성
-2. llama summary 모델 준비
-3. `summary/result.md` 생성
-4. 성공 시 embedding task를 best-effort로 자동 연쇄 실행
+2. `llm` category queue에 enqueue
+3. dispatcher가 llama summary 모델 준비 후 `summary/result.md` 생성
+4. 성공 시 embedding task를 `embed` category queue에 자동 enqueue
 
 프롬프트 정책:
 
@@ -327,6 +345,7 @@ legacy 호환:
 - `GET /models/status`
 - `POST /models/whisper/prepare`
 - `POST /models/llama/prepare`
+- `GET /queue`
 
 job:
 
@@ -351,7 +370,7 @@ stage / artifacts:
 - `GET /jobs/{job_id}/files`
 - `GET /jobs/{job_id}/files/{*file_name}`
 
-긴 작업 실행은 모두 `tokio::task::spawn_blocking`으로 백그라운드에 넘긴다.
+긴 작업은 모두 영속 category queue에 enqueue되고, 서버 시작 시 뜨는 단일 dispatcher thread가 순차 실행한다.
 `POST /jobs/upload`는 multipart를 스트리밍 저장하며 업로드 파일 제한은 512 MiB다.
 
 ## 9. 현재 아키텍처의 운영상 특징

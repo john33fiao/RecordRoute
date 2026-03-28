@@ -23,6 +23,7 @@ fn run_summary_processes_transcript_files_in_selected_job_dir() {
         .join(crate::ffmpeg::target_dir_name())
         .join("bin");
     let llama_log = repo_root.join("llama-args.log");
+    let embedding_log = repo_root.join("llama-embedding.log");
     let prompt_capture = repo_root.join("llama-prompt.txt");
     fs::create_dir_all(selected_job_dir.join("stt")).expect("selected stt dir");
     fs::create_dir_all(ignored_job_dir.join("stt")).expect("ignored stt dir");
@@ -52,6 +53,10 @@ fn run_summary_processes_transcript_files_in_selected_job_dir() {
         &llama_log,
         &prompt_capture,
         false,
+    );
+    write_fake_llama_embedding(
+        &fake_command_path(&llama_bin, "llama-embedding"),
+        &embedding_log,
     );
 
     let store = IndexStore::new(&repo_root);
@@ -90,6 +95,7 @@ fn run_summary_processes_transcript_files_in_selected_job_dir() {
         fs::read_to_string(&summary.summary_file).expect("summary file"),
         "synthetic summary"
     );
+    assert!(summary.summary_dir.join("embedding.json").is_file());
     assert!(!summary.summary_dir.join(".input.prompt.txt").exists());
 
     let prompt = fs::read_to_string(prompt_capture).expect("prompt capture");
@@ -106,6 +112,10 @@ fn run_summary_processes_transcript_files_in_selected_job_dir() {
     assert!(llama_log.contains("-hf"));
     assert!(llama_log.contains("ggml-org/gemma-3-4b-it-GGUF"));
     assert!(llama_log.contains("HF_TOKEN=summary-token"));
+
+    let embedding_log = fs::read_to_string(embedding_log).expect("embedding log");
+    assert!(embedding_log.contains("-hf"));
+    assert!(embedding_log.contains("Qwen/Qwen3-Embedding-4B-GGUF"));
 }
 
 #[test]
@@ -209,6 +219,7 @@ fn run_summary_uses_local_model_path_when_file_exists() {
         .join(crate::ffmpeg::target_dir_name())
         .join("bin");
     let llama_log = repo_root.join("llama-local.log");
+    let embedding_log = repo_root.join("llama-local-embedding.log");
     let prompt_capture = repo_root.join("llama-local-prompt.txt");
     let model_path = repo_root.join("models/llama/custom.gguf");
     fs::create_dir_all(selected_job_dir.join("stt")).expect("selected stt dir");
@@ -229,6 +240,10 @@ fn run_summary_uses_local_model_path_when_file_exists() {
         &llama_log,
         &prompt_capture,
         false,
+    );
+    write_fake_llama_embedding(
+        &fake_command_path(&llama_bin, "llama-embedding"),
+        &embedding_log,
     );
 
     unsafe { std::env::set_var("RECORDROUTE_LLAMA_MODEL", "models/llama/custom.gguf") };
@@ -252,8 +267,12 @@ fn run_summary_uses_local_model_path_when_file_exists() {
     unsafe { std::env::remove_var("RECORDROUTE_LLAMA_MODEL") };
 
     assert!(summary.summary_file.is_file());
+    assert!(summary.summary_dir.join("embedding.json").is_file());
     let llama_log = fs::read_to_string(llama_log).expect("llama log");
     assert!(llama_log.contains("-m"));
     assert!(llama_log.contains(model_path.to_string_lossy().as_ref()));
     assert!(!llama_log.contains("-hf"));
+
+    let embedding_log = fs::read_to_string(embedding_log).expect("embedding log");
+    assert!(embedding_log.contains("-hf"));
 }

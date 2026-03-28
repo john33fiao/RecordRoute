@@ -42,9 +42,13 @@ async fn post_jobs_returns_accepted_then_job_transitions_to_completed() {
 
     assert_eq!(response.status(), StatusCode::ACCEPTED);
     let submitted: JobSubmissionResponse = read_json(response).await;
-    assert_eq!(submitted.status, JobStatus::Running);
+    assert_eq!(submitted.status, JobStatus::Queued);
     assert!(!submitted.reused);
     assert!(!submitted.deduplicated);
+    assert_eq!(
+        submitted.queue.as_ref().expect("queue info").category,
+        crate::index::QueueCategory::Ffmpeg
+    );
 
     let running: JobRecord = read_json(
         app.clone()
@@ -53,7 +57,10 @@ async fn post_jobs_returns_accepted_then_job_transitions_to_completed() {
             .expect("get job response"),
     )
     .await;
-    assert_eq!(running.status, JobStatus::Running);
+    assert!(matches!(
+        running.status,
+        JobStatus::Queued | JobStatus::Running
+    ));
 
     fs::remove_file(&gate).expect("remove gate");
     let completed = wait_for_job_completion(&app, &submitted.job_id).await;
@@ -378,7 +385,10 @@ async fn post_jobs_deduplicates_running_job() {
     .await;
 
     assert_eq!(first.job_id, second.job_id);
-    assert_eq!(second.status, JobStatus::Running);
+    assert!(matches!(
+        second.status,
+        JobStatus::Queued | JobStatus::Running
+    ));
     assert!(!second.reused);
     assert!(second.deduplicated);
 
@@ -578,6 +588,7 @@ async fn get_job_status_returns_integrated_stage_status() {
     job.complete_task(TaskType::Stt, "2026-01-01T00:00:02Z".to_string())
         .expect("complete stt task");
     job.upsert_running_task(TaskType::Summary, "2026-01-01T00:00:03Z".to_string());
+    job.status = JobStatus::Running;
     store.insert_job(job).expect("insert status job");
 
     let app = router_with_repo_root(repo_root);

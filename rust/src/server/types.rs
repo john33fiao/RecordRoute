@@ -1,7 +1,7 @@
 use crate::app;
 use crate::index::{
-    JobOutputs, JobProbe, JobRecord, JobStatus, ModelKind, ModelPreparationRecord, TaskRecord,
-    TaskType,
+    JobOutputs, JobProbe, JobRecord, JobStatus, ModelKind, ModelPreparationRecord, QueueCategory,
+    TaskRecord, TaskType,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -56,6 +56,7 @@ pub(crate) struct TaskSubmissionResponse {
     pub message: String,
     pub reused: bool,
     pub deduplicated: bool,
+    pub queue: Option<QueueInfoResponse>,
     pub task: Option<TaskRecord>,
 }
 
@@ -171,8 +172,38 @@ pub(crate) struct SummaryEmbeddingResponse {
     pub message: String,
     pub reused: bool,
     pub deduplicated: bool,
+    pub queue: Option<QueueInfoResponse>,
     pub task: Option<TaskRecord>,
     pub metadata: Option<crate::index::SummaryEmbeddingRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct QueueInfoResponse {
+    pub category: QueueCategory,
+    pub position: usize,
+    pub queued_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct QueueEntryResponse {
+    pub job_id: String,
+    pub task_type: TaskType,
+    pub category: QueueCategory,
+    pub queued_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct QueueBatchResponse {
+    pub category: QueueCategory,
+    pub running: Option<QueueEntryResponse>,
+    pub entries: Vec<QueueEntryResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct QueueStatusResponse {
+    pub burst_limit: u32,
+    pub active_batch: Option<QueueBatchResponse>,
+    pub pending_batches: Vec<QueueBatchResponse>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -182,6 +213,7 @@ pub(crate) struct JobSubmissionResponse {
     pub message: String,
     pub reused: bool,
     pub deduplicated: bool,
+    pub queue: Option<QueueInfoResponse>,
     pub started_at: String,
     pub finished_at: Option<String>,
     pub source_path: String,
@@ -200,14 +232,17 @@ pub(crate) struct JobListResponse {
 pub(crate) struct AppState {
     pub repo_root: PathBuf,
     pub upload_limits: super::upload::UploadLimits,
+    pub queue_dispatcher: super::queue_dispatcher::QueueDispatcher,
     pub invalid_request_body: ErrorResponse,
 }
 
 impl AppState {
     pub(crate) fn new(repo_root: PathBuf, upload_limits: super::upload::UploadLimits) -> Self {
+        let queue_dispatcher = super::queue_dispatcher::QueueDispatcher::start(repo_root.clone());
         Self {
             repo_root,
             upload_limits,
+            queue_dispatcher,
             invalid_request_body: ErrorResponse {
                 code: "400".to_string(),
                 message: "invalid request body".to_string(),
@@ -220,6 +255,7 @@ pub(crate) fn build_job_submission_response(
     job: &JobRecord,
     reused: bool,
     deduplicated: bool,
+    queue: Option<app::QueueTicket>,
 ) -> JobSubmissionResponse {
     JobSubmissionResponse {
         job_id: job.job_id.clone(),
@@ -233,6 +269,7 @@ pub(crate) fn build_job_submission_response(
         },
         reused,
         deduplicated,
+        queue: queue.map(build_queue_info_response),
         started_at: job.started_at.clone(),
         finished_at: job.finished_at.clone(),
         source_path: job.source_path.clone(),
@@ -242,6 +279,14 @@ pub(crate) fn build_job_submission_response(
         error_message: super::errors::sanitize_optional_dependency_message(
             job.error_message.clone(),
         ),
+    }
+}
+
+pub(crate) fn build_queue_info_response(queue: app::QueueTicket) -> QueueInfoResponse {
+    QueueInfoResponse {
+        category: queue.category,
+        position: queue.position,
+        queued_at: queue.queued_at,
     }
 }
 
