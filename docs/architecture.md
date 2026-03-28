@@ -1,383 +1,208 @@
 # RecordRoute 아키텍처 (2026-03-28 코드 기준)
 
-이 문서는 현재 `rust/src/**` 구현을 기준으로 RecordRoute의 실행 구조, 상태 저장 방식, 파이프라인, 서버 구성을 요약한다.
-설계 기준보다 코드가 우선이며, HTTP 상세 스키마는 `docs/openapi.yaml`을 함께 본다.
+이 문서는 현재 `rust/src/**` 구현을 기준으로 RecordRoute의 실행 구조와 저장 모델을 요약한다.
+이제 저장소는 `db/index.json`과 `db/<job_id>` 파일 트리가 아니라, 메타데이터 DB와 오디오 전용 경로 저장소로 분리되어 있다.
 
-## 1. 엔트리포인트와 런타임 루트
+## 1. 런타임 루트
 
-### 1.1 실행 바이너리
+런타임 루트는 `rust/src/runtime_root.rs`가 다음 우선순위로 결정한다.
 
-- `rust/src/main.rs`
-  - 기본 CLI 엔트리포인트
-  - `recordroute_rust::main_cli()` 호출
-- `rust/src/bin/recordroute.rs`
-  - 패키징된 런처 엔트리포인트
-  - `RecordRouteServer` 프로세스를 띄우고 브라우저를 연다
-- `rust/src/bin/recordroute_server.rs`
-  - 패키징된 전용 서버 엔트리포인트
-  - `recordroute_rust::main_server()` 호출
-
-### 1.2 런타임 루트 결정
-
-`rust/src/runtime_root.rs`는 다음 순서로 런타임 루트를 찾는다.
-
-1. 환경변수 `RECORDROUTE_RUNTIME_ROOT`
-2. 현재 실행 파일 디렉터리 안의 `.recordroute-runtime-root`
-3. 현재 실행 파일 디렉터리 안의 `RecordRouteServer(.exe)`
+1. `RECORDROUTE_RUNTIME_ROOT`
+2. 실행 파일 옆 `.recordroute-runtime-root`
+3. 실행 파일 옆 `RecordRouteServer(.exe)`
 4. 개발 환경에서는 저장소 루트
 
-런처와 전용 서버 바이너리는 이 런타임 루트를 기준으로 `db/`, `models/`, `logs/`, `.env`를 읽는다.
+이 루트를 기준으로 `db/`, `models/`, `logs/`, `.env`를 읽는다.
 
-### 1.3 런처 동작
-
-`rust/src/launcher.rs`의 패키징 런처는 다음 순서로 동작한다.
-
-1. `logs/server.pid`로 기존 자신이 띄운 서버를 정리
-2. `127.0.0.1:38080` 포트 사용 가능 여부 확인
-3. `RecordRouteServer`를 하위 프로세스로 실행
-4. `/server/ping` 응답을 polling 해서 준비 완료 확인
-5. 기본 브라우저에서 `http://127.0.0.1:38080/` 오픈
-6. 표준출력/표준에러를 `logs/server.log`에 누적 기록
-
-## 2. 코드 모듈 지도
-
-### 2.1 도메인 로직
+## 2. 주요 모듈
 
 - `rust/src/app.rs`
-  - facade와 공용 타입 정의
+  - CLI/API 공용 facade와 공용 타입
 - `rust/src/app/ffmpeg_stage.rs`
-  - ffmpeg job 제출/실행/재사용
+  - 입력 소스 publish, ffmpeg job 제출/실행, 재사용/중복 제거
 - `rust/src/app/stt_stage.rs`
-  - STT task 제출/실행
+  - STT task 제출/실행, transcript DB 저장
 - `rust/src/app/summary_stage.rs`
-  - summary task 제출/실행
+  - summary task 제출/실행, summary DB 저장
 - `rust/src/app/embedding_stage.rs`
-  - summary embedding 생성, backfill, 검색
-- `rust/src/app/models.rs`
-  - whisper/llama 준비 상태 관리, heartbeat, umbrella prepare
+  - summary embedding 생성과 검색
 - `rust/src/app/queue.rs`
-  - 영속 카테고리 큐, 단일 디스패치, recovery
-- `rust/src/app/artifacts.rs`
-  - 산출물 경로 규약과 legacy 파일명 승격
-- `rust/src/app/cli.rs`
-  - CLI 명령 파싱과 출력
-
-### 2.2 서버 계층
-
-- `rust/src/server.rs`
-  - axum router 조립, queue dispatcher 기동, 서버 바인드
-- `rust/src/server/queue.rs`
-  - 서버 부팅 시 큐 dispatcher thread 생성/깨우기
-- `rust/src/server/routes/*.rs`
-  - 기능별 HTTP 핸들러
-- `rust/src/server/types.rs`
-  - 요청/응답 스키마
-- `rust/src/server/files.rs`
-  - 파일/텍스트/진행률 조회
-- `rust/src/server/upload.rs`
-  - multipart 업로드 저장 및 제한
-- `rust/src/server/errors.rs`
-  - `AppError`를 HTTP 응답으로 변환
-
-### 2.3 상태 저장 계층
-
-- `rust/src/index.rs`
-  - 저장소 facade
-- `rust/src/index/types.rs`
-  - `IndexFile`, `JobRecord`, `TaskRecord`, `ModelPreparationRecord`
+  - 영속 queue 상태와 dispatcher 로직
 - `rust/src/index/store.rs`
-  - 인덱스 읽기/쓰기, 원자적 replace
-- `rust/src/index/lock.rs`
-  - `db/index.lock` 파일 기반 동기화
+  - 메타데이터 facade
+- `rust/src/index/sqlite.rs`
+  - `rusqlite` 기반 메타DB 구현
+- `rust/src/index/postgres.rs`
+  - PostgreSQL 기반 메타DB 구현
+- `rust/src/audio_store.rs`
+  - 경로 기반 오디오 저장소
+- `rust/src/storage.rs`
+  - `.env` 기반 저장소 설정 로드
+- `rust/src/server.rs`, `rust/src/server/routes/*.rs`
+  - axum HTTP 서버와 API 라우트
 
-## 3. CLI 표면
+## 3. 저장 모델
 
-직접 인자 모드에서 지원하는 명령은 다음과 같다.
+### 3.1 기본 경로
 
-- `ffmpeg <input>`
-- `<input>` 단독 인자
-- `stt`
-- `summary`
-- `prepare-models`
-- `prepare-llama-model`
-- `embed-summaries`
-- `search-summaries <query>`
-- `server`
+기본 개발 모드는 모두 런타임 루트의 `db/` 아래를 사용한다.
 
-인자 없이 실행하면 대화형 선택 프롬프트가 뜨지만, 현재 프롬프트 메뉴는 `ffmpeg`, `stt`, `summary`, `server`만 노출한다.
-즉 `prepare-models`, `embed-summaries`, `search-summaries`는 직접 인자로만 호출할 수 있다.
+- 메타DB 기본값: `db/index.sqlite3`
+- 오디오 루트 기본값: `db/audio/`
+- 오디오 cache 기본값: `db/audio-cache/`
+- 오디오 spool 기본값: `db/audio-spool/`
 
-## 4. 상태 저장과 데이터 모델
+### 3.2 환경 변수
 
-### 4.1 저장소 구조
+저장소는 `.env`만으로 설정한다.
 
-- SoT: `db/index.json`
-- 동기화 락: `db/index.lock`
-- 업로드 캐시: `db/uploads/<sha256>.bin`
-- job 산출물: `db/<job_id>/...`
+- `RECORDROUTE_METADATA_DRIVER=sqlite|postgres`
+- `RECORDROUTE_METADATA_SQLITE_PATH`
+- `RECORDROUTE_METADATA_POSTGRES_URL`
+- `RECORDROUTE_AUDIO_ROOT`
+- `RECORDROUTE_AUDIO_CACHE_ROOT`
+- `RECORDROUTE_AUDIO_SPOOL_ROOT`
 
-`IndexStore`는 인덱스를 임시 파일에 먼저 기록하고 `rename`으로 교체한다.
-즉 JSON 저장은 overwrite가 아니라 원자적 replace 흐름이다.
+기본값을 그대로 쓰면 메타DB와 오디오 둘 다 `db/` 아래에 놓인다.
+운영에서 외부 분리가 필요하면 메타DB를 PostgreSQL로 바꾸거나 `RECORDROUTE_AUDIO_ROOT`를 SMB 마운트, OneDrive 동기화 폴더 등으로 바꾼다.
 
-### 4.2 인덱스 포맷
+### 3.3 권위 저장소
 
-현재 `IndexFile.version`은 `4`다.
-legacy index(`1`~`3`)는 읽을 때 기본 queue state를 채우고 `4`로 올려서 다시 저장한다.
+권위 저장소는 다음 둘이다.
 
-핵심 필드:
+- 메타DB
+- 오디오 루트
 
-- `model_preparations`
-  - `whisper`
-  - `llama`
-  - `llama_embedding`
-- `task_queue`
-  - `active_batch`
-  - `pending_batches`
-  - `burst_limit` (기본 3)
+`audio-cache`와 `audio-spool`은 재생성 가능한 작업 디렉터리다.
+로컬 cache/spool을 비워도 완료 job의 transcript/summary/embedding 조회와 후속 처리는 가능해야 한다.
+
+## 4. 메타데이터 DB 스키마
+
+현재 메타DB는 다음 논리 엔터티를 가진다.
+
 - `jobs`
-
-### 4.3 Job / Task
-
-`JobRecord` 핵심 필드:
-
-- `job_id`
-- `status`: `queued | running | completed | failed`
-- `source_path`, `source_file_name`
-- `job_dir`
-- `probe`
-- `split_strategy`
-- `outputs`
-- `error_message`
-- `summary_embedding`
+  - job 상태, source ref, source kind, source hash, source file name, probe, split strategy, 오류, timestamps
 - `tasks`
+  - ffmpeg/stt/summary/embedding task 상태, retry, 오류, timestamps
+- `model_preparations`
+  - whisper/llama/llama_embedding 준비 상태
+- `queue_state`
+  - active batch, pending batch, burst limit
+- `audio_artifacts`
+  - job별 logical file name과 오디오 storage key
+- `transcripts`
+  - transcript id, file name, text
+- `summaries`
+  - summary file name, markdown text
+- `summary_embeddings`
+  - embedding metadata와 벡터
 
-`TaskType`:
+`job_dir`와 절대 파일 경로는 영속 메타데이터에 저장하지 않는다.
+
+## 5. 오디오 저장 규약
+
+### 5.1 입력 소스
+
+업로드와 로컬 파일 입력은 모두 먼저 spool에 기록한 뒤 SHA-256을 계산하고, 오디오 루트의 content-addressed 경로로 publish한다.
+
+예시:
+
+- `audio/sources/<sha256>/source.wav`
+- `audio/sources/<sha256>/source.bin`
+
+Job 재사용과 중복 제거는 경로가 아니라 `source_content_sha256` 기준으로 판단한다.
+
+### 5.2 ffmpeg 산출물
+
+ffmpeg 결과 오디오는 오디오 루트 아래 job별 디렉터리에 저장한다.
+
+예시:
+
+- `audio/jobs/<job_id>/mono_mix.wav`
+- `audio/jobs/<job_id>/channel_01.wav`
+- `audio/jobs/<job_id>/channel_02.wav`
+
+메타DB에는 실제 절대 경로 대신 logical file name과 storage key를 기록한다.
+
+## 6. 파이프라인
+
+### 6.1 ffmpeg
+
+1. 입력 소스를 publish한다.
+2. 같은 `source_content_sha256`의 완료 job이 있고 오디오 산출물이 유효하면 `Reused`
+3. 같은 hash의 queued/running job이 있으면 `Deduplicated`
+4. 아니면 새 job을 만들고 `ffmpeg` queue에 넣는다.
+5. 실행 시 source를 cache로 materialize하고 `ffprobe`, `ffmpeg`를 실행한다.
+6. 결과 오디오는 오디오 루트에 남고, 메타DB에 `audio_artifacts`와 job 상태를 기록한다.
+
+### 6.2 stt
+
+1. ffmpeg 완료 job만 대상이다.
+2. logical audio file subset 또는 `mono_mix_only`를 해석한다.
+3. transcript DB 레코드가 모두 있으면 `Reused`
+4. queued/running이면 `Deduplicated`
+5. 아니면 `stt` queue에 넣는다.
+6. 실행 시 오디오를 읽고 whisper 결과를 spool에 잠시 만든 뒤 transcript text를 DB에 저장한다.
+
+### 6.3 summary
+
+1. transcript DB 레코드가 준비된 job만 대상이다.
+2. summary DB 레코드가 있으면 `Reused`
+3. queued/running이면 `Deduplicated`
+4. 아니면 `llm` queue에 넣는다.
+5. 실행 시 transcript text로 prompt를 만들고 summary markdown을 생성한 뒤 DB에 저장한다.
+
+### 6.4 embedding
+
+1. summary DB 레코드가 준비된 job만 대상이다.
+2. 기존 embedding metadata의 `text_sha256`이 summary 본문과 같으면 재사용한다.
+3. stale 하거나 없으면 `embed` queue에 넣는다.
+4. 실행 시 summary 본문으로 embedding을 만들고 벡터를 DB에 저장한다.
+
+검색은 현재 DB 내부 벡터 인덱스가 아니라 Rust 쪽 cosine similarity 계산으로 수행한다.
+
+## 7. 큐와 상태 전이
+
+큐 category는 다음 네 가지다.
 
 - `ffmpeg`
 - `stt`
-- `summary`
-- `embedding`
+- `llm`
+- `embed`
 
-`TaskRecord`:
+동작 원칙:
 
-- `task_id` (uuid)
-- `status`: `queued | running | completed | failed`
-- `queued_at`, `started_at`, `finished_at`
-- `last_error`
-- `retry_count`
+- 한 시점에는 active batch 하나만 실행
+- 같은 category는 batch에 병합
+- 다른 category가 기다리면 `burst_limit`만큼 처리 후 rotate
+- queue 상태도 메타DB에 영속화
 
-`TaskQueueState`:
+Job/Task 상태는 항상 메타DB와 함께 갱신된다.
 
-- category는 `ffmpeg | stt | llm | embed`
-- 한 시점에는 active batch 하나만 실행된다
-- 같은 category 요청은 기존 batch에 병합된다
-- 다른 category가 기다리면 한 category는 최대 3건 실행 후 rotate 된다
+## 8. HTTP API 표면
 
-### 4.4 모델 준비 상태
+핵심 변경점:
 
-`ModelPreparationRecord`는 다음 필드를 가진다.
+- `GET /jobs`는 optional query `source_ref`를 지원한다.
+- `/jobs/by-source`는 제거되었다.
+- Job 응답에는 `source_ref`, `source_kind`, `source_content_sha256`가 포함된다.
+- `job_dir`, `source_path`는 API에서 제거되었다.
+- `/jobs/{job_id}/files`는 logical artifact 목록을 반환한다.
+- `/jobs/{job_id}/files/{*file_name}`는 저장 위치를 숨기고 오디오/DB 텍스트를 합성해서 반환한다.
 
-- `status`: `idle | running | completed | failed`
-- `started_at`
-- `finished_at`
-- `heartbeat_at`
-- `last_error`
+## 9. 웹 UI
 
-`app/models.rs`는 준비 중 모델에 대해 10초 heartbeat를 기록하고, 60초 동안 heartbeat가 갱신되지 않으면 stale running으로 본다.
+웹 UI는 선택한 job에 대해 다음 정보를 보여준다.
 
-## 5. 산출물 규약
+- job id
+- status
+- started/finished timestamps
+- source ref
+- source kind
+- source content hash
+- probe 정보
+- task 상태
+- transcript/summary/embedding 상태
+- logical artifact 목록
 
-### 5.1 FFmpeg 산출물
-
-- `db/<job_id>/mono_mix.wav`
-- `db/<job_id>/channel_01.wav`
-- `db/<job_id>/channel_02.wav`
-- ...
-
-### 5.2 STT 산출물
-
-- `db/<job_id>/stt/<audio_stem>.txt`
-
-지원 입력은 현재 `wav`, `mp3`, `flac`, `ogg`다.
-
-### 5.3 Summary 산출물
-
-canonical 경로:
-
-- `db/<job_id>/summary/result.md`
-
-legacy 호환:
-
-- `summary/result.txt`
-- `summary/<source_stem>.md`
-
-기존 legacy 파일이 있으면 `app/artifacts.rs`가 canonical 경로 `summary/result.md`로 승격한다.
-
-### 5.4 Embedding 산출물
-
-- sidecar 파일: `db/<job_id>/summary/embedding.json`
-- index metadata: `JobRecord.summary_embedding`
-
-`SummaryEmbeddingRecord`는 `model_id`, `text_sha256`, `dimension`, `normalized`, `created_at`, `file_path`를 기록한다.
-
-## 6. 파이프라인 단계
-
-### 6.1 FFmpeg
-
-흐름:
-
-1. 입력 경로 canonicalize
-2. 동일 `source_path` 완료 job이 있고 산출물이 유효하면 `Reused`
-3. 동일 입력의 queued/running job이 있으면 `Deduplicated`
-4. 아니면 새 job을 `queued`로 기록하고 `ffmpeg` category queue에 enqueue
-5. dispatcher가 `ffprobe`, `ffmpeg`를 실행
-
-특징:
-
-- `ffprobe`로 채널 수와 레이아웃을 읽는다.
-- `ffmpeg` 한 번으로 채널별 mono wav와 merged mono wav를 같이 생성한다.
-- 실패 시 부분 산출물은 정리한다.
-
-### 6.2 STT
-
-흐름:
-
-1. ffmpeg 완료 job만 허용
-2. `audio_files` subset 또는 `mono_mix_only=true`를 해석
-3. 대상 transcript가 이미 모두 있으면 `Reused`
-4. task queued/running이면 `Deduplicated`
-5. 아니면 `stt` category queue에 enqueue
-6. dispatcher가 whisper 모델 준비 후 `whisper-cli` 실행
-
-특징:
-
-- 출력 완료 후 연속 중복 라인을 제거하는 후처리를 수행한다.
-- 진행률 API는 task 상태와 현재 transcript 파일 개수를 조합해 계산한다.
-
-### 6.3 Summary
-
-흐름:
-
-1. `stt/*.txt`를 읽어 프롬프트 파일 생성
-2. `llm` category queue에 enqueue
-3. dispatcher가 llama summary 모델 준비 후 `summary/result.md` 생성
-4. 성공 시 embedding task를 `embed` category queue에 자동 enqueue
-
-프롬프트 정책:
-
-- 한국어 Markdown 출력
-- 첫 줄은 `## 요약`
-- transcript 파일명을 본문에 나열하지 않음
-- 실행 항목이 있으면 마지막에 bullet list
-
-### 6.4 Embedding
-
-흐름:
-
-1. summary 파일 존재 확인
-2. 기존 metadata와 sidecar를 기준으로 stale 여부 판단
-3. stale이면 `llama-embedding`으로 벡터 생성
-4. `summary/embedding.json` 저장
-5. `JobRecord.summary_embedding` metadata 갱신
-
-검색:
-
-- query도 같은 embedding 모델로 즉시 임베딩
-- corpus 전체를 brute-force cosine similarity로 스캔
-- score 내림차순 정렬
-- 기본 limit 10, 최대 50
-
-## 7. 모델 준비와 외부 도구
-
-### 7.1 FFmpeg
-
-- 실행 파일 탐색: `.build/ffmpeg/<os>-<arch>/install/bin`
-- 필요 명령: `ffmpeg`, `ffprobe`
-
-### 7.2 Whisper
-
-- 실행 파일 탐색: `.build/whisper/<os>-<arch>/bin/whisper-cli`
-- 모델 환경변수: `RECORDROUTE_WHISPER_MODEL`
-- 기본 모델 경로: `models/whisper/ggml-base.bin`
-
-준비 방식:
-
-- 로컬 파일이 있으면 그대로 사용
-- 없으면 Rust가 직접 모델 파일을 확보한다
-  - `RECORDROUTE_WHISPER_MODEL_SOURCE_DIR`가 있으면 해당 디렉터리에서 복사 시도
-  - 아니면 `RECORDROUTE_WHISPER_MODEL_URL_TEMPLATE` 또는 기본 Hugging Face URL로 다운로드
-
-### 7.3 Llama summary / embedding
-
-- 실행 파일 탐색: `.build/llama/<os>-<arch>/bin`
-  - `llama-cli`
-  - `llama-embedding`
-- summary 모델 환경변수: `RECORDROUTE_LLAMA_MODEL`
-- embedding 모델 환경변수: `RECORDROUTE_LLAMA_EMBEDDING_MODEL`
-
-기본 모델:
-
-- summary: `ggml-org/gemma-3-4b-it-GGUF`
-- embedding: `Qwen/Qwen3-Embedding-4B-GGUF`
-
-모델 해석 규칙:
-
-- 환경변수 값이 파일이면 local GGUF
-- 아니면 Hugging Face repo 문자열
-- Hugging Face repo면 캐시 경로는 `models/llama/hf/*.gguf`
-
-`prepare-llama-model`과 `POST /models/llama/prepare`는 summary 모델과 embedding 모델을 함께 준비하는 umbrella 동작이다.
-
-## 8. HTTP 서버와 웹 UI
-
-서버 바인드 주소는 `127.0.0.1:38080`다.
-
-정적 UI:
-
-- `GET /`
-- `GET /app.js`
-- `GET /app.css`
-
-상태/모델:
-
-- `POST /server/ping`
-- `GET /system/status`
-- `GET /models/status`
-- `POST /models/whisper/prepare`
-- `POST /models/llama/prepare`
-- `GET /queue`
-
-job:
-
-- `POST /jobs`
-- `POST /jobs/upload`
-- `GET /jobs`
-- `GET /jobs/completed`
-- `GET /jobs/by-source`
-- `GET /jobs/{job_id}`
-- `GET /jobs/{job_id}/status`
-
-stage / artifacts:
-
-- `POST/GET /jobs/{job_id}/stt`
-- `GET /jobs/{job_id}/stt/progress`
-- `GET /jobs/{job_id}/stt/texts`
-- `GET /jobs/{job_id}/stt/texts/{transcript_id}`
-- `POST/GET /jobs/{job_id}/summary`
-- `GET /jobs/{job_id}/summary/text`
-- `POST/GET /jobs/{job_id}/summary/embedding`
-- `POST /summary/search`
-- `GET /jobs/{job_id}/files`
-- `GET /jobs/{job_id}/files/{*file_name}`
-
-긴 작업은 모두 영속 category queue에 enqueue되고, 서버 시작 시 뜨는 단일 dispatcher thread가 순차 실행한다.
-`POST /jobs/upload`는 multipart를 스트리밍 저장하며 업로드 파일 제한은 512 MiB다.
-
-## 9. 현재 아키텍처의 운영상 특징
-
-- CLI와 HTTP API는 같은 `app/*`, `index/*` 도메인 로직을 공유한다.
-- 재사용과 중복방지는 각 stage submit 단계에서 먼저 판정한다.
-- summary 파일명은 canonical path로 통일했고, legacy 이름은 읽는 시점에 승격한다.
-- embedding 검색은 파일 기반 sidecar + brute-force scan 구조이며 외부 vector DB는 사용하지 않는다.
-- query embedding 캐시는 아직 없다.
-- OpenAPI는 수동 유지 문서이므로, 라우트나 응답 타입이 바뀌면 같이 갱신해야 한다.
+`job_dir` 같은 내부 저장 경로는 더 이상 UI에 표시하지 않는다.

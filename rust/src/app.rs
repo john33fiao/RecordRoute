@@ -198,7 +198,7 @@ pub use embedding_stage::{
     SummarySearchResult, backfill_summary_embeddings, search_summaries,
     submit_summary_embedding_job,
 };
-pub use ffmpeg_stage::{run_with_repo_root, submit_ffmpeg_job};
+pub use ffmpeg_stage::{run_with_repo_root, submit_ffmpeg_job, submit_ffmpeg_job_from_imported_source};
 #[allow(unused_imports)]
 pub use models::wait_for_model_preparation;
 pub use models::{
@@ -252,9 +252,6 @@ pub fn now_rfc3339() -> Result<String, String> {
         .map_err(|error| format!("failed to format timestamp: {error}"))
 }
 
-pub(crate) fn path_to_string(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
-}
 
 #[cfg(test)]
 mod tests;

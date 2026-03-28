@@ -1,4 +1,5 @@
 use crate::error::{AppError, AppResult};
+use crate::{audio_store::ImportedSource, index::SourceKind};
 use axum::extract::Multipart;
 use axum::extract::multipart::MultipartError;
 use axum::extract::multipart::MultipartRejection;
@@ -37,16 +38,19 @@ impl UploadLimits {
 struct PendingUpload {
     temp_path: PathBuf,
     file_hash: String,
+    file_name: Option<String>,
 }
 
 pub(crate) async fn persist_uploaded_file(
     repo_root: &Path,
     upload_limits: UploadLimits,
     multipart: Result<Multipart, MultipartRejection>,
-) -> AppResult<PathBuf> {
+) -> AppResult<ImportedSource> {
     let mut multipart = multipart.map_err(classify_multipart_rejection)?;
-    let uploads_dir = repo_root.join("db").join("uploads");
-    let temp_dir = uploads_dir.join(".tmp");
+    let temp_dir = crate::audio_store::AudioStore::new(repo_root)
+        .map_err(AppError::internal)?
+        .spool_root()
+        .join("uploads");
     fs::create_dir_all(&temp_dir).await.map_err(|error| {
         AppError::internal(format!(
             "failed to create upload directory {}: {error}",
@@ -100,7 +104,7 @@ pub(crate) async fn persist_uploaded_file(
 
     let pending_upload = pending_upload
         .ok_or_else(|| AppError::bad_request("multipart field 'file' is required"))?;
-    finalize_pending_upload(&uploads_dir, pending_upload).await
+    finalize_pending_upload(repo_root, pending_upload).await
 }
 
 pub(crate) fn upload_limit_message(file_max_bytes: usize) -> String {
@@ -129,6 +133,7 @@ async fn stream_file_field(
     file_max_bytes: usize,
 ) -> AppResult<PendingUpload> {
     let temp_path = temp_dir.join(format!("upload-{}.part", Uuid::now_v7()));
+    let file_name = field.file_name().map(str::to_string);
     let mut writer = OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -183,6 +188,7 @@ async fn stream_file_field(
         Ok(PendingUpload {
             temp_path: temp_path.clone(),
             file_hash: hasher.finish(),
+            file_name,
         })
     }
     .await;
@@ -195,34 +201,21 @@ async fn stream_file_field(
 }
 
 async fn finalize_pending_upload(
-    uploads_dir: &Path,
+    repo_root: &Path,
     pending_upload: PendingUpload,
-) -> AppResult<PathBuf> {
-    let final_path = uploads_dir.join(format!("{}.bin", pending_upload.file_hash));
-    if fs::try_exists(&final_path).await.map_err(|error| {
-        AppError::internal(format!(
-            "failed to inspect upload path {}: {error}",
-            final_path.display()
-        ))
-    })? {
-        cleanup_temp_file(&pending_upload.temp_path).await;
-        return Ok(final_path);
-    }
-
-    match fs::rename(&pending_upload.temp_path, &final_path).await {
-        Ok(()) => Ok(final_path),
-        Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-            cleanup_temp_file(&pending_upload.temp_path).await;
-            Ok(final_path)
-        }
-        Err(error) => {
-            cleanup_temp_file(&pending_upload.temp_path).await;
-            Err(AppError::internal(format!(
-                "failed to finalize uploaded file {}: {error}",
-                final_path.display()
-            )))
-        }
-    }
+) -> AppResult<ImportedSource> {
+    let _ = pending_upload.file_hash;
+    let imported = crate::audio_store::AudioStore::new(repo_root)
+        .and_then(|store| {
+            store.publish_source(
+                &pending_upload.temp_path,
+                pending_upload.file_name.as_deref(),
+                SourceKind::Upload,
+            )
+        })
+        .map_err(AppError::internal);
+    cleanup_temp_file(&pending_upload.temp_path).await;
+    imported
 }
 
 async fn cleanup_pending_upload(pending_upload: &mut Option<PendingUpload>) {

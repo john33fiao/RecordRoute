@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -18,8 +18,13 @@ pub struct JobRecord {
     pub status: JobStatus,
     pub started_at: String,
     pub finished_at: Option<String>,
-    pub source_path: String,
+    pub source_ref: String,
+    pub source_kind: SourceKind,
+    pub source_content_sha256: String,
     pub source_file_name: String,
+    #[serde(skip)]
+    pub source_path: String,
+    #[serde(skip)]
     pub job_dir: String,
     pub probe: JobProbe,
     pub split_strategy: SplitStrategy,
@@ -38,6 +43,13 @@ pub enum JobStatus {
     Running,
     Completed,
     Failed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceKind {
+    LocalFile,
+    Upload,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -199,7 +211,34 @@ pub struct SummaryEmbeddingRecord {
     pub dimension: usize,
     pub normalized: bool,
     pub created_at: String,
-    pub file_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AudioArtifactRecord {
+    pub job_id: String,
+    pub logical_name: String,
+    pub storage_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TranscriptRecord {
+    pub job_id: String,
+    pub transcript_id: String,
+    pub file_name: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SummaryRecord {
+    pub job_id: String,
+    pub file_name: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SummaryEmbeddingVectorRecord {
+    pub metadata: SummaryEmbeddingRecord,
+    pub vector: Vec<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -254,20 +293,41 @@ impl IndexFile {
 }
 
 impl JobRecord {
-    pub fn new(job_id: String, started_at: String, source_path: PathBuf, job_dir: PathBuf) -> Self {
+    pub fn new(job_id: String, started_at: String, source_path: PathBuf, _job_dir: PathBuf) -> Self {
         let source_file_name = source_path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| source_path.to_string_lossy().into_owned());
 
+        Self::new_with_source(
+            job_id,
+            started_at,
+            source_path.to_string_lossy().into_owned(),
+            SourceKind::LocalFile,
+            String::new(),
+            source_file_name,
+        )
+    }
+
+    pub fn new_with_source(
+        job_id: String,
+        started_at: String,
+        source_ref: String,
+        source_kind: SourceKind,
+        source_content_sha256: String,
+        source_file_name: String,
+    ) -> Self {
         Self {
             job_id,
             status: JobStatus::Queued,
             started_at: started_at.clone(),
             finished_at: None,
-            source_path: source_path.to_string_lossy().into_owned(),
+            source_ref,
+            source_kind,
+            source_content_sha256,
             source_file_name,
-            job_dir: job_dir.to_string_lossy().into_owned(),
+            source_path: String::new(),
+            job_dir: String::new(),
             probe: JobProbe::default(),
             split_strategy: SplitStrategy::PerChannelPlusMergedMono,
             outputs: JobOutputs::default(),
@@ -512,15 +572,13 @@ impl JobOutputs {
         let Some(merged_mono_wav) = self.merged_mono_wav.as_deref() else {
             return false;
         };
-        if self.split_mono_wavs.is_empty() {
+        if merged_mono_wav.trim().is_empty() || self.split_mono_wavs.is_empty() {
             return false;
         }
 
-        Path::new(merged_mono_wav).is_file()
-            && self
-                .split_mono_wavs
-                .iter()
-                .all(|output| Path::new(&output.path).is_file())
+        self.split_mono_wavs
+            .iter()
+            .all(|output| !output.path.trim().is_empty())
     }
 }
 

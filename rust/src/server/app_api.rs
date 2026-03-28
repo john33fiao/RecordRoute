@@ -2,12 +2,20 @@ use crate::app::{
     self, BatchQueueSubmission, FfmpegJobSubmission, ModelPrepareSubmission, ModelStatusSnapshot,
     StageJobSubmission, SummarySearchResult,
 };
+use crate::audio_store::ImportedSource;
 use crate::error::{AppError, AppResult};
 use crate::index::{ModelKind, ModelPreparationRecord};
 use std::path::Path;
 
 pub(crate) fn submit_ffmpeg_job(repo_root: &Path, input: &Path) -> AppResult<FfmpegJobSubmission> {
     app::submit_ffmpeg_job(repo_root, input).map_err(classify_create_job_error)
+}
+
+pub(crate) fn submit_uploaded_ffmpeg_job(
+    repo_root: &Path,
+    imported: ImportedSource,
+) -> AppResult<FfmpegJobSubmission> {
+    app::submit_ffmpeg_job_from_imported_source(repo_root, imported).map_err(classify_create_job_error)
 }
 
 pub(crate) fn submit_stt_job(

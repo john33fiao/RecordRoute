@@ -1,4 +1,5 @@
 mod app;
+mod audio_store;
 mod error;
 mod ffmpeg;
 mod index;
@@ -6,6 +7,7 @@ mod launcher;
 mod llama;
 mod runtime_root;
 mod server;
+mod storage;
 mod tool_runtime;
 mod whisper;
 
@@ -27,10 +29,123 @@ pub fn main_launcher() -> Result<(), String> {
 
 #[cfg(test)]
 pub(crate) mod test_support {
+    use crate::index::{
+        AudioArtifactRecord, IndexStore, JobOutputs, JobRecord, JobSplitOutput, SourceKind,
+        SummaryRecord, TranscriptRecord,
+    };
+    use std::fs;
+    use std::path::Path;
     use std::sync::{Mutex, OnceLock};
 
     pub(crate) fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    pub(crate) fn test_job(
+        job_id: &str,
+        started_at: &str,
+        source_ref: &str,
+        source_hash: &str,
+        source_file_name: &str,
+    ) -> JobRecord {
+        JobRecord::new_with_source(
+            job_id.to_string(),
+            started_at.to_string(),
+            source_ref.to_string(),
+            SourceKind::LocalFile,
+            source_hash.to_string(),
+            source_file_name.to_string(),
+        )
+    }
+
+    pub(crate) fn mark_job_completed_with_audio(
+        store: &IndexStore,
+        job: &mut JobRecord,
+        finished_at: &str,
+        audio_file_names: &[&str],
+    ) -> Result<(), String> {
+        let outputs = seed_audio_artifacts(store, &job.job_id, audio_file_names)?;
+        job.mark_completed(finished_at.to_string(), outputs)
+    }
+
+    pub(crate) fn seed_audio_artifacts(
+        store: &IndexStore,
+        job_id: &str,
+        audio_file_names: &[&str],
+    ) -> Result<JobOutputs, String> {
+        let job_dir = store.job_dir(job_id);
+        fs::create_dir_all(&job_dir)
+            .map_err(|error| format!("failed to create test job dir {}: {error}", job_dir.display()))?;
+
+        let mut merged_mono_wav = None;
+        let mut split_mono_wavs = Vec::new();
+
+        for file_name in audio_file_names {
+            let path = job_dir.join(file_name);
+            fs::write(&path, format!("audio:{file_name}"))
+                .map_err(|error| format!("failed to seed audio artifact {}: {error}", path.display()))?;
+            store.upsert_audio_artifact(&AudioArtifactRecord {
+                job_id: job_id.to_string(),
+                logical_name: (*file_name).to_string(),
+                storage_key: format!("jobs/{job_id}/{file_name}"),
+            })?;
+
+            if *file_name == "mono_mix.wav" {
+                merged_mono_wav = Some((*file_name).to_string());
+                continue;
+            }
+
+            let channel_index = parse_channel_index(file_name);
+            split_mono_wavs.push(JobSplitOutput {
+                channel_index,
+                path: (*file_name).to_string(),
+            });
+        }
+
+        split_mono_wavs.sort_by_key(|output| output.channel_index);
+
+        Ok(JobOutputs {
+            merged_mono_wav,
+            split_mono_wavs,
+        })
+    }
+
+    pub(crate) fn seed_transcripts(
+        store: &IndexStore,
+        job_id: &str,
+        transcripts: &[(&str, &str)],
+    ) -> Result<(), String> {
+        for (transcript_id, text) in transcripts {
+            store.upsert_transcript(&TranscriptRecord {
+                job_id: job_id.to_string(),
+                transcript_id: (*transcript_id).to_string(),
+                file_name: format!("{transcript_id}.txt"),
+                text: (*text).to_string(),
+            })?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn seed_summary(
+        store: &IndexStore,
+        job_id: &str,
+        text: &str,
+    ) -> Result<(), String> {
+        store.upsert_summary(&SummaryRecord {
+            job_id: job_id.to_string(),
+            file_name: "result.md".to_string(),
+            text: text.to_string(),
+        })
+    }
+
+    fn parse_channel_index(file_name: &str) -> u32 {
+        let stem = Path::new(file_name)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or_default();
+        stem.strip_prefix("channel_")
+            .and_then(|suffix| suffix.parse::<u32>().ok())
+            .unwrap_or(0)
     }
 }

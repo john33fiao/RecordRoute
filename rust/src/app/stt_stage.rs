@@ -2,8 +2,10 @@ use super::{
     StageJobDisposition, StageJobSubmission, SttRunSummary, SttTranscriptOutput, artifacts,
     ensure_model_prepared, now_rfc3339, queue, read_line, stages, submit_summary_job,
 };
+use crate::audio_store::AudioStore;
 use crate::index::{
     IndexStore, JobRecord, JobStatus, ModelKind, QueuePayload, TaskStatus, TaskType,
+    TranscriptRecord,
 };
 use crate::whisper::{Toolchain as WhisperToolchain, run_transcription};
 use std::fs;
@@ -31,8 +33,8 @@ pub fn submit_stt_job(
         return Err(format!("ffmpeg must be completed before stt: {job_id}"));
     }
 
-    let stt_dir = PathBuf::from(&job.job_dir).join("stt");
-    let all_audio_files = artifacts::supported_audio_files(&PathBuf::from(&job.job_dir))?;
+    let job_dir = index_store.job_dir(job_id);
+    let all_audio_files = artifacts::supported_audio_files(&job_dir)?;
     let audio_files = select_subset_audio_files(&all_audio_files, subset_audio_files)?;
     if audio_files.is_empty() {
         return Err(format!("no supported audio files found in job: {job_id}"));
@@ -76,13 +78,7 @@ pub fn submit_stt_job(
         }
     }
 
-    let all_transcripts_exist =
-        audio_files
-            .iter()
-            .try_fold(true, |acc, audio| -> Result<bool, String> {
-                let transcript = artifacts::transcript_output_path(&stt_dir, audio)?;
-                Ok(acc && transcript.is_file())
-            })?;
+    let all_transcripts_exist = all_transcripts_exist(&index_store, job_id, &audio_files)?;
     if all_transcripts_exist {
         return Ok(StageJobSubmission {
             job,
@@ -124,8 +120,8 @@ pub fn execute_stt_job(
     let job = index_store
         .find_job(job_id)?
         .ok_or_else(|| format!("job not found: {job_id}"))?;
-    let job_dir = PathBuf::from(&job.job_dir);
-    let stt_dir = job_dir.join("stt");
+    let audio_store = AudioStore::new(repo_root)?;
+    let stt_dir = audio_store.spool_root().join("stt").join(job_id);
     let result = (|| -> Result<(), String> {
         if audio_files.is_empty() {
             return Err(format!("no audio files selected for stt: {job_id}"));
@@ -143,10 +139,21 @@ pub fn execute_stt_job(
             let absolute_audio = if audio.is_absolute() {
                 audio.clone()
             } else {
-                job_dir.join(audio)
+                index_store.job_dir(job_id).join(audio)
             };
             let transcript = artifacts::transcript_output_path(&stt_dir, &absolute_audio)?;
             run_transcription(&toolchain, &absolute_audio, &transcript)?;
+            let file_name = artifacts::transcript_file_name(&absolute_audio)?;
+            let transcript_id = artifacts::transcript_id_from_file_name(&file_name)?;
+            let text = fs::read_to_string(&transcript).map_err(|error| {
+                format!("failed to read transcript {}: {error}", transcript.display())
+            })?;
+            index_store.upsert_transcript(&TranscriptRecord {
+                job_id: job_id.to_string(),
+                transcript_id,
+                file_name,
+                text,
+            })?;
         }
         Ok(())
     })();
@@ -197,7 +204,10 @@ pub fn run_stt_with_repo_root(
         stages::wait_for_task_completion(repo_root, &selected.job_id, TaskType::Stt)?;
     }
 
-    let stt_dir = selected.job_dir.join("stt");
+    let stt_dir = AudioStore::new(repo_root)?
+        .spool_root()
+        .join("stt")
+        .join(&selected.job_id);
     let transcripts = selected
         .audio_files
         .iter()
@@ -222,7 +232,7 @@ fn collect_stt_candidates(index_store: &IndexStore) -> Result<Vec<SttCandidate>,
     let mut candidates = Vec::new();
 
     for job in index_store.list_jobs()? {
-        let job_dir = PathBuf::from(&job.job_dir);
+        let job_dir = index_store.job_dir(&job.job_id);
         if !job_dir.is_dir() {
             continue;
         }
@@ -312,7 +322,12 @@ fn select_subset_audio_files(
 fn normalized_audio_files(audio_files: &[PathBuf]) -> Vec<String> {
     audio_files
         .iter()
-        .map(|path| path.to_string_lossy().into_owned())
+        .map(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_string()
+        })
         .collect()
 }
 
@@ -321,4 +336,21 @@ fn stt_payload_matches(entry: &crate::index::QueueEntry, requested_audio_files: 
         QueuePayload::Stt { audio_files } => audio_files == requested_audio_files,
         _ => false,
     }
+}
+
+fn all_transcripts_exist(
+    index_store: &IndexStore,
+    job_id: &str,
+    audio_files: &[PathBuf],
+) -> Result<bool, String> {
+    if audio_files.is_empty() {
+        return Ok(false);
+    }
+    audio_files
+        .iter()
+        .try_fold(true, |all_present, audio_file| -> Result<bool, String> {
+            let file_name = artifacts::transcript_file_name(audio_file)?;
+            let transcript_id = artifacts::transcript_id_from_file_name(&file_name)?;
+            Ok(all_present && index_store.find_transcript(job_id, &transcript_id)?.is_some())
+        })
 }

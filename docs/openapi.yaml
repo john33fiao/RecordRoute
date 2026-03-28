@@ -6,7 +6,8 @@ info:
     `rust/src/server.rs` 기준으로 현재 구현된 RecordRoute HTTP API 명세입니다.
 
     - 서버 기본 바인드: `127.0.0.1:38080`
-    - 상태/결과 저장 SoT: `db/index.json`
+    - 메타데이터 기본 저장소: `db/index.sqlite3`
+    - 오디오 기본 저장소: `db/audio/`
     - 비동기 작업 제출 엔드포인트는 즉시 처리 결과 대신 제출/중복제거 상태를 반환할 수 있습니다.
 servers:
   - url: http://127.0.0.1:38080
@@ -253,6 +254,13 @@ paths:
       tags: [jobs]
       summary: List jobs
       operationId: getJobs
+      parameters:
+        - in: query
+          name: source_ref
+          required: false
+          schema:
+            type: string
+          description: Optional exact source reference filter
       responses:
         '200':
           description: Job list
@@ -336,38 +344,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobListResponse'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /jobs/by-source:
-    get:
-      tags: [jobs]
-      summary: List jobs by source path
-      operationId: getJobsBySource
-      parameters:
-        - in: query
-          name: source_path
-          required: true
-          schema:
-            type: string
-          description: Exact source path used when creating the ffmpeg job
-      responses:
-        '200':
-          description: Filtered job list
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/JobListResponse'
-        '400':
-          description: Missing source_path query
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
           content:
@@ -1160,7 +1136,7 @@ components:
 
     SummaryEmbeddingRecord:
       type: object
-      required: [model_id, text_sha256, dimension, normalized, created_at, file_path]
+      required: [model_id, text_sha256, dimension, normalized, created_at]
       properties:
         model_id:
           type: string
@@ -1174,8 +1150,6 @@ components:
         created_at:
           type: string
           format: date-time
-        file_path:
-          type: string
 
     SummaryEmbeddingResponse:
       type: object
@@ -1207,7 +1181,7 @@ components:
     JobSubmissionResponse:
       type: object
       required:
-        [job_id, status, message, reused, deduplicated, started_at, finished_at, source_path, source_file_name, probe, outputs, error_message]
+        [job_id, status, message, reused, deduplicated, started_at, finished_at, source_ref, source_kind, source_content_sha256, source_file_name, probe, outputs, error_message]
       properties:
         job_id:
           type: string
@@ -1229,7 +1203,11 @@ components:
           oneOf:
             - type: string
             - type: 'null'
-        source_path:
+        source_ref:
+          type: string
+        source_kind:
+          $ref: '#/components/schemas/SourceKind'
+        source_content_sha256:
           type: string
         source_file_name:
           type: string
@@ -1254,7 +1232,7 @@ components:
     JobRecord:
       type: object
       required:
-        [job_id, status, started_at, finished_at, source_path, source_file_name, job_dir, probe, split_strategy, outputs, error_message, summary_embedding, tasks]
+        [job_id, status, started_at, finished_at, source_ref, source_kind, source_content_sha256, source_file_name, probe, split_strategy, outputs, error_message, summary_embedding, tasks]
       properties:
         job_id:
           type: string
@@ -1266,11 +1244,13 @@ components:
           oneOf:
             - type: string
             - type: 'null'
-        source_path:
+        source_ref:
+          type: string
+        source_kind:
+          $ref: '#/components/schemas/SourceKind'
+        source_content_sha256:
           type: string
         source_file_name:
-          type: string
-        job_dir:
           type: string
         probe:
           $ref: '#/components/schemas/JobProbe'
@@ -1364,6 +1344,10 @@ components:
     JobStatus:
       type: string
       enum: [queued, running, completed, failed]
+
+    SourceKind:
+      type: string
+      enum: [local_file, upload]
 
     TaskStatus:
       type: string

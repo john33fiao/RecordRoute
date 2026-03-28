@@ -792,9 +792,11 @@ function renderSelectedJob() {
     ["status", job.status],
     ["started_at", formatDate(job.started_at)],
     ["finished_at", formatDate(job.finished_at)],
+    ["source_ref", job.source_ref ?? "-"],
+    ["source_kind", job.source_kind ?? "-"],
+    ["source_content_sha256", job.source_content_sha256 ?? "-"],
     ["channels", job.probe?.channels ?? "-"],
     ["channel_layout", job.probe?.channel_layout ?? "-"],
-    ["job_dir", job.job_dir],
     ["error", job.error_message ?? "-"],
   ]
     .map(([key, value]) => `<dt>${escapeHtml(String(key))}</dt><dd>${escapeHtml(String(value))}</dd>`)

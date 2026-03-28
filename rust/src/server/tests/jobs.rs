@@ -5,11 +5,12 @@ use super::super::types::{
     JobSubmissionResponse,
 };
 use super::support::*;
-use crate::index::{IndexStore, JobOutputs, JobRecord, JobStatus, TaskType};
+use crate::index::{IndexStore, JobRecord, JobStatus, TaskType};
+use crate::test_support::{mark_job_completed_with_audio, test_job};
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tower::util::ServiceExt;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -95,16 +96,17 @@ async fn post_jobs_returns_accepted_then_job_transitions_to_completed() {
 
     assert_eq!(completed.status, JobStatus::Completed);
     assert_eq!(completed.probe.channels, Some(2));
-    assert!(
-        Path::new(
+    let store = IndexStore::new(&repo_root);
+    let job_dir = store.job_dir(&completed.job_id);
+    assert!(job_dir
+        .join(
             completed
                 .outputs
                 .merged_mono_wav
                 .as_deref()
                 .expect("merged output"),
         )
-        .is_file()
-    );
+        .is_file());
     assert_eq!(completed.outputs.split_mono_wavs.len(), 2);
 }
 
@@ -141,10 +143,11 @@ async fn post_jobs_upload_accepts_file_and_stores_content_hashed_path() {
     let submitted: JobSubmissionResponse = read_json(response).await;
     assert!(!submitted.reused);
     assert!(!submitted.deduplicated);
-    assert!(submitted.source_path.ends_with(".bin"));
-    assert!(Path::new(&submitted.source_path).is_file());
+    assert!(submitted.source_ref.starts_with("sources/"));
+    let stored_path = IndexStore::new(&repo_root).source_path(&submitted.source_ref);
+    assert!(stored_path.is_file());
     assert_eq!(
-        fs::read(&submitted.source_path).expect("uploaded path"),
+        fs::read(&stored_path).expect("uploaded path"),
         audio_bytes
     );
 
@@ -504,21 +507,20 @@ async fn get_jobs_completed_returns_only_completed_jobs() {
     let repo_root = temp_workspace();
     let store = IndexStore::new(&repo_root);
 
-    let mut completed_job = JobRecord::new(
-        "job-completed".to_string(),
-        "2026-01-01T00:00:00Z".to_string(),
-        PathBuf::from("/tmp/completed.wav"),
-        store.job_dir("job-completed"),
+    let mut completed_job = test_job(
+        "job-completed",
+        "2026-01-01T00:00:00Z",
+        "sources/job-completed/source.wav",
+        "hash-job-completed",
+        "completed.wav",
     );
-    completed_job
-        .mark_completed(
-            "2026-01-01T00:00:01Z".to_string(),
-            JobOutputs {
-                merged_mono_wav: Some("/tmp/completed_mono.wav".to_string()),
-                split_mono_wavs: Vec::new(),
-            },
-        )
-        .expect("mark completed job");
+    mark_job_completed_with_audio(
+        &store,
+        &mut completed_job,
+        "2026-01-01T00:00:01Z",
+        &["mono_mix.wav"],
+    )
+    .expect("mark completed job");
     store
         .insert_job(completed_job)
         .expect("insert completed job");
@@ -548,35 +550,39 @@ async fn get_jobs_completed_returns_only_completed_jobs() {
 async fn get_jobs_by_source_filters_jobs() {
     let repo_root = temp_workspace();
     let store = IndexStore::new(&repo_root);
+    let source_ref = "sources/hash-target/source.wav";
 
     store
-        .insert_job(JobRecord::new(
-            "job-target-1".to_string(),
-            "2026-01-01T00:00:00Z".to_string(),
-            PathBuf::from("/tmp/target.wav"),
-            store.job_dir("job-target-1"),
+        .insert_job(test_job(
+            "job-target-1",
+            "2026-01-01T00:00:00Z",
+            source_ref,
+            "hash-target",
+            "target.wav",
         ))
         .expect("insert target job 1");
     store
-        .insert_job(JobRecord::new(
-            "job-other".to_string(),
-            "2026-01-01T00:00:01Z".to_string(),
-            PathBuf::from("/tmp/other.wav"),
-            store.job_dir("job-other"),
+        .insert_job(test_job(
+            "job-other",
+            "2026-01-01T00:00:01Z",
+            "sources/hash-other/source.wav",
+            "hash-other",
+            "other.wav",
         ))
         .expect("insert other job");
     store
-        .insert_job(JobRecord::new(
-            "job-target-2".to_string(),
-            "2026-01-01T00:00:02Z".to_string(),
-            PathBuf::from("/tmp/target.wav"),
-            store.job_dir("job-target-2"),
+        .insert_job(test_job(
+            "job-target-2",
+            "2026-01-01T00:00:02Z",
+            source_ref,
+            "hash-target",
+            "target.wav",
         ))
         .expect("insert target job 2");
 
     let app = router_with_repo_root(repo_root);
     let response = app
-        .oneshot(get_request("/jobs/by-source?source_path=/tmp/target.wav"))
+        .oneshot(get_request("/jobs?source_ref=sources/hash-target/source.wav"))
         .await
         .expect("get jobs by source response");
 
@@ -588,17 +594,26 @@ async fn get_jobs_by_source_filters_jobs() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn get_jobs_by_source_requires_source_path_query() {
+async fn get_jobs_without_source_ref_query_returns_all_jobs() {
     let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    store
+        .insert_job(JobRecord::new(
+            "job-1".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/target.wav"),
+            store.job_dir("job-1"),
+        ))
+        .expect("insert job");
     let app = router_with_repo_root(repo_root);
     let response = app
-        .oneshot(get_request("/jobs/by-source"))
+        .oneshot(get_request("/jobs"))
         .await
-        .expect("get jobs by source without query response");
+        .expect("get jobs without query response");
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    let body: ErrorResponse = read_json(response).await;
-    assert_eq!(body.message, "source_path query is required");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: JobListResponse = read_json(response).await;
+    assert_eq!(body.jobs.len(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -703,7 +718,7 @@ async fn post_jobs_marks_failed_job_and_preserves_error_message() {
             .contains("ffmpeg conversion failed")
     );
 
-    let job_dir = PathBuf::from(&failed.job_dir);
+    let job_dir = IndexStore::new(&repo_root).job_dir(&failed.job_id);
     assert!(!job_dir.join("channel_01.wav").exists());
     assert!(!job_dir.join("channel_02.wav").exists());
     assert!(!job_dir.join("mono_mix.wav").exists());

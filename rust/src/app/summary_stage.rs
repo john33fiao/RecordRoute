@@ -2,7 +2,11 @@ use super::{
     StageJobDisposition, StageJobSubmission, SummaryRunSummary, artifacts, ensure_model_prepared,
     now_rfc3339, queue, read_line, stages, submit_summary_embedding_job,
 };
-use crate::index::{IndexStore, JobRecord, ModelKind, QueuePayload, TaskStatus, TaskType};
+use crate::audio_store::AudioStore;
+use crate::index::{
+    IndexStore, JobRecord, ModelKind, QueuePayload, SummaryRecord, TaskStatus, TaskType,
+    TranscriptRecord,
+};
 use crate::llama::{Toolchain as LlamaToolchain, run_summary_generation};
 use std::fs;
 use std::io::{BufRead, Write};
@@ -13,7 +17,7 @@ struct SummaryCandidate {
     job_id: String,
     source_file_name: String,
     job_dir: PathBuf,
-    transcript_files: Vec<PathBuf>,
+    transcript_files: Vec<String>,
 }
 
 pub fn submit_summary_job(
@@ -25,9 +29,7 @@ pub fn submit_summary_job(
     let job = index_store
         .find_job(job_id)?
         .ok_or_else(|| format!("job not found: {job_id}"))?;
-    let job_dir = PathBuf::from(&job.job_dir);
-    let summary_dir = job_dir.join("summary");
-    let summary_file = artifacts::ensure_summary_output_path(&summary_dir, &job.source_file_name)?;
+    let job_dir = index_store.job_dir(job_id);
 
     if let Some(task) = job.task(TaskType::Summary)
         && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
@@ -109,7 +111,7 @@ pub fn submit_summary_job(
             None => {}
         }
     }
-    if !force_regenerate && summary_file.is_file() {
+    if !force_regenerate && index_store.get_summary(job_id)?.is_some() {
         return Ok(StageJobSubmission {
             job,
             disposition: StageJobDisposition::Reused,
@@ -118,7 +120,7 @@ pub fn submit_summary_job(
         });
     }
 
-    if !summary_prerequisites_ready(&job_dir)? {
+    if !summary_prerequisites_ready(&index_store, job_id, &job_dir)? {
         return Err(format!("stt must be completed before summary: {job_id}"));
     }
 
@@ -154,11 +156,12 @@ pub fn execute_summary_job(
     let job = index_store
         .find_job(job_id)?
         .ok_or_else(|| format!("job not found: {job_id}"))?;
-    let job_dir = PathBuf::from(&job.job_dir);
-    let stt_dir = job_dir.join("stt");
-    let summary_dir = job_dir.join("summary");
+    let summary_dir = AudioStore::new(repo_root)?
+        .spool_root()
+        .join("summary")
+        .join(job_id);
     let result = (|| -> Result<(), String> {
-        let transcript_files = artifacts::transcript_text_files(&stt_dir)?;
+        let transcript_files = index_store.list_transcripts(job_id)?;
         if transcript_files.is_empty() {
             return Err(format!("no transcripts found for summary: {job_id}"));
         }
@@ -169,9 +172,8 @@ pub fn execute_summary_job(
                 summary_dir.display()
             )
         })?;
-        let summary_file =
-            artifacts::ensure_summary_output_path(&summary_dir, &job.source_file_name)?;
-        if summary_file.is_file() && !force_regenerate {
+        let summary_file = artifacts::summary_output_path(&summary_dir, &job.source_file_name)?;
+        if !force_regenerate && index_store.get_summary(job_id)?.is_some() {
             return Ok(());
         }
 
@@ -188,6 +190,14 @@ pub fn execute_summary_job(
         let generation_result = run_summary_generation(&toolchain, &prompt_file, &summary_file);
         let _ = fs::remove_file(&prompt_file);
         generation_result?;
+        let summary_text = fs::read_to_string(&summary_file).map_err(|error| {
+            format!("failed to read generated summary {}: {error}", summary_file.display())
+        })?;
+        index_store.upsert_summary(&SummaryRecord {
+            job_id: job_id.to_string(),
+            file_name: artifacts::summary_file_name().to_string(),
+            text: summary_text,
+        })?;
         Ok(())
     })();
 
@@ -244,9 +254,25 @@ pub fn run_summary_with_repo_root(
         stages::wait_for_task_completion(repo_root, &selected.job_id, TaskType::Summary)?;
     }
 
-    let summary_dir = selected.job_dir.join("summary");
-    let summary_file =
-        artifacts::ensure_summary_output_path(&summary_dir, &selected.source_file_name)?;
+    let summary_dir = AudioStore::new(repo_root)?
+        .spool_root()
+        .join("summary")
+        .join(&selected.job_id);
+    let summary_file = artifacts::summary_output_path(&summary_dir, &selected.source_file_name)?;
+    fs::create_dir_all(&summary_dir).map_err(|error| {
+        format!(
+            "failed to create summary spool directory {}: {error}",
+            summary_dir.display()
+        )
+    })?;
+    if let Some(summary) = IndexStore::new(repo_root).get_summary(&selected.job_id)? {
+        fs::write(&summary_file, summary.text).map_err(|error| {
+            format!(
+                "failed to materialize summary file {}: {error}",
+                summary_file.display()
+            )
+        })?;
+    }
     Ok(SummaryRunSummary {
         job_id: selected.job_id,
         job_dir: selected.job_dir,
@@ -259,13 +285,16 @@ fn collect_summary_candidates(index_store: &IndexStore) -> Result<Vec<SummaryCan
     let mut candidates = Vec::new();
 
     for job in index_store.list_jobs()? {
-        let job_dir = PathBuf::from(&job.job_dir);
+        let job_dir = index_store.job_dir(&job.job_id);
         if !job_dir.is_dir() {
             continue;
         }
 
-        let stt_dir = job_dir.join("stt");
-        let transcript_files = artifacts::transcript_text_files(&stt_dir)?;
+        let transcript_files = index_store
+            .list_transcripts(&job.job_id)?
+            .into_iter()
+            .map(|record| record.file_name)
+            .collect::<Vec<_>>();
         if transcript_files.is_empty() {
             continue;
         }
@@ -319,7 +348,7 @@ fn select_summary_candidate(
     }
 }
 
-fn build_summary_prompt(transcript_files: &[PathBuf]) -> Result<String, String> {
+fn build_summary_prompt(transcript_files: &[TranscriptRecord]) -> Result<String, String> {
     let mut prompt = String::from(
         "당신은 한국어 음성 내용을 간단히 정리하는 도우미다.\n\
 다음 입력은 하나의 녹음에서 나온 STT 결과들이며 파일마다 중복이 있을 수 있다.\n\
@@ -332,26 +361,10 @@ fn build_summary_prompt(transcript_files: &[PathBuf]) -> Result<String, String> 
     );
 
     for transcript_file in transcript_files {
-        let label = transcript_file
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| {
-                format!(
-                    "transcript file does not have a valid file name: {}",
-                    transcript_file.display()
-                )
-            })?;
-        let content = fs::read_to_string(transcript_file).map_err(|error| {
-            format!(
-                "failed to read transcript file {}: {error}",
-                transcript_file.display()
-            )
-        })?;
-
         prompt.push_str("\n\n[");
-        prompt.push_str(label);
+        prompt.push_str(&transcript_file.file_name);
         prompt.push_str("]\n");
-        prompt.push_str(content.trim());
+        prompt.push_str(transcript_file.text.trim());
     }
 
     Ok(prompt)
@@ -364,9 +377,12 @@ fn summary_payload_satisfies(entry: &crate::index::QueueEntry, requested_force: 
     }
 }
 
-fn summary_prerequisites_ready(job_dir: &Path) -> Result<bool, String> {
-    let stt_dir = job_dir.join("stt");
-    let transcript_files = artifacts::transcript_text_files(&stt_dir)?;
+fn summary_prerequisites_ready(
+    index_store: &IndexStore,
+    job_id: &str,
+    job_dir: &Path,
+) -> Result<bool, String> {
+    let transcript_files = index_store.list_transcripts(job_id)?;
     if transcript_files.is_empty() {
         return Ok(false);
     }
@@ -376,10 +392,9 @@ fn summary_prerequisites_ready(job_dir: &Path) -> Result<bool, String> {
         return Ok(true);
     }
 
-    audio_files
-        .iter()
-        .try_fold(true, |all_present, audio_file| -> Result<bool, String> {
-            let transcript = artifacts::transcript_output_path(&stt_dir, audio_file)?;
-            Ok(all_present && transcript.is_file())
-        })
+    audio_files.iter().try_fold(true, |all_present, audio_file| -> Result<bool, String> {
+        let file_name = artifacts::transcript_file_name(audio_file)?;
+        let transcript_id = artifacts::transcript_id_from_file_name(&file_name)?;
+        Ok(all_present && index_store.find_transcript(job_id, &transcript_id)?.is_some())
+    })
 }

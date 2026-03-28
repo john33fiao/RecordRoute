@@ -1,7 +1,7 @@
 use crate::app;
 use crate::index::{
     JobOutputs, JobProbe, JobRecord, JobStatus, ModelKind, ModelPreparationRecord, QueueCategory,
-    TaskRecord, TaskType,
+    SourceKind, TaskRecord, TaskType,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -30,8 +30,8 @@ pub(crate) struct CreateJobRequest {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub(crate) struct JobsBySourceQuery {
-    pub source_path: String,
+pub(crate) struct JobsQuery {
+    pub source_ref: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -216,7 +216,9 @@ pub(crate) struct JobSubmissionResponse {
     pub queue: Option<QueueInfoResponse>,
     pub started_at: String,
     pub finished_at: Option<String>,
-    pub source_path: String,
+    pub source_ref: String,
+    pub source_kind: SourceKind,
+    pub source_content_sha256: String,
     pub source_file_name: String,
     pub probe: JobProbe,
     pub outputs: JobOutputs,
@@ -281,7 +283,9 @@ pub(crate) fn build_job_submission_response(
         queue: queue.map(build_queue_info_response),
         started_at: job.started_at.clone(),
         finished_at: job.finished_at.clone(),
-        source_path: job.source_path.clone(),
+        source_ref: job.source_ref.clone(),
+        source_kind: job.source_kind,
+        source_content_sha256: job.source_content_sha256.clone(),
         source_file_name: job.source_file_name.clone(),
         probe: job.probe.clone(),
         outputs: job.outputs.clone(),

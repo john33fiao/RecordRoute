@@ -1,9 +1,11 @@
 use super::{StageJobDisposition, StageJobSubmission, artifacts, now_rfc3339, queue, stages};
-use crate::index::{IndexStore, JobRecord, SummaryEmbeddingRecord, TaskStatus, TaskType};
+use crate::index::{
+    IndexStore, JobRecord, SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord, TaskStatus,
+    TaskType,
+};
 use crate::llama::{Toolchain as LlamaToolchain, embedding_model_id, run_summary_embedding};
 use sha2::{Digest, Sha256};
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EmbeddingSidecar {
@@ -32,9 +34,8 @@ pub fn submit_summary_embedding_job(
     let job = index_store
         .find_job(job_id)?
         .ok_or_else(|| format!("job not found: {job_id}"))?;
-    let (summary_file, summary_dir) = summary_path_for_job(&job)?;
-    if !summary_file.is_file() {
-        return Err(format!("summary not found: {}", summary_file.display()));
+    if index_store.get_summary(job_id)?.is_none() {
+        return Err(format!("summary not found for job: {job_id}"));
     }
     if let Some(task) = job.task(TaskType::Embedding)
         && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
@@ -61,15 +62,6 @@ pub fn submit_summary_embedding_job(
             planned_audio_files: Vec::new(),
             queue: None,
         });
-    }
-
-    if !summary_dir.is_dir() {
-        fs::create_dir_all(&summary_dir).map_err(|e| {
-            format!(
-                "failed to create summary directory {}: {e}",
-                summary_dir.display()
-            )
-        })?;
     }
 
     let queued_at = now_rfc3339()?;
@@ -102,9 +94,10 @@ pub fn execute_summary_embedding_job(repo_root: &Path, job_id: &str) -> Result<J
         .ok_or_else(|| format!("job not found: {job_id}"))?;
 
     let result = (|| -> Result<SummaryEmbeddingRecord, String> {
-        let (summary_file, summary_dir) = summary_path_for_job(&job)?;
-        let summary_text = fs::read_to_string(&summary_file)
-            .map_err(|e| format!("failed to read summary {}: {e}", summary_file.display()))?;
+        let summary_text = index_store
+            .get_summary(job_id)?
+            .ok_or_else(|| format!("summary not found for job: {job_id}"))?
+            .text;
         let text_sha256 = summary_text_sha256(&summary_text);
         let toolchain = LlamaToolchain::discover(repo_root)?;
         let vector = run_summary_embedding(&toolchain, &summary_text)?;
@@ -119,26 +112,27 @@ pub fn execute_summary_embedding_job(repo_root: &Path, job_id: &str) -> Result<J
             dimension: vector.len(),
             normalized: true,
             created_at: created_at.clone(),
-            vector,
+            vector: vector.clone(),
         };
-        let sidecar_path = artifacts::summary_embedding_output_path(&summary_dir);
-        fs::write(
-            &sidecar_path,
-            serde_json::to_vec_pretty(&sidecar).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| {
-            format!(
-                "failed to write embedding sidecar {}: {e}",
-                sidecar_path.display()
-            )
-        })?;
+        index_store.upsert_summary_embedding(
+            job_id,
+            &SummaryEmbeddingVectorRecord {
+                metadata: SummaryEmbeddingRecord {
+                    model_id: sidecar.model_id.clone(),
+                    text_sha256: sidecar.text_sha256.clone(),
+                    dimension: sidecar.dimension,
+                    normalized: sidecar.normalized,
+                    created_at: sidecar.created_at.clone(),
+                },
+                vector,
+            },
+        )?;
         Ok(SummaryEmbeddingRecord {
             model_id,
             text_sha256,
             dimension: sidecar.dimension,
             normalized: sidecar.normalized,
             created_at,
-            file_path: sidecar_path.to_string_lossy().into_owned(),
         })
     })();
 
@@ -199,10 +193,12 @@ pub fn search_summaries(
         let Some(metadata) = job.summary_embedding.clone() else {
             continue;
         };
-        let Ok(sidecar) = read_sidecar(&PathBuf::from(&metadata.file_path)) else {
+        let Ok(Some(sidecar)) = IndexStore::new(repo_root).get_summary_embedding(&job.job_id) else {
             continue;
         };
-        if sidecar.model_id != embedding_model_id(repo_root) || sidecar.dimension != q.len() {
+        if sidecar.metadata.model_id != embedding_model_id(repo_root)
+            || sidecar.metadata.dimension != q.len()
+        {
             continue;
         }
         let score = dot(&q, &sidecar.vector);
@@ -233,11 +229,11 @@ pub fn is_embedding_stale(repo_root: &Path, job: &JobRecord) -> Result<bool, Str
     let Some(metadata) = job.summary_embedding.as_ref() else {
         return Ok(true);
     };
-    let (summary_file, _) = summary_path_for_job(job)?;
-    if !summary_file.is_file() {
+    let store = IndexStore::new(repo_root);
+    let Some(summary) = store.get_summary(&job.job_id)? else {
         return Ok(true);
-    }
-    let summary_text = fs::read_to_string(summary_file).map_err(|e| e.to_string())?;
+    };
+    let summary_text = summary.text;
     let expected_sha = summary_text_sha256(&summary_text);
     if expected_sha != metadata.text_sha256 {
         return Ok(true);
@@ -245,26 +241,13 @@ pub fn is_embedding_stale(repo_root: &Path, job: &JobRecord) -> Result<bool, Str
     if metadata.model_id != embedding_model_id(repo_root) {
         return Ok(true);
     }
-    let sidecar = match read_sidecar(&PathBuf::from(&metadata.file_path)) {
-        Ok(s) => s,
-        Err(_) => return Ok(true),
+    let sidecar = match store.get_summary_embedding(&job.job_id)? {
+        Some(s) => s,
+        None => return Ok(true),
     };
-    Ok(sidecar.text_sha256 != expected_sha
-        || sidecar.model_id != metadata.model_id
-        || sidecar.dimension != metadata.dimension)
-}
-
-fn read_sidecar(path: &Path) -> Result<EmbeddingSidecar, String> {
-    let raw = fs::read_to_string(path)
-        .map_err(|e| format!("failed to read sidecar {}: {e}", path.display()))?;
-    serde_json::from_str::<EmbeddingSidecar>(&raw)
-        .map_err(|e| format!("failed to parse sidecar {}: {e}", path.display()))
-}
-
-fn summary_path_for_job(job: &JobRecord) -> Result<(PathBuf, PathBuf), String> {
-    let summary_dir = PathBuf::from(&job.job_dir).join("summary");
-    let summary_file = artifacts::ensure_summary_output_path(&summary_dir, &job.source_file_name)?;
-    Ok((summary_file, summary_dir))
+    Ok(sidecar.metadata.text_sha256 != expected_sha
+        || sidecar.metadata.model_id != metadata.model_id
+        || sidecar.metadata.dimension != metadata.dimension)
 }
 
 fn summary_text_sha256(text: &str) -> String {
@@ -278,9 +261,10 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
 }
 
 fn summary_excerpt(repo_root: &Path, job: &JobRecord) -> Result<String, String> {
-    let (summary_file, _) = summary_path_for_job(job)?;
-    let _ = repo_root;
-    let raw = fs::read_to_string(&summary_file).map_err(|e| e.to_string())?;
+    let raw = IndexStore::new(repo_root)
+        .get_summary(&job.job_id)?
+        .ok_or_else(|| format!("summary not found for job: {}", job.job_id))?
+        .text;
     let one_line = raw
         .replace('\n', " ")
         .split_whitespace()

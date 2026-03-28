@@ -176,14 +176,27 @@ HF_TOKEN=
 
 ## 결과물 위치
 
-패키지 실행 기준 결과는 `package/db/<job_id>/` 아래에 쌓입니다(개발 모드 fallback은 repo `db/`).
+기본 저장 루트는 런타임 루트의 `db/`입니다.
 
-- `mono_mix.wav`
-- `channel_01.wav`, `channel_02.wav`, ...
-- `stt/*.txt`
-- `summary/*.md`
+- 메타데이터 DB 기본값: `db/index.sqlite3`
+- 오디오 권위 저장소 기본값: `db/audio/`
+- 오디오 cache 기본값: `db/audio-cache/`
+- 오디오 spool 기본값: `db/audio-spool/`
 
-전체 Job 메타데이터와 상태는 `db/index.json`에 저장됩니다.
+환경변수로 위치를 바꿀 수 있습니다.
+
+- `RECORDROUTE_METADATA_DRIVER=sqlite|postgres`
+- `RECORDROUTE_METADATA_SQLITE_PATH`
+- `RECORDROUTE_METADATA_POSTGRES_URL`
+- `RECORDROUTE_AUDIO_ROOT`
+- `RECORDROUTE_AUDIO_CACHE_ROOT`
+- `RECORDROUTE_AUDIO_SPOOL_ROOT`
+
+현재 저장 원칙은 다음과 같습니다.
+
+- Job/Task/queue/model 상태, transcript, summary, summary embedding은 메타DB에 저장
+- ffmpeg 산출 오디오는 `db/audio/jobs/<job_id>/` 아래 논리 파일명으로 저장
+- `/jobs/{job_id}/files`는 저장 위치를 직접 노출하지 않고 logical artifact 목록을 반환
 
 ---
 
@@ -205,7 +218,7 @@ HF_TOKEN=
 해결:
 1. 웹 콘솔 또는 `POST /jobs`로 오디오 처리를 먼저 시작
 2. `GET /jobs/<job_id>`로 상태가 `completed`인지 확인
-3. 필요 시 `GET /jobs/<job_id>/files`로 실제 파일 존재 확인
+3. 필요 시 `GET /jobs/<job_id>/files`로 logical artifact 목록 확인
 
 ### 3) STT 요청이 400으로 실패 (`audio_files cannot be combined with mono_mix_only`)
 원인:
@@ -236,7 +249,7 @@ HF_TOKEN=
 3. 웹 콘솔 또는 API로 오디오 처리 시작
 4. STT 실행
 5. 요약 실행
-6. `db/<job_id>` 산출물 확인
+6. `GET /jobs/<job_id>/files` 또는 `db/audio/jobs/<job_id>/`로 오디오 산출물 확인
 
 이 순서를 따르면 가장 적은 시행착오로 전체 워크플로를 경험할 수 있습니다.
 

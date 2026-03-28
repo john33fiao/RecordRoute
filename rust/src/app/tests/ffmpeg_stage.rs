@@ -1,9 +1,9 @@
 use super::super::*;
 use super::support::*;
 use crate::ffmpeg::Toolchain as FfmpegToolchain;
-use crate::index::{IndexStore, JobRecord};
+use crate::index::IndexStore;
+use crate::test_support::test_job;
 use std::fs;
-use std::path::PathBuf;
 #[test]
 fn end_to_end_flow_uses_fake_toolchain() {
     let repo_root = temp_workspace();
@@ -32,20 +32,13 @@ fn end_to_end_flow_uses_fake_toolchain() {
     assert!(log.contains("-filter_complex"));
     assert!(log.contains(&crate::ffmpeg::build_filter_complex(2)));
 
-    let index = fs::read_to_string(repo_root.join("db/index.json")).expect("index");
-    let parsed: serde_json::Value = serde_json::from_str(&index).expect("valid json");
-    assert_eq!(parsed["version"], 4);
-    let jobs = parsed["jobs"].as_array().expect("jobs array");
-    assert_eq!(jobs.len(), 1);
-    assert_eq!(jobs[0]["status"], "completed");
-    assert_eq!(jobs[0]["probe"]["channels"], 2);
-    assert_eq!(
-        jobs[0]["outputs"]["split_mono_wavs"]
-            .as_array()
-            .expect("array")
-            .len(),
-        2
-    );
+    let store = IndexStore::new(&repo_root);
+    let index = store.read_index().expect("read index");
+    assert_eq!(index.version, 4);
+    assert_eq!(index.jobs.len(), 1);
+    assert_eq!(index.jobs[0].status, crate::index::JobStatus::Completed);
+    assert_eq!(index.jobs[0].probe.channels, Some(2));
+    assert_eq!(index.jobs[0].outputs.split_mono_wavs.len(), 2);
 }
 
 #[test]
@@ -68,18 +61,22 @@ fn failure_marks_job_failed_and_cleans_partial_outputs() {
 
     assert!(error.contains("ffmpeg conversion failed"));
 
-    let index = fs::read_to_string(repo_root.join("db/index.json")).expect("index");
-    let parsed: serde_json::Value = serde_json::from_str(&index).expect("valid json");
-    let jobs = parsed["jobs"].as_array().expect("jobs array");
-    assert_eq!(jobs[0]["status"], "failed");
+    let store = IndexStore::new(&repo_root);
+    let job = store
+        .list_jobs()
+        .expect("list jobs")
+        .into_iter()
+        .next()
+        .expect("job");
+    assert_eq!(job.status, crate::index::JobStatus::Failed);
     assert!(
-        jobs[0]["error_message"]
-            .as_str()
+        job.error_message
+            .as_deref()
             .expect("error")
             .contains("ffmpeg conversion failed")
     );
 
-    let job_dir = PathBuf::from(jobs[0]["job_dir"].as_str().expect("job dir"));
+    let job_dir = store.job_dir(&job.job_id);
     assert!(job_dir.exists());
     assert!(!job_dir.join("channel_01.wav").exists());
     assert!(!job_dir.join("channel_02.wav").exists());
@@ -127,9 +124,8 @@ fn reuses_completed_outputs_for_same_input() {
     );
     assert_eq!(read_run_count(&ffmpeg_count), 1);
 
-    let index = fs::read_to_string(repo_root.join("db/index.json")).expect("index");
-    let parsed: serde_json::Value = serde_json::from_str(&index).expect("valid json");
-    assert_eq!(parsed["jobs"].as_array().expect("jobs array").len(), 1);
+    let store = IndexStore::new(&repo_root);
+    assert_eq!(store.list_jobs().expect("list jobs").len(), 1);
 }
 
 #[test]
@@ -165,9 +161,8 @@ fn missing_reusable_output_triggers_new_conversion() {
     assert!(second.outputs.split_mono_wavs[0].path.exists());
     assert!(second.outputs.split_mono_wavs[1].path.exists());
 
-    let index = fs::read_to_string(repo_root.join("db/index.json")).expect("index");
-    let parsed: serde_json::Value = serde_json::from_str(&index).expect("valid json");
-    assert_eq!(parsed["jobs"].as_array().expect("jobs array").len(), 2);
+    let store = IndexStore::new(&repo_root);
+    assert_eq!(store.list_jobs().expect("list jobs").len(), 2);
 }
 
 #[test]
@@ -195,11 +190,16 @@ fn reuses_previous_completed_job_when_latest_job_failed() {
     let first = run_with_repo_root(&repo_root, &input).expect("first run should succeed");
 
     let store = IndexStore::new(&repo_root);
-    let mut failed_job = JobRecord::new(
-        "job-failed".to_string(),
-        "2026-01-01T00:00:02Z".to_string(),
-        fs::canonicalize(&input).expect("canonical input"),
-        store.job_dir("job-failed"),
+    let first_job = store
+        .find_job(&first.job_id)
+        .expect("lookup first job")
+        .expect("first job");
+    let mut failed_job = test_job(
+        "job-failed",
+        "2026-01-01T00:00:02Z",
+        &first_job.source_ref,
+        &first_job.source_content_sha256,
+        &first_job.source_file_name,
     );
     failed_job
         .mark_failed(
@@ -218,10 +218,11 @@ fn reuses_previous_completed_job_when_latest_job_failed() {
     assert_eq!(second.job_dir, first.job_dir);
     assert_eq!(read_run_count(&ffmpeg_count), 1);
 
-    let index = fs::read_to_string(repo_root.join("db/index.json")).expect("index");
-    let parsed: serde_json::Value = serde_json::from_str(&index).expect("valid json");
-    assert_eq!(parsed["jobs"].as_array().expect("jobs array").len(), 2);
-    assert_eq!(parsed["jobs"][1]["status"], "failed");
+    let jobs = store.list_jobs().expect("list jobs");
+    assert_eq!(jobs.len(), 2);
+    assert!(jobs.iter().any(|job| {
+        job.job_id == "job-failed" && job.status == crate::index::JobStatus::Failed
+    }));
 }
 
 #[test]
@@ -241,7 +242,6 @@ fn missing_toolchain_reports_bootstrap_path() {
                 .as_ref()
         )
     );
-    assert!(!repo_root.join("db/index.json").exists());
 }
 
 #[test]

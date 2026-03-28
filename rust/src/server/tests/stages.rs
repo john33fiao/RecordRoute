@@ -5,10 +5,11 @@ use super::super::types::{
     SummaryTextResponse,
 };
 use super::support::*;
-use crate::index::{IndexStore, JobRecord, TaskType};
+use crate::index::{IndexStore, TaskType};
+use crate::test_support::{
+    mark_job_completed_with_audio, seed_summary, seed_transcripts, test_job,
+};
 use axum::http::StatusCode;
-use std::fs;
-use std::path::PathBuf;
 use tower::util::ServiceExt;
 #[test]
 fn resolve_stt_subset_defaults_to_all_audio_files() {
@@ -45,19 +46,27 @@ async fn get_stt_texts_returns_transcript_texts_as_json() {
     let repo_root = temp_workspace();
     let store = IndexStore::new(&repo_root);
     let job_id = "job-stt-texts";
-    let job_dir = store.job_dir(job_id);
-    fs::create_dir_all(job_dir.join("stt")).expect("stt dir");
-    fs::write(job_dir.join("stt/channel_01.txt"), "channel transcript").expect("channel");
-    fs::write(job_dir.join("stt/mono_mix.txt"), "mono transcript").expect("mono");
-
-    store
-        .insert_job(JobRecord::new(
-            job_id.to_string(),
-            "2026-01-01T00:00:00Z".to_string(),
-            PathBuf::from("/tmp/stt.wav"),
-            job_dir,
-        ))
-        .expect("insert job");
+    let mut job = test_job(
+        job_id,
+        "2026-01-01T00:00:00Z",
+        "sources/job-stt-texts/source.wav",
+        "hash-stt-texts",
+        "stt.wav",
+    );
+    mark_job_completed_with_audio(
+        &store,
+        &mut job,
+        "2026-01-01T00:00:01Z",
+        &["channel_01.wav", "mono_mix.wav"],
+    )
+    .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+    seed_transcripts(
+        &store,
+        job_id,
+        &[("channel_01", "channel transcript"), ("mono_mix", "mono transcript")],
+    )
+    .expect("seed transcripts");
 
     let app = router_with_repo_root(repo_root);
     let response = app
@@ -80,21 +89,23 @@ async fn get_stt_progress_returns_polling_snapshot() {
     let repo_root = temp_workspace();
     let store = IndexStore::new(&repo_root);
     let job_id = "job-stt-progress";
-    let job_dir = store.job_dir(job_id);
-    fs::create_dir_all(job_dir.join("stt")).expect("stt dir");
-    fs::write(job_dir.join("channel_01.wav"), "audio-1").expect("audio-1");
-    fs::write(job_dir.join("channel_02.wav"), "audio-2").expect("audio-2");
-    fs::write(job_dir.join("mono_mix.wav"), "audio-3").expect("audio-3");
-    fs::write(job_dir.join("stt/channel_01.txt"), "channel transcript").expect("transcript");
-
-    let mut job = JobRecord::new(
-        job_id.to_string(),
-        "2026-01-01T00:00:00Z".to_string(),
-        PathBuf::from("/tmp/stt-progress.wav"),
-        job_dir,
+    let mut job = test_job(
+        job_id,
+        "2026-01-01T00:00:00Z",
+        "sources/job-stt-progress/source.wav",
+        "hash-stt-progress",
+        "stt-progress.wav",
     );
+    mark_job_completed_with_audio(
+        &store,
+        &mut job,
+        "2026-01-01T00:00:01Z",
+        &["channel_01.wav", "channel_02.wav", "mono_mix.wav"],
+    )
+    .expect("mark completed");
     job.upsert_running_task(TaskType::Stt, "2026-01-01T00:00:10Z".to_string());
     store.insert_job(job).expect("insert job");
+    seed_transcripts(&store, job_id, &[("channel_01", "channel transcript")]).expect("seed transcript");
 
     let app = router_with_repo_root(repo_root);
     let response = app
@@ -117,18 +128,22 @@ async fn get_stt_text_returns_single_transcript_json() {
     let repo_root = temp_workspace();
     let store = IndexStore::new(&repo_root);
     let job_id = "job-stt-text";
-    let job_dir = store.job_dir(job_id);
-    fs::create_dir_all(job_dir.join("stt")).expect("stt dir");
-    fs::write(job_dir.join("stt/channel_01.txt"), "single transcript").expect("channel");
-
-    store
-        .insert_job(JobRecord::new(
-            job_id.to_string(),
-            "2026-01-01T00:00:00Z".to_string(),
-            PathBuf::from("/tmp/stt-single.wav"),
-            job_dir,
-        ))
-        .expect("insert job");
+    let mut job = test_job(
+        job_id,
+        "2026-01-01T00:00:00Z",
+        "sources/job-stt-text/source.wav",
+        "hash-stt-text",
+        "stt-single.wav",
+    );
+    mark_job_completed_with_audio(
+        &store,
+        &mut job,
+        "2026-01-01T00:00:01Z",
+        &["channel_01.wav"],
+    )
+    .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+    seed_transcripts(&store, job_id, &[("channel_01", "single transcript")]).expect("seed transcript");
 
     let app = router_with_repo_root(repo_root);
     let response = app
@@ -148,17 +163,21 @@ async fn get_stt_text_returns_404_for_missing_transcript() {
     let repo_root = temp_workspace();
     let store = IndexStore::new(&repo_root);
     let job_id = "job-stt-missing";
-    let job_dir = store.job_dir(job_id);
-    fs::create_dir_all(job_dir.join("stt")).expect("stt dir");
-
-    store
-        .insert_job(JobRecord::new(
-            job_id.to_string(),
-            "2026-01-01T00:00:00Z".to_string(),
-            PathBuf::from("/tmp/stt-missing.wav"),
-            job_dir,
-        ))
-        .expect("insert job");
+    let mut job = test_job(
+        job_id,
+        "2026-01-01T00:00:00Z",
+        "sources/job-stt-missing/source.wav",
+        "hash-stt-missing",
+        "stt-missing.wav",
+    );
+    mark_job_completed_with_audio(
+        &store,
+        &mut job,
+        "2026-01-01T00:00:01Z",
+        &["mono_mix.wav"],
+    )
+    .expect("mark completed");
+    store.insert_job(job).expect("insert job");
 
     let app = router_with_repo_root(repo_root);
     let response = app
@@ -176,18 +195,22 @@ async fn get_summary_text_returns_result_md_as_json() {
     let repo_root = temp_workspace();
     let store = IndexStore::new(&repo_root);
     let job_id = "job-summary-text";
-    let job_dir = store.job_dir(job_id);
-    fs::create_dir_all(job_dir.join("summary")).expect("summary dir");
-    fs::write(job_dir.join("summary/result.md"), "summary body").expect("summary text");
-
-    store
-        .insert_job(JobRecord::new(
-            job_id.to_string(),
-            "2026-01-01T00:00:00Z".to_string(),
-            PathBuf::from("/tmp/summary.wav"),
-            job_dir,
-        ))
-        .expect("insert job");
+    let mut job = test_job(
+        job_id,
+        "2026-01-01T00:00:00Z",
+        "sources/job-summary-text/source.wav",
+        "hash-summary-text",
+        "summary.wav",
+    );
+    mark_job_completed_with_audio(
+        &store,
+        &mut job,
+        "2026-01-01T00:00:01Z",
+        &["mono_mix.wav"],
+    )
+    .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+    seed_summary(&store, job_id, "summary body").expect("seed summary");
 
     let app = router_with_repo_root(repo_root);
     let response = app
@@ -203,54 +226,25 @@ async fn get_summary_text_returns_result_md_as_json() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn get_summary_text_promotes_legacy_result_txt_to_result_md_json() {
-    let repo_root = temp_workspace();
-    let store = IndexStore::new(&repo_root);
-    let job_id = "job-summary-legacy";
-    let job_dir = store.job_dir(job_id);
-    fs::create_dir_all(job_dir.join("summary")).expect("summary dir");
-    fs::write(job_dir.join("summary/result.txt"), "legacy summary body").expect("summary text");
-
-    store
-        .insert_job(JobRecord::new(
-            job_id.to_string(),
-            "2026-01-01T00:00:00Z".to_string(),
-            PathBuf::from("/tmp/summary-legacy.wav"),
-            job_dir.clone(),
-        ))
-        .expect("insert job");
-
-    let app = router_with_repo_root(repo_root);
-    let response = app
-        .oneshot(get_request("/jobs/job-summary-legacy/summary/text"))
-        .await
-        .expect("summary text response");
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body: SummaryTextResponse = read_json(response).await;
-    assert_eq!(body.job_id, job_id);
-    assert_eq!(body.file_name, "result.md");
-    assert_eq!(body.text, "legacy summary body");
-    assert!(job_dir.join("summary/result.md").is_file());
-    assert!(!job_dir.join("summary/result.txt").exists());
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn get_summary_text_returns_404_when_result_md_missing() {
     let repo_root = temp_workspace();
     let store = IndexStore::new(&repo_root);
     let job_id = "job-summary-missing";
-    let job_dir = store.job_dir(job_id);
-    fs::create_dir_all(job_dir.join("summary")).expect("summary dir");
-
-    store
-        .insert_job(JobRecord::new(
-            job_id.to_string(),
-            "2026-01-01T00:00:00Z".to_string(),
-            PathBuf::from("/tmp/summary-missing.wav"),
-            job_dir,
-        ))
-        .expect("insert job");
+    let mut job = test_job(
+        job_id,
+        "2026-01-01T00:00:00Z",
+        "sources/job-summary-missing/source.wav",
+        "hash-summary-missing",
+        "summary-missing.wav",
+    );
+    mark_job_completed_with_audio(
+        &store,
+        &mut job,
+        "2026-01-01T00:00:01Z",
+        &["mono_mix.wav"],
+    )
+    .expect("mark completed");
+    store.insert_job(job).expect("insert job");
 
     let app = router_with_repo_root(repo_root);
     let response = app
@@ -260,7 +254,7 @@ async fn get_summary_text_returns_404_when_result_md_missing() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let body: ErrorResponse = read_json(response).await;
-    assert!(body.message.contains("summary not found:"));
+    assert!(body.message.contains("summary not found for job:"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -270,11 +264,12 @@ async fn post_summary_rejects_request_before_stt_completion() {
     let job_id = "job-summary-before-stt";
 
     store
-        .insert_job(JobRecord::new(
-            job_id.to_string(),
-            "2026-01-01T00:00:00Z".to_string(),
-            PathBuf::from("/tmp/summary-before-stt.wav"),
-            store.job_dir(job_id),
+        .insert_job(test_job(
+            job_id,
+            "2026-01-01T00:00:00Z",
+            "sources/job-summary-before-stt/source.wav",
+            "hash-summary-before-stt",
+            "summary-before-stt.wav",
         ))
         .expect("insert job");
 

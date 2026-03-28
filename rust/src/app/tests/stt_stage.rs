@@ -11,8 +11,9 @@ fn run_stt_processes_audio_files_in_selected_job_dir() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let repo_root = temp_workspace();
-    let selected_job_dir = repo_root.join("db/job-1");
-    let ignored_job_dir = repo_root.join("db/job-2");
+    let store = IndexStore::new(&repo_root);
+    let selected_job_dir = store.job_dir("job-1");
+    let ignored_job_dir = store.job_dir("job-2");
     let whisper_bin = repo_root
         .join(".build/whisper")
         .join(crate::ffmpeg::target_dir_name())
@@ -39,7 +40,6 @@ fn run_stt_processes_audio_files_in_selected_job_dir() {
     fs::write(source_dir.join("ggml-base.bin"), "model").expect("source model");
     unsafe { std::env::set_var("RECORDROUTE_WHISPER_MODEL_SOURCE_DIR", &source_dir) };
 
-    let store = IndexStore::new(&repo_root);
     let mut selected_job = JobRecord::new(
         "job-1".to_string(),
         "2026-01-01T00:00:00Z".to_string(),
@@ -83,7 +83,8 @@ fn run_stt_processes_audio_files_in_selected_job_dir() {
 #[test]
 fn run_stt_retries_invalid_folder_selection() {
     let repo_root = temp_workspace();
-    let selected_job_dir = repo_root.join("db/job-1");
+    let store = IndexStore::new(&repo_root);
+    let selected_job_dir = store.job_dir("job-1");
     let whisper_bin = repo_root
         .join(".build/whisper")
         .join(crate::ffmpeg::target_dir_name())
@@ -102,7 +103,6 @@ fn run_stt_retries_invalid_folder_selection() {
     );
     fs::write(repo_root.join("models/whisper/ggml-base.bin"), "model").expect("model");
 
-    let store = IndexStore::new(&repo_root);
     let mut selected_job = JobRecord::new(
         "job-1".to_string(),
         "2026-01-01T00:00:00Z".to_string(),
@@ -130,12 +130,12 @@ fn run_stt_retries_invalid_folder_selection() {
 #[test]
 fn submit_stt_rejects_conflicting_inflight_subset_request() {
     let repo_root = temp_workspace();
-    let job_dir = repo_root.join("db/job-1");
+    let store = IndexStore::new(&repo_root);
+    let job_dir = store.job_dir("job-1");
     fs::create_dir_all(&job_dir).expect("job dir");
     fs::write(job_dir.join("mono_mix.wav"), "audio").expect("mono mix");
     fs::write(job_dir.join("channel_01.wav"), "audio").expect("channel");
 
-    let store = IndexStore::new(&repo_root);
     let mut job = JobRecord::new(
         "job-1".to_string(),
         "2026-01-01T00:00:00Z".to_string(),

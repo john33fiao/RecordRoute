@@ -1,42 +1,68 @@
-use super::lock::LockGuard;
+use super::backend::MetadataBackend;
+use super::postgres::PostgresMetadataStore;
+use super::sqlite::SqliteMetadataStore;
 use super::types::{
-    IndexFile, JobRecord, JobStatus, ModelKind, ModelPreparationRecord, ModelPreparations,
-    TaskQueueState,
+    AudioArtifactRecord, IndexFile, JobRecord, JobStatus, ModelKind, ModelPreparationRecord,
+    ModelPreparations, SummaryEmbeddingVectorRecord, SummaryRecord, TaskQueueState,
+    TranscriptRecord,
 };
-use std::fs::{self, File};
-use std::io::Write;
+use crate::audio_store::AudioStore;
+use crate::storage::{MetadataDriver, StorageConfig};
 use std::path::{Path, PathBuf};
-use uuid::Uuid;
 
 pub struct IndexStore {
-    db_dir: PathBuf,
-    index_path: PathBuf,
-    lock_path: PathBuf,
+    repo_root: PathBuf,
+    backend: Option<Box<dyn MetadataBackend>>,
+    audio_store: Option<AudioStore>,
+    init_error: Option<String>,
 }
 
 impl IndexStore {
     pub fn new(repo_root: &Path) -> Self {
-        let db_dir = repo_root.join("db");
-        let index_path = db_dir.join("index.json");
-        let lock_path = db_dir.join("index.lock");
-        Self {
-            db_dir,
-            index_path,
-            lock_path,
+        match StorageConfig::load(repo_root) {
+            Ok(config) => {
+                let audio_store = AudioStore::new(repo_root).ok();
+                let backend: Box<dyn MetadataBackend> = match config.metadata.driver {
+                    MetadataDriver::Sqlite => {
+                        Box::new(SqliteMetadataStore::new(config.metadata.sqlite_path))
+                    }
+                    MetadataDriver::Postgres => Box::new(PostgresMetadataStore::new(
+                        config.metadata.postgres_url.unwrap_or_default(),
+                    )),
+                };
+                Self {
+                    repo_root: repo_root.to_path_buf(),
+                    backend: Some(backend),
+                    audio_store,
+                    init_error: None,
+                }
+            }
+            Err(error) => Self {
+                repo_root: repo_root.to_path_buf(),
+                backend: None,
+                audio_store: None,
+                init_error: Some(error),
+            },
         }
     }
 
     pub fn ensure_db_dir(&self) -> Result<(), String> {
-        fs::create_dir_all(&self.db_dir).map_err(|error| {
-            format!(
-                "failed to create db directory {}: {error}",
-                self.db_dir.display()
-            )
-        })
+        self.backend()?.ensure_initialized()?;
+        self.audio_store()?.ensure_dirs()
     }
 
     pub fn job_dir(&self, job_id: &str) -> PathBuf {
-        self.db_dir.join(job_id)
+        self.audio_store
+            .as_ref()
+            .map(|store| store.job_dir(job_id))
+            .unwrap_or_else(|| self.repo_root.join("db/audio/jobs").join(job_id))
+    }
+
+    pub fn source_path(&self, source_ref: &str) -> PathBuf {
+        self.audio_store
+            .as_ref()
+            .map(|store| store.resolve_storage_path(source_ref))
+            .unwrap_or_else(|| self.repo_root.join("db/audio").join(source_ref))
     }
 
     #[cfg(test)]
@@ -64,41 +90,37 @@ impl IndexStore {
         })
     }
 
-    pub fn find_reusable_completed_job(
+    pub fn find_reusable_completed_job_by_source_hash(
         &self,
-        source_path: &Path,
+        source_content_sha256: &str,
     ) -> Result<Option<JobRecord>, String> {
-        let source_path = source_path.to_string_lossy().into_owned();
-        self.with_index_read(|index| {
-            Ok(index
-                .jobs
-                .iter()
-                .rev()
-                .find(|job| {
-                    job.status == JobStatus::Completed
-                        && job.source_path == source_path
-                        && job.outputs.has_reusable_files()
-                })
-                .cloned())
-        })
+        let index = self.read_index()?;
+        for job in index.jobs.iter().rev() {
+            if job.status != JobStatus::Completed
+                || job.source_content_sha256 != source_content_sha256
+                || !self.job_has_reusable_audio(job)?
+            {
+                continue;
+            }
+            return Ok(Some(job.clone()));
+        }
+        Ok(None)
     }
 
-    pub fn find_inflight_job_by_source(
+    pub fn find_inflight_job_by_source_hash(
         &self,
-        source_path: &Path,
+        source_content_sha256: &str,
     ) -> Result<Option<JobRecord>, String> {
-        let source_path = source_path.to_string_lossy().into_owned();
-        self.with_index_read(|index| {
-            Ok(index
-                .jobs
-                .iter()
-                .rev()
-                .find(|job| {
-                    matches!(job.status, JobStatus::Queued | JobStatus::Running)
-                        && job.source_path == source_path
-                })
-                .cloned())
-        })
+        let index = self.read_index()?;
+        Ok(index
+            .jobs
+            .iter()
+            .rev()
+            .find(|job| {
+                matches!(job.status, JobStatus::Queued | JobStatus::Running)
+                    && job.source_content_sha256 == source_content_sha256
+            })
+            .cloned())
     }
 
     #[cfg(test)]
@@ -106,7 +128,17 @@ impl IndexStore {
         &self,
         source_path: &Path,
     ) -> Result<Option<JobRecord>, String> {
-        self.find_inflight_job_by_source(source_path)
+        let source = source_path.to_string_lossy().into_owned();
+        let index = self.read_index()?;
+        Ok(index
+            .jobs
+            .iter()
+            .rev()
+            .find(|job| {
+                matches!(job.status, JobStatus::Queued | JobStatus::Running)
+                    && job.source_path == source
+            })
+            .cloned())
     }
 
     pub fn find_job(&self, job_id: &str) -> Result<Option<JobRecord>, String> {
@@ -131,13 +163,13 @@ impl IndexStore {
         })
     }
 
-    pub fn list_jobs_by_source_path(&self, source_path: &str) -> Result<Vec<JobRecord>, String> {
+    pub fn list_jobs_by_source_ref(&self, source_ref: &str) -> Result<Vec<JobRecord>, String> {
         self.with_index_read(|index| {
             Ok(index
                 .jobs
                 .iter()
                 .rev()
-                .filter(|job| job.source_path == source_path)
+                .filter(|job| job.source_ref == source_ref)
                 .cloned()
                 .collect())
         })
@@ -185,12 +217,62 @@ impl IndexStore {
         updated.ok_or_else(|| "failed to update llama embedding preparation".to_string())
     }
 
+    pub fn list_audio_artifacts(&self, job_id: &str) -> Result<Vec<AudioArtifactRecord>, String> {
+        self.backend()?.list_audio_artifacts(job_id)
+    }
+
+    pub fn upsert_audio_artifact(&self, record: &AudioArtifactRecord) -> Result<(), String> {
+        self.backend()?.upsert_audio_artifact(record)
+    }
+
+    pub fn list_transcripts(&self, job_id: &str) -> Result<Vec<TranscriptRecord>, String> {
+        self.backend()?.list_transcripts(job_id)
+    }
+
+    pub fn find_transcript(
+        &self,
+        job_id: &str,
+        transcript_id: &str,
+    ) -> Result<Option<TranscriptRecord>, String> {
+        self.backend()?.get_transcript(job_id, transcript_id)
+    }
+
+    pub fn upsert_transcript(&self, record: &TranscriptRecord) -> Result<(), String> {
+        self.backend()?.upsert_transcript(record)
+    }
+
+    pub fn count_transcripts(&self, job_id: &str) -> Result<usize, String> {
+        self.backend()?.count_transcripts(job_id)
+    }
+
+    pub fn get_summary(&self, job_id: &str) -> Result<Option<SummaryRecord>, String> {
+        self.backend()?.get_summary(job_id)
+    }
+
+    pub fn upsert_summary(&self, record: &SummaryRecord) -> Result<(), String> {
+        self.backend()?.upsert_summary(record)
+    }
+
+    pub fn get_summary_embedding(
+        &self,
+        job_id: &str,
+    ) -> Result<Option<SummaryEmbeddingVectorRecord>, String> {
+        self.backend()?.get_summary_embedding(job_id)
+    }
+
+    pub fn upsert_summary_embedding(
+        &self,
+        job_id: &str,
+        record: &SummaryEmbeddingVectorRecord,
+    ) -> Result<(), String> {
+        self.backend()?.upsert_summary_embedding(job_id, record)
+    }
+
     pub fn with_index_mut<T>(
         &self,
         mutate: impl FnOnce(&mut IndexFile) -> Result<T, String>,
     ) -> Result<T, String> {
         self.ensure_db_dir()?;
-        let _guard = LockGuard::acquire(&self.lock_path)?;
         let mut index = self.read_index()?;
         let output = mutate(&mut index)?;
         self.write_index(&index)?;
@@ -201,80 +283,75 @@ impl IndexStore {
         &self,
         read: impl FnOnce(&IndexFile) -> Result<T, String>,
     ) -> Result<T, String> {
-        if !self.db_dir.exists() {
-            return read(&IndexFile::empty());
-        }
-
-        let _guard = LockGuard::acquire(&self.lock_path)?;
         let index = self.read_index()?;
         read(&index)
     }
 
     pub(crate) fn read_index(&self) -> Result<IndexFile, String> {
-        if !self.index_path.exists() {
-            return Ok(IndexFile::empty());
+        let mut index = self.backend()?.read_index()?;
+        for job in &mut index.jobs {
+            self.populate_runtime_fields(job);
         }
-
-        let content = fs::read_to_string(&self.index_path)
-            .map_err(|error| format!("failed to read {}: {error}", self.index_path.display()))?;
-
-        let mut index: IndexFile = serde_json::from_str(&content)
-            .map_err(|error| format!("failed to parse {}: {error}", self.index_path.display()))?;
-        migrate_index(&mut index);
         Ok(index)
     }
 
     fn write_index(&self, index: &IndexFile) -> Result<(), String> {
-        let content = serde_json::to_vec_pretty(index)
-            .map_err(|error| format!("failed to serialize index: {error}"))?;
-        let temp_path = self.db_dir.join(format!("index.{}.tmp", Uuid::now_v7()));
-        let mut file = File::create(&temp_path)
-            .map_err(|error| format!("failed to create {}: {error}", temp_path.display()))?;
-        file.write_all(&content)
-            .map_err(|error| format!("failed to write {}: {error}", temp_path.display()))?;
-        file.sync_all()
-            .map_err(|error| format!("failed to sync {}: {error}", temp_path.display()))?;
-        drop(file);
-        replace_index_file(&temp_path, &self.index_path)
+        let sanitized = sanitize_runtime_fields(index);
+        self.backend()?.write_index(&sanitized)
+    }
+
+    fn populate_runtime_fields(&self, job: &mut JobRecord) {
+        job.job_dir = self.job_dir(&job.job_id).to_string_lossy().into_owned();
+        job.source_path = self.source_path(&job.source_ref).to_string_lossy().into_owned();
+    }
+
+    fn job_has_reusable_audio(&self, job: &JobRecord) -> Result<bool, String> {
+        let Some(merged) = job.outputs.merged_mono_wav.as_deref() else {
+            return Ok(false);
+        };
+        if job.outputs.split_mono_wavs.is_empty() {
+            return Ok(false);
+        }
+        let artifacts = self.list_audio_artifacts(&job.job_id)?;
+        let merged_ok = artifacts
+            .iter()
+            .find(|artifact| artifact.logical_name == merged)
+            .is_some_and(|artifact| self.source_path(&artifact.storage_key).is_file());
+        if !merged_ok {
+            return Ok(false);
+        }
+        Ok(job.outputs.split_mono_wavs.iter().all(|output| {
+            artifacts
+                .iter()
+                .find(|artifact| artifact.logical_name == output.path)
+                .is_some_and(|artifact| self.source_path(&artifact.storage_key).is_file())
+        }))
+    }
+
+    fn backend(&self) -> Result<&dyn MetadataBackend, String> {
+        if let Some(error) = &self.init_error {
+            return Err(error.clone());
+        }
+        self.backend
+            .as_deref()
+            .ok_or_else(|| "metadata backend is not initialized".to_string())
+    }
+
+    pub fn audio_store(&self) -> Result<&AudioStore, String> {
+        if let Some(error) = &self.init_error {
+            return Err(error.clone());
+        }
+        self.audio_store
+            .as_ref()
+            .ok_or_else(|| "audio store is not initialized".to_string())
     }
 }
 
-fn migrate_index(index: &mut IndexFile) {
-    if index.version < 4 {
-        index.version = 4;
+fn sanitize_runtime_fields(index: &IndexFile) -> IndexFile {
+    let mut cloned = index.clone();
+    for job in &mut cloned.jobs {
+        job.job_dir.clear();
+        job.source_path.clear();
     }
-    if index.task_queue.burst_limit == 0 {
-        index.task_queue = TaskQueueState::default();
-    }
-}
-
-#[cfg(not(windows))]
-fn replace_index_file(temp_path: &Path, index_path: &Path) -> Result<(), String> {
-    fs::rename(temp_path, index_path).map_err(|error| {
-        format!(
-            "failed to replace {} with {}: {error}",
-            index_path.display(),
-            temp_path.display()
-        )
-    })
-}
-
-#[cfg(windows)]
-fn replace_index_file(temp_path: &Path, index_path: &Path) -> Result<(), String> {
-    if index_path.exists() {
-        fs::remove_file(index_path).map_err(|error| {
-            format!(
-                "failed to remove previous index {} before replace: {error}",
-                index_path.display()
-            )
-        })?;
-    }
-
-    fs::rename(temp_path, index_path).map_err(|error| {
-        format!(
-            "failed to install {} from {}: {error}",
-            index_path.display(),
-            temp_path.display()
-        )
-    })
+    cloned
 }

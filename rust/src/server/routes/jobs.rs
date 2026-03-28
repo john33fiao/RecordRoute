@@ -75,7 +75,7 @@ pub(crate) async fn post_jobs_upload(
 
     let repo_root = state.repo_root.clone();
     let submission = match run_blocking_app(move || {
-        app_api::submit_ffmpeg_job(&repo_root, &upload_path)
+        app_api::submit_uploaded_ffmpeg_job(&repo_root, upload_path)
     })
     .await
     {
@@ -131,9 +131,25 @@ pub(crate) async fn post_jobs_batch_process(State(state): State<AppState>) -> Re
         .into_response()
 }
 
-pub(crate) async fn get_jobs(State(state): State<AppState>) -> Response {
+pub(crate) async fn get_jobs_with_query(
+    State(state): State<AppState>,
+    query: Result<Query<super::types::JobsQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    let source_ref = match query {
+        Ok(Query(query)) => query.source_ref,
+        Err(_) => None,
+    };
     let repo_root = state.repo_root.clone();
-    match run_blocking(move || IndexStore::new(&repo_root).list_jobs()).await {
+    match run_blocking(move || {
+        let store = IndexStore::new(&repo_root);
+        if let Some(source_ref) = source_ref.as_deref() {
+            store.list_jobs_by_source_ref(source_ref)
+        } else {
+            store.list_jobs()
+        }
+    })
+    .await
+    {
         Ok(jobs) => Json(JobListResponse {
             jobs: super::errors::sanitize_jobs(jobs),
         })
@@ -145,36 +161,6 @@ pub(crate) async fn get_jobs(State(state): State<AppState>) -> Response {
 pub(crate) async fn get_completed_jobs(State(state): State<AppState>) -> Response {
     let repo_root = state.repo_root.clone();
     match run_blocking(move || IndexStore::new(&repo_root).list_completed_jobs()).await {
-        Ok(jobs) => Json(JobListResponse {
-            jobs: super::errors::sanitize_jobs(jobs),
-        })
-        .into_response(),
-        Err(error) => error_response(crate::error::AppError::internal(error)),
-    }
-}
-
-pub(crate) async fn get_jobs_by_source(
-    State(state): State<AppState>,
-    query: Result<Query<super::types::JobsBySourceQuery>, axum::extract::rejection::QueryRejection>,
-) -> Response {
-    let source_path = match query {
-        Ok(Query(query)) => query.source_path,
-        Err(_) => {
-            return error_response(crate::error::AppError::bad_request(
-                "source_path query is required",
-            ));
-        }
-    };
-    if source_path.trim().is_empty() {
-        return error_response(crate::error::AppError::bad_request(
-            "source_path query is required",
-        ));
-    }
-
-    let repo_root = state.repo_root.clone();
-    match run_blocking(move || IndexStore::new(&repo_root).list_jobs_by_source_path(&source_path))
-        .await
-    {
         Ok(jobs) => Json(JobListResponse {
             jobs: super::errors::sanitize_jobs(jobs),
         })

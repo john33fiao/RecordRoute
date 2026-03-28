@@ -62,7 +62,12 @@ pub fn build_stt_entry(job_id: &str, audio_files: &[PathBuf], queued_at: String)
         payload: QueuePayload::Stt {
             audio_files: audio_files
                 .iter()
-                .map(|path| path.to_string_lossy().into_owned())
+                .map(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or_default()
+                        .to_string()
+                })
                 .collect(),
         },
     }
@@ -303,7 +308,8 @@ pub fn dispatch_until_task_terminal(
 
 pub fn submit_batch_pipeline_jobs(repo_root: &Path) -> Result<BatchQueueSubmission, String> {
     let queued_at = now_rfc3339()?;
-    IndexStore::new(repo_root).with_index_mut(|index| {
+    let store = IndexStore::new(repo_root);
+    store.with_index_mut(|index| {
         let mut summary = BatchQueueSubmission {
             total_jobs: index.jobs.len(),
             ..BatchQueueSubmission::default()
@@ -320,11 +326,11 @@ pub fn submit_batch_pipeline_jobs(repo_root: &Path) -> Result<BatchQueueSubmissi
                 continue;
             };
             let job = index.jobs[job_index].clone();
-            let job_dir = PathBuf::from(&job.job_dir);
+            let job_dir = store.job_dir(&job.job_id);
 
             if should_enqueue_batch_ffmpeg(index, &job) {
                 let entry =
-                    build_ffmpeg_entry(&job.job_id, Path::new(&job.source_path), queued_at.clone());
+                    build_ffmpeg_entry(&job.job_id, Path::new(&job.source_ref), queued_at.clone());
                 index.jobs[job_index].mark_ffmpeg_queued(queued_at.clone());
                 enqueue_entry(index, entry);
                 summary.ffmpeg_queued = summary.ffmpeg_queued.saturating_add(1);
@@ -336,7 +342,7 @@ pub fn submit_batch_pipeline_jobs(repo_root: &Path) -> Result<BatchQueueSubmissi
             }
 
             let audio_files = artifacts::supported_audio_files(&job_dir)?;
-            if should_enqueue_batch_stt(index, &job, &audio_files, &job_dir)? {
+            if should_enqueue_batch_stt(&store, index, &job, &audio_files)? {
                 let entry = build_stt_entry(&job.job_id, &audio_files, queued_at.clone());
                 index.jobs[job_index].enqueue_task(TaskType::Stt, queued_at.clone());
                 enqueue_entry(index, entry);
@@ -344,7 +350,7 @@ pub fn submit_batch_pipeline_jobs(repo_root: &Path) -> Result<BatchQueueSubmissi
                 continue;
             }
 
-            if should_enqueue_batch_summary(index, &job, &audio_files, &job_dir)? {
+            if should_enqueue_batch_summary(&store, index, &job, &audio_files, &job_dir)? {
                 let entry = build_summary_entry(&job.job_id, false, queued_at.clone());
                 index.jobs[job_index].enqueue_task(TaskType::Summary, queued_at.clone());
                 enqueue_entry(index, entry);
@@ -352,7 +358,7 @@ pub fn submit_batch_pipeline_jobs(repo_root: &Path) -> Result<BatchQueueSubmissi
                 continue;
             }
 
-            if should_enqueue_batch_embedding(repo_root, index, &job, &job_dir)? {
+            if should_enqueue_batch_embedding(&store, repo_root, index, &job, &job_dir)? {
                 let entry = build_embedding_entry(&job.job_id, queued_at.clone());
                 index.jobs[job_index].enqueue_task(TaskType::Embedding, queued_at.clone());
                 enqueue_entry(index, entry);
@@ -374,12 +380,12 @@ fn should_enqueue_batch_ffmpeg(index: &IndexFile, job: &JobRecord) -> bool {
 }
 
 fn should_enqueue_batch_stt(
+    store: &IndexStore,
     index: &IndexFile,
     job: &JobRecord,
     audio_files: &[PathBuf],
-    job_dir: &Path,
 ) -> Result<bool, String> {
-    if audio_files.is_empty() || all_transcripts_exist(job_dir, audio_files)? {
+    if audio_files.is_empty() || all_transcripts_exist(store, &job.job_id, audio_files)? {
         return Ok(false);
     }
 
@@ -391,18 +397,18 @@ fn should_enqueue_batch_stt(
 }
 
 fn should_enqueue_batch_summary(
+    store: &IndexStore,
     index: &IndexFile,
     job: &JobRecord,
     audio_files: &[PathBuf],
     job_dir: &Path,
 ) -> Result<bool, String> {
-    if audio_files.is_empty() || !all_transcripts_exist(job_dir, audio_files)? {
+    if audio_files.is_empty() || !all_transcripts_exist(store, &job.job_id, audio_files)? {
         return Ok(false);
     }
 
-    let summary_dir = job_dir.join("summary");
-    let summary_file = artifacts::ensure_summary_output_path(&summary_dir, &job.source_file_name)?;
-    if summary_file.is_file() {
+    let _ = job_dir;
+    if store.get_summary(&job.job_id)?.is_some() {
         return Ok(false);
     }
 
@@ -414,6 +420,7 @@ fn should_enqueue_batch_summary(
 }
 
 fn should_enqueue_batch_embedding(
+    store: &IndexStore,
     repo_root: &Path,
     index: &IndexFile,
     job: &JobRecord,
@@ -426,9 +433,8 @@ fn should_enqueue_batch_embedding(
         return Ok(false);
     }
 
-    let summary_dir = job_dir.join("summary");
-    let summary_file = artifacts::ensure_summary_output_path(&summary_dir, &job.source_file_name)?;
-    if !summary_file.is_file() {
+    let _ = job_dir;
+    if store.get_summary(&job.job_id)?.is_none() {
         return Ok(false);
     }
 
@@ -447,17 +453,21 @@ fn should_enqueue_batch_embedding(
     )
 }
 
-fn all_transcripts_exist(job_dir: &Path, audio_files: &[PathBuf]) -> Result<bool, String> {
+fn all_transcripts_exist(
+    store: &IndexStore,
+    job_id: &str,
+    audio_files: &[PathBuf],
+) -> Result<bool, String> {
     if audio_files.is_empty() {
         return Ok(false);
     }
 
-    let stt_dir = job_dir.join("stt");
     audio_files
         .iter()
         .try_fold(true, |all_present, audio_file| -> Result<bool, String> {
-            let transcript = artifacts::transcript_output_path(&stt_dir, audio_file)?;
-            Ok(all_present && transcript.is_file())
+            let file_name = artifacts::transcript_file_name(audio_file)?;
+            let transcript_id = artifacts::transcript_id_from_file_name(&file_name)?;
+            Ok(all_present && store.find_transcript(job_id, &transcript_id)?.is_some())
         })
 }
 
@@ -519,7 +529,7 @@ fn reserve_next_entry(
 
                 for _ in 0..total_entries {
                     let candidate = entries.remove(0);
-                    if is_entry_ready(index, &candidate) {
+                    if is_entry_ready(repo_root, index, &candidate) {
                         selected = Some(candidate);
                         break;
                     }
@@ -564,33 +574,32 @@ fn reserve_next_entry(
     })
 }
 
-fn is_entry_ready(index: &IndexFile, entry: &QueueEntry) -> bool {
+fn is_entry_ready(repo_root: &Path, index: &IndexFile, entry: &QueueEntry) -> bool {
     let Some(job) = index.jobs.iter().find(|job| job.job_id == entry.job_id) else {
         return false;
     };
+    let store = IndexStore::new(repo_root);
 
     match entry.task_type {
         TaskType::Ffmpeg => true,
         TaskType::Stt => job.status == crate::index::JobStatus::Completed,
-        TaskType::Summary => summary_inputs_ready(job).unwrap_or(false),
-        TaskType::Embedding => summary_output_exists(job).unwrap_or(false),
+        TaskType::Summary => summary_inputs_ready(&store, job).unwrap_or(false),
+        TaskType::Embedding => summary_output_exists(&store, job).unwrap_or(false),
     }
 }
 
-fn summary_inputs_ready(job: &JobRecord) -> Result<bool, String> {
-    let job_dir = PathBuf::from(&job.job_dir);
+fn summary_inputs_ready(store: &IndexStore, job: &JobRecord) -> Result<bool, String> {
+    let job_dir = store.job_dir(&job.job_id);
     let audio_files = artifacts::supported_audio_files(&job_dir)?;
     if audio_files.is_empty() {
-        return Ok(!artifacts::transcript_text_files(&job_dir.join("stt"))?.is_empty());
+        return Ok(store.count_transcripts(&job.job_id)? > 0);
     }
 
-    all_transcripts_exist(&job_dir, &audio_files)
+    all_transcripts_exist(store, &job.job_id, &audio_files)
 }
 
-fn summary_output_exists(job: &JobRecord) -> Result<bool, String> {
-    let summary_dir = PathBuf::from(&job.job_dir).join("summary");
-    let summary_file = artifacts::ensure_summary_output_path(&summary_dir, &job.source_file_name)?;
-    Ok(summary_file.is_file())
+fn summary_output_exists(store: &IndexStore, job: &JobRecord) -> Result<bool, String> {
+    Ok(store.get_summary(&job.job_id)?.is_some())
 }
 
 fn promote_pending_batch(index: &mut IndexFile) {
@@ -692,7 +701,7 @@ fn execute_work_item(repo_root: &Path, entry: &QueueEntry) -> Result<(), String>
                 let job = IndexStore::new(repo_root)
                     .find_job(&entry.job_id)?
                     .ok_or_else(|| format!("job not found: {}", entry.job_id))?;
-                artifacts::supported_audio_files(&PathBuf::from(job.job_dir))?
+                artifacts::supported_audio_files(&IndexStore::new(repo_root).job_dir(&job.job_id))?
             } else {
                 audio_files.iter().map(PathBuf::from).collect::<Vec<_>>()
             };
@@ -714,6 +723,7 @@ fn execute_work_item(repo_root: &Path, entry: &QueueEntry) -> Result<(), String>
 mod tests {
     use super::*;
     use crate::index::{IndexStore, JobRecord};
+    use crate::test_support::{mark_job_completed_with_audio, seed_transcripts, test_job};
     use std::fs;
     use uuid::Uuid;
 
@@ -1035,28 +1045,27 @@ mod tests {
     fn submit_batch_pipeline_jobs_enqueues_unfinished_tasks() {
         let repo_root = temp_workspace();
         let store = IndexStore::new(&repo_root);
-        let completed_job_dir = store.job_dir("job-complete");
-        fs::create_dir_all(completed_job_dir.join("stt")).expect("completed stt dir");
-        fs::write(completed_job_dir.join("mono_mix.wav"), "audio").expect("mono mix");
-        fs::write(completed_job_dir.join("stt/mono_mix.txt"), "transcript").expect("transcript");
-
-        let mut completed = JobRecord::new(
-            "job-complete".to_string(),
-            "2026-01-01T00:00:00Z".to_string(),
-            PathBuf::from("/tmp/job-complete.wav"),
-            completed_job_dir,
+        let mut completed = test_job(
+            "job-complete",
+            "2026-01-01T00:00:00Z",
+            "sources/job-complete/source.wav",
+            "hash-job-complete",
+            "job-complete.wav",
         );
-        completed
-            .mark_completed(
-                "2026-01-01T00:00:01Z".to_string(),
-                crate::index::JobOutputs::default(),
-            )
-            .expect("ffmpeg complete");
+        mark_job_completed_with_audio(
+            &store,
+            &mut completed,
+            "2026-01-01T00:00:01Z",
+            &["mono_mix.wav"],
+        )
+        .expect("ffmpeg complete");
         completed.enqueue_task(TaskType::Stt, "2026-01-01T00:00:02Z".to_string());
         completed
             .complete_task(TaskType::Stt, "2026-01-01T00:00:03Z".to_string())
             .expect("stt complete");
         store.insert_job(completed).expect("insert completed");
+        seed_transcripts(&store, "job-complete", &[("mono_mix", "transcript")])
+            .expect("seed transcripts");
 
         let queued = JobRecord::new(
             "job-queued".to_string(),
@@ -1078,20 +1087,18 @@ mod tests {
     fn submit_batch_pipeline_jobs_skips_queued_and_running_tasks() {
         let repo_root = temp_workspace();
         let store = IndexStore::new(&repo_root);
-        let job_dir = store.job_dir("job-inflight");
-        fs::create_dir_all(job_dir.join("stt")).expect("stt dir");
-        fs::write(job_dir.join("mono_mix.wav"), "audio").expect("mono mix");
-        fs::write(job_dir.join("stt/mono_mix.txt"), "transcript").expect("transcript");
-
-        let mut job = JobRecord::new(
-            "job-inflight".to_string(),
-            "2026-01-01T00:00:00Z".to_string(),
-            PathBuf::from("/tmp/job-inflight.wav"),
-            job_dir,
+        let mut job = test_job(
+            "job-inflight",
+            "2026-01-01T00:00:00Z",
+            "sources/job-inflight/source.wav",
+            "hash-job-inflight",
+            "job-inflight.wav",
         );
-        job.mark_completed(
-            "2026-01-01T00:00:00Z".to_string(),
-            crate::index::JobOutputs::default(),
+        mark_job_completed_with_audio(
+            &store,
+            &mut job,
+            "2026-01-01T00:00:00Z",
+            &["mono_mix.wav"],
         )
         .expect("mark ffmpeg completed");
         job.enqueue_task(TaskType::Stt, "2026-01-01T00:00:01Z".to_string());
@@ -1101,6 +1108,8 @@ mod tests {
         job.start_task(TaskType::Summary, "2026-01-01T00:00:03Z".to_string())
             .expect("summary running");
         store.insert_job(job).expect("insert inflight");
+        seed_transcripts(&store, "job-inflight", &[("mono_mix", "transcript")])
+            .expect("seed transcripts");
 
         let snapshot_before = queue_snapshot(&repo_root).expect("snapshot before");
         let queued_entries_before = snapshot_before

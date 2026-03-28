@@ -1,5 +1,9 @@
-#[path = "index/lock.rs"]
-mod lock;
+#[path = "index/backend.rs"]
+mod backend;
+#[path = "index/postgres.rs"]
+mod postgres;
+#[path = "index/sqlite.rs"]
+mod sqlite;
 #[path = "index/store.rs"]
 mod store;
 #[path = "index/types.rs"]
@@ -7,17 +11,19 @@ mod types;
 
 pub use store::IndexStore;
 pub use types::{
-    ActiveQueueBatch, IndexFile, JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus,
-    ModelKind, ModelPreparationRecord, ModelPreparationStatus, QueueBatch, QueueCategory,
-    QueueEntry, QueuePayload, SummaryEmbeddingRecord, TaskQueueState, TaskRecord, TaskStatus,
-    TaskType,
+    ActiveQueueBatch, AudioArtifactRecord, IndexFile, JobOutputs, JobProbe, JobRecord,
+    JobSplitOutput, JobStatus, ModelKind, ModelPreparationRecord, ModelPreparationStatus,
+    QueueBatch, QueueCategory, QueueEntry, QueuePayload, SourceKind, SummaryEmbeddingRecord,
+    SummaryEmbeddingVectorRecord, SummaryRecord, TaskQueueState, TaskRecord, TaskStatus, TaskType,
+    TranscriptRecord,
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::{self, File};
-    use std::path::{Path, PathBuf};
+    use crate::test_support::{mark_job_completed_with_audio, test_job};
+    use std::fs;
+    use std::path::PathBuf;
     use uuid::Uuid;
 
     #[test]
@@ -32,7 +38,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_legacy_index_without_model_preparations() {
+    fn ignores_legacy_json_when_sqlite_backend_is_used() {
         let repo_root = temp_workspace();
         let store = IndexStore::new(&repo_root);
         store.ensure_db_dir().expect("db dir");
@@ -42,7 +48,7 @@ mod tests {
         )
         .expect("legacy index");
 
-        let index = store.read_index().expect("read legacy index");
+        let index = store.read_index().expect("read index");
 
         assert_eq!(index.version, 4);
         assert_eq!(
@@ -54,17 +60,11 @@ mod tests {
     }
 
     #[test]
-    fn migrates_version_3_index_to_v4_on_read_and_write() {
+    fn persists_default_version_and_queue_to_sqlite_backend() {
         let repo_root = temp_workspace();
         let store = IndexStore::new(&repo_root);
         store.ensure_db_dir().expect("db dir");
-        fs::write(
-            repo_root.join("db/index.json"),
-            r#"{"version":3,"jobs":[]}"#,
-        )
-        .expect("legacy v3 index");
-
-        let index = store.read_index().expect("read migrated index");
+        let index = store.read_index().expect("read empty index");
         assert_eq!(index.version, 4);
         assert_eq!(index.task_queue, TaskQueueState::default());
 
@@ -77,12 +77,10 @@ mod tests {
             ))
             .expect("insert migrated job");
 
-        let persisted: serde_json::Value = serde_json::from_str(
-            &fs::read_to_string(repo_root.join("db/index.json")).expect("persisted index"),
-        )
-        .expect("persisted json");
-        assert_eq!(persisted["version"].as_u64(), Some(4));
-        assert_eq!(persisted["task_queue"]["burst_limit"].as_u64(), Some(3));
+        let persisted = store.read_index().expect("persisted index");
+        assert_eq!(persisted.version, 4);
+        assert_eq!(persisted.task_queue.burst_limit, 3);
+        assert!(repo_root.join("db/index.sqlite3").is_file());
     }
 
     #[test]
@@ -119,65 +117,50 @@ mod tests {
     }
 
     #[test]
-    fn finds_latest_reusable_completed_job() {
+    fn finds_latest_reusable_completed_job_by_source_hash() {
         let repo_root = temp_workspace();
         let store = IndexStore::new(&repo_root);
-        let source_path = PathBuf::from("/tmp/input.wav");
-
-        let valid_dir = store.job_dir("job-1");
-        fs::create_dir_all(&valid_dir).expect("valid dir");
-        let mut valid_job = JobRecord::new(
-            "job-1".to_string(),
-            "2026-01-01T00:00:00Z".to_string(),
-            source_path.clone(),
-            valid_dir.clone(),
+        let mut valid_job = test_job(
+            "job-1",
+            "2026-01-01T00:00:00Z",
+            "sources/shared/source.wav",
+            "shared-hash",
+            "input.wav",
         );
-        let valid_outputs = JobOutputs {
-            merged_mono_wav: Some(path_to_string(&valid_dir.join("mono_mix.wav"))),
-            split_mono_wavs: vec![JobSplitOutput {
-                channel_index: 1,
-                path: path_to_string(&valid_dir.join("channel_01.wav")),
-            }],
-        };
-        create_file(Path::new(
-            valid_outputs
-                .merged_mono_wav
-                .as_deref()
-                .expect("merged path"),
-        ));
-        create_file(Path::new(&valid_outputs.split_mono_wavs[0].path));
-        valid_job
-            .mark_completed("2026-01-01T00:00:01Z".to_string(), valid_outputs)
-            .expect("mark completed");
+        mark_job_completed_with_audio(
+            &store,
+            &mut valid_job,
+            "2026-01-01T00:00:01Z",
+            &["channel_01.wav", "mono_mix.wav"],
+        )
+        .expect("mark completed");
         store.insert_job(valid_job).expect("insert valid job");
 
-        let invalid_dir = store.job_dir("job-2");
-        fs::create_dir_all(&invalid_dir).expect("invalid dir");
-        let mut invalid_job = JobRecord::new(
-            "job-2".to_string(),
-            "2026-01-01T00:00:02Z".to_string(),
-            source_path.clone(),
-            invalid_dir.clone(),
+        let mut invalid_job = test_job(
+            "job-2",
+            "2026-01-01T00:00:02Z",
+            "sources/shared/source.wav",
+            "shared-hash",
+            "input.wav",
         );
+        mark_job_completed_with_audio(
+            &store,
+            &mut invalid_job,
+            "2026-01-01T00:00:03Z",
+            &["channel_01.wav", "mono_mix.wav"],
+        )
+        .expect("mark invalid completed");
         invalid_job
-            .mark_completed(
-                "2026-01-01T00:00:03Z".to_string(),
-                JobOutputs {
-                    merged_mono_wav: Some(path_to_string(&invalid_dir.join("mono_mix.wav"))),
-                    split_mono_wavs: vec![JobSplitOutput {
-                        channel_index: 1,
-                        path: path_to_string(&invalid_dir.join("channel_01.wav")),
-                    }],
-                },
-            )
-            .expect("mark invalid completed");
+            .job_dir = store.job_dir("job-2").to_string_lossy().into_owned();
         store.insert_job(invalid_job).expect("insert invalid job");
+        fs::remove_file(store.job_dir("job-2").join("mono_mix.wav")).expect("remove mono mix");
 
-        let mut failed_job = JobRecord::new(
-            "job-3".to_string(),
-            "2026-01-01T00:00:04Z".to_string(),
-            source_path.clone(),
-            store.job_dir("job-3"),
+        let mut failed_job = test_job(
+            "job-3",
+            "2026-01-01T00:00:04Z",
+            "sources/shared/source.wav",
+            "shared-hash",
+            "input.wav",
         );
         failed_job
             .mark_failed(
@@ -188,7 +171,7 @@ mod tests {
         store.insert_job(failed_job).expect("insert failed job");
 
         let found = store
-            .find_reusable_completed_job(&source_path)
+            .find_reusable_completed_job_by_source_hash("shared-hash")
             .expect("lookup should succeed")
             .expect("valid job should be found");
 
@@ -335,7 +318,7 @@ mod tests {
     }
 
     #[test]
-    fn stale_lock_is_recovered_before_writing_index() {
+    fn ignores_legacy_lock_files_when_writing_sqlite_backend() {
         let repo_root = temp_workspace();
         let store = IndexStore::new(&repo_root);
         store.ensure_db_dir().expect("db dir");
@@ -359,36 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn fresh_lock_times_out() {
-        let repo_root = temp_workspace();
-        let store = IndexStore::new(&repo_root);
-        store.ensure_db_dir().expect("db dir");
-        let now = lock::current_unix_timestamp_secs().expect("timestamp");
-        fs::write(
-            repo_root.join("db/index.lock"),
-            format!("pid=123\ncreated_at_unix_secs={now}\n"),
-        )
-        .expect("write fresh lock");
-
-        let error = store.list_jobs().expect_err("fresh lock should block");
-        assert!(error.contains("timed out waiting for index lock"));
-    }
-
-    #[test]
-    fn active_lock_handle_times_out_instead_of_access_denied() {
-        let repo_root = temp_workspace();
-        let store = IndexStore::new(&repo_root);
-        store.ensure_db_dir().expect("db dir");
-        let lock_path = repo_root.join("db/index.lock");
-        let _guard = super::lock::LockGuard::acquire(&lock_path).expect("hold lock");
-
-        let error = store.list_jobs().expect_err("active lock should block");
-        assert!(error.contains("timed out waiting for index lock"));
-        assert!(!error.to_ascii_lowercase().contains("denied"));
-    }
-
-    #[test]
-    fn writes_valid_json_after_atomic_replace() {
+    fn creates_sqlite_file_after_first_write() {
         let repo_root = temp_workspace();
         let store = IndexStore::new(&repo_root);
         let job = JobRecord::new(
@@ -400,27 +354,9 @@ mod tests {
 
         store.insert_job(job).expect("insert job");
 
-        let content = fs::read_to_string(repo_root.join("db/index.json")).expect("index content");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("valid json");
-        assert_eq!(parsed["jobs"].as_array().map(Vec::len), Some(1));
-
-        let temp_files = fs::read_dir(repo_root.join("db"))
-            .expect("db dir entries")
-            .filter_map(Result::ok)
-            .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("tmp"))
-            .count();
-        assert_eq!(temp_files, 0);
-    }
-
-    fn path_to_string(path: &Path) -> String {
-        path.to_string_lossy().into_owned()
-    }
-
-    fn create_file(path: &Path) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).expect("parent dir");
-        }
-        File::create(path).expect("create file");
+        let index = store.read_index().expect("read index");
+        assert_eq!(index.jobs.len(), 1);
+        assert!(repo_root.join("db/index.sqlite3").is_file());
     }
 
     fn temp_workspace() -> PathBuf {

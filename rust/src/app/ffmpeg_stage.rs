@@ -1,12 +1,16 @@
 use super::{
     FfmpegJobDisposition, FfmpegJobSubmission, RunSummary, WAIT_FOR_RUNNING_JOB_POLL_INTERVAL,
-    build_run_id, now_rfc3339, path_to_string, queue, stages, submit_stt_job,
+    build_run_id, now_rfc3339, queue, stages, submit_stt_job,
 };
+use crate::audio_store::{AudioStore, ImportedSource};
 use crate::ffmpeg::{
     ConversionOutputs, SplitMonoOutput, Toolchain as FfmpegToolchain, probe_audio_input,
     run_conversion,
 };
-use crate::index::{IndexStore, JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus};
+use crate::index::{
+    AudioArtifactRecord, IndexStore, JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus,
+    SourceKind,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -35,19 +39,32 @@ pub fn run_with_repo_root(repo_root: &Path, input: &Path) -> Result<RunSummary, 
 }
 
 pub fn submit_ffmpeg_job(repo_root: &Path, input: &Path) -> Result<FfmpegJobSubmission, String> {
-    let input_path = normalize_input_path(input)?;
-    let index_store = IndexStore::new(repo_root);
+    let audio_store = AudioStore::new(repo_root)?;
+    let imported = audio_store.publish_source(input, None, SourceKind::LocalFile)?;
+    submit_ffmpeg_job_from_imported_source(repo_root, imported)
+}
 
-    if let Some(job) = index_store.find_reusable_completed_job(&input_path)? {
+pub fn submit_ffmpeg_job_from_imported_source(
+    repo_root: &Path,
+    imported: ImportedSource,
+) -> Result<FfmpegJobSubmission, String> {
+    let index_store = IndexStore::new(repo_root);
+    let source_path = index_store.source_path(&imported.source_ref);
+
+    if let Some(job) =
+        index_store.find_reusable_completed_job_by_source_hash(&imported.source_content_sha256)?
+    {
         return Ok(FfmpegJobSubmission {
             job,
-            input_path,
+            input_path: source_path,
             disposition: FfmpegJobDisposition::Reused,
             queue: None,
         });
     }
 
-    if let Some(job) = index_store.find_inflight_job_by_source(&input_path)? {
+    if let Some(job) =
+        index_store.find_inflight_job_by_source_hash(&imported.source_content_sha256)?
+    {
         let queue = if job.status == JobStatus::Queued {
             index_store.with_index_read(|index| {
                 Ok(queue::find_ticket(
@@ -61,7 +78,7 @@ pub fn submit_ffmpeg_job(repo_root: &Path, input: &Path) -> Result<FfmpegJobSubm
         };
         return Ok(FfmpegJobSubmission {
             job,
-            input_path,
+            input_path: source_path,
             disposition: FfmpegJobDisposition::Deduplicated,
             queue,
         });
@@ -80,8 +97,17 @@ pub fn submit_ffmpeg_job(repo_root: &Path, input: &Path) -> Result<FfmpegJobSubm
         )
     })?;
 
-    let job = JobRecord::new(job_id, started_at.clone(), input_path.clone(), job_dir);
-    let entry = queue::build_ffmpeg_entry(&job.job_id, &input_path, started_at);
+    let mut job = JobRecord::new_with_source(
+        job_id,
+        started_at.clone(),
+        imported.source_ref.clone(),
+        imported.source_kind,
+        imported.source_content_sha256,
+        imported.source_file_name,
+    );
+    job.source_path = source_path.to_string_lossy().into_owned();
+    job.job_dir = job_dir.to_string_lossy().into_owned();
+    let entry = queue::build_ffmpeg_entry(&job.job_id, Path::new(&job.source_ref), started_at);
     let (job, ticket) = index_store.with_index_mut(|index| {
         index.jobs.push(job.clone());
         let ticket = queue::enqueue_entry(index, entry);
@@ -90,7 +116,7 @@ pub fn submit_ffmpeg_job(repo_root: &Path, input: &Path) -> Result<FfmpegJobSubm
 
     Ok(FfmpegJobSubmission {
         job,
-        input_path,
+        input_path: source_path,
         disposition: FfmpegJobDisposition::Submitted,
         queue: Some(ticket),
     })
@@ -106,21 +132,15 @@ pub fn execute_ffmpeg_job(
     let mut job = index_store
         .find_job(job_id)?
         .ok_or_else(|| format!("job not found in index: {job_id}"))?;
-    let input_path = match normalize_input_path(input_path) {
-        Ok(path) => path,
-        Err(error) => {
-            job.mark_failed(now_rfc3339()?, error.clone())?;
-            index_store.update_job(job_id, |_| job.clone())?;
-            return Err(error);
-        }
-    };
-    if input_path != PathBuf::from(&job.source_path) {
+    let source_ref = input_path.to_string_lossy().into_owned();
+    if source_ref != job.source_ref {
         let error = format!("job input path mismatch for {job_id}");
         job.mark_failed(now_rfc3339()?, error.clone())?;
         index_store.update_job(job_id, |_| job.clone())?;
         return Err(error);
     }
-    let job_dir = PathBuf::from(&job.job_dir);
+    let job_dir = index_store.job_dir(job_id);
+    let input_path = index_store.audio_store()?.materialize_to_cache(&job.source_ref)?;
 
     let probe = match probe_audio_input(&toolchain, &input_path) {
         Ok(probe) => probe,
@@ -141,6 +161,7 @@ pub fn execute_ffmpeg_job(
 
     match run_conversion(&toolchain, &input_path, probe.channels, &planned_outputs) {
         Ok(()) => {
+            record_audio_outputs(&index_store, job_id, &planned_outputs)?;
             job.mark_completed(now_rfc3339()?, build_job_outputs(&planned_outputs))?;
             index_store.update_job(job_id, |_| job.clone())?;
             if let Err(error) = submit_stt_job(repo_root, job_id, None) {
@@ -186,16 +207,65 @@ fn wait_for_ffmpeg_job_completion(repo_root: &Path, job_id: &str) -> Result<JobR
 
 fn build_job_outputs(outputs: &ConversionOutputs) -> JobOutputs {
     JobOutputs {
-        merged_mono_wav: Some(path_to_string(&outputs.merged_mono_wav)),
+        merged_mono_wav: outputs
+            .merged_mono_wav
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_string),
         split_mono_wavs: outputs
             .split_mono_wavs
             .iter()
             .map(|output| JobSplitOutput {
                 channel_index: output.channel_index,
-                path: path_to_string(&output.path),
+                path: output
+                    .path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .to_string(),
             })
             .collect(),
     }
+}
+
+fn record_audio_outputs(
+    index_store: &IndexStore,
+    job_id: &str,
+    outputs: &ConversionOutputs,
+) -> Result<(), String> {
+    let merged_name = outputs
+        .merged_mono_wav
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            format!(
+                "merged output does not have a valid file name: {}",
+                outputs.merged_mono_wav.display()
+            )
+        })?;
+    index_store.upsert_audio_artifact(&AudioArtifactRecord {
+        job_id: job_id.to_string(),
+        logical_name: merged_name.to_string(),
+        storage_key: format!("jobs/{job_id}/{merged_name}"),
+    })?;
+    for output in &outputs.split_mono_wavs {
+        let logical_name = output
+            .path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                format!(
+                    "split output does not have a valid file name: {}",
+                    output.path.display()
+                )
+            })?;
+        index_store.upsert_audio_artifact(&AudioArtifactRecord {
+            job_id: job_id.to_string(),
+            logical_name: logical_name.to_string(),
+            storage_key: format!("jobs/{job_id}/{logical_name}"),
+        })?;
+    }
+    Ok(())
 }
 
 fn run_summary_from_completed_job(job: JobRecord) -> Result<RunSummary, String> {
@@ -214,31 +284,18 @@ fn run_summary_from_completed_job(job: JobRecord) -> Result<RunSummary, String> 
 
     Ok(RunSummary {
         job_id: job.job_id,
-        job_dir: PathBuf::from(job.job_dir),
+        job_dir: PathBuf::from(&job.job_dir),
         outputs: ConversionOutputs {
-            merged_mono_wav: PathBuf::from(merged_mono_wav),
+            merged_mono_wav: PathBuf::from(&job.job_dir).join(merged_mono_wav),
             split_mono_wavs: job
                 .outputs
                 .split_mono_wavs
                 .into_iter()
                 .map(|output| SplitMonoOutput {
                     channel_index: output.channel_index,
-                    path: PathBuf::from(output.path),
+                    path: PathBuf::from(&job.job_dir).join(output.path),
                 })
                 .collect(),
         },
     })
-}
-
-fn normalize_input_path(input: &Path) -> Result<PathBuf, String> {
-    if !input.exists() {
-        return Err(format!("input file not found: {}", input.display()));
-    }
-
-    if !input.is_file() {
-        return Err(format!("input path is not a file: {}", input.display()));
-    }
-
-    fs::canonicalize(input)
-        .map_err(|error| format!("failed to resolve input path {}: {error}", input.display()))
 }
