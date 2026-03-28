@@ -1,4 +1,46 @@
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+
+pub struct LocalToolchainLayout {
+    pub build_script_path: PathBuf,
+    pub bin_dir: PathBuf,
+}
+
+pub fn local_toolchain_layout(
+    repo_root: &Path,
+    tool: &str,
+    bin_relative_dir: impl AsRef<Path>,
+) -> LocalToolchainLayout {
+    LocalToolchainLayout {
+        build_script_path: crate::ffmpeg::build_script_path(repo_root, tool),
+        bin_dir: repo_root
+            .join(".build")
+            .join(tool)
+            .join(crate::ffmpeg::target_dir_name())
+            .join(bin_relative_dir),
+    }
+}
+
+pub fn optional_local_command(base_dir: &Path, name: &str) -> Option<PathBuf> {
+    crate::ffmpeg::locate_command(base_dir, name)
+}
+
+pub fn require_local_command(
+    base_dir: &Path,
+    name: &str,
+    build_script_path: &Path,
+    tool: &str,
+) -> Result<PathBuf, String> {
+    optional_local_command(base_dir, name)
+        .ok_or_else(|| missing_local_toolchain_message(tool, build_script_path))
+}
+
+pub fn missing_local_toolchain_message(tool: &str, build_script_path: &Path) -> String {
+    format!(
+        "local {tool} toolchain not found. Build it first with {}",
+        build_script_path.display()
+    )
+}
 
 pub fn apply_cpu_fallback_env(command: &mut Command) {
     if cfg!(target_os = "macos") {
@@ -126,6 +168,26 @@ mod tests {
         assert_eq!(
             error,
             "cpu backend failure (after retrying on CPU because the preferred backend failed: gpu backend failure)"
+        );
+    }
+
+    #[test]
+    fn local_toolchain_layout_builds_expected_paths() {
+        let repo_root = Path::new("/tmp/recordroute");
+        let layout = local_toolchain_layout(repo_root, "llama", Path::new("bin"));
+
+        assert!(
+            layout
+                .build_script_path
+                .ends_with(Path::new("scripts/build_llama.sh"))
+        );
+        assert!(
+            layout.bin_dir.ends_with(
+                Path::new(".build")
+                    .join("llama")
+                    .join(crate::ffmpeg::target_dir_name())
+                    .join("bin")
+            )
         );
     }
 

@@ -1,10 +1,17 @@
-use super::{QueueTicket, now_rfc3339, queue};
+use super::{QueueTicket, StageJobDisposition, StageJobSubmission, now_rfc3339, queue};
 use crate::index::{IndexStore, JobRecord, QueueEntry, TaskStatus, TaskType};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
 const TASK_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+pub(crate) enum InflightSubmissionResolution {
+    Continue,
+    Deduplicate,
+    UpgradeQueuedEntry,
+    Conflict(String),
+}
 
 pub(crate) fn finalize_task_success(
     repo_root: &Path,
@@ -61,6 +68,59 @@ pub(crate) fn enqueue_existing_task(
     })
 }
 
+pub(crate) fn resolve_inflight_stage_submission<M, U>(
+    index_store: &IndexStore,
+    job: &JobRecord,
+    task_type: TaskType,
+    planned_audio_files: Vec<PathBuf>,
+    resolve: M,
+    upgrade_queued: U,
+) -> Result<Option<StageJobSubmission>, String>
+where
+    M: FnOnce(Option<&QueueEntry>, TaskStatus) -> InflightSubmissionResolution,
+    U: FnOnce(&IndexStore, &str, TaskType) -> Result<Option<(JobRecord, QueueTicket)>, String>,
+{
+    let Some(task) = job
+        .task(task_type)
+        .filter(|task| matches!(task.status, TaskStatus::Queued | TaskStatus::Running))
+    else {
+        return Ok(None);
+    };
+
+    let existing_entry = index_store
+        .with_index_read(|index| Ok(queue::find_task_entry(index, &job.job_id, task_type)))?;
+
+    match resolve(existing_entry.as_ref(), task.status) {
+        InflightSubmissionResolution::Continue => Ok(None),
+        InflightSubmissionResolution::Deduplicate => Ok(Some(StageJobSubmission {
+            job: job.clone(),
+            disposition: StageJobDisposition::Deduplicated,
+            planned_audio_files,
+            queue: if task.status == TaskStatus::Queued {
+                queued_task_ticket(index_store, &job.job_id, task_type)?
+            } else {
+                None
+            },
+        })),
+        InflightSubmissionResolution::UpgradeQueuedEntry => {
+            let Some((job, ticket)) = upgrade_queued(index_store, &job.job_id, task_type)? else {
+                return Err(format!(
+                    "{} task requested queued upgrade without an updated queue entry: {}",
+                    task_type.as_str(),
+                    job.job_id
+                ));
+            };
+            Ok(Some(StageJobSubmission {
+                job,
+                disposition: StageJobDisposition::Submitted,
+                planned_audio_files,
+                queue: Some(ticket),
+            }))
+        }
+        InflightSubmissionResolution::Conflict(message) => Err(message),
+    }
+}
+
 pub(crate) fn wait_for_task_completion(
     repo_root: &Path,
     job_id: &str,
@@ -104,4 +164,23 @@ pub(crate) fn record_followup_submission_failure(
         let _ = updated.fail_task(task_type, finished_at.clone(), error.clone());
         updated
     })
+}
+
+pub(crate) fn submit_followup_task<T, E>(
+    repo_root: &Path,
+    job_id: &str,
+    task_type: TaskType,
+    submit: impl FnOnce() -> Result<T, E>,
+) -> Option<T>
+where
+    E: ToString,
+{
+    match submit() {
+        Ok(value) => Some(value),
+        Err(error) => {
+            let _ =
+                record_followup_submission_failure(repo_root, job_id, task_type, error.to_string());
+            None
+        }
+    }
 }

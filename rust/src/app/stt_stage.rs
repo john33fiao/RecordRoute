@@ -47,41 +47,31 @@ pub fn submit_stt_job(
         )));
     }
 
-    if let Some(task) = job.task(TaskType::Stt)
-        && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
-    {
-        let requested_audio_files = normalized_audio_files(&audio_files);
-        let existing_entry = index_store
-            .with_index_read(|index| Ok(queue::find_task_entry(index, &job.job_id, TaskType::Stt)))
-            .map_err(AppError::internal)?;
-
-        match existing_entry {
-            Some(entry) if stt_payload_matches(&entry, &requested_audio_files) => {
-                let queue = if task.status == TaskStatus::Queued {
-                    stages::queued_task_ticket(&index_store, &job.job_id, TaskType::Stt)
-                        .map_err(AppError::internal)?
-                } else {
-                    None
-                };
-                return Ok(StageJobSubmission {
-                    job,
-                    disposition: StageJobDisposition::Deduplicated,
-                    planned_audio_files: audio_files,
-                    queue,
-                });
+    let requested_audio_files = normalized_audio_files(&audio_files);
+    if let Some(submission) = stages::resolve_inflight_stage_submission(
+        &index_store,
+        &job,
+        TaskType::Stt,
+        audio_files.clone(),
+        |existing_entry, status| match existing_entry {
+            Some(entry) if stt_payload_matches(entry, &requested_audio_files) => {
+                stages::InflightSubmissionResolution::Deduplicate
             }
-            Some(_) => {
-                return Err(AppError::bad_request(format!(
-                    "stt already queued or running with a different audio selection: {job_id}"
-                )));
-            }
-            None if task.status == TaskStatus::Running => {
-                return Err(AppError::bad_request(format!(
+            Some(_) => stages::InflightSubmissionResolution::Conflict(format!(
+                "stt already queued or running with a different audio selection: {job_id}"
+            )),
+            None if status == TaskStatus::Running => {
+                stages::InflightSubmissionResolution::Conflict(format!(
                     "stt task is marked running but queue entry is missing: {job_id}"
-                )));
+                ))
             }
-            None => {}
-        }
+            None => stages::InflightSubmissionResolution::Continue,
+        },
+        |_, _, _| Ok(None),
+    )
+    .map_err(AppError::internal)?
+    {
+        return Ok(submission);
     }
 
     let all_transcripts_exist =
@@ -162,14 +152,12 @@ pub fn execute_stt_job(
         Ok(()) => {
             let completed =
                 stages::finalize_task_success(repo_root, job, TaskType::Stt, now_rfc3339()?)?;
-            if let Err(error) = submit_summary_job(repo_root, &completed.job_id, false) {
-                let _ = stages::record_followup_submission_failure(
-                    repo_root,
-                    &completed.job_id,
-                    TaskType::Summary,
-                    error.to_string(),
-                );
-            }
+            let _ = stages::submit_followup_task(
+                repo_root,
+                &completed.job_id,
+                TaskType::Summary,
+                || submit_summary_job(repo_root, &completed.job_id, false),
+            );
             Ok(completed)
         }
         Err(error) => {

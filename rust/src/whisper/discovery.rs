@@ -1,23 +1,19 @@
 use super::{DEFAULT_MODEL_RELATIVE_PATH, MODEL_ENV_VAR, Toolchain};
-use crate::ffmpeg::{build_script_path, locate_command, target_dir_name};
+use crate::tool_runtime::{local_toolchain_layout, require_local_command};
 use std::path::{Path, PathBuf};
 
 pub(crate) fn discover(repo_root: &Path) -> Result<Toolchain, String> {
-    let build_script_path = build_script_path(repo_root, "whisper");
-    let whisper_bin = repo_root
-        .join(".build/whisper")
-        .join(target_dir_name())
-        .join("bin");
-    let whisper_cli_path = locate_command(&whisper_bin, "whisper-cli").ok_or_else(|| {
-        format!(
-            "local whisper toolchain not found. Build it first with {}",
-            build_script_path.display()
-        )
-    })?;
+    let layout = local_toolchain_layout(repo_root, "whisper", Path::new("bin"));
+    let whisper_cli_path = require_local_command(
+        &layout.bin_dir,
+        "whisper-cli",
+        &layout.build_script_path,
+        "whisper",
+    )?;
 
     Ok(Toolchain {
         whisper_cli_path,
-        build_script_path,
+        build_script_path: layout.build_script_path,
         model_path: resolve_model_path(repo_root),
     })
 }

@@ -2,23 +2,19 @@ use super::{
     DEFAULT_EMBEDDING_MODEL_REPOSITORY, DEFAULT_MODEL_REPOSITORY, EMBEDDING_MODEL_ENV_VAR,
     HF_CACHE_RELATIVE_DIR, MODEL_ENV_VAR, ModelSource, Toolchain,
 };
-use crate::ffmpeg::{build_script_path, locate_command, target_dir_name};
+use crate::tool_runtime::{local_toolchain_layout, optional_local_command, require_local_command};
 use std::path::{Path, PathBuf};
 
 pub(crate) fn discover(repo_root: &Path) -> Result<Toolchain, String> {
-    let build_script_path = build_script_path(repo_root, "llama");
-    let llama_bin = repo_root
-        .join(".build/llama")
-        .join(target_dir_name())
-        .join("bin");
-    let llama_cli_path = locate_command(&llama_bin, "llama-cli").ok_or_else(|| {
-        format!(
-            "local llama toolchain not found. Build it first with {}",
-            build_script_path.display()
-        )
-    })?;
-    let llama_embedding_path = locate_command(&llama_bin, "llama-embedding")
-        .unwrap_or_else(|| llama_bin.join("llama-embedding"));
+    let layout = local_toolchain_layout(repo_root, "llama", Path::new("bin"));
+    let llama_cli_path = require_local_command(
+        &layout.bin_dir,
+        "llama-cli",
+        &layout.build_script_path,
+        "llama",
+    )?;
+    let llama_embedding_path = optional_local_command(&layout.bin_dir, "llama-embedding")
+        .unwrap_or_else(|| layout.bin_dir.join("llama-embedding"));
 
     let model_source = resolve_model_source(repo_root);
     let summary_cached_model_path = match &model_source {
@@ -34,7 +30,7 @@ pub(crate) fn discover(repo_root: &Path) -> Result<Toolchain, String> {
     Ok(Toolchain {
         llama_cli_path,
         llama_embedding_path,
-        build_script_path,
+        build_script_path: layout.build_script_path,
         model_source,
         cached_model_path: summary_cached_model_path,
         embedding_model_source,

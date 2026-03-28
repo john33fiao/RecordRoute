@@ -1,8 +1,7 @@
 use super::{StageJobDisposition, StageJobSubmission, artifacts, now_rfc3339, queue, stages};
 use crate::error::{AppError, AppResult, dependency_unavailable_or_internal};
 use crate::index::{
-    IndexStore, JobRecord, SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord, TaskStatus,
-    TaskType,
+    IndexStore, JobRecord, SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord, TaskType,
 };
 use crate::llama::{Toolchain as LlamaToolchain, embedding_model_id, run_summary_embedding};
 use sha2::{Digest, Sha256};
@@ -45,21 +44,17 @@ pub fn submit_summary_embedding_job(
             "summary not found for job: {job_id}"
         )));
     }
-    if let Some(task) = job.task(TaskType::Embedding)
-        && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
+    if let Some(submission) = stages::resolve_inflight_stage_submission(
+        &index_store,
+        &job,
+        TaskType::Embedding,
+        Vec::new(),
+        |_, _| stages::InflightSubmissionResolution::Deduplicate,
+        |_, _, _| Ok(None),
+    )
+    .map_err(AppError::internal)?
     {
-        let queue = if task.status == TaskStatus::Queued {
-            stages::queued_task_ticket(&index_store, &job.job_id, TaskType::Embedding)
-                .map_err(AppError::internal)?
-        } else {
-            None
-        };
-        return Ok(StageJobSubmission {
-            job,
-            disposition: StageJobDisposition::Deduplicated,
-            planned_audio_files: Vec::new(),
-            queue,
-        });
+        return Ok(submission);
     }
 
     if !is_embedding_stale(repo_root, &job).map_err(AppError::internal)? {

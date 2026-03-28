@@ -30,43 +30,295 @@ struct PreparationWaitState {
     preparation: ModelPreparationRecord,
 }
 
+#[derive(Debug, Clone)]
+struct TargetRuntimeStatus {
+    available: bool,
+    ready: bool,
+    error: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PreparationTarget {
-    Model(ModelKind),
+    Whisper,
+    LlamaSummary,
     LlamaEmbedding,
 }
 
 impl PreparationTarget {
+    fn from_model_kind(model: ModelKind) -> Self {
+        match model {
+            ModelKind::Whisper => Self::Whisper,
+            ModelKind::Llama => Self::LlamaSummary,
+        }
+    }
+
+    fn model_kind(self) -> ModelKind {
+        match self {
+            Self::Whisper => ModelKind::Whisper,
+            Self::LlamaSummary | Self::LlamaEmbedding => ModelKind::Llama,
+        }
+    }
+
     fn update(
         self,
         index_store: &IndexStore,
         update: impl FnOnce(&mut ModelPreparationRecord),
     ) -> Result<ModelPreparationRecord, String> {
         match self {
-            PreparationTarget::Model(model) => index_store.update_model_preparation(model, update),
-            PreparationTarget::LlamaEmbedding => {
-                index_store.update_llama_embedding_preparation(update)
+            Self::Whisper => index_store.update_model_preparation(ModelKind::Whisper, update),
+            Self::LlamaSummary => index_store.update_model_preparation(ModelKind::Llama, update),
+            Self::LlamaEmbedding => index_store.update_llama_embedding_preparation(update),
+        }
+    }
+
+    fn preparation_record(
+        self,
+        index_store: &IndexStore,
+    ) -> Result<ModelPreparationRecord, String> {
+        let preparations = index_store.model_preparations()?;
+        Ok(match self {
+            Self::Whisper => preparations.whisper,
+            Self::LlamaSummary => preparations.llama,
+            Self::LlamaEmbedding => preparations.llama_embedding,
+        })
+    }
+
+    fn inspect(self, repo_root: &Path) -> Result<ModelInspection, String> {
+        match self {
+            Self::Whisper => {
+                let toolchain = WhisperToolchain::discover(repo_root)?;
+                if toolchain.is_model_ready() {
+                    Ok(ModelInspection { ready: true })
+                } else {
+                    toolchain.can_prepare_model()?;
+                    Ok(ModelInspection { ready: false })
+                }
             }
+            Self::LlamaSummary => {
+                let toolchain = LlamaToolchain::discover(repo_root)?;
+                if toolchain.is_model_ready() {
+                    Ok(ModelInspection { ready: true })
+                } else {
+                    toolchain.can_prepare_model()?;
+                    Ok(ModelInspection { ready: false })
+                }
+            }
+            Self::LlamaEmbedding => {
+                let toolchain = LlamaToolchain::discover(repo_root)?;
+                if !toolchain.llama_embedding_path.is_file() {
+                    return Err(missing_embedding_toolchain_message(&toolchain));
+                }
+                if toolchain.is_embedding_model_ready() {
+                    Ok(ModelInspection { ready: true })
+                } else {
+                    toolchain.can_prepare_embedding_model()?;
+                    Ok(ModelInspection { ready: false })
+                }
+            }
+        }
+    }
+
+    fn ensure(self, repo_root: &Path) -> Result<(), String> {
+        match self {
+            Self::Whisper => WhisperToolchain::discover(repo_root)?.ensure_model(),
+            Self::LlamaSummary => LlamaToolchain::discover(repo_root)?.ensure_model(),
+            Self::LlamaEmbedding => {
+                let toolchain = LlamaToolchain::discover(repo_root)?;
+                if !toolchain.llama_embedding_path.is_file() {
+                    return Err(missing_embedding_toolchain_message(&toolchain));
+                }
+                toolchain.ensure_embedding_model()
+            }
+        }
+    }
+
+    fn status(self, repo_root: &Path, preparation: &ModelPreparationRecord) -> TargetRuntimeStatus {
+        match self {
+            Self::Whisper => match WhisperToolchain::discover(repo_root) {
+                Ok(toolchain) => {
+                    let ready = toolchain.is_model_ready();
+                    let error = if ready {
+                        None
+                    } else {
+                        toolchain
+                            .can_prepare_model()
+                            .err()
+                            .or_else(|| failed_model_preparation_error(preparation))
+                    };
+                    TargetRuntimeStatus {
+                        available: true,
+                        ready,
+                        error,
+                    }
+                }
+                Err(error) => TargetRuntimeStatus {
+                    available: false,
+                    ready: false,
+                    error: Some(error),
+                },
+            },
+            Self::LlamaSummary => match LlamaToolchain::discover(repo_root) {
+                Ok(toolchain) => {
+                    let ready = toolchain.is_model_ready();
+                    let error = if ready {
+                        None
+                    } else {
+                        toolchain
+                            .can_prepare_model()
+                            .err()
+                            .or_else(|| failed_model_preparation_error(preparation))
+                    };
+                    TargetRuntimeStatus {
+                        available: true,
+                        ready,
+                        error,
+                    }
+                }
+                Err(error) => TargetRuntimeStatus {
+                    available: false,
+                    ready: false,
+                    error: Some(error),
+                },
+            },
+            Self::LlamaEmbedding => match LlamaToolchain::discover(repo_root) {
+                Ok(toolchain) => {
+                    let available = toolchain.llama_embedding_path.is_file();
+                    let ready = available && toolchain.is_embedding_model_ready();
+                    let error = if !available {
+                        Some(missing_embedding_toolchain_message(&toolchain))
+                    } else if ready {
+                        None
+                    } else {
+                        toolchain
+                            .can_prepare_embedding_model()
+                            .err()
+                            .or_else(|| failed_model_preparation_error(preparation))
+                    };
+                    TargetRuntimeStatus {
+                        available,
+                        ready,
+                        error,
+                    }
+                }
+                Err(error) => TargetRuntimeStatus {
+                    available: false,
+                    ready: false,
+                    error: Some(error),
+                },
+            },
+        }
+    }
+
+    fn load_wait_state(self, repo_root: &Path) -> Result<PreparationWaitState, String> {
+        match self {
+            Self::Whisper | Self::LlamaSummary => {
+                let entry = collect_model_status_snapshot(repo_root)?
+                    .entry(self.model_kind())
+                    .clone();
+                Ok(PreparationWaitState {
+                    ready: entry.ready,
+                    error: entry.error,
+                    preparation: entry.preparation,
+                })
+            }
+            Self::LlamaEmbedding => {
+                let index_store = IndexStore::new(repo_root);
+                let preparation = self.preparation_record(&index_store)?;
+                let status = self.status(repo_root, &preparation);
+                Ok(PreparationWaitState {
+                    ready: status.ready,
+                    error: status.error,
+                    preparation,
+                })
+            }
+        }
+    }
+
+    fn submit(self, repo_root: &Path) -> Result<ModelPrepareSubmission, String> {
+        match self {
+            Self::Whisper | Self::LlamaSummary => {
+                submit_model_preparation(repo_root, self.model_kind())
+            }
+            Self::LlamaEmbedding => submit_llama_embedding_preparation(repo_root),
+        }
+    }
+
+    fn execute(self, repo_root: &Path) -> Result<ModelPreparationRecord, String> {
+        match self {
+            Self::Whisper | Self::LlamaSummary => {
+                execute_model_preparation(repo_root, self.model_kind())
+            }
+            Self::LlamaEmbedding => execute_llama_embedding_preparation(repo_root),
+        }
+    }
+
+    fn wait(self, repo_root: &Path) -> Result<ModelPreparationRecord, String> {
+        match self {
+            Self::Whisper | Self::LlamaSummary => {
+                wait_for_model_preparation(repo_root, self.model_kind())
+            }
+            Self::LlamaEmbedding => wait_for_llama_embedding_model_prepared(repo_root),
+        }
+    }
+
+    fn log_prepare_start(self, repo_root: &Path) -> Result<(), String> {
+        match self {
+            Self::Whisper => {
+                let toolchain = WhisperToolchain::discover(repo_root)?;
+                eprintln!(
+                    "Preparing whisper model at {}...",
+                    whisper_model_description(&toolchain)
+                );
+            }
+            Self::LlamaSummary => {
+                let toolchain = LlamaToolchain::discover(repo_root)?;
+                eprintln!(
+                    "Preparing llama summary model from {}...",
+                    summary_model_description(&toolchain)
+                );
+            }
+            Self::LlamaEmbedding => {
+                let toolchain = LlamaToolchain::discover(repo_root)?;
+                eprintln!(
+                    "Preparing llama embedding model from {}...",
+                    embedding_model_description(&toolchain)
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn log_wait_message(self) {
+        match self {
+            Self::Whisper => eprintln!("whisper model preparation already running. Waiting..."),
+            Self::LlamaSummary => eprintln!("llama model preparation already running. Waiting..."),
+            Self::LlamaEmbedding => {
+                eprintln!("Llama embedding model preparation already running. Waiting...")
+            }
+        }
+    }
+
+    fn log_prepare_ready(self) {
+        match self {
+            Self::Whisper => eprintln!("Whisper model ready."),
+            Self::LlamaSummary => eprintln!("Llama summary model ready."),
+            Self::LlamaEmbedding => eprintln!("Llama embedding model ready."),
         }
     }
 
     fn idle_error(self) -> String {
         match self {
-            PreparationTarget::Model(model) => {
-                format!("{} model preparation is not running", model.as_str())
-            }
-            PreparationTarget::LlamaEmbedding => {
-                "llama embedding model preparation is not running".to_string()
-            }
+            Self::Whisper => "whisper model preparation is not running".to_string(),
+            Self::LlamaSummary => "llama model preparation is not running".to_string(),
+            Self::LlamaEmbedding => "llama embedding model preparation is not running".to_string(),
         }
     }
 
     fn completed_not_ready_error(self) -> String {
         match self {
-            PreparationTarget::Model(model) => {
-                format!("{} model is not ready after preparation", model.as_str())
-            }
-            PreparationTarget::LlamaEmbedding => {
+            Self::Whisper => "whisper model is not ready after preparation".to_string(),
+            Self::LlamaSummary => "llama model is not ready after preparation".to_string(),
+            Self::LlamaEmbedding => {
                 "llama embedding model is not ready after preparation".to_string()
             }
         }
@@ -74,12 +326,9 @@ impl PreparationTarget {
 
     fn failed_default_error(self) -> String {
         match self {
-            PreparationTarget::Model(model) => {
-                format!("{} model preparation failed", model.as_str())
-            }
-            PreparationTarget::LlamaEmbedding => {
-                "llama embedding model preparation failed".to_string()
-            }
+            Self::Whisper => "whisper model preparation failed".to_string(),
+            Self::LlamaSummary => "llama model preparation failed".to_string(),
+            Self::LlamaEmbedding => "llama embedding model preparation failed".to_string(),
         }
     }
 }
@@ -133,8 +382,8 @@ pub fn collect_model_status_snapshot_api(repo_root: &Path) -> AppResult<ModelSta
 pub fn submit_llama_umbrella_preparation(
     repo_root: &Path,
 ) -> Result<ModelPrepareSubmission, String> {
-    inspect_model_preparation(repo_root, ModelKind::Llama)?;
-    if let Err(error) = inspect_llama_embedding_preparation(repo_root) {
+    PreparationTarget::LlamaSummary.inspect(repo_root)?;
+    if let Err(error) = PreparationTarget::LlamaEmbedding.inspect(repo_root) {
         let _ = mark_llama_embedding_preparation_failed(repo_root, error.clone());
         return Err(error);
     }
@@ -180,8 +429,8 @@ pub fn submit_model_preparation(
     model: ModelKind,
 ) -> Result<ModelPrepareSubmission, String> {
     let index_store = IndexStore::new(repo_root);
-    let inspection = inspect_model_preparation(repo_root, model)?;
-    let target = PreparationTarget::Model(model);
+    let target = PreparationTarget::from_model_kind(model);
+    let inspection = target.inspect(repo_root)?;
     let (preparation, disposition, execute_requested) =
         submit_preparation_record(&index_store, target, inspection)?;
 
@@ -198,26 +447,17 @@ pub fn execute_model_preparation(
     repo_root: &Path,
     model: ModelKind,
 ) -> Result<ModelPreparationRecord, String> {
-    execute_preparation_record(repo_root, PreparationTarget::Model(model), |root| {
-        ensure_model_with_toolchain(root, model)
-    })
+    execute_preparation_record(repo_root, PreparationTarget::from_model_kind(model))
 }
 
 pub fn wait_for_model_preparation(
     repo_root: &Path,
     model: ModelKind,
 ) -> Result<ModelPreparationRecord, String> {
+    let target = PreparationTarget::from_model_kind(model);
     wait_for_preparation_state(
         repo_root,
-        PreparationTarget::Model(model),
-        |root| {
-            let entry = collect_model_status_snapshot(root)?.entry(model).clone();
-            Ok(PreparationWaitState {
-                ready: entry.ready,
-                error: entry.error,
-                preparation: entry.preparation,
-            })
-        },
+        target,
         |root| submit_model_preparation(root, model),
         |root| execute_model_preparation(root, model),
     )
@@ -239,13 +479,31 @@ pub fn ensure_model_prepared(
 
 pub fn collect_model_status_snapshot(repo_root: &Path) -> Result<ModelStatusSnapshot, String> {
     let preparations = IndexStore::new(repo_root).model_preparations()?;
+    let whisper = PreparationTarget::Whisper.status(repo_root, &preparations.whisper);
+    let llama_summary = PreparationTarget::LlamaSummary.status(repo_root, &preparations.llama);
+    let llama_embedding =
+        PreparationTarget::LlamaEmbedding.status(repo_root, &preparations.llama_embedding);
     Ok(ModelStatusSnapshot {
-        whisper: collect_whisper_status_entry(repo_root, preparations.whisper),
-        llama: collect_llama_status_entry(
-            repo_root,
-            preparations.llama,
-            preparations.llama_embedding,
-        ),
+        whisper: ModelStatusEntry {
+            model: ModelKind::Whisper,
+            available: whisper.available,
+            ready: whisper.ready,
+            error: whisper.error,
+            embedding_available: false,
+            embedding_ready: false,
+            embedding_error: None,
+            preparation: preparations.whisper,
+        },
+        llama: ModelStatusEntry {
+            model: ModelKind::Llama,
+            available: llama_summary.available,
+            ready: llama_summary.ready,
+            error: llama_summary.error,
+            embedding_available: llama_embedding.available,
+            embedding_ready: llama_embedding.ready,
+            embedding_error: llama_embedding.error,
+            preparation: preparations.llama,
+        },
     })
 }
 
@@ -286,7 +544,6 @@ fn submit_preparation_record(
 fn execute_preparation_record(
     repo_root: &Path,
     target: PreparationTarget,
-    ensure: impl Fn(&Path) -> Result<(), String>,
 ) -> Result<ModelPreparationRecord, String> {
     let index_store = IndexStore::new(repo_root);
     let heartbeat_at = now_rfc3339()?;
@@ -318,7 +575,7 @@ fn execute_preparation_record(
         }
     });
 
-    let result = ensure(repo_root);
+    let result = target.ensure(repo_root);
     drop(stop_tx);
     let _ = heartbeat_thread.join();
 
@@ -342,12 +599,11 @@ fn execute_preparation_record(
 fn wait_for_preparation_state(
     repo_root: &Path,
     target: PreparationTarget,
-    load_state: impl Fn(&Path) -> Result<PreparationWaitState, String>,
     resubmit: impl Fn(&Path) -> Result<ModelPrepareSubmission, String>,
     execute: impl Fn(&Path) -> Result<ModelPreparationRecord, String>,
 ) -> Result<ModelPreparationRecord, String> {
     loop {
-        let state = load_state(repo_root)?;
+        let state = target.load_wait_state(repo_root)?;
         if state.ready {
             if state.preparation.status == ModelPreparationStatus::Completed {
                 return Ok(state.preparation);
@@ -387,98 +643,6 @@ fn wait_for_preparation_state(
     }
 }
 
-fn collect_whisper_status_entry(
-    repo_root: &Path,
-    preparation: ModelPreparationRecord,
-) -> ModelStatusEntry {
-    match WhisperToolchain::discover(repo_root) {
-        Ok(toolchain) => {
-            let ready = toolchain.is_model_ready();
-            let error = if ready {
-                None
-            } else {
-                toolchain
-                    .can_prepare_model()
-                    .err()
-                    .or_else(|| failed_model_preparation_error(&preparation))
-            };
-            ModelStatusEntry {
-                model: ModelKind::Whisper,
-                available: true,
-                ready,
-                error,
-                embedding_available: false,
-                embedding_ready: false,
-                embedding_error: None,
-                preparation,
-            }
-        }
-        Err(error) => ModelStatusEntry {
-            model: ModelKind::Whisper,
-            available: false,
-            ready: false,
-            error: Some(error),
-            embedding_available: false,
-            embedding_ready: false,
-            embedding_error: None,
-            preparation,
-        },
-    }
-}
-
-fn collect_llama_status_entry(
-    repo_root: &Path,
-    preparation: ModelPreparationRecord,
-    embedding_preparation: ModelPreparationRecord,
-) -> ModelStatusEntry {
-    match LlamaToolchain::discover(repo_root) {
-        Ok(toolchain) => {
-            let ready = toolchain.is_model_ready();
-            let error = if ready {
-                None
-            } else {
-                toolchain
-                    .can_prepare_model()
-                    .err()
-                    .or_else(|| failed_model_preparation_error(&preparation))
-            };
-            let embedding_available = toolchain.llama_embedding_path.is_file();
-            let embedding_ready = embedding_available && toolchain.is_embedding_model_ready();
-            let embedding_error = if !embedding_available {
-                Some(missing_embedding_toolchain_message(&toolchain))
-            } else if embedding_ready {
-                None
-            } else {
-                toolchain
-                    .can_prepare_embedding_model()
-                    .err()
-                    .or_else(|| failed_model_preparation_error(&embedding_preparation))
-            };
-
-            ModelStatusEntry {
-                model: ModelKind::Llama,
-                available: true,
-                ready,
-                error,
-                embedding_available,
-                embedding_ready,
-                embedding_error,
-                preparation,
-            }
-        }
-        Err(error) => ModelStatusEntry {
-            model: ModelKind::Llama,
-            available: false,
-            ready: false,
-            error: Some(error.clone()),
-            embedding_available: false,
-            embedding_ready: false,
-            embedding_error: Some(error),
-            preparation,
-        },
-    }
-}
-
 fn failed_model_preparation_error(preparation: &ModelPreparationRecord) -> Option<String> {
     if preparation.status == ModelPreparationStatus::Failed {
         preparation.last_error.clone()
@@ -487,48 +651,9 @@ fn failed_model_preparation_error(preparation: &ModelPreparationRecord) -> Optio
     }
 }
 
-fn inspect_model_preparation(
-    repo_root: &Path,
-    model: ModelKind,
-) -> Result<ModelInspection, String> {
-    match model {
-        ModelKind::Whisper => {
-            let toolchain = WhisperToolchain::discover(repo_root)?;
-            if toolchain.is_model_ready() {
-                Ok(ModelInspection { ready: true })
-            } else {
-                toolchain.can_prepare_model()?;
-                Ok(ModelInspection { ready: false })
-            }
-        }
-        ModelKind::Llama => {
-            let toolchain = LlamaToolchain::discover(repo_root)?;
-            if toolchain.is_model_ready() {
-                Ok(ModelInspection { ready: true })
-            } else {
-                toolchain.can_prepare_model()?;
-                Ok(ModelInspection { ready: false })
-            }
-        }
-    }
-}
-
-fn inspect_llama_embedding_preparation(repo_root: &Path) -> Result<ModelInspection, String> {
-    let toolchain = LlamaToolchain::discover(repo_root)?;
-    if !toolchain.llama_embedding_path.is_file() {
-        return Err(missing_embedding_toolchain_message(&toolchain));
-    }
-    if toolchain.is_embedding_model_ready() {
-        Ok(ModelInspection { ready: true })
-    } else {
-        toolchain.can_prepare_embedding_model()?;
-        Ok(ModelInspection { ready: false })
-    }
-}
-
 fn submit_llama_embedding_preparation(repo_root: &Path) -> Result<ModelPrepareSubmission, String> {
     let index_store = IndexStore::new(repo_root);
-    let inspection = match inspect_llama_embedding_preparation(repo_root) {
+    let inspection = match PreparationTarget::LlamaEmbedding.inspect(repo_root) {
         Ok(inspection) => inspection,
         Err(error) => {
             let _ = mark_llama_embedding_preparation_failed(repo_root, error.clone());
@@ -548,11 +673,7 @@ fn submit_llama_embedding_preparation(repo_root: &Path) -> Result<ModelPrepareSu
 }
 
 fn execute_llama_embedding_preparation(repo_root: &Path) -> Result<ModelPreparationRecord, String> {
-    execute_preparation_record(
-        repo_root,
-        PreparationTarget::LlamaEmbedding,
-        ensure_llama_embedding_model_with_toolchain,
-    )
+    execute_preparation_record(repo_root, PreparationTarget::LlamaEmbedding)
 }
 
 fn wait_for_llama_embedding_model_prepared(
@@ -561,101 +682,44 @@ fn wait_for_llama_embedding_model_prepared(
     wait_for_preparation_state(
         repo_root,
         PreparationTarget::LlamaEmbedding,
-        |root| {
-            let preparation = IndexStore::new(root).model_preparations()?.llama_embedding;
-            let entry = collect_model_status_snapshot(root)?.llama;
-            Ok(PreparationWaitState {
-                ready: entry.embedding_ready,
-                error: entry.embedding_error,
-                preparation,
-            })
-        },
         submit_llama_embedding_preparation,
         execute_llama_embedding_preparation,
     )
 }
 
 fn prepare_whisper_model_with_progress(repo_root: &Path) -> Result<ModelPreparationRecord, String> {
-    let toolchain = WhisperToolchain::discover(repo_root)?;
-    eprintln!(
-        "Preparing whisper model at {}...",
-        whisper_model_description(&toolchain)
-    );
-
-    let preparation = prepare_model_with_progress(repo_root, ModelKind::Whisper)?;
-    eprintln!("Whisper model ready.");
-    Ok(preparation)
+    prepare_target_with_progress(repo_root, PreparationTarget::Whisper)
 }
 
 fn prepare_llama_summary_model_with_progress(
     repo_root: &Path,
 ) -> Result<ModelPreparationRecord, String> {
-    let toolchain = LlamaToolchain::discover(repo_root)?;
-    eprintln!(
-        "Preparing llama summary model from {}...",
-        summary_model_description(&toolchain)
-    );
-
-    let preparation = prepare_model_with_progress(repo_root, ModelKind::Llama)?;
-    eprintln!("Llama summary model ready.");
-    Ok(preparation)
+    prepare_target_with_progress(repo_root, PreparationTarget::LlamaSummary)
 }
 
 fn prepare_llama_embedding_model_with_progress(
     repo_root: &Path,
 ) -> Result<ModelPreparationRecord, String> {
-    let toolchain = LlamaToolchain::discover(repo_root)?;
-    eprintln!(
-        "Preparing llama embedding model from {}...",
-        embedding_model_description(&toolchain)
-    );
+    prepare_target_with_progress(repo_root, PreparationTarget::LlamaEmbedding)
+}
 
-    let submission = submit_llama_embedding_preparation(repo_root)?;
+fn prepare_target_with_progress(
+    repo_root: &Path,
+    target: PreparationTarget,
+) -> Result<ModelPreparationRecord, String> {
+    target.log_prepare_start(repo_root)?;
+    let submission = target.submit(repo_root)?;
     let preparation = if submission.already_ready() {
         submission.preparation
     } else if submission.should_execute() {
-        execute_llama_embedding_preparation(repo_root)?
+        target.execute(repo_root)?
     } else {
-        eprintln!("Llama embedding model preparation already running. Waiting...");
-        wait_for_llama_embedding_model_prepared(repo_root)?
+        target.log_wait_message();
+        target.wait(repo_root)?
     };
 
-    eprintln!("Llama embedding model ready.");
+    target.log_prepare_ready();
     Ok(preparation)
-}
-
-fn prepare_model_with_progress(
-    repo_root: &Path,
-    model: ModelKind,
-) -> Result<ModelPreparationRecord, String> {
-    let submission = submit_model_preparation(repo_root, model)?;
-    if submission.already_ready() {
-        return Ok(submission.preparation);
-    }
-    if submission.should_execute() {
-        return execute_model_preparation(repo_root, model);
-    }
-
-    eprintln!(
-        "{} model preparation already running. Waiting...",
-        model.as_str()
-    );
-    wait_for_model_preparation(repo_root, model)
-}
-
-fn ensure_model_with_toolchain(repo_root: &Path, model: ModelKind) -> Result<(), String> {
-    match model {
-        ModelKind::Whisper => WhisperToolchain::discover(repo_root)?.ensure_model(),
-        ModelKind::Llama => LlamaToolchain::discover(repo_root)?.ensure_model(),
-    }
-}
-
-fn ensure_llama_embedding_model_with_toolchain(repo_root: &Path) -> Result<(), String> {
-    let toolchain = LlamaToolchain::discover(repo_root)?;
-    if !toolchain.llama_embedding_path.is_file() {
-        return Err(missing_embedding_toolchain_message(&toolchain));
-    }
-    toolchain.ensure_embedding_model()
 }
 
 fn mark_llama_embedding_preparation_failed(

@@ -33,36 +33,17 @@ pub fn submit_summary_job(
         .ok_or_else(|| AppError::not_found(format!("job not found: {job_id}")))?;
     let job_dir = index_store.job_dir(job_id);
 
-    if let Some(task) = job.task(TaskType::Summary)
-        && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
-    {
-        let existing_entry = index_store
-            .with_index_read(|index| {
-                Ok(queue::find_task_entry(
-                    index,
-                    &job.job_id,
-                    TaskType::Summary,
-                ))
-            })
-            .map_err(AppError::internal)?;
-
-        match existing_entry {
-            Some(entry) if summary_payload_satisfies(&entry, force_regenerate) => {
-                let queue = if task.status == TaskStatus::Queued {
-                    stages::queued_task_ticket(&index_store, &job.job_id, TaskType::Summary)
-                        .map_err(AppError::internal)?
-                } else {
-                    None
-                };
-                return Ok(StageJobSubmission {
-                    job,
-                    disposition: StageJobDisposition::Deduplicated,
-                    planned_audio_files: Vec::new(),
-                    queue,
-                });
+    if let Some(submission) = stages::resolve_inflight_stage_submission(
+        &index_store,
+        &job,
+        TaskType::Summary,
+        Vec::new(),
+        |existing_entry, status| match existing_entry {
+            Some(entry) if summary_payload_satisfies(entry, force_regenerate) => {
+                stages::InflightSubmissionResolution::Deduplicate
             }
             Some(entry)
-                if task.status == TaskStatus::Queued
+                if status == TaskStatus::Queued
                     && force_regenerate
                     && matches!(
                         entry.payload,
@@ -71,50 +52,23 @@ pub fn submit_summary_job(
                         }
                     ) =>
             {
-                let (job, ticket) = index_store
-                    .with_index_mut(|index| {
-                        if !queue::update_queued_entry(index, job_id, TaskType::Summary, |entry| {
-                            entry.payload = QueuePayload::Summary {
-                                force_regenerate: true,
-                            };
-                        }) {
-                            return Err(format!(
-                                "summary task is marked queued but queue entry is missing: {job_id}"
-                            ));
-                        }
-
-                        let job = index
-                            .jobs
-                            .iter()
-                            .find(|record| record.job_id == job_id)
-                            .cloned()
-                            .ok_or_else(|| format!("job not found in index: {job_id}"))?;
-                        let ticket = queue::find_ticket(index, job_id, TaskType::Summary)
-                            .ok_or_else(|| {
-                                format!("summary queue ticket missing after upgrade: {job_id}")
-                            })?;
-                        Ok((job, ticket))
-                    })
-                    .map_err(AppError::internal)?;
-                return Ok(StageJobSubmission {
-                    job,
-                    disposition: StageJobDisposition::Submitted,
-                    planned_audio_files: Vec::new(),
-                    queue: Some(ticket),
-                });
+                stages::InflightSubmissionResolution::UpgradeQueuedEntry
             }
-            Some(_) => {
-                return Err(AppError::bad_request(format!(
-                    "summary already running with different force_regenerate semantics: {job_id}"
-                )));
-            }
-            None if task.status == TaskStatus::Running => {
-                return Err(AppError::bad_request(format!(
+            Some(_) => stages::InflightSubmissionResolution::Conflict(format!(
+                "summary already running with different force_regenerate semantics: {job_id}"
+            )),
+            None if status == TaskStatus::Running => {
+                stages::InflightSubmissionResolution::Conflict(format!(
                     "summary task is marked running but queue entry is missing: {job_id}"
-                )));
+                ))
             }
-            None => {}
-        }
+            None => stages::InflightSubmissionResolution::Continue,
+        },
+        upgrade_queued_summary_request,
+    )
+    .map_err(AppError::internal)?
+    {
+        return Ok(submission);
     }
     if !force_regenerate
         && index_store
@@ -210,14 +164,12 @@ pub fn execute_summary_job(
         Ok(()) => {
             let completed =
                 stages::finalize_task_success(repo_root, job, TaskType::Summary, now_rfc3339()?)?;
-            if let Err(error) = submit_summary_embedding_job(repo_root, &completed.job_id) {
-                let _ = stages::record_followup_submission_failure(
-                    repo_root,
-                    &completed.job_id,
-                    TaskType::Embedding,
-                    error.to_string(),
-                );
-            }
+            let _ = stages::submit_followup_task(
+                repo_root,
+                &completed.job_id,
+                TaskType::Embedding,
+                || submit_summary_embedding_job(repo_root, &completed.job_id),
+            );
             Ok(completed)
         }
         Err(error) => {
@@ -381,6 +333,34 @@ fn summary_payload_satisfies(entry: &crate::index::QueueEntry, requested_force: 
         QueuePayload::Summary { force_regenerate } => *force_regenerate || !requested_force,
         _ => false,
     }
+}
+
+fn upgrade_queued_summary_request(
+    index_store: &IndexStore,
+    job_id: &str,
+    _task_type: TaskType,
+) -> Result<Option<(JobRecord, crate::app::QueueTicket)>, String> {
+    index_store.with_index_mut(|index| {
+        if !queue::update_queued_entry(index, job_id, TaskType::Summary, |entry| {
+            entry.payload = QueuePayload::Summary {
+                force_regenerate: true,
+            };
+        }) {
+            return Err(format!(
+                "summary task is marked queued but queue entry is missing: {job_id}"
+            ));
+        }
+
+        let job = index
+            .jobs
+            .iter()
+            .find(|record| record.job_id == job_id)
+            .cloned()
+            .ok_or_else(|| format!("job not found in index: {job_id}"))?;
+        let ticket = queue::find_ticket(index, job_id, TaskType::Summary)
+            .ok_or_else(|| format!("summary queue ticket missing after upgrade: {job_id}"))?;
+        Ok(Some((job, ticket)))
+    })
 }
 
 fn summary_prerequisites_ready(

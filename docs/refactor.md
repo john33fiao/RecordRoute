@@ -99,34 +99,25 @@ embedding은 이제 별도 실험 코드가 아니라 정식 stage로 보는 편
 
 이제 저장 구조가 늘어날 때 sqlite/postgres 구현이 조용히 어긋나는 리스크는 별도 backlog보다 회귀 테스트로 먼저 잡는 편이 맞다.
 
+### 2.10 model preparation과 local toolchain discovery helper 축소가 완료됐다
+
+- `app/models.rs`는 이제 `Whisper`, `LlamaSummary`, `LlamaEmbedding` 준비 대상을 내부 target abstraction으로 묶어 inspect/status/ensure/wait/progress 흐름을 같은 구조로 처리한다.
+- `tool_runtime.rs`에 local build script/bin path 계산, binary locate, missing-toolchain 문구 helper가 모였고, `llama/discovery.rs`, `whisper/discovery.rs`가 이를 재사용한다.
+- `llama/*`, `whisper/*`의 모델별 특수 규칙(HF cache/source, managed whisper model)은 각 모듈에 남겨 두고, 공통 준비 껍데기만 줄였다.
+
+즉 다음 단계의 우선순위는 더 이상 "model 준비 helper를 먼저 뽑을까"가 아니다.
+
+### 2.11 stage inflight/follow-up lifecycle helper 정리가 완료됐다
+
+- `app/stages.rs`에 inflight task resolution helper가 추가돼, queued/running task의 deduplicate, conflict, queued upgrade 판정을 공통 경로에서 처리한다.
+- `stt_stage.rs`, `summary_stage.rs`, `embedding_stage.rs`는 payload 비교 규칙만 각자 남기고 inflight 조회/queued ticket/follow-up 오류 기록을 재사용한다.
+- `ffmpeg_stage.rs`, `stt_stage.rs`, `summary_stage.rs`의 후속 stage 제출 실패 기록은 공통 helper로 모였다.
+
+이제 stage별 차이는 prerequisite, payload 의미, 성공 시 domain write에 집중되고, 공통 lifecycle 반복은 주요 backlog가 아니다.
+
 ## 3. 미완료 항목
 
 이 절의 항목만 보면 다음 작업을 이어갈 수 있다.
-
-### 3.3 P2. model preparation과 toolchain discovery 로직이 여전히 크고 분산돼 있다
-
-- 현재 상태
-  - `app/models.rs`, `llama.rs`, `whisper.rs`에 준비 제출, 대기, stale 판정, discovery, download/cache, CPU fallback 책임이 나뉘어 있다.
-- 문제
-  - whisper/llama 공통 패턴이 파일 경계를 넘어 반복된다.
-  - 후속 수정 시 모델별 예외 처리와 공통 흐름을 함께 추적해야 한다.
-- 다음 슬라이스
-  - 공통 helper를 먼저 추출하고,
-  - `llama.rs`와 `whisper.rs`는 `discovery`, `download/cache`, `runtime`, `output parsing` 축으로 내부 분할한다.
-
-### 3.4 P2. stage submit/execute 패턴 중복이 남아 있다
-
-- 현재 상태
-  - `ffmpeg_stage.rs`, `stt_stage.rs`, `summary_stage.rs`, `embedding_stage.rs`가 reuse/deduplicate/submitted 판정,
-  - queue enqueue,
-  - success/failure finalize,
-  - 후속 stage 제출 흐름을 각자 반복한다.
-- 문제
-  - 정책 변경 시 여러 stage 파일을 함께 수정해야 한다.
-  - payload 비교 규칙과 공통 lifecycle 코드가 섞여 있다.
-- 다음 슬라이스
-  - 공통 stage lifecycle helper를 만들고,
-  - stage별 차이점은 payload 검증과 후속 chaining만 남긴다.
 
 ### 3.6 P3. interactive CLI가 실제 지원 명령과 동기화되지 않는다
 
@@ -152,10 +143,8 @@ embedding은 이제 별도 실험 코드가 아니라 정식 stage로 보는 편
 
 다음 작업은 아래 순서로 보는 편이 효율적이다.
 
-1. `3.3 model/toolchain helper 축소`
-2. `3.4 stage lifecycle helper 정리`
-3. `3.6 CLI 표시 동기화`
-4. `3.7 문서 동기화`
+1. `3.6 CLI 표시 동기화`
+2. `3.7 문서 동기화`
 
 ## 5. 사용법
 
