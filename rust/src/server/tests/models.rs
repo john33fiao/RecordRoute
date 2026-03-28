@@ -122,6 +122,67 @@ async fn get_system_status_reports_missing_toolchains_and_models_in_errors() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn get_system_status_sanitizes_missing_llama_model_cache_errors() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    unsafe {
+        std::env::remove_var(crate::llama::MODEL_ENV_VAR);
+        std::env::remove_var(crate::llama::EMBEDDING_MODEL_ENV_VAR);
+    }
+
+    let repo_root = temp_workspace();
+    let scripts_dir = repo_root.join("scripts");
+    let ffmpeg_bin = repo_root
+        .join(".build/ffmpeg")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("install/bin");
+    let whisper_bin = repo_root
+        .join(".build/whisper")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    let llama_bin = repo_root
+        .join(".build/llama")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+
+    fs::create_dir_all(&scripts_dir).expect("scripts dir");
+    fs::create_dir_all(&ffmpeg_bin).expect("ffmpeg bin");
+    fs::create_dir_all(&whisper_bin).expect("whisper bin");
+    fs::create_dir_all(&llama_bin).expect("llama bin");
+    fs::create_dir_all(repo_root.join("models/whisper")).expect("whisper model dir");
+
+    write_build_script(&build_script_path(&repo_root, "ffmpeg"));
+    write_build_script(&build_script_path(&repo_root, "whisper"));
+    write_build_script(&build_script_path(&repo_root, "llama"));
+    write_simple_command(&fake_command_path(&ffmpeg_bin, "ffmpeg"));
+    write_simple_command(&fake_command_path(&ffmpeg_bin, "ffprobe"));
+    write_simple_command(&fake_command_path(&whisper_bin, "whisper-cli"));
+    write_simple_command(&fake_command_path(&llama_bin, "llama-cli"));
+    write_simple_command(&fake_command_path(&llama_bin, "llama-embedding"));
+    fs::write(repo_root.join("models/whisper/ggml-base.bin"), "model").expect("whisper model");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(get_request("/system/status"))
+        .await
+        .expect("system status response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: SystemStatusResponse = read_json(response).await;
+    assert!(body.ffmpeg_available);
+    assert!(body.whisper_available);
+    assert!(body.llama_available);
+    assert!(body.whisper_model_ready);
+    assert!(!body.llama_model_ready);
+    assert!(!body.llama_embedding_model_ready);
+    assert_eq!(
+        body.errors,
+        vec!["환경 준비가 필요합니다. setup을 다시 실행하세요.".to_string()]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn post_prepare_whisper_returns_ok_when_model_is_already_ready() {
     let repo_root = temp_workspace();
     let whisper_bin = repo_root

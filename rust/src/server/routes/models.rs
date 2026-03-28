@@ -7,7 +7,9 @@ use crate::app;
 use crate::error::sanitize_dependency_message;
 use crate::ffmpeg::Toolchain as FfmpegToolchain;
 use crate::index::ModelKind;
-use crate::llama::{ModelSource as LlamaModelSource, Toolchain as LlamaToolchain};
+use crate::llama::{
+    Toolchain as LlamaToolchain, missing_model_message as llama_model_missing_message,
+};
 use crate::whisper::Toolchain as WhisperToolchain;
 use axum::Json;
 use axum::extract::State;
@@ -157,22 +159,5 @@ fn push_unique_error(errors: &mut Vec<String>, error: String) {
     let error = sanitize_dependency_message(&error);
     if !errors.iter().any(|existing| existing == &error) {
         errors.push(error);
-    }
-}
-
-fn llama_model_missing_message(toolchain: &LlamaToolchain) -> String {
-    match (&toolchain.model_source, &toolchain.cached_model_path) {
-        (LlamaModelSource::LocalPath(path), _) => {
-            format!("llama model file not found: {}", path.display())
-        }
-        (LlamaModelSource::HuggingFaceRepo(repo), Some(cache_path)) => format!(
-            "llama model cache not found for {repo}: {}",
-            cache_path.display()
-        ),
-        (LlamaModelSource::HuggingFaceRepo(repo), None) => {
-            format!(
-                "llama model cache path is unavailable for configured Hugging Face repo: {repo}"
-            )
-        }
     }
 }

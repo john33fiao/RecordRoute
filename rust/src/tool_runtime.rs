@@ -38,9 +38,28 @@ pub fn command_output_details(output: &Output) -> String {
     }
 }
 
+pub fn run_with_cpu_fallback<T>(
+    preferred: impl FnOnce() -> Result<T, String>,
+    cpu_fallback: impl FnOnce() -> Result<T, String>,
+    should_retry: impl Fn(&str) -> bool,
+) -> Result<T, String> {
+    match preferred() {
+        Ok(value) => Ok(value),
+        Err(primary_error) if should_retry(&primary_error) => {
+            cpu_fallback().map_err(|cpu_error| {
+                format!(
+                    "{cpu_error} (after retrying on CPU because the preferred backend failed: {primary_error})"
+                )
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::process::Output;
 
     #[test]
@@ -63,6 +82,51 @@ mod tests {
         };
 
         assert_eq!(command_output_details(&output), "unknown error");
+    }
+
+    #[test]
+    fn run_with_cpu_fallback_returns_preferred_success_without_retrying() {
+        let retried = Cell::new(false);
+
+        let result = run_with_cpu_fallback(
+            || Ok::<_, String>("preferred"),
+            || {
+                retried.set(true);
+                Ok("cpu")
+            },
+            |_| true,
+        )
+        .expect("preferred result");
+
+        assert_eq!(result, "preferred");
+        assert!(!retried.get());
+    }
+
+    #[test]
+    fn run_with_cpu_fallback_retries_when_predicate_matches() {
+        let result = run_with_cpu_fallback(
+            || Err::<&str, _>("gpu backend failure".to_string()),
+            || Ok::<_, String>("cpu"),
+            |error| error.contains("gpu backend"),
+        )
+        .expect("cpu result");
+
+        assert_eq!(result, "cpu");
+    }
+
+    #[test]
+    fn run_with_cpu_fallback_preserves_retry_context_on_cpu_failure() {
+        let error = run_with_cpu_fallback(
+            || Err::<(), _>("gpu backend failure".to_string()),
+            || Err::<(), _>("cpu backend failure".to_string()),
+            |error| error.contains("gpu backend"),
+        )
+        .expect_err("retry failure");
+
+        assert_eq!(
+            error,
+            "cpu backend failure (after retrying on CPU because the preferred backend failed: gpu backend failure)"
+        );
     }
 
     #[cfg(any(target_os = "macos", windows))]

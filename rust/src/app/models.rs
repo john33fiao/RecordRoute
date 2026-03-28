@@ -5,9 +5,14 @@ use super::{
 };
 use crate::error::{AppError, AppResult, dependency_unavailable_or_internal};
 use crate::index::{IndexStore, ModelKind, ModelPreparationRecord, ModelPreparationStatus};
-use crate::llama::{ModelSource, Toolchain as LlamaToolchain};
-use crate::whisper::Toolchain as WhisperToolchain;
-use std::path::{Path, PathBuf};
+use crate::llama::{
+    Toolchain as LlamaToolchain, embedding_model_description, missing_embedding_toolchain_message,
+    summary_model_description,
+};
+use crate::whisper::{
+    Toolchain as WhisperToolchain, model_description as whisper_model_description,
+};
+use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 use time::OffsetDateTime;
@@ -344,7 +349,11 @@ fn wait_for_preparation_state(
     loop {
         let state = load_state(repo_root)?;
         if state.ready {
-            return Ok(state.preparation);
+            if state.preparation.status == ModelPreparationStatus::Completed {
+                return Ok(state.preparation);
+            }
+
+            return Ok(resubmit(repo_root)?.preparation);
         }
 
         match state.preparation.status {
@@ -436,7 +445,7 @@ fn collect_llama_status_entry(
             let embedding_available = toolchain.llama_embedding_path.is_file();
             let embedding_ready = embedding_available && toolchain.is_embedding_model_ready();
             let embedding_error = if !embedding_available {
-                Some(llama_embedding_toolchain_error(&toolchain))
+                Some(missing_embedding_toolchain_message(&toolchain))
             } else if embedding_ready {
                 None
             } else {
@@ -507,7 +516,7 @@ fn inspect_model_preparation(
 fn inspect_llama_embedding_preparation(repo_root: &Path) -> Result<ModelInspection, String> {
     let toolchain = LlamaToolchain::discover(repo_root)?;
     if !toolchain.llama_embedding_path.is_file() {
-        return Err(llama_embedding_toolchain_error(&toolchain));
+        return Err(missing_embedding_toolchain_message(&toolchain));
     }
     if toolchain.is_embedding_model_ready() {
         Ok(ModelInspection { ready: true })
@@ -570,7 +579,7 @@ fn prepare_whisper_model_with_progress(repo_root: &Path) -> Result<ModelPreparat
     let toolchain = WhisperToolchain::discover(repo_root)?;
     eprintln!(
         "Preparing whisper model at {}...",
-        toolchain.model_path.display()
+        whisper_model_description(&toolchain)
     );
 
     let preparation = prepare_model_with_progress(repo_root, ModelKind::Whisper)?;
@@ -584,7 +593,7 @@ fn prepare_llama_summary_model_with_progress(
     let toolchain = LlamaToolchain::discover(repo_root)?;
     eprintln!(
         "Preparing llama summary model from {}...",
-        describe_model_source(&toolchain.model_source, &toolchain.cached_model_path)
+        summary_model_description(&toolchain)
     );
 
     let preparation = prepare_model_with_progress(repo_root, ModelKind::Llama)?;
@@ -598,10 +607,7 @@ fn prepare_llama_embedding_model_with_progress(
     let toolchain = LlamaToolchain::discover(repo_root)?;
     eprintln!(
         "Preparing llama embedding model from {}...",
-        describe_model_source(
-            &toolchain.embedding_model_source,
-            &toolchain.embedding_cached_model_path,
-        )
+        embedding_model_description(&toolchain)
     );
 
     let submission = submit_llama_embedding_preparation(repo_root)?;
@@ -637,16 +643,6 @@ fn prepare_model_with_progress(
     wait_for_model_preparation(repo_root, model)
 }
 
-fn describe_model_source(source: &ModelSource, cached_path: &Option<PathBuf>) -> String {
-    match (source, cached_path) {
-        (ModelSource::LocalPath(path), _) => path.display().to_string(),
-        (ModelSource::HuggingFaceRepo(repo), Some(cache_path)) => {
-            format!("{repo} -> {}", cache_path.display())
-        }
-        (ModelSource::HuggingFaceRepo(repo), None) => repo.clone(),
-    }
-}
-
 fn ensure_model_with_toolchain(repo_root: &Path, model: ModelKind) -> Result<(), String> {
     match model {
         ModelKind::Whisper => WhisperToolchain::discover(repo_root)?.ensure_model(),
@@ -657,7 +653,7 @@ fn ensure_model_with_toolchain(repo_root: &Path, model: ModelKind) -> Result<(),
 fn ensure_llama_embedding_model_with_toolchain(repo_root: &Path) -> Result<(), String> {
     let toolchain = LlamaToolchain::discover(repo_root)?;
     if !toolchain.llama_embedding_path.is_file() {
-        return Err(llama_embedding_toolchain_error(&toolchain));
+        return Err(missing_embedding_toolchain_message(&toolchain));
     }
     toolchain.ensure_embedding_model()
 }
@@ -670,13 +666,6 @@ fn mark_llama_embedding_preparation_failed(
     PreparationTarget::LlamaEmbedding.update(&IndexStore::new(repo_root), |record| {
         record.mark_failed(finished_at.clone(), error.clone());
     })
-}
-
-fn llama_embedding_toolchain_error(toolchain: &LlamaToolchain) -> String {
-    format!(
-        "local llama embedding toolchain not found. Build it first with {}",
-        toolchain.build_script_path.display()
-    )
 }
 
 fn is_model_preparation_stale(record: &ModelPreparationRecord) -> bool {
