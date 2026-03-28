@@ -17,9 +17,11 @@ mod planner;
 #[path = "queue/scheduler.rs"]
 mod scheduler;
 
+#[cfg(test)]
+pub use entries::build_stt_entry;
 pub use entries::{
-    build_embedding_entry, build_ffmpeg_entry, build_stt_entry, build_stt_entry_with_options,
-    build_summary_entry, enqueue_entry, find_task_entry, find_ticket, update_queued_entry,
+    build_embedding_entry, build_ffmpeg_entry, build_stt_entry_with_options, build_summary_entry,
+    enqueue_entry, find_task_entry, find_ticket, update_queued_entry,
 };
 pub use executor::{dispatch_one, dispatch_until_task_terminal, recover_interrupted_active_entry};
 pub use planner::submit_batch_pipeline_jobs;
@@ -434,6 +436,41 @@ mod tests {
         assert_eq!(result.stt_queued, 0);
         assert_eq!(result.summary_queued, 1);
         assert_eq!(result.embedding_queued, 0);
+    }
+
+    #[test]
+    fn submit_batch_pipeline_jobs_injects_dictionary_keywords_into_stt_queue() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        store
+            .upsert_stt_dictionary_keyword("RecordRoute")
+            .expect("insert dictionary keyword");
+
+        let mut job = test_job(
+            "job-stt",
+            "2026-01-01T00:00:00Z",
+            "sources/job-stt/source.wav",
+            "hash-job-stt",
+            "job-stt.wav",
+        );
+        mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+            .expect("ffmpeg complete");
+        store.insert_job(job).expect("insert job");
+
+        let result = submit_batch_pipeline_jobs(&repo_root).expect("batch submit");
+
+        assert_eq!(result.stt_queued, 1);
+
+        let queued = store
+            .with_index_read(|index| Ok(find_task_entry(index, "job-stt", TaskType::Stt)))
+            .expect("read queue")
+            .expect("queue entry");
+        match queued.payload {
+            QueuePayload::Stt { keywords, .. } => {
+                assert_eq!(keywords, vec!["RecordRoute".to_string()]);
+            }
+            other => panic!("expected stt payload, got {other:?}"),
+        }
     }
 
     #[test]

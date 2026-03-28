@@ -1,13 +1,17 @@
 use super::{
     BatchQueueSubmission, IndexFile, IndexStore, JobRecord, Path, PathBuf, TaskType, artifacts,
-    build_embedding_entry, build_ffmpeg_entry, build_stt_entry, build_summary_entry,
+    build_embedding_entry, build_ffmpeg_entry, build_stt_entry_with_options, build_summary_entry,
     embedding_stage, enqueue_entry, find_ticket, now_rfc3339,
 };
+use crate::app::dictionary;
 use crate::index::{JobStatus, TaskStatus};
+use crate::whisper::transcription_language_from_env;
 
 pub fn submit_batch_pipeline_jobs(repo_root: &Path) -> Result<BatchQueueSubmission, String> {
     let queued_at = now_rfc3339()?;
     let store = IndexStore::new(repo_root);
+    let default_language = transcription_language_from_env();
+    let default_keywords = dictionary::resolve_stt_keywords(&store, &[])?;
     store.with_index_mut(|index| {
         let mut summary = BatchQueueSubmission {
             total_jobs: index.jobs.len(),
@@ -41,8 +45,21 @@ pub fn submit_batch_pipeline_jobs(repo_root: &Path) -> Result<BatchQueueSubmissi
             }
 
             let audio_files = artifacts::supported_audio_files(&job_dir)?;
-            if should_enqueue_batch_stt(&store, index, &job, &audio_files)? {
-                let entry = build_stt_entry(&job.job_id, &audio_files, queued_at.clone());
+            if should_enqueue_batch_stt(
+                &store,
+                index,
+                &job,
+                &audio_files,
+                &default_language,
+                &default_keywords,
+            )? {
+                let entry = build_stt_entry_with_options(
+                    &job.job_id,
+                    &audio_files,
+                    &default_language,
+                    &default_keywords,
+                    queued_at.clone(),
+                );
                 index.jobs[job_index].enqueue_task(TaskType::Stt, queued_at.clone());
                 index.jobs[job_index].set_task_request_fingerprint(
                     TaskType::Stt,
@@ -87,12 +104,15 @@ fn should_enqueue_batch_stt(
     index: &IndexFile,
     job: &JobRecord,
     audio_files: &[PathBuf],
+    language: &str,
+    keywords: &[String],
 ) -> Result<bool, String> {
     if audio_files.is_empty() {
         return Ok(false);
     }
 
-    let default_entry = build_stt_entry(&job.job_id, audio_files, String::new());
+    let default_entry =
+        build_stt_entry_with_options(&job.job_id, audio_files, language, keywords, String::new());
     let default_request_fingerprint = default_entry.payload.request_fingerprint();
     let transcripts_reusable = all_transcripts_exist(store, &job.job_id, audio_files)?
         && job

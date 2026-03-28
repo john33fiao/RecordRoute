@@ -182,6 +182,54 @@ fn submit_stt_rejects_conflicting_inflight_subset_request() {
 }
 
 #[test]
+fn submit_stt_merges_persisted_dictionary_keywords_into_queue_payload() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let job_dir = store.job_dir("job-1");
+    fs::create_dir_all(&job_dir).expect("job dir");
+    fs::write(job_dir.join("mono_mix.wav"), "audio").expect("mono mix");
+    store
+        .upsert_stt_dictionary_keyword("RecordRoute")
+        .expect("insert dictionary keyword");
+
+    let mut job = JobRecord::new(
+        "job-1".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+        PathBuf::from("/tmp/input.wav"),
+        job_dir,
+    );
+    job.mark_completed("2026-01-01T00:00:01Z".to_string(), JobOutputs::default())
+        .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+
+    let submission =
+        submit_stt_job(&repo_root, "job-1", None, vec!["Dooray".to_string()]).expect("submit");
+
+    assert!(submission.should_execute());
+
+    let entry = store
+        .with_index_read(|index| {
+            Ok(super::super::queue::find_task_entry(
+                index,
+                "job-1",
+                TaskType::Stt,
+            ))
+        })
+        .expect("read queue")
+        .expect("queue entry");
+
+    match entry.payload {
+        QueuePayload::Stt { keywords, .. } => {
+            assert_eq!(
+                keywords,
+                vec!["RecordRoute".to_string(), "Dooray".to_string()]
+            );
+        }
+        other => panic!("expected stt payload, got {other:?}"),
+    }
+}
+
+#[test]
 fn submit_stt_reuses_existing_transcripts_when_profile_matches_completed_task() {
     let _guard = env_lock()
         .lock()

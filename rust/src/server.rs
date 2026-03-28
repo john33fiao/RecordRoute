@@ -1,5 +1,7 @@
 #[path = "server/app_api.rs"]
 mod app_api;
+#[path = "server/routes/dictionary.rs"]
+mod dictionary;
 #[path = "server/errors.rs"]
 mod errors;
 #[path = "server/files.rs"]
@@ -29,7 +31,7 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::response::Response;
 use axum::routing::MethodRouter;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use std::path::PathBuf;
 use types::AppState;
 
@@ -66,6 +68,15 @@ pub(crate) fn router_with_repo_root_and_upload_limits(
         .route("/jobs/upload", jobs_upload_route(upload_limits))
         .route("/jobs/batch-process", post(jobs::post_jobs_batch_process))
         .route("/queue", get(queue_routes::get_queue))
+        .route(
+            "/dictionary/keywords",
+            get(dictionary::get_stt_dictionary_keywords)
+                .post(dictionary::post_stt_dictionary_keyword),
+        )
+        .route(
+            "/dictionary/keywords/{keyword}",
+            delete(dictionary::delete_stt_dictionary_keyword),
+        )
         .route("/jobs/{job_id}", get(jobs::get_job))
         .route("/jobs/{job_id}/status", get(jobs::get_job_status))
         .route(

@@ -217,6 +217,18 @@ impl IndexStore {
         updated.ok_or_else(|| "failed to update llama embedding preparation".to_string())
     }
 
+    pub fn list_stt_dictionary_keywords(&self) -> Result<Vec<String>, String> {
+        self.backend()?.list_stt_dictionary_keywords()
+    }
+
+    pub fn upsert_stt_dictionary_keyword(&self, keyword: &str) -> Result<(), String> {
+        self.backend()?.upsert_stt_dictionary_keyword(keyword)
+    }
+
+    pub fn delete_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String> {
+        self.backend()?.delete_stt_dictionary_keyword(keyword)
+    }
+
     pub fn list_audio_artifacts(&self, job_id: &str) -> Result<Vec<AudioArtifactRecord>, String> {
         self.backend()?.list_audio_artifacts(job_id)
     }

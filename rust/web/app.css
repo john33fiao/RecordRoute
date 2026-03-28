@@ -565,6 +565,78 @@ pre {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.dictionary-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.dictionary-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.dictionary-head h3 {
+  margin: 0;
+}
+
+.dictionary-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.dictionary-list {
+  margin-top: 14px;
+}
+
+.dictionary-chip-list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+
+.dictionary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(14, 109, 98, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.dictionary-chip span {
+  word-break: break-word;
+}
+
+.dictionary-remove-button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(179, 58, 58, 0.12);
+  color: var(--error);
+  cursor: pointer;
+  font-weight: 700;
+  transition: background-color 140ms ease, opacity 140ms ease;
+}
+
+.dictionary-remove-button:hover {
+  background: rgba(179, 58, 58, 0.2);
+}
+
+.dictionary-remove-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .queue-column {
   display: grid;
   gap: 14px;
@@ -730,7 +802,8 @@ pre {
 
   .search-form,
   .subgrid,
-  .page-header {
+  .page-header,
+  .dictionary-form {
     grid-template-columns: 1fr;
   }
 

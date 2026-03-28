@@ -50,6 +50,16 @@ pub(crate) struct SttRequest {
     pub keywords: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct DictionaryKeywordRequest {
+    pub keyword: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct DictionaryKeywordListResponse {
+    pub keywords: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct TaskSubmissionResponse {
     pub job_id: String,

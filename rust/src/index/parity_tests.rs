@@ -476,6 +476,7 @@ fn reset_postgres_metadata(url: &str) -> Result<(), String> {
                 summary_embeddings,
                 summaries,
                 transcripts,
+                stt_dictionary_keywords,
                 audio_artifacts,
                 tasks,
                 jobs,

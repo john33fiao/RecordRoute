@@ -10,6 +10,10 @@ pub(crate) trait MetadataBackend {
     fn read_index(&self) -> Result<IndexFile, String>;
     fn write_index(&self, index: &IndexFile) -> Result<(), String>;
 
+    fn list_stt_dictionary_keywords(&self) -> Result<Vec<String>, String>;
+    fn upsert_stt_dictionary_keyword(&self, keyword: &str) -> Result<(), String>;
+    fn delete_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String>;
+
     fn list_audio_artifacts(&self, job_id: &str) -> Result<Vec<AudioArtifactRecord>, String>;
     fn upsert_audio_artifact(&self, record: &AudioArtifactRecord) -> Result<(), String>;
 

@@ -41,6 +41,8 @@ const state = {
   modelsStatus: null,
   queueStatus: null,
   queueLoaded: false,
+  dictionaryKeywords: [],
+  dictionaryLoaded: false,
   searchResults: [],
   uploadQueue: [],
   pollers: new Map(),
@@ -53,6 +55,7 @@ const state = {
     search: false,
     prepareWhisper: false,
     prepareLlama: false,
+    dictionary: false,
   },
 };
 
@@ -82,6 +85,9 @@ function captureElements() {
   elements.embeddingMetadata = document.getElementById("embedding-metadata");
   elements.filesView = document.getElementById("files-view");
   elements.queueBoard = document.getElementById("queue-board");
+  elements.dictionaryForm = document.getElementById("dictionary-form");
+  elements.dictionaryInput = document.getElementById("dictionary-input");
+  elements.dictionaryList = document.getElementById("dictionary-list");
   elements.searchResults = document.getElementById("search-results");
 
   elements.systemRefreshButton = document.getElementById("system-refresh-button");
@@ -99,6 +105,7 @@ function captureElements() {
   elements.summaryForceCheckbox = document.getElementById("summary-force-checkbox");
   elements.embeddingSubmitButton = document.getElementById("embedding-submit-button");
   elements.queueRefreshButton = document.getElementById("queue-refresh-button");
+  elements.dictionarySubmitButton = document.getElementById("dictionary-submit-button");
   elements.searchForm = document.getElementById("search-form");
   elements.searchQueryInput = document.getElementById("search-query-input");
   elements.searchLimitInput = document.getElementById("search-limit-input");
@@ -135,12 +142,14 @@ function bindEvents() {
   elements.queueRefreshButton.addEventListener("click", () => {
     refreshQueue({ showMessage: true });
   });
+  elements.dictionaryForm.addEventListener("submit", onDictionarySubmit);
+  elements.dictionaryList.addEventListener("click", onDictionaryListClick);
   elements.searchForm.addEventListener("submit", onSearchSubmit);
   elements.transcriptsView.addEventListener("click", onTranscriptToggleClick);
 }
 
 async function bootstrap() {
-  await Promise.all([refreshSystemAndModels(), refreshJobs(), refreshQueue()]);
+  await Promise.all([refreshSystemAndModels(), refreshJobs(), refreshQueue(), refreshDictionary()]);
 }
 
 async function onUploadSubmit(event) {
@@ -496,6 +505,67 @@ function buildSttPayload() {
   return {};
 }
 
+async function onDictionarySubmit(event) {
+  event.preventDefault();
+  const keyword = elements.dictionaryInput.value.trim();
+  if (!keyword) {
+    setMessage("dictionary", "추가할 키워드를 입력해 주세요.", "error");
+    return;
+  }
+
+  setLoading("dictionary", true);
+  try {
+    const { data } = await fetchJson("/dictionary/keywords", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ keyword }),
+    });
+    state.dictionaryKeywords = normalizeDictionaryKeywords(data);
+    state.dictionaryLoaded = true;
+    elements.dictionaryForm.reset();
+    renderDictionary();
+    setMessage("dictionary", "키워드를 추가했습니다.", "success");
+  } catch (error) {
+    setMessage("dictionary", error.message, "error");
+  } finally {
+    setLoading("dictionary", false);
+    renderDictionary();
+  }
+}
+
+async function onDictionaryListClick(event) {
+  const button = event.target.closest("[data-dictionary-keyword]");
+  if (!button || state.loading.dictionary) {
+    return;
+  }
+
+  const keyword = button.dataset.dictionaryKeyword || "";
+  if (!keyword) {
+    return;
+  }
+
+  if (!window.confirm(`${keyword} 키워드를 삭제하시겠습니까?`)) {
+    return;
+  }
+
+  setLoading("dictionary", true);
+  try {
+    const { data } = await fetchJson(
+      `/dictionary/keywords/${encodeURIComponent(keyword)}`,
+      { method: "DELETE" }
+    );
+    state.dictionaryKeywords = normalizeDictionaryKeywords(data);
+    state.dictionaryLoaded = true;
+    renderDictionary();
+    setMessage("dictionary", "키워드를 삭제했습니다.", "success");
+  } catch (error) {
+    setMessage("dictionary", error.message, "error");
+  } finally {
+    setLoading("dictionary", false);
+    renderDictionary();
+  }
+}
+
 async function refreshSystemAndModels({ showMessage = false } = {}) {
   try {
     const [systemResult, modelsResult] = await Promise.all([
@@ -529,6 +599,21 @@ async function refreshJobs({ showMessage = false } = {}) {
     }
   } catch (error) {
     setMessage("jobs", error.message, "error");
+  }
+}
+
+async function refreshDictionary({ showMessage = false } = {}) {
+  try {
+    const { data } = await fetchJson("/dictionary/keywords");
+    state.dictionaryKeywords = normalizeDictionaryKeywords(data);
+    state.dictionaryLoaded = true;
+    renderDictionary();
+    if (showMessage) {
+      setMessage("dictionary", "키워드 목록을 갱신했습니다.", "success");
+    }
+  } catch (error) {
+    renderDictionary();
+    setMessage("dictionary", error.message, "error");
   }
 }
 
@@ -656,6 +741,7 @@ function renderAll() {
   renderJobs();
   renderSelectedJob();
   renderQueueBoard();
+  renderDictionary();
   renderSearchResults();
   updateActionStates();
 }
@@ -995,6 +1081,45 @@ function renderSearchResults() {
   });
 }
 
+function renderDictionary() {
+  if (!elements.dictionaryList) {
+    return;
+  }
+
+  if (!state.dictionaryLoaded) {
+    elements.dictionaryList.innerHTML = '<p class="muted">키워드를 불러오는 중입니다.</p>';
+    return;
+  }
+
+  if (!state.dictionaryKeywords.length) {
+    elements.dictionaryList.innerHTML = '<p class="muted">등록된 키워드가 없습니다.</p>';
+    return;
+  }
+
+  elements.dictionaryList.innerHTML = `
+    <ul class="dictionary-chip-list">
+      ${state.dictionaryKeywords
+        .map(
+          (keyword) => `
+            <li class="dictionary-chip">
+              <span>${escapeHtml(keyword)}</span>
+              <button
+                type="button"
+                class="dictionary-remove-button"
+                data-dictionary-keyword="${escapeAttribute(keyword)}"
+                ${state.loading.dictionary ? "disabled" : ""}
+                aria-label="${escapeAttribute(`${keyword} 삭제`)}"
+              >
+                X
+              </button>
+            </li>
+          `
+        )
+        .join("")}
+    </ul>
+  `;
+}
+
 function renderQueueBoard() {
   if (!elements.queueBoard) {
     return;
@@ -1111,6 +1236,7 @@ function updateActionStates() {
   elements.jobsRefreshButton.disabled = false;
   elements.selectedJobRefreshButton.disabled = !hasJob;
   elements.queueRefreshButton.disabled = false;
+  elements.dictionarySubmitButton.disabled = state.loading.dictionary;
   elements.sttSubmitButton.disabled = !hasJob || state.loading.stt || runningTask;
   elements.summarySubmitButton.disabled = !hasJob || state.loading.summary || runningTask;
   elements.embeddingSubmitButton.disabled = !hasJob || state.loading.embedding || runningTask;
@@ -1207,6 +1333,10 @@ function formatBytes(bytes) {
     return `${(amount / (1024 * 1024)).toFixed(1)} MB`;
   }
   return `${(amount / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function normalizeDictionaryKeywords(data) {
+  return Array.isArray(data?.keywords) ? data.keywords.filter(Boolean) : [];
 }
 
 async function fetchJson(path, options = {}) {

@@ -121,6 +121,49 @@ impl MetadataBackend for PostgresMetadataStore {
             .map_err(|error| format!("failed to commit postgres transaction: {error}"))
     }
 
+    fn list_stt_dictionary_keywords(&self) -> Result<Vec<String>, String> {
+        let mut client = self.connect()?;
+        client
+            .query(
+                "SELECT keyword
+                 FROM stt_dictionary_keywords
+                 ORDER BY LOWER(keyword) ASC, keyword ASC",
+                &[],
+            )
+            .map_err(|error| format!("failed to read postgres dictionary keywords: {error}"))?
+            .into_iter()
+            .map(|row| Ok(row.get(0)))
+            .collect()
+    }
+
+    fn upsert_stt_dictionary_keyword(&self, keyword: &str) -> Result<(), String> {
+        let mut client = self.connect()?;
+        client
+            .execute(
+                "INSERT INTO stt_dictionary_keywords (keyword)
+                 VALUES ($1)
+                 ON CONFLICT (keyword) DO NOTHING",
+                &[&keyword],
+            )
+            .map_err(|error| {
+                format!("failed to upsert postgres dictionary keyword {keyword}: {error}")
+            })?;
+        Ok(())
+    }
+
+    fn delete_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String> {
+        let mut client = self.connect()?;
+        let deleted = client
+            .execute(
+                "DELETE FROM stt_dictionary_keywords WHERE keyword = $1",
+                &[&keyword],
+            )
+            .map_err(|error| {
+                format!("failed to delete postgres dictionary keyword {keyword}: {error}")
+            })?;
+        Ok(deleted > 0)
+    }
+
     fn list_audio_artifacts(&self, job_id: &str) -> Result<Vec<AudioArtifactRecord>, String> {
         let mut client = self.connect()?;
         client
@@ -456,6 +499,9 @@ fn initialize_schema(client: &mut Client) -> Result<(), String> {
             CREATE TABLE IF NOT EXISTS queue_state (
                 singleton_id INTEGER PRIMARY KEY,
                 data_json TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS stt_dictionary_keywords (
+                keyword TEXT PRIMARY KEY
             );
             CREATE TABLE IF NOT EXISTS transcripts (
                 job_id TEXT NOT NULL,

@@ -88,6 +88,37 @@ mod tests {
     }
 
     #[test]
+    fn persists_stt_dictionary_keywords_in_sqlite_backend() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+
+        store
+            .upsert_stt_dictionary_keyword("RecordRoute")
+            .expect("insert keyword");
+        store
+            .upsert_stt_dictionary_keyword("Dooray")
+            .expect("insert keyword");
+        store
+            .upsert_stt_dictionary_keyword("RecordRoute")
+            .expect("dedupe keyword");
+
+        assert_eq!(
+            store.list_stt_dictionary_keywords().expect("list keywords"),
+            vec!["Dooray".to_string(), "RecordRoute".to_string()]
+        );
+
+        assert!(
+            store
+                .delete_stt_dictionary_keyword("Dooray")
+                .expect("delete keyword")
+        );
+        assert_eq!(
+            store.list_stt_dictionary_keywords().expect("list keywords"),
+            vec!["RecordRoute".to_string()]
+        );
+    }
+
+    #[test]
     fn inserts_and_updates_job_status() {
         let repo_root = temp_workspace();
         let store = IndexStore::new(&repo_root);

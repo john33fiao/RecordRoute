@@ -1,6 +1,6 @@
 use super::{
     StageJobDisposition, StageJobSubmission, SttRunSummary, SttTranscriptOutput, artifacts,
-    ensure_model_prepared, now_rfc3339, queue, read_line, stages, submit_summary_job,
+    dictionary, ensure_model_prepared, now_rfc3339, queue, read_line, stages, submit_summary_job,
 };
 use crate::audio_store::AudioStore;
 use crate::error::{AppError, AppResult};
@@ -9,8 +9,7 @@ use crate::index::{
     TranscriptRecord,
 };
 use crate::whisper::{
-    Toolchain as WhisperToolchain, normalize_keywords, run_transcription,
-    transcription_language_from_env,
+    Toolchain as WhisperToolchain, run_transcription, transcription_language_from_env,
 };
 use std::fs;
 use std::io::{BufRead, Write};
@@ -53,7 +52,8 @@ pub fn submit_stt_job(
 
     let requested_audio_files = normalized_audio_files(&audio_files);
     let requested_language = transcription_language_from_env();
-    let requested_keywords = normalize_keywords(&keywords);
+    let requested_keywords =
+        dictionary::resolve_stt_keywords(&index_store, &keywords).map_err(AppError::internal)?;
     if let Some(submission) = stages::resolve_inflight_stage_submission(
         &index_store,
         &job,

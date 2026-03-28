@@ -46,6 +46,21 @@ pub(crate) fn submit_batch_pipeline_jobs(repo_root: &Path) -> AppResult<BatchQue
     app::submit_batch_pipeline_jobs(repo_root).map_err(AppError::internal)
 }
 
+pub(crate) fn list_stt_dictionary_keywords(repo_root: &Path) -> AppResult<Vec<String>> {
+    app::list_stt_dictionary_keywords(repo_root).map_err(AppError::internal)
+}
+
+pub(crate) fn add_stt_dictionary_keyword(
+    repo_root: &Path,
+    keyword: String,
+) -> AppResult<Vec<String>> {
+    app::add_stt_dictionary_keyword(repo_root, keyword).map_err(AppError::bad_request)
+}
+
+pub(crate) fn delete_stt_dictionary_keyword(repo_root: &Path, keyword: String) -> AppResult<bool> {
+    app::delete_stt_dictionary_keyword(repo_root, keyword).map_err(AppError::bad_request)
+}
+
 pub(crate) fn search_summaries(
     repo_root: &Path,
     query: &str,

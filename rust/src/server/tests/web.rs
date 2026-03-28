@@ -30,6 +30,8 @@ async fn get_root_serves_html_shell_with_expected_sections() {
     assert!(html.contains("id=\"jobs-panel\""));
     assert!(html.contains("id=\"search-panel\""));
     assert!(html.contains("id=\"queue-panel\""));
+    assert!(html.contains("id=\"dictionary-form\""));
+    assert!(html.contains("id=\"dictionary-list\""));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -60,7 +62,9 @@ async fn get_app_js_serves_script_asset() {
     assert!(js.contains("const state ="));
     assert!(js.contains("async function refreshJobs"));
     assert!(js.contains("async function refreshQueue"));
+    assert!(js.contains("async function refreshDictionary"));
     assert!(js.contains("function renderQueueBoard"));
+    assert!(js.contains("function renderDictionary"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -91,4 +95,6 @@ async fn get_app_css_serves_stylesheet_asset() {
     assert!(css.contains(".panel"));
     assert!(css.contains(".jobs-list"));
     assert!(css.contains(".queue-board"));
+    assert!(css.contains(".dictionary-form"));
+    assert!(css.contains(".dictionary-chip"));
 }

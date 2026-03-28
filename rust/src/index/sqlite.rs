@@ -172,6 +172,49 @@ impl MetadataBackend for SqliteMetadataStore {
             .map_err(|error| format!("failed to commit sqlite index transaction: {error}"))
     }
 
+    fn list_stt_dictionary_keywords(&self) -> Result<Vec<String>, String> {
+        let connection = self.open()?;
+        let mut stmt = connection
+            .prepare(
+                "SELECT keyword
+                 FROM stt_dictionary_keywords
+                 ORDER BY keyword COLLATE NOCASE ASC, keyword ASC",
+            )
+            .map_err(|error| format!("failed to prepare sqlite dictionary read: {error}"))?;
+        stmt.query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| format!("failed to query sqlite dictionary keywords: {error}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("failed to collect sqlite dictionary keywords: {error}"))
+    }
+
+    fn upsert_stt_dictionary_keyword(&self, keyword: &str) -> Result<(), String> {
+        let connection = self.open()?;
+        connection
+            .execute(
+                "INSERT INTO stt_dictionary_keywords (keyword)
+                 VALUES (?)
+                 ON CONFLICT(keyword) DO NOTHING",
+                [keyword],
+            )
+            .map_err(|error| {
+                format!("failed to upsert sqlite dictionary keyword {keyword}: {error}")
+            })?;
+        Ok(())
+    }
+
+    fn delete_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String> {
+        let connection = self.open()?;
+        let deleted = connection
+            .execute(
+                "DELETE FROM stt_dictionary_keywords WHERE keyword = ?",
+                [keyword],
+            )
+            .map_err(|error| {
+                format!("failed to delete sqlite dictionary keyword {keyword}: {error}")
+            })?;
+        Ok(deleted > 0)
+    }
+
     fn list_audio_artifacts(&self, job_id: &str) -> Result<Vec<AudioArtifactRecord>, String> {
         let connection = self.open()?;
         let mut stmt = connection
@@ -524,6 +567,9 @@ fn initialize_schema(connection: &Connection) -> Result<(), String> {
             CREATE TABLE IF NOT EXISTS queue_state (
                 singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
                 data_json TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS stt_dictionary_keywords (
+                keyword TEXT PRIMARY KEY
             );
             CREATE TABLE IF NOT EXISTS transcripts (
                 job_id TEXT NOT NULL,

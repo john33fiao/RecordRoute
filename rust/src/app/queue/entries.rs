@@ -17,6 +17,7 @@ pub fn build_ffmpeg_entry(job_id: &str, input_path: &Path, queued_at: String) ->
     }
 }
 
+#[cfg(test)]
 pub fn build_stt_entry(job_id: &str, audio_files: &[PathBuf], queued_at: String) -> QueueEntry {
     let language = transcription_language_from_env();
     build_stt_entry_with_options(job_id, audio_files, &language, &[], queued_at)

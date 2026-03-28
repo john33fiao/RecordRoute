@@ -3,6 +3,8 @@ pub(crate) mod artifacts;
 
 #[path = "app/cli.rs"]
 mod cli;
+#[path = "app/dictionary.rs"]
+mod dictionary;
 #[path = "app/embedding_stage.rs"]
 mod embedding_stage;
 #[path = "app/ffmpeg_stage.rs"]
@@ -194,6 +196,9 @@ pub struct BatchQueueSubmission {
 pub use cli::main_cli;
 #[allow(unused_imports)]
 pub use cli::resolve_input_path;
+pub use dictionary::{
+    add_stt_dictionary_keyword, delete_stt_dictionary_keyword, list_stt_dictionary_keywords,
+};
 pub use embedding_stage::{
     SummarySearchResult, backfill_summary_embeddings, search_summaries,
     submit_summary_embedding_job,

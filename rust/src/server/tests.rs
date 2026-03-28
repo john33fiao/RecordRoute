@@ -1,3 +1,4 @@
+mod dictionary;
 mod jobs;
 mod models;
 mod ping;
