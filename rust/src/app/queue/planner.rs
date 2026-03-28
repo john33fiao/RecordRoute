@@ -1,7 +1,7 @@
 use super::{
     BatchQueueSubmission, IndexFile, IndexStore, JobRecord, Path, PathBuf, TaskType, artifacts,
-    build_embedding_entry, build_ffmpeg_entry, build_stt_entry,
-    build_summary_entry, embedding_stage, enqueue_entry, find_ticket, now_rfc3339,
+    build_embedding_entry, build_ffmpeg_entry, build_stt_entry, build_summary_entry,
+    embedding_stage, enqueue_entry, find_ticket, now_rfc3339,
 };
 use crate::index::{JobStatus, TaskStatus};
 
@@ -137,11 +137,15 @@ fn should_enqueue_batch_embedding(
         return Ok(false);
     }
 
-    Ok(match job.task(TaskType::Embedding).map(|task| task.status) {
-        Some(TaskStatus::Queued) => find_ticket(index, &job.job_id, TaskType::Embedding).is_none(),
-        Some(TaskStatus::Running) => false,
-        Some(TaskStatus::Completed) | Some(TaskStatus::Failed) | None => true,
-    })
+    Ok(
+        match job.task(TaskType::Embedding).map(|task| task.status) {
+            Some(TaskStatus::Queued) => {
+                find_ticket(index, &job.job_id, TaskType::Embedding).is_none()
+            }
+            Some(TaskStatus::Running) => false,
+            Some(TaskStatus::Completed) | Some(TaskStatus::Failed) | None => true,
+        },
+    )
 }
 
 pub(super) fn all_transcripts_exist(

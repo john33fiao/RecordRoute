@@ -64,7 +64,8 @@ pub fn main_cli() -> Result<(), String> {
             }
         }
         CliCommand::SearchSummaries { query } => {
-            let rows = search_summaries(&repo_root, &query, 10, None)?;
+            let rows = search_summaries(&repo_root, &query, 10, None)
+                .map_err(|error| error.to_string())?;
             for row in rows {
                 writeln!(
                     writer,

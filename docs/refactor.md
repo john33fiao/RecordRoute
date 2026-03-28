@@ -75,32 +75,25 @@ embedding은 이제 별도 실험 코드가 아니라 정식 stage로 보는 편
 
 다음 리팩터링은 route 파일 분해보다 계약과 행동 일관성에 집중하는 편이 낫다.
 
+### 2.7 typed error 경계가 server prefix 분류에서 벗어났다
+
+- `server/app_api.rs`의 문자열 prefix classifier는 제거됐다.
+- server가 직접 응답하는 submit/search/model prepare 경로는 app 계층에서 `AppError`를 만들어 넘긴다.
+- setup/dependency 문구 sanitization은 `error.rs` 공용 helper로 모였고, `server/errors.rs`는 legacy persisted string 정리에만 이를 재사용한다.
+
+즉 HTTP status code 판정이 더 이상 `server/app_api.rs`의 문구 prefix에 매달려 있지 않다.
+
+### 2.8 embedding 성공 경로는 단일 저장 단위로 묶였다
+
+- `IndexStore::commit_summary_embedding_success()`가 `job.summary_embedding`, embedding task 완료, vector row를 한 번에 반영한다.
+- sqlite/postgres backend는 index write와 `summary_embeddings` upsert를 같은 transaction으로 커밋한다.
+- 전용 store test와 app-level embedding test가 추가돼, metadata/vector/task 상태가 함께 반영되는 경로를 검증한다.
+
+이제 embedding 성공 직후 metadata와 vector row가 따로 어긋나는 구조는 주요 backlog가 아니다.
+
 ## 3. 미완료 항목
 
 이 절의 항목만 보면 다음 작업을 이어갈 수 있다.
-
-### 3.1 P1. typed error가 end-to-end로 닫히지 않았다
-
-- 현재 상태
-  - `AppError`는 도입됐지만 `server/app_api.rs`는 여전히 문자열 prefix로 HTTP error kind를 분류한다.
-  - 예: `"job not found:"`, `"input file not found:"`, `"failed to resolve input path "`
-  - `server/errors.rs`도 setup 관련 오류를 prefix 목록으로 판정한다.
-- 문제
-  - status code와 에러 의미가 도메인 타입보다 문자열 문구에 의존한다.
-  - 에러 메시지 문구를 바꾸면 분류가 쉽게 깨진다.
-- 다음 슬라이스
-  - app 계층이 도메인 오류 enum 또는 `AppError`를 직접 반환하도록 바꾸고, server는 매핑만 담당하게 줄인다.
-
-### 3.2 P1. embedding 성공 경로의 상태 기록이 한 번에 묶여 있지 않다
-
-- 현재 상태
-  - `app/embedding_stage.rs`는 embedding vector를 `upsert_summary_embedding()`으로 저장한 뒤,
-  - 별도로 `finalize_task_success()`와 `update_job()`을 호출해 task 완료와 `job.summary_embedding`을 기록한다.
-- 문제
-  - embedding vector 저장과 task 완료/metadata 갱신이 단일 저장 단위로 보장되지 않는다.
-  - 짧은 순간이라도 sidecar/vector와 job/task 상태가 어긋날 수 있다.
-- 다음 슬라이스
-  - embedding 성공 시 job/task/summary embedding을 한 단위로 반영하는 저장 API를 만든다.
 
 ### 3.3 P2. model preparation과 toolchain discovery 로직이 여전히 크고 분산돼 있다
 
@@ -162,13 +155,11 @@ embedding은 이제 별도 실험 코드가 아니라 정식 stage로 보는 편
 
 다음 작업은 아래 순서로 보는 편이 효율적이다.
 
-1. `3.1 typed error 정리`
-2. `3.2 embedding 상태 기록 원자화`
-3. `3.5 backend parity 테스트`
-4. `3.3 model/toolchain helper 축소`
-5. `3.4 stage lifecycle helper 정리`
-6. `3.6 CLI 표시 동기화`
-7. `3.7 문서 동기화`
+1. `3.5 backend parity 테스트`
+2. `3.3 model/toolchain helper 축소`
+3. `3.4 stage lifecycle helper 정리`
+4. `3.6 CLI 표시 동기화`
+5. `3.7 문서 동기화`
 
 ## 5. 사용법
 

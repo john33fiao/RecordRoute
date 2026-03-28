@@ -65,7 +65,10 @@ impl MetadataBackend for PostgresMetadataStore {
             .collect::<Result<Vec<_>, String>>()?;
 
         for row in client
-            .query("SELECT job_id, data_json FROM tasks ORDER BY task_id ASC", &[])
+            .query(
+                "SELECT job_id, data_json FROM tasks ORDER BY task_id ASC",
+                &[],
+            )
             .map_err(|error| format!("failed to read postgres tasks: {error}"))?
         {
             let job_id: String = row.get(0);
@@ -113,74 +116,7 @@ impl MetadataBackend for PostgresMetadataStore {
         let mut tx = client
             .transaction()
             .map_err(|error| format!("failed to start postgres transaction: {error}"))?;
-        for statement in [
-            "DELETE FROM tasks",
-            "DELETE FROM jobs",
-            "DELETE FROM model_preparations",
-            "DELETE FROM queue_state",
-        ] {
-            tx.execute(statement, &[])
-                .map_err(|error| format!("failed to execute postgres reset '{statement}': {error}"))?;
-        }
-
-        for job in &index.jobs {
-            let raw = serialize_job_record(job)?;
-            tx.execute(
-                "INSERT INTO jobs (
-                    job_id, status_json, started_at, finished_at, source_ref, source_kind_json,
-                    source_content_sha256, source_file_name, probe_json, split_strategy_json,
-                    outputs_json, error_message, summary_embedding_json
-                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
-                &[
-                    &raw.job_id,
-                    &raw.status_json,
-                    &raw.started_at,
-                    &raw.finished_at,
-                    &raw.source_ref,
-                    &raw.source_kind_json,
-                    &raw.source_content_sha256,
-                    &raw.source_file_name,
-                    &raw.probe_json,
-                    &raw.split_strategy_json,
-                    &raw.outputs_json,
-                    &raw.error_message,
-                    &raw.summary_embedding_json,
-                ],
-            )
-            .map_err(|error| format!("failed to insert postgres job {}: {error}", job.job_id))?;
-
-            for task in &job.tasks {
-                tx.execute(
-                    "INSERT INTO tasks (task_id, job_id, task_type, data_json)
-                     VALUES ($1, $2, $3, $4)",
-                    &[&task.task_id, &job.job_id, &to_json(&task.task_type)?, &to_json(task)?],
-                )
-                .map_err(|error| {
-                    format!(
-                        "failed to insert postgres task {} for job {}: {error}",
-                        task.task_id, job.job_id
-                    )
-                })?;
-            }
-        }
-
-        for (model_name, record) in [
-            ("whisper", &index.model_preparations.whisper),
-            ("llama", &index.model_preparations.llama),
-            ("llama_embedding", &index.model_preparations.llama_embedding),
-        ] {
-            tx.execute(
-                "INSERT INTO model_preparations (model, data_json) VALUES ($1, $2)",
-                &[&model_name, &to_json(record)?],
-            )
-            .map_err(|error| format!("failed to insert postgres model preparation {model_name}: {error}"))?;
-        }
-
-        tx.execute(
-            "INSERT INTO queue_state (singleton_id, data_json) VALUES (1, $1)",
-            &[&to_json(&index.task_queue)?],
-        )
-        .map_err(|error| format!("failed to insert postgres queue state: {error}"))?;
+        write_index_transaction(&mut tx, index)?;
         tx.commit()
             .map_err(|error| format!("failed to commit postgres transaction: {error}"))
     }
@@ -217,7 +153,12 @@ impl MetadataBackend for PostgresMetadataStore {
                  DO UPDATE SET storage_key = EXCLUDED.storage_key",
                 &[&record.job_id, &record.logical_name, &record.storage_key],
             )
-            .map_err(|error| format!("failed to upsert postgres audio artifact {}: {error}", record.logical_name))?;
+            .map_err(|error| {
+                format!(
+                    "failed to upsert postgres audio artifact {}: {error}",
+                    record.logical_name
+                )
+            })?;
         Ok(())
     }
 
@@ -277,9 +218,19 @@ impl MetadataBackend for PostgresMetadataStore {
                  VALUES ($1, $2, $3, $4)
                  ON CONFLICT (job_id, transcript_id)
                  DO UPDATE SET file_name = EXCLUDED.file_name, text = EXCLUDED.text",
-                &[&record.job_id, &record.transcript_id, &record.file_name, &record.text],
+                &[
+                    &record.job_id,
+                    &record.transcript_id,
+                    &record.file_name,
+                    &record.text,
+                ],
             )
-            .map_err(|error| format!("failed to upsert postgres transcript {}: {error}", record.transcript_id))?;
+            .map_err(|error| {
+                format!(
+                    "failed to upsert postgres transcript {}: {error}",
+                    record.transcript_id
+                )
+            })?;
         Ok(())
     }
 
@@ -323,7 +274,12 @@ impl MetadataBackend for PostgresMetadataStore {
                  DO UPDATE SET file_name = EXCLUDED.file_name, text = EXCLUDED.text",
                 &[&record.job_id, &record.file_name, &record.text],
             )
-            .map_err(|error| format!("failed to upsert postgres summary for job {}: {error}", record.job_id))?;
+            .map_err(|error| {
+                format!(
+                    "failed to upsert postgres summary for job {}: {error}",
+                    record.job_id
+                )
+            })?;
         Ok(())
     }
 
@@ -347,23 +303,125 @@ impl MetadataBackend for PostgresMetadataStore {
             .transpose()
     }
 
-    fn upsert_summary_embedding(
+    fn write_index_with_summary_embedding(
         &self,
+        index: &IndexFile,
         job_id: &str,
         record: &SummaryEmbeddingVectorRecord,
     ) -> Result<(), String> {
         let mut client = self.connect()?;
-        client
-            .execute(
-                "INSERT INTO summary_embeddings (job_id, metadata_json, vector_json)
-                 VALUES ($1, $2, $3)
-                 ON CONFLICT (job_id)
-                 DO UPDATE SET metadata_json = EXCLUDED.metadata_json, vector_json = EXCLUDED.vector_json",
-                &[&job_id, &to_json(&record.metadata)?, &to_json(&record.vector)?],
-            )
-            .map_err(|error| format!("failed to upsert postgres summary embedding for job {job_id}: {error}"))?;
-        Ok(())
+        let mut tx = client
+            .transaction()
+            .map_err(|error| format!("failed to start postgres transaction: {error}"))?;
+        write_index_transaction(&mut tx, index)?;
+        upsert_summary_embedding_transaction(&mut tx, job_id, record)?;
+        tx.commit()
+            .map_err(|error| format!("failed to commit postgres embedding transaction: {error}"))
     }
+}
+
+fn write_index_transaction(
+    tx: &mut postgres::Transaction<'_>,
+    index: &IndexFile,
+) -> Result<(), String> {
+    for statement in [
+        "DELETE FROM tasks",
+        "DELETE FROM jobs",
+        "DELETE FROM model_preparations",
+        "DELETE FROM queue_state",
+    ] {
+        tx.execute(statement, &[])
+            .map_err(|error| format!("failed to execute postgres reset '{statement}': {error}"))?;
+    }
+
+    for job in &index.jobs {
+        let raw = serialize_job_record(job)?;
+        tx.execute(
+            "INSERT INTO jobs (
+                job_id, status_json, started_at, finished_at, source_ref, source_kind_json,
+                source_content_sha256, source_file_name, probe_json, split_strategy_json,
+                outputs_json, error_message, summary_embedding_json
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+            &[
+                &raw.job_id,
+                &raw.status_json,
+                &raw.started_at,
+                &raw.finished_at,
+                &raw.source_ref,
+                &raw.source_kind_json,
+                &raw.source_content_sha256,
+                &raw.source_file_name,
+                &raw.probe_json,
+                &raw.split_strategy_json,
+                &raw.outputs_json,
+                &raw.error_message,
+                &raw.summary_embedding_json,
+            ],
+        )
+        .map_err(|error| format!("failed to insert postgres job {}: {error}", job.job_id))?;
+
+        for task in &job.tasks {
+            tx.execute(
+                "INSERT INTO tasks (task_id, job_id, task_type, data_json)
+                 VALUES ($1, $2, $3, $4)",
+                &[
+                    &task.task_id,
+                    &job.job_id,
+                    &to_json(&task.task_type)?,
+                    &to_json(task)?,
+                ],
+            )
+            .map_err(|error| {
+                format!(
+                    "failed to insert postgres task {} for job {}: {error}",
+                    task.task_id, job.job_id
+                )
+            })?;
+        }
+    }
+
+    for (model_name, record) in [
+        ("whisper", &index.model_preparations.whisper),
+        ("llama", &index.model_preparations.llama),
+        ("llama_embedding", &index.model_preparations.llama_embedding),
+    ] {
+        tx.execute(
+            "INSERT INTO model_preparations (model, data_json) VALUES ($1, $2)",
+            &[&model_name, &to_json(record)?],
+        )
+        .map_err(|error| {
+            format!("failed to insert postgres model preparation {model_name}: {error}")
+        })?;
+    }
+
+    tx.execute(
+        "INSERT INTO queue_state (singleton_id, data_json) VALUES (1, $1)",
+        &[&to_json(&index.task_queue)?],
+    )
+    .map_err(|error| format!("failed to insert postgres queue state: {error}"))?;
+    Ok(())
+}
+
+fn upsert_summary_embedding_transaction(
+    tx: &mut postgres::Transaction<'_>,
+    job_id: &str,
+    record: &SummaryEmbeddingVectorRecord,
+) -> Result<(), String> {
+    tx.execute(
+        "INSERT INTO summary_embeddings (job_id, metadata_json, vector_json)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (job_id)
+         DO UPDATE SET metadata_json = EXCLUDED.metadata_json, vector_json = EXCLUDED.vector_json",
+        &[
+            &job_id,
+            &to_json(&record.metadata)?,
+            &to_json(&record.vector)?,
+        ],
+    )
+    .map_err(|error| {
+        format!("failed to upsert postgres summary embedding for job {job_id}: {error}")
+    })?;
+    Ok(())
 }
 
 fn initialize_schema(client: &mut Client) -> Result<(), String> {

@@ -3,6 +3,7 @@ use super::{
     now_rfc3339, queue, read_line, stages, submit_summary_embedding_job,
 };
 use crate::audio_store::AudioStore;
+use crate::error::{AppError, AppResult};
 use crate::index::{
     IndexStore, JobRecord, ModelKind, QueuePayload, SummaryRecord, TaskStatus, TaskType,
     TranscriptRecord,
@@ -24,28 +25,32 @@ pub fn submit_summary_job(
     repo_root: &Path,
     job_id: &str,
     force_regenerate: bool,
-) -> Result<StageJobSubmission, String> {
+) -> AppResult<StageJobSubmission> {
     let index_store = IndexStore::new(repo_root);
     let job = index_store
-        .find_job(job_id)?
-        .ok_or_else(|| format!("job not found: {job_id}"))?;
+        .find_job(job_id)
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found(format!("job not found: {job_id}")))?;
     let job_dir = index_store.job_dir(job_id);
 
     if let Some(task) = job.task(TaskType::Summary)
         && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
     {
-        let existing_entry = index_store.with_index_read(|index| {
-            Ok(queue::find_task_entry(
-                index,
-                &job.job_id,
-                TaskType::Summary,
-            ))
-        })?;
+        let existing_entry = index_store
+            .with_index_read(|index| {
+                Ok(queue::find_task_entry(
+                    index,
+                    &job.job_id,
+                    TaskType::Summary,
+                ))
+            })
+            .map_err(AppError::internal)?;
 
         match existing_entry {
             Some(entry) if summary_payload_satisfies(&entry, force_regenerate) => {
                 let queue = if task.status == TaskStatus::Queued {
-                    stages::queued_task_ticket(&index_store, &job.job_id, TaskType::Summary)?
+                    stages::queued_task_ticket(&index_store, &job.job_id, TaskType::Summary)
+                        .map_err(AppError::internal)?
                 } else {
                     None
                 };
@@ -66,29 +71,31 @@ pub fn submit_summary_job(
                         }
                     ) =>
             {
-                let (job, ticket) = index_store.with_index_mut(|index| {
-                    if !queue::update_queued_entry(index, job_id, TaskType::Summary, |entry| {
-                        entry.payload = QueuePayload::Summary {
-                            force_regenerate: true,
-                        };
-                    }) {
-                        return Err(format!(
-                            "summary task is marked queued but queue entry is missing: {job_id}"
-                        ));
-                    }
+                let (job, ticket) = index_store
+                    .with_index_mut(|index| {
+                        if !queue::update_queued_entry(index, job_id, TaskType::Summary, |entry| {
+                            entry.payload = QueuePayload::Summary {
+                                force_regenerate: true,
+                            };
+                        }) {
+                            return Err(format!(
+                                "summary task is marked queued but queue entry is missing: {job_id}"
+                            ));
+                        }
 
-                    let job = index
-                        .jobs
-                        .iter()
-                        .find(|record| record.job_id == job_id)
-                        .cloned()
-                        .ok_or_else(|| format!("job not found in index: {job_id}"))?;
-                    let ticket =
-                        queue::find_ticket(index, job_id, TaskType::Summary).ok_or_else(|| {
-                            format!("summary queue ticket missing after upgrade: {job_id}")
-                        })?;
-                    Ok((job, ticket))
-                })?;
+                        let job = index
+                            .jobs
+                            .iter()
+                            .find(|record| record.job_id == job_id)
+                            .cloned()
+                            .ok_or_else(|| format!("job not found in index: {job_id}"))?;
+                        let ticket = queue::find_ticket(index, job_id, TaskType::Summary)
+                            .ok_or_else(|| {
+                                format!("summary queue ticket missing after upgrade: {job_id}")
+                            })?;
+                        Ok((job, ticket))
+                    })
+                    .map_err(AppError::internal)?;
                 return Ok(StageJobSubmission {
                     job,
                     disposition: StageJobDisposition::Submitted,
@@ -97,19 +104,24 @@ pub fn submit_summary_job(
                 });
             }
             Some(_) => {
-                return Err(format!(
+                return Err(AppError::bad_request(format!(
                     "summary already running with different force_regenerate semantics: {job_id}"
-                ));
+                )));
             }
             None if task.status == TaskStatus::Running => {
-                return Err(format!(
+                return Err(AppError::bad_request(format!(
                     "summary task is marked running but queue entry is missing: {job_id}"
-                ));
+                )));
             }
             None => {}
         }
     }
-    if !force_regenerate && index_store.get_summary(job_id)?.is_some() {
+    if !force_regenerate
+        && index_store
+            .get_summary(job_id)
+            .map_err(AppError::internal)?
+            .is_some()
+    {
         return Ok(StageJobSubmission {
             job,
             disposition: StageJobDisposition::Reused,
@@ -118,14 +130,17 @@ pub fn submit_summary_job(
         });
     }
 
-    if !summary_prerequisites_ready(&index_store, job_id, &job_dir)? {
-        return Err(format!("stt must be completed before summary: {job_id}"));
+    if !summary_prerequisites_ready(&index_store, job_id, &job_dir).map_err(AppError::internal)? {
+        return Err(AppError::bad_request(format!(
+            "stt must be completed before summary: {job_id}"
+        )));
     }
 
-    let queued_at = now_rfc3339()?;
+    let queued_at = now_rfc3339().map_err(AppError::internal)?;
     let entry = queue::build_summary_entry(job_id, force_regenerate, queued_at.clone());
     let (job, ticket) =
-        stages::enqueue_existing_task(&index_store, job_id, TaskType::Summary, queued_at, entry)?;
+        stages::enqueue_existing_task(&index_store, job_id, TaskType::Summary, queued_at, entry)
+            .map_err(AppError::internal)?;
     Ok(StageJobSubmission {
         job,
         disposition: StageJobDisposition::Submitted,
@@ -178,7 +193,10 @@ pub fn execute_summary_job(
         let _ = fs::remove_file(&prompt_file);
         generation_result?;
         let summary_text = fs::read_to_string(&summary_file).map_err(|error| {
-            format!("failed to read generated summary {}: {error}", summary_file.display())
+            format!(
+                "failed to read generated summary {}: {error}",
+                summary_file.display()
+            )
         })?;
         index_store.upsert_summary(&SummaryRecord {
             job_id: job_id.to_string(),
@@ -197,7 +215,7 @@ pub fn execute_summary_job(
                     repo_root,
                     &completed.job_id,
                     TaskType::Embedding,
-                    error,
+                    error.to_string(),
                 );
             }
             Ok(completed)
@@ -227,7 +245,8 @@ pub fn run_summary_with_repo_root(
     }
 
     let selected = select_summary_candidate(&candidates, reader, writer)?;
-    let submission = submit_summary_job(repo_root, &selected.job_id, false)?;
+    let submission = submit_summary_job(repo_root, &selected.job_id, false)
+        .map_err(|error| error.to_string())?;
     if submission.should_execute() {
         queue::dispatch_until_task_terminal(repo_root, &selected.job_id, TaskType::Summary)?;
         if let Some(task) = IndexStore::new(repo_root)
@@ -379,9 +398,14 @@ fn summary_prerequisites_ready(
         return Ok(true);
     }
 
-    audio_files.iter().try_fold(true, |all_present, audio_file| -> Result<bool, String> {
-        let file_name = artifacts::transcript_file_name(audio_file)?;
-        let transcript_id = artifacts::transcript_id_from_file_name(&file_name)?;
-        Ok(all_present && index_store.find_transcript(job_id, &transcript_id)?.is_some())
-    })
+    audio_files
+        .iter()
+        .try_fold(true, |all_present, audio_file| -> Result<bool, String> {
+            let file_name = artifacts::transcript_file_name(audio_file)?;
+            let transcript_id = artifacts::transcript_id_from_file_name(&file_name)?;
+            Ok(all_present
+                && index_store
+                    .find_transcript(job_id, &transcript_id)?
+                    .is_some())
+        })
 }

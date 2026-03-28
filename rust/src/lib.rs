@@ -75,16 +75,21 @@ pub(crate) mod test_support {
         audio_file_names: &[&str],
     ) -> Result<JobOutputs, String> {
         let job_dir = store.job_dir(job_id);
-        fs::create_dir_all(&job_dir)
-            .map_err(|error| format!("failed to create test job dir {}: {error}", job_dir.display()))?;
+        fs::create_dir_all(&job_dir).map_err(|error| {
+            format!(
+                "failed to create test job dir {}: {error}",
+                job_dir.display()
+            )
+        })?;
 
         let mut merged_mono_wav = None;
         let mut split_mono_wavs = Vec::new();
 
         for file_name in audio_file_names {
             let path = job_dir.join(file_name);
-            fs::write(&path, format!("audio:{file_name}"))
-                .map_err(|error| format!("failed to seed audio artifact {}: {error}", path.display()))?;
+            fs::write(&path, format!("audio:{file_name}")).map_err(|error| {
+                format!("failed to seed audio artifact {}: {error}", path.display())
+            })?;
             store.upsert_audio_artifact(&AudioArtifactRecord {
                 job_id: job_id.to_string(),
                 logical_name: (*file_name).to_string(),
@@ -127,11 +132,7 @@ pub(crate) mod test_support {
         Ok(())
     }
 
-    pub(crate) fn seed_summary(
-        store: &IndexStore,
-        job_id: &str,
-        text: &str,
-    ) -> Result<(), String> {
+    pub(crate) fn seed_summary(store: &IndexStore, job_id: &str, text: &str) -> Result<(), String> {
         store.upsert_summary(&SummaryRecord {
             job_id: job_id.to_string(),
             file_name: "result.md".to_string(),

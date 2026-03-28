@@ -1,4 +1,5 @@
 use super::{StageJobDisposition, StageJobSubmission, artifacts, now_rfc3339, queue, stages};
+use crate::error::{AppError, AppResult, dependency_unavailable_or_internal};
 use crate::index::{
     IndexStore, JobRecord, SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord, TaskStatus,
     TaskType,
@@ -29,19 +30,27 @@ pub struct SummarySearchResult {
 pub fn submit_summary_embedding_job(
     repo_root: &Path,
     job_id: &str,
-) -> Result<StageJobSubmission, String> {
+) -> AppResult<StageJobSubmission> {
     let index_store = IndexStore::new(repo_root);
     let job = index_store
-        .find_job(job_id)?
-        .ok_or_else(|| format!("job not found: {job_id}"))?;
-    if index_store.get_summary(job_id)?.is_none() {
-        return Err(format!("summary not found for job: {job_id}"));
+        .find_job(job_id)
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found(format!("job not found: {job_id}")))?;
+    if index_store
+        .get_summary(job_id)
+        .map_err(AppError::internal)?
+        .is_none()
+    {
+        return Err(AppError::bad_request(format!(
+            "summary not found for job: {job_id}"
+        )));
     }
     if let Some(task) = job.task(TaskType::Embedding)
         && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
     {
         let queue = if task.status == TaskStatus::Queued {
-            stages::queued_task_ticket(&index_store, &job.job_id, TaskType::Embedding)?
+            stages::queued_task_ticket(&index_store, &job.job_id, TaskType::Embedding)
+                .map_err(AppError::internal)?
         } else {
             None
         };
@@ -53,7 +62,7 @@ pub fn submit_summary_embedding_job(
         });
     }
 
-    if !is_embedding_stale(repo_root, &job)? {
+    if !is_embedding_stale(repo_root, &job).map_err(AppError::internal)? {
         return Ok(StageJobSubmission {
             job,
             disposition: StageJobDisposition::Reused,
@@ -62,15 +71,11 @@ pub fn submit_summary_embedding_job(
         });
     }
 
-    let queued_at = now_rfc3339()?;
+    let queued_at = now_rfc3339().map_err(AppError::internal)?;
     let entry = queue::build_embedding_entry(job_id, queued_at.clone());
-    let (job, ticket) = stages::enqueue_existing_task(
-        &index_store,
-        job_id,
-        TaskType::Embedding,
-        queued_at,
-        entry,
-    )?;
+    let (job, ticket) =
+        stages::enqueue_existing_task(&index_store, job_id, TaskType::Embedding, queued_at, entry)
+            .map_err(AppError::internal)?;
     Ok(StageJobSubmission {
         job,
         disposition: StageJobDisposition::Submitted,
@@ -85,7 +90,7 @@ pub fn execute_summary_embedding_job(repo_root: &Path, job_id: &str) -> Result<J
         .find_job(job_id)?
         .ok_or_else(|| format!("job not found: {job_id}"))?;
 
-    let result = (|| -> Result<SummaryEmbeddingRecord, String> {
+    let result = (|| -> Result<SummaryEmbeddingVectorRecord, String> {
         let summary_text = index_store
             .get_summary(job_id)?
             .ok_or_else(|| format!("summary not found for job: {job_id}"))?
@@ -106,34 +111,25 @@ pub fn execute_summary_embedding_job(repo_root: &Path, job_id: &str) -> Result<J
             created_at: created_at.clone(),
             vector: vector.clone(),
         };
-        index_store.upsert_summary_embedding(
-            job_id,
-            &SummaryEmbeddingVectorRecord {
-                metadata: SummaryEmbeddingRecord {
-                    model_id: sidecar.model_id.clone(),
-                    text_sha256: sidecar.text_sha256.clone(),
-                    dimension: sidecar.dimension,
-                    normalized: sidecar.normalized,
-                    created_at: sidecar.created_at.clone(),
-                },
-                vector,
+        Ok(SummaryEmbeddingVectorRecord {
+            metadata: SummaryEmbeddingRecord {
+                model_id,
+                text_sha256,
+                dimension: sidecar.dimension,
+                normalized: sidecar.normalized,
+                created_at,
             },
-        )?;
-        Ok(SummaryEmbeddingRecord {
-            model_id,
-            text_sha256,
-            dimension: sidecar.dimension,
-            normalized: sidecar.normalized,
-            created_at,
+            vector,
         })
     })();
 
     match result {
-        Ok(metadata) => {
-            let mut updated =
-                stages::finalize_task_success(repo_root, job, TaskType::Embedding, now_rfc3339()?)?;
-            updated.summary_embedding = Some(metadata);
-            IndexStore::new(repo_root).update_job(job_id, |_| updated.clone())?;
+        Ok(record) => {
+            let updated = IndexStore::new(repo_root).commit_summary_embedding_success(
+                job_id,
+                now_rfc3339()?,
+                &record,
+            )?;
             Ok(updated)
         }
         Err(error) => {
@@ -173,19 +169,24 @@ pub fn search_summaries(
     query: &str,
     limit: usize,
     min_score: Option<f32>,
-) -> Result<Vec<SummarySearchResult>, String> {
-    let toolchain = LlamaToolchain::discover(repo_root)?;
-    let q = run_summary_embedding(&toolchain, query)?;
+) -> AppResult<Vec<SummarySearchResult>> {
+    let toolchain =
+        LlamaToolchain::discover(repo_root).map_err(dependency_unavailable_or_internal)?;
+    let q = run_summary_embedding(&toolchain, query).map_err(dependency_unavailable_or_internal)?;
     if q.is_empty() {
         return Ok(Vec::new());
     }
 
     let mut rows = Vec::new();
-    for job in IndexStore::new(repo_root).list_completed_jobs()? {
+    for job in IndexStore::new(repo_root)
+        .list_completed_jobs()
+        .map_err(AppError::internal)?
+    {
         let Some(_metadata) = job.summary_embedding.clone() else {
             continue;
         };
-        let Ok(Some(sidecar)) = IndexStore::new(repo_root).get_summary_embedding(&job.job_id) else {
+        let Ok(Some(sidecar)) = IndexStore::new(repo_root).get_summary_embedding(&job.job_id)
+        else {
             continue;
         };
         if sidecar.metadata.model_id != embedding_model_id(repo_root)
@@ -204,7 +205,7 @@ pub fn search_summaries(
             score,
             source_file_name: job.source_file_name.clone(),
             summary_file_name: artifacts::summary_file_name().to_string(),
-            summary_excerpt: summary_excerpt(repo_root, &job)?,
+            summary_excerpt: summary_excerpt(repo_root, &job).map_err(AppError::internal)?,
         });
     }
 

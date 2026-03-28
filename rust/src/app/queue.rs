@@ -438,13 +438,8 @@ mod tests {
             "hash-job-inflight",
             "job-inflight.wav",
         );
-        mark_job_completed_with_audio(
-            &store,
-            &mut job,
-            "2026-01-01T00:00:00Z",
-            &["mono_mix.wav"],
-        )
-        .expect("mark ffmpeg completed");
+        mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:00Z", &["mono_mix.wav"])
+            .expect("mark ffmpeg completed");
         job.enqueue_task(TaskType::Stt, "2026-01-01T00:00:01Z".to_string());
         job.complete_task(TaskType::Stt, "2026-01-01T00:00:02Z".to_string())
             .expect("stt complete");

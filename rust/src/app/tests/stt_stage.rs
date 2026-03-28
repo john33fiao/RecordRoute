@@ -156,5 +156,5 @@ fn submit_stt_rejects_conflicting_inflight_subset_request() {
         Some(vec!["channel_01.wav".to_string()]),
     )
     .expect_err("conflicting inflight subset should fail");
-    assert!(error.contains("different audio selection"));
+    assert!(error.to_string().contains("different audio selection"));
 }

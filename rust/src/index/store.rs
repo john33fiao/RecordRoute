@@ -3,7 +3,7 @@ use super::postgres::PostgresMetadataStore;
 use super::sqlite::SqliteMetadataStore;
 use super::types::{
     AudioArtifactRecord, IndexFile, JobRecord, JobStatus, ModelKind, ModelPreparationRecord,
-    ModelPreparations, SummaryEmbeddingVectorRecord, SummaryRecord, TaskQueueState,
+    ModelPreparations, SummaryEmbeddingVectorRecord, SummaryRecord, TaskQueueState, TaskType,
     TranscriptRecord,
 };
 use crate::audio_store::AudioStore;
@@ -260,12 +260,27 @@ impl IndexStore {
         self.backend()?.get_summary_embedding(job_id)
     }
 
-    pub fn upsert_summary_embedding(
+    pub fn commit_summary_embedding_success(
         &self,
         job_id: &str,
+        finished_at: String,
         record: &SummaryEmbeddingVectorRecord,
-    ) -> Result<(), String> {
-        self.backend()?.upsert_summary_embedding(job_id, record)
+    ) -> Result<JobRecord, String> {
+        self.ensure_db_dir()?;
+        let mut index = self.read_index()?;
+        let updated = {
+            let job = index
+                .jobs
+                .iter_mut()
+                .find(|job| job.job_id == job_id)
+                .ok_or_else(|| format!("job not found in index: {job_id}"))?;
+            job.complete_task(TaskType::Embedding, finished_at)?;
+            job.summary_embedding = Some(record.metadata.clone());
+            job.clone()
+        };
+        self.backend()?
+            .write_index_with_summary_embedding(&index, job_id, record)?;
+        Ok(updated)
     }
 
     pub fn with_index_mut<T>(

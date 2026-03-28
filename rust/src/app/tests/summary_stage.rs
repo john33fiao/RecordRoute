@@ -136,16 +136,15 @@ fn run_summary_reuses_existing_summary_record_without_llama_toolchain() {
         "hash-job-1",
         "input.wav",
     );
-    mark_job_completed_with_audio(
-        &store,
-        &mut job,
-        "2026-01-01T00:00:01Z",
-        &["mono_mix.wav"],
-    )
-    .expect("mark completed");
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
     store.insert_job(job).expect("insert selected job");
-    seed_transcripts(&store, "job-1", &[("mono_mix", "현장 방문 일정을 논의했다.")])
-        .expect("seed transcript");
+    seed_transcripts(
+        &store,
+        "job-1",
+        &[("mono_mix", "현장 방문 일정을 논의했다.")],
+    )
+    .expect("seed transcript");
     seed_summary(&store, "job-1", "existing summary").expect("seed summary");
 
     let mut reader = Cursor::new(b"1\n".to_vec());
@@ -212,16 +211,15 @@ fn run_summary_uses_local_model_path_when_file_exists() {
         "hash-job-1",
         "input.wav",
     );
-    mark_job_completed_with_audio(
-        &store,
-        &mut job,
-        "2026-01-01T00:00:01Z",
-        &["mono_mix.wav"],
-    )
-    .expect("mark completed");
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
     store.insert_job(job).expect("insert selected job");
-    seed_transcripts(&store, "job-1", &[("mono_mix", "현장 방문 일정을 논의했다.")])
-        .expect("seed transcript");
+    seed_transcripts(
+        &store,
+        "job-1",
+        &[("mono_mix", "현장 방문 일정을 논의했다.")],
+    )
+    .expect("seed transcript");
 
     let mut reader = Cursor::new(b"1\n".to_vec());
     let mut output = Vec::new();
@@ -252,13 +250,8 @@ fn submit_summary_upgrades_queued_request_to_force_regenerate() {
         "hash-job-1",
         "input.wav",
     );
-    mark_job_completed_with_audio(
-        &store,
-        &mut job,
-        "2026-01-01T00:00:01Z",
-        &["mono_mix.wav"],
-    )
-    .expect("mark completed");
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
     store.insert_job(job).expect("insert job");
     seed_transcripts(&store, "job-1", &[("mono_mix", "transcript")]).expect("seed transcript");
 

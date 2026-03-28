@@ -77,7 +77,8 @@ pub(super) fn reserve_next_entry(
                 }
 
                 let Some(entry) = selected else {
-                    let total_batches = 1usize.saturating_add(index.task_queue.pending_batches.len());
+                    let total_batches =
+                        1usize.saturating_add(index.task_queue.pending_batches.len());
                     scanned_batches = scanned_batches.saturating_add(1);
                     if scanned_batches >= total_batches {
                         return Ok(None);

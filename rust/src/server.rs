@@ -58,7 +58,10 @@ pub(crate) fn router_with_repo_root_and_upload_limits(
             "/models/llama/prepare",
             post(models::post_prepare_llama_model),
         )
-        .route("/jobs", post(jobs::post_jobs).get(jobs::get_jobs_with_query))
+        .route(
+            "/jobs",
+            post(jobs::post_jobs).get(jobs::get_jobs_with_query),
+        )
         .route("/jobs/completed", get(jobs::get_completed_jobs))
         .route("/jobs/upload", jobs_upload_route(upload_limits))
         .route("/jobs/batch-process", post(jobs::post_jobs_batch_process))

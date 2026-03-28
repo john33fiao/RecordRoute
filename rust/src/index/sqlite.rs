@@ -21,8 +21,9 @@ impl SqliteMetadataStore {
 
     fn open(&self) -> Result<Connection, String> {
         ensure_parent_dir(&self.db_path)?;
-        let connection = Connection::open(&self.db_path)
-            .map_err(|error| format!("failed to open sqlite {}: {error}", self.db_path.display()))?;
+        let connection = Connection::open(&self.db_path).map_err(|error| {
+            format!("failed to open sqlite {}: {error}", self.db_path.display())
+        })?;
         initialize_schema(&connection)?;
         Ok(connection)
     }
@@ -105,10 +106,7 @@ impl MetadataBackend for SqliteMetadataStore {
             .map_err(|error| format!("failed to prepare sqlite tasks read: {error}"))?;
         let task_rows = tasks_stmt
             .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                ))
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })
             .map_err(|error| format!("failed to query sqlite tasks: {error}"))?
             .collect::<Result<Vec<_>, _>>()
@@ -128,10 +126,7 @@ impl MetadataBackend for SqliteMetadataStore {
         let mut preparations = super::types::ModelPreparations::default();
         let model_rows = model_stmt
             .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                ))
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })
             .map_err(|error| format!("failed to query sqlite model preparations: {error}"))?
             .collect::<Result<Vec<_>, _>>()
@@ -172,78 +167,7 @@ impl MetadataBackend for SqliteMetadataStore {
         let tx = connection
             .transaction()
             .map_err(|error| format!("failed to start sqlite transaction: {error}"))?;
-        tx.execute("DELETE FROM tasks", [])
-            .map_err(|error| format!("failed to clear sqlite tasks: {error}"))?;
-        tx.execute("DELETE FROM jobs", [])
-            .map_err(|error| format!("failed to clear sqlite jobs: {error}"))?;
-        tx.execute("DELETE FROM model_preparations", [])
-            .map_err(|error| format!("failed to clear sqlite model preparations: {error}"))?;
-        tx.execute("DELETE FROM queue_state", [])
-            .map_err(|error| format!("failed to clear sqlite queue state: {error}"))?;
-
-        for job in &index.jobs {
-            let raw = serialize_job_record(job)?;
-            tx.execute(
-                "INSERT INTO jobs (
-                    job_id, status_json, started_at, finished_at, source_ref, source_kind_json,
-                    source_content_sha256, source_file_name, probe_json, split_strategy_json,
-                    outputs_json, error_message, summary_embedding_json
-                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                params![
-                    raw.job_id,
-                    raw.status_json,
-                    raw.started_at,
-                    raw.finished_at,
-                    raw.source_ref,
-                    raw.source_kind_json,
-                    raw.source_content_sha256,
-                    raw.source_file_name,
-                    raw.probe_json,
-                    raw.split_strategy_json,
-                    raw.outputs_json,
-                    raw.error_message,
-                    raw.summary_embedding_json,
-                ],
-            )
-            .map_err(|error| format!("failed to insert sqlite job {}: {error}", job.job_id))?;
-
-            for task in &job.tasks {
-                tx.execute(
-                    "INSERT INTO tasks (task_id, job_id, task_type, data_json) VALUES (?, ?, ?, ?)",
-                    params![task.task_id, job.job_id, to_json(&task.task_type)?, to_json(task)?],
-                )
-                .map_err(|error| {
-                    format!(
-                        "failed to insert sqlite task {} for job {}: {error}",
-                        task.task_id, job.job_id
-                    )
-                })?;
-            }
-        }
-
-        for (model_name, model_kind) in [
-            ("whisper", ModelKind::Whisper),
-            ("llama", ModelKind::Llama),
-            ("llama_embedding", ModelKind::Llama),
-        ] {
-            let record = match model_name {
-                "whisper" => &index.model_preparations.whisper,
-                "llama" => &index.model_preparations.llama,
-                _ => &index.model_preparations.llama_embedding,
-            };
-            let _ = model_kind;
-            tx.execute(
-                "INSERT INTO model_preparations (model, data_json) VALUES (?, ?)",
-                params![model_name, to_json(record)?],
-            )
-            .map_err(|error| format!("failed to insert sqlite model preparation {model_name}: {error}"))?;
-        }
-
-        tx.execute(
-            "INSERT INTO queue_state (singleton_id, data_json) VALUES (1, ?)",
-            params![to_json(&index.task_queue)?],
-        )
-        .map_err(|error| format!("failed to insert sqlite queue state: {error}"))?;
+        write_index_transaction(&tx, index)?;
         tx.commit()
             .map_err(|error| format!("failed to commit sqlite index transaction: {error}"))
     }
@@ -280,7 +204,12 @@ impl MetadataBackend for SqliteMetadataStore {
                  DO UPDATE SET storage_key = excluded.storage_key",
                 params![record.job_id, record.logical_name, record.storage_key],
             )
-            .map_err(|error| format!("failed to upsert sqlite audio artifact {}: {error}", record.logical_name))?;
+            .map_err(|error| {
+                format!(
+                    "failed to upsert sqlite audio artifact {}: {error}",
+                    record.logical_name
+                )
+            })?;
         Ok(())
     }
 
@@ -340,9 +269,19 @@ impl MetadataBackend for SqliteMetadataStore {
                  VALUES (?, ?, ?, ?)
                  ON CONFLICT(job_id, transcript_id)
                  DO UPDATE SET file_name = excluded.file_name, text = excluded.text",
-                params![record.job_id, record.transcript_id, record.file_name, record.text],
+                params![
+                    record.job_id,
+                    record.transcript_id,
+                    record.file_name,
+                    record.text
+                ],
             )
-            .map_err(|error| format!("failed to upsert sqlite transcript {}: {error}", record.transcript_id))?;
+            .map_err(|error| {
+                format!(
+                    "failed to upsert sqlite transcript {}: {error}",
+                    record.transcript_id
+                )
+            })?;
         Ok(())
     }
 
@@ -386,7 +325,12 @@ impl MetadataBackend for SqliteMetadataStore {
                  DO UPDATE SET file_name = excluded.file_name, text = excluded.text",
                 params![record.job_id, record.file_name, record.text],
             )
-            .map_err(|error| format!("failed to upsert sqlite summary for job {}: {error}", record.job_id))?;
+            .map_err(|error| {
+                format!(
+                    "failed to upsert sqlite summary for job {}: {error}",
+                    record.job_id
+                )
+            })?;
         Ok(())
     }
 
@@ -412,31 +356,140 @@ impl MetadataBackend for SqliteMetadataStore {
         .transpose()
     }
 
-    fn upsert_summary_embedding(
+    fn write_index_with_summary_embedding(
         &self,
+        index: &IndexFile,
         job_id: &str,
         record: &SummaryEmbeddingVectorRecord,
     ) -> Result<(), String> {
-        let connection = self.open()?;
-        connection
-            .execute(
-                "INSERT INTO summary_embeddings (job_id, metadata_json, vector_json)
-                 VALUES (?, ?, ?)
-                 ON CONFLICT(job_id)
-                 DO UPDATE SET metadata_json = excluded.metadata_json, vector_json = excluded.vector_json",
-                params![job_id, to_json(&record.metadata)?, to_json(&record.vector)?],
-            )
-            .map_err(|error| format!("failed to upsert sqlite summary embedding for job {job_id}: {error}"))?;
-        Ok(())
+        let mut connection = self.open()?;
+        let tx = connection
+            .transaction()
+            .map_err(|error| format!("failed to start sqlite transaction: {error}"))?;
+        write_index_transaction(&tx, index)?;
+        upsert_summary_embedding_transaction(&tx, job_id, record)?;
+        tx.commit()
+            .map_err(|error| format!("failed to commit sqlite embedding transaction: {error}"))
     }
+}
+
+fn write_index_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    index: &IndexFile,
+) -> Result<(), String> {
+    tx.execute("DELETE FROM tasks", [])
+        .map_err(|error| format!("failed to clear sqlite tasks: {error}"))?;
+    tx.execute("DELETE FROM jobs", [])
+        .map_err(|error| format!("failed to clear sqlite jobs: {error}"))?;
+    tx.execute("DELETE FROM model_preparations", [])
+        .map_err(|error| format!("failed to clear sqlite model preparations: {error}"))?;
+    tx.execute("DELETE FROM queue_state", [])
+        .map_err(|error| format!("failed to clear sqlite queue state: {error}"))?;
+
+    for job in &index.jobs {
+        let raw = serialize_job_record(job)?;
+        tx.execute(
+            "INSERT INTO jobs (
+                job_id, status_json, started_at, finished_at, source_ref, source_kind_json,
+                source_content_sha256, source_file_name, probe_json, split_strategy_json,
+                outputs_json, error_message, summary_embedding_json
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                raw.job_id,
+                raw.status_json,
+                raw.started_at,
+                raw.finished_at,
+                raw.source_ref,
+                raw.source_kind_json,
+                raw.source_content_sha256,
+                raw.source_file_name,
+                raw.probe_json,
+                raw.split_strategy_json,
+                raw.outputs_json,
+                raw.error_message,
+                raw.summary_embedding_json,
+            ],
+        )
+        .map_err(|error| format!("failed to insert sqlite job {}: {error}", job.job_id))?;
+
+        for task in &job.tasks {
+            tx.execute(
+                "INSERT INTO tasks (task_id, job_id, task_type, data_json) VALUES (?, ?, ?, ?)",
+                params![
+                    task.task_id,
+                    job.job_id,
+                    to_json(&task.task_type)?,
+                    to_json(task)?
+                ],
+            )
+            .map_err(|error| {
+                format!(
+                    "failed to insert sqlite task {} for job {}: {error}",
+                    task.task_id, job.job_id
+                )
+            })?;
+        }
+    }
+
+    for (model_name, model_kind) in [
+        ("whisper", ModelKind::Whisper),
+        ("llama", ModelKind::Llama),
+        ("llama_embedding", ModelKind::Llama),
+    ] {
+        let record = match model_name {
+            "whisper" => &index.model_preparations.whisper,
+            "llama" => &index.model_preparations.llama,
+            _ => &index.model_preparations.llama_embedding,
+        };
+        let _ = model_kind;
+        tx.execute(
+            "INSERT INTO model_preparations (model, data_json) VALUES (?, ?)",
+            params![model_name, to_json(record)?],
+        )
+        .map_err(|error| {
+            format!("failed to insert sqlite model preparation {model_name}: {error}")
+        })?;
+    }
+
+    tx.execute(
+        "INSERT INTO queue_state (singleton_id, data_json) VALUES (1, ?)",
+        params![to_json(&index.task_queue)?],
+    )
+    .map_err(|error| format!("failed to insert sqlite queue state: {error}"))?;
+    Ok(())
+}
+
+fn upsert_summary_embedding_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    job_id: &str,
+    record: &SummaryEmbeddingVectorRecord,
+) -> Result<(), String> {
+    tx.execute(
+        "INSERT INTO summary_embeddings (job_id, metadata_json, vector_json)
+         VALUES (?, ?, ?)
+         ON CONFLICT(job_id)
+         DO UPDATE SET metadata_json = excluded.metadata_json, vector_json = excluded.vector_json",
+        params![job_id, to_json(&record.metadata)?, to_json(&record.vector)?],
+    )
+    .map_err(|error| {
+        format!("failed to upsert sqlite summary embedding for job {job_id}: {error}")
+    })?;
+    Ok(())
 }
 
 fn ensure_parent_dir(path: &Path) -> Result<(), String> {
     let Some(parent) = path.parent() else {
-        return Err(format!("sqlite path has no parent directory: {}", path.display()));
+        return Err(format!(
+            "sqlite path has no parent directory: {}",
+            path.display()
+        ));
     };
-    fs::create_dir_all(parent)
-        .map_err(|error| format!("failed to create sqlite directory {}: {error}", parent.display()))
+    fs::create_dir_all(parent).map_err(|error| {
+        format!(
+            "failed to create sqlite directory {}: {error}",
+            parent.display()
+        )
+    })
 }
 
 fn initialize_schema(connection: &Connection) -> Result<(), String> {

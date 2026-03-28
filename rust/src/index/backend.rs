@@ -29,8 +29,9 @@ pub(crate) trait MetadataBackend {
         &self,
         job_id: &str,
     ) -> Result<Option<SummaryEmbeddingVectorRecord>, String>;
-    fn upsert_summary_embedding(
+    fn write_index_with_summary_embedding(
         &self,
+        index: &IndexFile,
         job_id: &str,
         record: &SummaryEmbeddingVectorRecord,
     ) -> Result<(), String>;

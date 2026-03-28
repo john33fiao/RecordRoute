@@ -292,7 +292,12 @@ impl IndexFile {
 
 impl JobRecord {
     #[cfg(test)]
-    pub fn new(job_id: String, started_at: String, source_path: PathBuf, _job_dir: PathBuf) -> Self {
+    pub fn new(
+        job_id: String,
+        started_at: String,
+        source_path: PathBuf,
+        _job_dir: PathBuf,
+    ) -> Self {
         let source_file_name = source_path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())

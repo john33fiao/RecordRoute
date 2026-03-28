@@ -1,20 +1,10 @@
 use super::types::ErrorResponse;
 use crate::app;
-use crate::error::{AppError, AppErrorKind};
+use crate::error::{AppError, AppErrorKind, sanitize_dependency_message};
 use crate::index::{JobRecord, ModelPreparationRecord, TaskRecord};
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-
-pub(crate) const SETUP_REQUIRED_MESSAGE: &str = "환경 준비가 필요합니다. setup을 다시 실행하세요.";
-
-pub(crate) fn sanitize_dependency_message(message: &str) -> String {
-    if is_setup_related_error(message) {
-        SETUP_REQUIRED_MESSAGE.to_string()
-    } else {
-        message.to_string()
-    }
-}
 
 pub(crate) fn sanitize_optional_dependency_message(message: Option<String>) -> Option<String> {
     message.map(|value| sanitize_dependency_message(&value))
@@ -69,42 +59,6 @@ pub(crate) fn sanitize_system_errors(errors: Vec<String>) -> Vec<String> {
         }
     }
     sanitized
-}
-
-pub(crate) fn is_setup_related_error(message: &str) -> bool {
-    [
-        "local ffmpeg toolchain not found.",
-        "local whisper toolchain not found.",
-        "local llama toolchain not found.",
-        "local llama embedding toolchain not found.",
-        "failed to execute ffmpeg ",
-        "failed to execute ffprobe ",
-        "failed to execute whisper-cli ",
-        "failed to execute whisper model download script ",
-        "failed to download whisper model ",
-        "failed to remove invalid whisper model cache ",
-        "failed to create whisper model directory ",
-        "whisper model not found at ",
-        "whisper model path has no parent directory:",
-        "failed to execute llama-cli ",
-        "failed to execute llama-embedding ",
-        "failed to download llama model ",
-        "failed to create llama model cache directory ",
-        "failed to create llama download cache directory ",
-        "failed to move downloaded llama model ",
-        "failed to read llama cache directory ",
-        "failed to inspect llama cache directory entry in ",
-        "downloaded llama model was not written to expected cache path ",
-        "llama download cache unexpectedly became empty:",
-        "llama cache path has no parent directory:",
-        "llama model file not found:",
-        "llama model cache path is unavailable",
-        "llama model cache not found for ",
-        "llama embedding model file not found:",
-        "llama embedding model cache path is unavailable",
-    ]
-    .iter()
-    .any(|prefix| message.starts_with(prefix))
 }
 
 pub(crate) fn status_code(error: &AppError) -> StatusCode {

@@ -33,8 +33,9 @@ impl AudioStore {
 
     pub fn ensure_dirs(&self) -> Result<(), String> {
         for path in [&self.root, &self.cache_root, &self.spool_root] {
-            fs::create_dir_all(path)
-                .map_err(|error| format!("failed to create directory {}: {error}", path.display()))?;
+            fs::create_dir_all(path).map_err(|error| {
+                format!("failed to create directory {}: {error}", path.display())
+            })?;
         }
         Ok(())
     }
@@ -145,8 +146,13 @@ fn copy_replace(source: &Path, destination: &Path) -> Result<(), String> {
         .map_err(|error| format!("failed to open {}: {error}", source.display()))?;
     let mut writer = fs::File::create(&temp_path)
         .map_err(|error| format!("failed to create {}: {error}", temp_path.display()))?;
-    std::io::copy(&mut reader, &mut writer)
-        .map_err(|error| format!("failed to copy {} to {}: {error}", source.display(), temp_path.display()))?;
+    std::io::copy(&mut reader, &mut writer).map_err(|error| {
+        format!(
+            "failed to copy {} to {}: {error}",
+            source.display(),
+            temp_path.display()
+        )
+    })?;
     writer
         .flush()
         .map_err(|error| format!("failed to flush {}: {error}", temp_path.display()))?;
@@ -161,8 +167,8 @@ fn copy_replace(source: &Path, destination: &Path) -> Result<(), String> {
 }
 
 fn hash_file(path: &Path) -> Result<String, String> {
-    let mut file =
-        fs::File::open(path).map_err(|error| format!("failed to open {}: {error}", path.display()))?;
+    let mut file = fs::File::open(path)
+        .map_err(|error| format!("failed to open {}: {error}", path.display()))?;
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 16 * 1024];
     loop {

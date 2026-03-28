@@ -198,19 +198,27 @@ pub use embedding_stage::{
     SummarySearchResult, backfill_summary_embeddings, search_summaries,
     submit_summary_embedding_job,
 };
-pub use ffmpeg_stage::{run_with_repo_root, submit_ffmpeg_job, submit_ffmpeg_job_from_imported_source};
+pub use ffmpeg_stage::{
+    run_with_repo_root, submit_ffmpeg_job, submit_ffmpeg_job_from_imported_source,
+};
 #[allow(unused_imports)]
 pub use models::wait_for_model_preparation;
 pub use models::{
-    collect_model_status_snapshot, ensure_model_prepared, execute_llama_umbrella_preparation,
-    execute_model_preparation, prepare_llama_model_with_repo_root, prepare_models_with_repo_root,
-    submit_llama_umbrella_preparation, submit_model_preparation,
+    collect_model_status_snapshot, ensure_model_prepared, prepare_llama_model_with_repo_root,
+    prepare_models_with_repo_root,
+};
+pub use models::{
+    collect_model_status_snapshot_api, execute_llama_umbrella_preparation_api,
+    execute_model_preparation_api, submit_llama_umbrella_preparation_api,
+    submit_model_preparation_api,
 };
 pub use stt_stage::{run_stt_with_repo_root, submit_stt_job};
 pub use summary_stage::{run_summary_with_repo_root, submit_summary_job};
 
 #[cfg(test)]
 pub(crate) use cli::resolve_cli_command;
+#[cfg(test)]
+pub(crate) use models::submit_model_preparation;
 
 pub(crate) fn repo_root() -> Result<PathBuf, String> {
     runtime_root::resolve_runtime_root()
@@ -251,7 +259,6 @@ pub fn now_rfc3339() -> Result<String, String> {
         .format(&Rfc3339)
         .map_err(|error| format!("failed to format timestamp: {error}"))
 }
-
 
 #[cfg(test)]
 mod tests;

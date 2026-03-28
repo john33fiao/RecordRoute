@@ -1,10 +1,10 @@
-use crate::app::FfmpegJobSubmission;
 use super::app_api;
 use super::types::{
     AppState, CreateJobRequest, JobListResponse, JobStatusResponse,
     build_batch_queue_submission_response, build_job_submission_response,
 };
 use super::{error_response, run_blocking, run_blocking_app};
+use crate::app::FfmpegJobSubmission;
 use crate::index::IndexStore;
 use axum::Json;
 use axum::extract::Multipart;
@@ -106,16 +106,16 @@ pub(crate) async fn post_jobs_batch_process(State(state): State<AppState>) -> Re
     maybe_wake_queue(
         &state,
         submission.ffmpeg_queued > 0
-        || submission.stt_queued > 0
-        || submission.summary_queued > 0
-        || submission.embedding_queued > 0,
+            || submission.stt_queued > 0
+            || submission.summary_queued > 0
+            || submission.embedding_queued > 0,
     );
 
     (
         StatusCode::ACCEPTED,
         Json(build_batch_queue_submission_response(&submission)),
     )
-    .into_response()
+        .into_response()
 }
 
 pub(crate) async fn get_jobs_with_query(

@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::fmt;
 
+pub(crate) const SETUP_REQUIRED_MESSAGE: &str = "환경 준비가 필요합니다. setup을 다시 실행하세요.";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AppErrorKind {
     BadRequest,
@@ -52,6 +54,59 @@ impl AppError {
 
     pub(crate) fn message(&self) -> &str {
         &self.message
+    }
+}
+
+pub(crate) fn is_dependency_unavailable_message(message: &str) -> bool {
+    [
+        "local ffmpeg toolchain not found.",
+        "local whisper toolchain not found.",
+        "local llama toolchain not found.",
+        "local llama embedding toolchain not found.",
+        "failed to execute ffmpeg ",
+        "failed to execute ffprobe ",
+        "failed to execute whisper-cli ",
+        "failed to execute whisper model download script ",
+        "failed to download whisper model ",
+        "failed to remove invalid whisper model cache ",
+        "failed to create whisper model directory ",
+        "whisper model not found at ",
+        "whisper model path has no parent directory:",
+        "failed to execute llama-cli ",
+        "failed to execute llama-embedding ",
+        "failed to download llama model ",
+        "failed to create llama model cache directory ",
+        "failed to create llama download cache directory ",
+        "failed to move downloaded llama model ",
+        "failed to read llama cache directory ",
+        "failed to inspect llama cache directory entry in ",
+        "downloaded llama model was not written to expected cache path ",
+        "llama download cache unexpectedly became empty:",
+        "llama cache path has no parent directory:",
+        "llama model file not found:",
+        "llama model cache path is unavailable",
+        "llama model cache not found for ",
+        "llama embedding model file not found:",
+        "llama embedding model cache path is unavailable",
+    ]
+    .iter()
+    .any(|prefix| message.starts_with(prefix))
+}
+
+pub(crate) fn sanitize_dependency_message(message: &str) -> String {
+    if is_dependency_unavailable_message(message) {
+        SETUP_REQUIRED_MESSAGE.to_string()
+    } else {
+        message.to_string()
+    }
+}
+
+pub(crate) fn dependency_unavailable_or_internal(message: impl Into<String>) -> AppError {
+    let message = message.into();
+    if is_dependency_unavailable_message(&message) {
+        AppError::dependency_unavailable(message)
+    } else {
+        AppError::internal(message)
     }
 }
 

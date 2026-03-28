@@ -41,7 +41,10 @@ pub(crate) fn transcript_file_name(audio_file: &Path) -> Result<String, String> 
             audio_file.display()
         )
     })?;
-    Ok(PathBuf::from(stem).with_extension("txt").to_string_lossy().into_owned())
+    Ok(PathBuf::from(stem)
+        .with_extension("txt")
+        .to_string_lossy()
+        .into_owned())
 }
 
 pub(crate) fn transcript_id_from_file_name(file_name: &str) -> Result<String, String> {

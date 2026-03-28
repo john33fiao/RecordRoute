@@ -357,6 +357,89 @@ mod tests {
         assert!(repo_root.join("db/index.sqlite3").is_file());
     }
 
+    #[test]
+    fn commit_summary_embedding_success_updates_job_task_and_sidecar() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let mut job = test_job(
+            "job-1",
+            "2026-01-01T00:00:00Z",
+            "sources/job-1/source.wav",
+            "hash-job-1",
+            "input.wav",
+        );
+        mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+            .expect("mark completed");
+        job.enqueue_task(TaskType::Embedding, "2026-01-01T00:00:02Z".to_string());
+        store.insert_job(job).expect("insert job");
+
+        let record = SummaryEmbeddingVectorRecord {
+            metadata: SummaryEmbeddingRecord {
+                model_id: "test-model".to_string(),
+                text_sha256: "abc123".to_string(),
+                dimension: 2,
+                normalized: true,
+                created_at: "2026-01-01T00:00:03Z".to_string(),
+            },
+            vector: vec![0.25, 0.75],
+        };
+
+        let updated = store
+            .commit_summary_embedding_success("job-1", "2026-01-01T00:00:04Z".to_string(), &record)
+            .expect("commit embedding");
+
+        assert_eq!(updated.summary_embedding, Some(record.metadata.clone()));
+        assert_eq!(
+            updated.task(TaskType::Embedding).map(|task| task.status),
+            Some(TaskStatus::Completed)
+        );
+        assert_eq!(
+            store
+                .get_summary_embedding("job-1")
+                .expect("read embedding")
+                .expect("embedding row"),
+            record
+        );
+    }
+
+    #[test]
+    fn commit_summary_embedding_success_does_not_write_sidecar_when_task_is_missing() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let mut job = test_job(
+            "job-1",
+            "2026-01-01T00:00:00Z",
+            "sources/job-1/source.wav",
+            "hash-job-1",
+            "input.wav",
+        );
+        mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+            .expect("mark completed");
+        store.insert_job(job).expect("insert job");
+
+        let record = SummaryEmbeddingVectorRecord {
+            metadata: SummaryEmbeddingRecord {
+                model_id: "test-model".to_string(),
+                text_sha256: "abc123".to_string(),
+                dimension: 2,
+                normalized: true,
+                created_at: "2026-01-01T00:00:03Z".to_string(),
+            },
+            vector: vec![0.25, 0.75],
+        };
+
+        let error = store
+            .commit_summary_embedding_success("job-1", "2026-01-01T00:00:04Z".to_string(), &record)
+            .expect_err("missing task should fail");
+        assert!(error.contains("task not found"));
+        assert!(
+            store
+                .get_summary_embedding("job-1")
+                .expect("read embedding")
+                .is_none()
+        );
+    }
+
     fn temp_workspace() -> PathBuf {
         let path = std::env::temp_dir().join(format!("recordroute-index-{}", Uuid::now_v7()));
         fs::create_dir_all(&path).expect("temp workspace");

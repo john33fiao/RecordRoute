@@ -118,7 +118,10 @@ mod tests {
         let config = StorageConfig::load(&repo_root).expect("storage config");
 
         assert_eq!(config.metadata.driver, MetadataDriver::Sqlite);
-        assert_eq!(config.metadata.sqlite_path, repo_root.join("db/index.sqlite3"));
+        assert_eq!(
+            config.metadata.sqlite_path,
+            repo_root.join("db/index.sqlite3")
+        );
         assert_eq!(config.audio.root, repo_root.join("db/audio"));
         assert_eq!(config.audio.cache_root, repo_root.join("db/audio-cache"));
         assert_eq!(config.audio.spool_root, repo_root.join("db/audio-spool"));

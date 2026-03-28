@@ -55,7 +55,9 @@ pub(crate) fn read_stt_progress_snapshot(
         .list_audio_artifacts(job_id)
         .map_err(AppError::internal)?
         .len();
-    let completed_files = store.count_transcripts(job_id).map_err(AppError::internal)?;
+    let completed_files = store
+        .count_transcripts(job_id)
+        .map_err(AppError::internal)?;
     let phase = match task.as_ref().map(|record| record.status) {
         Some(TaskStatus::Queued) => "queued",
         Some(TaskStatus::Running) => "running",

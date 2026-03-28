@@ -4,6 +4,7 @@ use super::types::{
 };
 use super::{error_response, run_blocking, run_blocking_app};
 use crate::app;
+use crate::error::sanitize_dependency_message;
 use crate::ffmpeg::Toolchain as FfmpegToolchain;
 use crate::index::ModelKind;
 use crate::llama::{ModelSource as LlamaModelSource, Toolchain as LlamaToolchain};
@@ -153,7 +154,7 @@ fn gather_system_status(repo_root: &Path) -> Result<SystemStatusResponse, String
 }
 
 fn push_unique_error(errors: &mut Vec<String>, error: String) {
-    let error = super::errors::sanitize_dependency_message(&error);
+    let error = sanitize_dependency_message(&error);
     if !errors.iter().any(|existing| existing == &error) {
         errors.push(error);
     }

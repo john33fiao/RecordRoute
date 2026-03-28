@@ -3,6 +3,7 @@ use super::{
     ensure_model_prepared, now_rfc3339, queue, read_line, stages, submit_summary_job,
 };
 use crate::audio_store::AudioStore;
+use crate::error::{AppError, AppResult};
 use crate::index::{
     IndexStore, JobRecord, JobStatus, ModelKind, QueuePayload, TaskStatus, TaskType,
     TranscriptRecord,
@@ -24,34 +25,41 @@ pub fn submit_stt_job(
     repo_root: &Path,
     job_id: &str,
     subset_audio_files: Option<Vec<String>>,
-) -> Result<StageJobSubmission, String> {
+) -> AppResult<StageJobSubmission> {
     let index_store = IndexStore::new(repo_root);
     let job = index_store
-        .find_job(job_id)?
-        .ok_or_else(|| format!("job not found: {job_id}"))?;
+        .find_job(job_id)
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found(format!("job not found: {job_id}")))?;
     if job.status != JobStatus::Completed {
-        return Err(format!("ffmpeg must be completed before stt: {job_id}"));
+        return Err(AppError::bad_request(format!(
+            "ffmpeg must be completed before stt: {job_id}"
+        )));
     }
 
     let job_dir = index_store.job_dir(job_id);
-    let all_audio_files = artifacts::supported_audio_files(&job_dir)?;
-    let audio_files = select_subset_audio_files(&all_audio_files, subset_audio_files)?;
+    let all_audio_files = artifacts::supported_audio_files(&job_dir).map_err(AppError::internal)?;
+    let audio_files = select_subset_audio_files(&all_audio_files, subset_audio_files)
+        .map_err(AppError::bad_request)?;
     if audio_files.is_empty() {
-        return Err(format!("no supported audio files found in job: {job_id}"));
+        return Err(AppError::bad_request(format!(
+            "no supported audio files found in job: {job_id}"
+        )));
     }
 
     if let Some(task) = job.task(TaskType::Stt)
         && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
     {
         let requested_audio_files = normalized_audio_files(&audio_files);
-        let existing_entry = index_store.with_index_read(|index| {
-            Ok(queue::find_task_entry(index, &job.job_id, TaskType::Stt))
-        })?;
+        let existing_entry = index_store
+            .with_index_read(|index| Ok(queue::find_task_entry(index, &job.job_id, TaskType::Stt)))
+            .map_err(AppError::internal)?;
 
         match existing_entry {
             Some(entry) if stt_payload_matches(&entry, &requested_audio_files) => {
                 let queue = if task.status == TaskStatus::Queued {
-                    stages::queued_task_ticket(&index_store, &job.job_id, TaskType::Stt)?
+                    stages::queued_task_ticket(&index_store, &job.job_id, TaskType::Stt)
+                        .map_err(AppError::internal)?
                 } else {
                     None
                 };
@@ -63,20 +71,21 @@ pub fn submit_stt_job(
                 });
             }
             Some(_) => {
-                return Err(format!(
+                return Err(AppError::bad_request(format!(
                     "stt already queued or running with a different audio selection: {job_id}"
-                ));
+                )));
             }
             None if task.status == TaskStatus::Running => {
-                return Err(format!(
+                return Err(AppError::bad_request(format!(
                     "stt task is marked running but queue entry is missing: {job_id}"
-                ));
+                )));
             }
             None => {}
         }
     }
 
-    let all_transcripts_exist = all_transcripts_exist(&index_store, job_id, &audio_files)?;
+    let all_transcripts_exist =
+        all_transcripts_exist(&index_store, job_id, &audio_files).map_err(AppError::internal)?;
     if all_transcripts_exist {
         return Ok(StageJobSubmission {
             job,
@@ -86,10 +95,11 @@ pub fn submit_stt_job(
         });
     }
 
-    let queued_at = now_rfc3339()?;
+    let queued_at = now_rfc3339().map_err(AppError::internal)?;
     let entry = queue::build_stt_entry(job_id, &audio_files, queued_at.clone());
     let (job, ticket) =
-        stages::enqueue_existing_task(&index_store, job_id, TaskType::Stt, queued_at, entry)?;
+        stages::enqueue_existing_task(&index_store, job_id, TaskType::Stt, queued_at, entry)
+            .map_err(AppError::internal)?;
     Ok(StageJobSubmission {
         job,
         disposition: StageJobDisposition::Submitted,
@@ -133,7 +143,10 @@ pub fn execute_stt_job(
             let file_name = artifacts::transcript_file_name(&absolute_audio)?;
             let transcript_id = artifacts::transcript_id_from_file_name(&file_name)?;
             let text = fs::read_to_string(&transcript).map_err(|error| {
-                format!("failed to read transcript {}: {error}", transcript.display())
+                format!(
+                    "failed to read transcript {}: {error}",
+                    transcript.display()
+                )
             })?;
             index_store.upsert_transcript(&TranscriptRecord {
                 job_id: job_id.to_string(),
@@ -154,7 +167,7 @@ pub fn execute_stt_job(
                     repo_root,
                     &completed.job_id,
                     TaskType::Summary,
-                    error,
+                    error.to_string(),
                 );
             }
             Ok(completed)
@@ -184,7 +197,8 @@ pub fn run_stt_with_repo_root(
     }
 
     let selected = select_stt_candidate(&candidates, reader, writer)?;
-    let submission = submit_stt_job(repo_root, &selected.job_id, None)?;
+    let submission =
+        submit_stt_job(repo_root, &selected.job_id, None).map_err(|error| error.to_string())?;
     if submission.should_execute() {
         queue::dispatch_until_task_terminal(repo_root, &selected.job_id, TaskType::Stt)?;
     } else if submission.deduplicated() {
@@ -338,6 +352,9 @@ fn all_transcripts_exist(
         .try_fold(true, |all_present, audio_file| -> Result<bool, String> {
             let file_name = artifacts::transcript_file_name(audio_file)?;
             let transcript_id = artifacts::transcript_id_from_file_name(&file_name)?;
-            Ok(all_present && index_store.find_transcript(job_id, &transcript_id)?.is_some())
+            Ok(all_present
+                && index_store
+                    .find_transcript(job_id, &transcript_id)?
+                    .is_some())
         })
 }

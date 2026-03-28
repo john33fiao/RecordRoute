@@ -64,7 +64,10 @@ async fn get_stt_texts_returns_transcript_texts_as_json() {
     seed_transcripts(
         &store,
         job_id,
-        &[("channel_01", "channel transcript"), ("mono_mix", "mono transcript")],
+        &[
+            ("channel_01", "channel transcript"),
+            ("mono_mix", "mono transcript"),
+        ],
     )
     .expect("seed transcripts");
 
@@ -105,7 +108,8 @@ async fn get_stt_progress_returns_polling_snapshot() {
     .expect("mark completed");
     job.upsert_running_task(TaskType::Stt, "2026-01-01T00:00:10Z".to_string());
     store.insert_job(job).expect("insert job");
-    seed_transcripts(&store, job_id, &[("channel_01", "channel transcript")]).expect("seed transcript");
+    seed_transcripts(&store, job_id, &[("channel_01", "channel transcript")])
+        .expect("seed transcript");
 
     let app = router_with_repo_root(repo_root);
     let response = app
@@ -143,7 +147,8 @@ async fn get_stt_text_returns_single_transcript_json() {
     )
     .expect("mark completed");
     store.insert_job(job).expect("insert job");
-    seed_transcripts(&store, job_id, &[("channel_01", "single transcript")]).expect("seed transcript");
+    seed_transcripts(&store, job_id, &[("channel_01", "single transcript")])
+        .expect("seed transcript");
 
     let app = router_with_repo_root(repo_root);
     let response = app
@@ -170,13 +175,8 @@ async fn get_stt_text_returns_404_for_missing_transcript() {
         "hash-stt-missing",
         "stt-missing.wav",
     );
-    mark_job_completed_with_audio(
-        &store,
-        &mut job,
-        "2026-01-01T00:00:01Z",
-        &["mono_mix.wav"],
-    )
-    .expect("mark completed");
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
     store.insert_job(job).expect("insert job");
 
     let app = router_with_repo_root(repo_root);
@@ -202,13 +202,8 @@ async fn get_summary_text_returns_result_md_as_json() {
         "hash-summary-text",
         "summary.wav",
     );
-    mark_job_completed_with_audio(
-        &store,
-        &mut job,
-        "2026-01-01T00:00:01Z",
-        &["mono_mix.wav"],
-    )
-    .expect("mark completed");
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
     store.insert_job(job).expect("insert job");
     seed_summary(&store, job_id, "summary body").expect("seed summary");
 
@@ -237,13 +232,8 @@ async fn get_summary_text_returns_404_when_result_md_missing() {
         "hash-summary-missing",
         "summary-missing.wav",
     );
-    mark_job_completed_with_audio(
-        &store,
-        &mut job,
-        "2026-01-01T00:00:01Z",
-        &["mono_mix.wav"],
-    )
-    .expect("mark completed");
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
     store.insert_job(job).expect("insert job");
 
     let app = router_with_repo_root(repo_root);

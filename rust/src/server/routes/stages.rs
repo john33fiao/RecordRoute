@@ -2,9 +2,9 @@ use super::app_api;
 use super::types::{
     AppState, FileListResponse, SttProgressResponse, SttRequest, SttTranscriptListResponse,
     SummaryRequest, SummarySearchRequest, SummarySearchResponse, SummarySearchResultResponse,
-    SummaryTextResponse,
-    build_summary_embedding_status_response, build_summary_embedding_submission_response,
-    build_task_status_response, build_task_submission_response,
+    SummaryTextResponse, build_summary_embedding_status_response,
+    build_summary_embedding_submission_response, build_task_status_response,
+    build_task_submission_response,
 };
 use super::{error_response, run_blocking, run_blocking_app};
 use crate::index::{IndexStore, TaskType};
@@ -63,7 +63,7 @@ pub(crate) async fn post_stt(
             "stt already running",
         )),
     )
-    .into_response()
+        .into_response()
 }
 
 pub(crate) fn resolve_stt_subset(request: SttRequest) -> Result<Option<Vec<String>>, String> {
@@ -196,7 +196,7 @@ pub(crate) async fn post_summary(
             "summary already running",
         )),
     )
-    .into_response()
+        .into_response()
 }
 
 pub(crate) async fn get_summary(
@@ -266,9 +266,12 @@ pub(crate) async fn post_summary_embedding(
 
     (
         StatusCode::ACCEPTED,
-        Json(build_summary_embedding_submission_response(job_id, &submission)),
+        Json(build_summary_embedding_submission_response(
+            job_id,
+            &submission,
+        )),
     )
-    .into_response()
+        .into_response()
 }
 
 pub(crate) async fn get_summary_embedding(
@@ -287,8 +290,7 @@ pub(crate) async fn get_summary_embedding(
         }
         Err(error) => return error_response(crate::error::AppError::internal(error)),
     };
-    Json(build_summary_embedding_status_response(job_id, &job))
-    .into_response()
+    Json(build_summary_embedding_status_response(job_id, &job)).into_response()
 }
 
 pub(crate) async fn post_summary_search(

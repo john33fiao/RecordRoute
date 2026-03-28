@@ -3,6 +3,7 @@ use super::{
     MODEL_PREPARATION_WAIT_POLL_INTERVAL, ModelPrepareDisposition, ModelPrepareSubmission,
     ModelStatusEntry, ModelStatusSnapshot, now_rfc3339,
 };
+use crate::error::{AppError, AppResult, dependency_unavailable_or_internal};
 use crate::index::{IndexStore, ModelKind, ModelPreparationRecord, ModelPreparationStatus};
 use crate::llama::{ModelSource, Toolchain as LlamaToolchain};
 use crate::whisper::Toolchain as WhisperToolchain;
@@ -90,6 +91,38 @@ pub fn prepare_models_with_repo_root(repo_root: &Path) -> Result<(), String> {
     prepare_llama_model_with_repo_root(repo_root)?;
     eprintln!("Runtime models ready.");
     Ok(())
+}
+
+pub fn submit_model_preparation_api(
+    repo_root: &Path,
+    model: ModelKind,
+) -> AppResult<ModelPrepareSubmission> {
+    submit_model_preparation(repo_root, model).map_err(dependency_unavailable_or_internal)
+}
+
+pub fn submit_llama_umbrella_preparation_api(
+    repo_root: &Path,
+) -> AppResult<ModelPrepareSubmission> {
+    submit_llama_umbrella_preparation(repo_root).map_err(dependency_unavailable_or_internal)
+}
+
+pub fn execute_model_preparation_api(
+    repo_root: &Path,
+    model: ModelKind,
+) -> AppResult<ModelPreparationRecord> {
+    execute_model_preparation(repo_root, model).map_err(dependency_unavailable_or_internal)
+}
+
+pub fn execute_llama_umbrella_preparation_api(
+    repo_root: &Path,
+    submission: &ModelPrepareSubmission,
+) -> AppResult<ModelPreparationRecord> {
+    execute_llama_umbrella_preparation(repo_root, submission)
+        .map_err(dependency_unavailable_or_internal)
+}
+
+pub fn collect_model_status_snapshot_api(repo_root: &Path) -> AppResult<ModelStatusSnapshot> {
+    collect_model_status_snapshot(repo_root).map_err(AppError::internal)
 }
 
 pub fn submit_llama_umbrella_preparation(
@@ -221,11 +254,7 @@ fn submit_preparation_record(
         let preparation = target.update(index_store, |record| {
             record.mark_completed(finished_at.clone());
         })?;
-        return Ok((
-            preparation,
-            ModelPrepareDisposition::AlreadyReady,
-            false,
-        ));
+        return Ok((preparation, ModelPrepareDisposition::AlreadyReady, false));
     }
 
     let started_at = now_rfc3339()?;
@@ -272,14 +301,12 @@ fn execute_preparation_record(
                 Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     if let Ok(heartbeat) = now_rfc3339() {
-                        let _ = target.update(
-                            &IndexStore::new(&repo_root_for_heartbeat),
-                            |record| {
+                        let _ =
+                            target.update(&IndexStore::new(&repo_root_for_heartbeat), |record| {
                                 if record.status == ModelPreparationStatus::Running {
                                     record.touch(heartbeat.clone());
                                 }
-                            },
-                        );
+                            });
                     }
                 }
             }
@@ -343,11 +370,9 @@ fn wait_for_preparation_state(
             }
             ModelPreparationStatus::Idle => return Err(target.idle_error()),
             ModelPreparationStatus::Completed => {
-                return Err(
-                    state
-                        .error
-                        .unwrap_or_else(|| target.completed_not_ready_error()),
-                );
+                return Err(state
+                    .error
+                    .unwrap_or_else(|| target.completed_not_ready_error()));
             }
         }
     }

@@ -98,15 +98,17 @@ async fn post_jobs_returns_accepted_then_job_transitions_to_completed() {
     assert_eq!(completed.probe.channels, Some(2));
     let store = IndexStore::new(&repo_root);
     let job_dir = store.job_dir(&completed.job_id);
-    assert!(job_dir
-        .join(
-            completed
-                .outputs
-                .merged_mono_wav
-                .as_deref()
-                .expect("merged output"),
-        )
-        .is_file());
+    assert!(
+        job_dir
+            .join(
+                completed
+                    .outputs
+                    .merged_mono_wav
+                    .as_deref()
+                    .expect("merged output"),
+            )
+            .is_file()
+    );
     assert_eq!(completed.outputs.split_mono_wavs.len(), 2);
 }
 
@@ -146,10 +148,7 @@ async fn post_jobs_upload_accepts_file_and_stores_content_hashed_path() {
     assert!(submitted.source_ref.starts_with("sources/"));
     let stored_path = IndexStore::new(&repo_root).source_path(&submitted.source_ref);
     assert!(stored_path.is_file());
-    assert_eq!(
-        fs::read(&stored_path).expect("uploaded path"),
-        audio_bytes
-    );
+    assert_eq!(fs::read(&stored_path).expect("uploaded path"), audio_bytes);
 
     fs::remove_file(&gate).expect("remove gate");
     let completed = wait_for_job_completion(&app, &submitted.job_id).await;
@@ -582,7 +581,9 @@ async fn get_jobs_by_source_filters_jobs() {
 
     let app = router_with_repo_root(repo_root);
     let response = app
-        .oneshot(get_request("/jobs?source_ref=sources/hash-target/source.wav"))
+        .oneshot(get_request(
+            "/jobs?source_ref=sources/hash-target/source.wav",
+        ))
         .await
         .expect("get jobs by source response");
 

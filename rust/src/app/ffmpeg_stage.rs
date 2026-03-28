@@ -3,6 +3,7 @@ use super::{
     build_run_id, now_rfc3339, queue, stages, submit_stt_job,
 };
 use crate::audio_store::{AudioStore, ImportedSource};
+use crate::error::{AppError, AppResult, dependency_unavailable_or_internal};
 use crate::ffmpeg::{
     ConversionOutputs, SplitMonoOutput, Toolchain as FfmpegToolchain, probe_audio_input,
     run_conversion,
@@ -16,7 +17,7 @@ use std::path::Path;
 use std::thread;
 
 pub fn run_with_repo_root(repo_root: &Path, input: &Path) -> Result<RunSummary, String> {
-    let submission = submit_ffmpeg_job(repo_root, input)?;
+    let submission = submit_ffmpeg_job(repo_root, input).map_err(|error| error.to_string())?;
 
     match submission.disposition {
         FfmpegJobDisposition::Reused => run_summary_from_completed_job(repo_root, submission.job),
@@ -38,21 +39,30 @@ pub fn run_with_repo_root(repo_root: &Path, input: &Path) -> Result<RunSummary, 
     }
 }
 
-pub fn submit_ffmpeg_job(repo_root: &Path, input: &Path) -> Result<FfmpegJobSubmission, String> {
-    let audio_store = AudioStore::new(repo_root)?;
-    let imported = audio_store.publish_source(input, None, SourceKind::LocalFile)?;
+pub fn submit_ffmpeg_job(repo_root: &Path, input: &Path) -> AppResult<FfmpegJobSubmission> {
+    let audio_store = AudioStore::new(repo_root).map_err(AppError::internal)?;
+    if !input.is_file() {
+        return Err(AppError::bad_request(format!(
+            "input file not found: {}",
+            input.display()
+        )));
+    }
+    let imported = audio_store
+        .publish_source(input, None, SourceKind::LocalFile)
+        .map_err(AppError::internal)?;
     submit_ffmpeg_job_from_imported_source(repo_root, imported)
 }
 
 pub fn submit_ffmpeg_job_from_imported_source(
     repo_root: &Path,
     imported: ImportedSource,
-) -> Result<FfmpegJobSubmission, String> {
+) -> AppResult<FfmpegJobSubmission> {
     let index_store = IndexStore::new(repo_root);
     let source_path = index_store.source_path(&imported.source_ref);
 
-    if let Some(job) =
-        index_store.find_reusable_completed_job_by_source_hash(&imported.source_content_sha256)?
+    if let Some(job) = index_store
+        .find_reusable_completed_job_by_source_hash(&imported.source_content_sha256)
+        .map_err(AppError::internal)?
     {
         return Ok(FfmpegJobSubmission {
             job,
@@ -62,17 +72,20 @@ pub fn submit_ffmpeg_job_from_imported_source(
         });
     }
 
-    if let Some(job) =
-        index_store.find_inflight_job_by_source_hash(&imported.source_content_sha256)?
+    if let Some(job) = index_store
+        .find_inflight_job_by_source_hash(&imported.source_content_sha256)
+        .map_err(AppError::internal)?
     {
         let queue = if job.status == JobStatus::Queued {
-            index_store.with_index_read(|index| {
-                Ok(queue::find_ticket(
-                    index,
-                    &job.job_id,
-                    crate::index::TaskType::Ffmpeg,
-                ))
-            })?
+            index_store
+                .with_index_read(|index| {
+                    Ok(queue::find_ticket(
+                        index,
+                        &job.job_id,
+                        crate::index::TaskType::Ffmpeg,
+                    ))
+                })
+                .map_err(AppError::internal)?
         } else {
             None
         };
@@ -84,17 +97,17 @@ pub fn submit_ffmpeg_job_from_imported_source(
         });
     }
 
-    FfmpegToolchain::discover(repo_root)?;
-    index_store.ensure_db_dir()?;
+    FfmpegToolchain::discover(repo_root).map_err(dependency_unavailable_or_internal)?;
+    index_store.ensure_db_dir().map_err(AppError::internal)?;
 
-    let started_at = now_rfc3339()?;
-    let job_id = build_run_id()?;
+    let started_at = now_rfc3339().map_err(AppError::internal)?;
+    let job_id = build_run_id().map_err(AppError::internal)?;
     let job_dir = index_store.job_dir(&job_id);
     fs::create_dir_all(&job_dir).map_err(|error| {
-        format!(
+        AppError::internal(format!(
             "failed to create job directory {}: {error}",
             job_dir.display()
-        )
+        ))
     })?;
 
     let job = JobRecord::new_with_source(
@@ -106,11 +119,13 @@ pub fn submit_ffmpeg_job_from_imported_source(
         imported.source_file_name,
     );
     let entry = queue::build_ffmpeg_entry(&job.job_id, Path::new(&job.source_ref), started_at);
-    let (job, ticket) = index_store.with_index_mut(|index| {
-        index.jobs.push(job.clone());
-        let ticket = queue::enqueue_entry(index, entry);
-        Ok((job.clone(), ticket))
-    })?;
+    let (job, ticket) = index_store
+        .with_index_mut(|index| {
+            index.jobs.push(job.clone());
+            let ticket = queue::enqueue_entry(index, entry);
+            Ok((job.clone(), ticket))
+        })
+        .map_err(AppError::internal)?;
 
     Ok(FfmpegJobSubmission {
         job,
@@ -138,7 +153,9 @@ pub fn execute_ffmpeg_job(
         return Err(error);
     }
     let job_dir = index_store.job_dir(job_id);
-    let input_path = index_store.audio_store()?.materialize_to_cache(&job.source_ref)?;
+    let input_path = index_store
+        .audio_store()?
+        .materialize_to_cache(&job.source_ref)?;
 
     let probe = match probe_audio_input(&toolchain, &input_path) {
         Ok(probe) => probe,
@@ -167,7 +184,7 @@ pub fn execute_ffmpeg_job(
                     repo_root,
                     job_id,
                     crate::index::TaskType::Stt,
-                    error,
+                    error.to_string(),
                 );
             }
             Ok(job)
