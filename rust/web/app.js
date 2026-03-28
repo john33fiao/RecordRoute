@@ -1,6 +1,7 @@
 const POLL_INTERVAL_MS = 2000;
 const UPLOAD_FILE_MAX_BYTES = 512 * 1024 * 1024;
 const UPLOAD_FILE_MAX_LABEL = "512MB";
+const TRANSCRIPT_PREVIEW_LINES = 10;
 const AUDIO_FILE_EXTENSIONS = [
   ".wav",
   ".mp3",
@@ -135,6 +136,7 @@ function bindEvents() {
     refreshQueue({ showMessage: true });
   });
   elements.searchForm.addEventListener("submit", onSearchSubmit);
+  elements.transcriptsView.addEventListener("click", onTranscriptToggleClick);
 }
 
 async function bootstrap() {
@@ -194,6 +196,22 @@ async function onUploadSubmit(event) {
   } finally {
     setLoading("upload", false);
   }
+}
+
+function onTranscriptToggleClick(event) {
+  const toggle = event.target.closest("[data-transcript-toggle]");
+  if (!toggle) {
+    return;
+  }
+
+  const item = toggle.closest(".transcript-item");
+  if (!item) {
+    return;
+  }
+
+  const expanded = item.classList.toggle("is-expanded");
+  toggle.setAttribute("aria-expanded", String(expanded));
+  toggle.textContent = expanded ? "접기" : `펼치기 (${TRANSCRIPT_PREVIEW_LINES}줄)`;
 }
 
 function onUploadInputChange(event) {
@@ -864,10 +882,21 @@ function renderSttArea() {
   elements.transcriptsView.innerHTML = state.transcripts.length
     ? state.transcripts
         .map(
-          (item) => `
-            <article class="transcript-item">
-              <h4>${escapeHtml(item.file_name)}</h4>
-              <pre class="text-view">${escapeHtml(item.text || "")}</pre>
+          (item, index) => `
+            <article class="transcript-item" style="--transcript-preview-lines: ${TRANSCRIPT_PREVIEW_LINES};">
+              <div class="transcript-item-head">
+                <h4>${escapeHtml(item.file_name)}</h4>
+                <button
+                  type="button"
+                  class="ghost-button transcript-toggle"
+                  data-transcript-toggle
+                  aria-expanded="false"
+                  aria-controls="transcript-body-${index}"
+                >
+                  펼치기 (${TRANSCRIPT_PREVIEW_LINES}줄)
+                </button>
+              </div>
+              <pre class="text-view transcript-body" id="transcript-body-${index}">${escapeHtml(item.text || "")}</pre>
             </article>
           `
         )

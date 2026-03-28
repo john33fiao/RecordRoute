@@ -524,8 +524,33 @@ pre {
   border-top: 1px solid var(--border);
 }
 
+.transcript-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
 .transcript-item h4 {
-  margin: 0 0 8px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.transcript-toggle {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  font-size: 0.84rem;
+}
+
+.transcript-body {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.transcript-item:not(.is-expanded) .transcript-body {
+  max-height: calc(1em * 1.5 * var(--transcript-preview-lines, 10));
+  overflow: hidden;
 }
 
 .file-list,
