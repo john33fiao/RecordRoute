@@ -81,6 +81,7 @@ echo Starting runtime model preparation...
 if errorlevel 1 exit /b 1
 call :touch_packaged_outputs "%package_dir%" "%target_dir%"
 if errorlevel 1 exit /b 1
+if exist "%staging_dir%" rmdir /s /q "%staging_dir%"
 echo Runtime model preparation finished.
 
 echo Package ready: %package_dir%\RecordRoute.exe

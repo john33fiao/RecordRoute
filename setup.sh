@@ -127,6 +127,7 @@ mv "${next_dir}" "${package_dir}"
 echo "Starting runtime model preparation..."
 RECORDROUTE_RUNTIME_ROOT="${package_dir}" "${script_dir}/rust/target/release/recordroute_rust" prepare-models
 touch_packaged_outputs
+rm -rf "${staging_dir}"
 echo "Runtime model preparation finished."
 
 echo "Package ready: ${package_dir}/RecordRoute"
