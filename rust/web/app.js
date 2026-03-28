@@ -934,7 +934,6 @@ function renderEmbeddingArea() {
         ["dimension", metadata.dimension],
         ["normalized", metadata.normalized],
         ["created_at", formatDate(metadata.created_at)],
-        ["file_path", metadata.file_path],
       ]
         .map(([key, value]) => `<dt>${escapeHtml(String(key))}</dt><dd>${escapeHtml(String(value))}</dd>`)
         .join("")
