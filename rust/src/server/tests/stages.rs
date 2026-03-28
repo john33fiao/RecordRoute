@@ -262,3 +262,35 @@ async fn get_summary_text_returns_404_when_result_md_missing() {
     let body: ErrorResponse = read_json(response).await;
     assert!(body.message.contains("summary not found:"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_summary_rejects_request_before_stt_completion() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let job_id = "job-summary-before-stt";
+
+    store
+        .insert_job(JobRecord::new(
+            job_id.to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/summary-before-stt.wav"),
+            store.job_dir(job_id),
+        ))
+        .expect("insert job");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(post_json_request(
+            &format!("/jobs/{job_id}/summary"),
+            &serde_json::json!({ "force_regenerate": true }),
+        ))
+        .await
+        .expect("summary submit response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: ErrorResponse = read_json(response).await;
+    assert!(
+        body.message
+            .contains("stt must be completed before summary")
+    );
+}

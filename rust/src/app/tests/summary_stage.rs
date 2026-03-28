@@ -1,6 +1,6 @@
 use super::super::*;
 use super::support::*;
-use crate::index::{IndexStore, JobRecord};
+use crate::index::{IndexStore, JobOutputs, JobRecord, QueuePayload};
 use crate::test_support::env_lock;
 use std::fs;
 use std::io::Cursor;
@@ -275,4 +275,44 @@ fn run_summary_uses_local_model_path_when_file_exists() {
 
     let embedding_log = fs::read_to_string(embedding_log).expect("embedding log");
     assert!(embedding_log.contains("-hf"));
+}
+
+#[test]
+fn submit_summary_upgrades_queued_request_to_force_regenerate() {
+    let repo_root = temp_workspace();
+    let job_dir = repo_root.join("db/job-1");
+    fs::create_dir_all(job_dir.join("stt")).expect("stt dir");
+    fs::write(job_dir.join("mono_mix.wav"), "audio").expect("mono mix");
+    fs::write(job_dir.join("stt/mono_mix.txt"), "transcript").expect("transcript");
+
+    let store = IndexStore::new(&repo_root);
+    let mut job = JobRecord::new(
+        "job-1".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+        PathBuf::from("/tmp/input.wav"),
+        job_dir,
+    );
+    job.mark_completed("2026-01-01T00:00:01Z".to_string(), JobOutputs::default())
+        .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+
+    let first = submit_summary_job(&repo_root, "job-1", false).expect("initial summary submit");
+    assert!(first.should_execute());
+
+    let upgraded = submit_summary_job(&repo_root, "job-1", true).expect("upgrade summary submit");
+    assert!(upgraded.should_execute());
+    assert!(!upgraded.deduplicated());
+
+    let snapshot = queue_snapshot(&repo_root).expect("queue snapshot");
+    let entry = snapshot.pending_batches[0].entries[0].clone();
+    assert!(matches!(
+        entry.payload,
+        QueuePayload::Summary {
+            force_regenerate: true
+        }
+    ));
+
+    let deduplicated =
+        submit_summary_job(&repo_root, "job-1", false).expect("compatible summary submit");
+    assert!(deduplicated.deduplicated());
 }

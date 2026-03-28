@@ -34,21 +34,9 @@ async fn post_jobs_batch_process_enqueues_unfinished_pipeline_tasks() {
     let body: BatchQueueSubmissionResponse = read_json(response).await;
     assert_eq!(body.total_jobs, 1);
     assert_eq!(body.ffmpeg_queued, 1);
-    assert_eq!(body.stt_queued, 1);
-    assert_eq!(body.summary_queued, 1);
-    assert_eq!(body.embedding_queued, 1);
-
-    let queue = crate::app::queue_snapshot(&repo_root).expect("queue snapshot");
-    let queued_entries = queue
-        .active_batch
-        .map(|batch| batch.entries.len())
-        .unwrap_or(0)
-        + queue
-            .pending_batches
-            .iter()
-            .map(|batch| batch.entries.len())
-            .sum::<usize>();
-    assert!(queued_entries >= 1);
+    assert_eq!(body.stt_queued, 0);
+    assert_eq!(body.summary_queued, 0);
+    assert_eq!(body.embedding_queued, 0);
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn post_jobs_returns_accepted_then_job_transitions_to_completed() {

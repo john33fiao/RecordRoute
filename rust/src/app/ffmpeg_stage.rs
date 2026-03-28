@@ -1,6 +1,6 @@
 use super::{
     FfmpegJobDisposition, FfmpegJobSubmission, RunSummary, WAIT_FOR_RUNNING_JOB_POLL_INTERVAL,
-    build_run_id, now_rfc3339, path_to_string, queue,
+    build_run_id, now_rfc3339, path_to_string, queue, stages, submit_stt_job,
 };
 use crate::ffmpeg::{
     ConversionOutputs, SplitMonoOutput, Toolchain as FfmpegToolchain, probe_audio_input,
@@ -143,6 +143,14 @@ pub fn execute_ffmpeg_job(
         Ok(()) => {
             job.mark_completed(now_rfc3339()?, build_job_outputs(&planned_outputs))?;
             index_store.update_job(job_id, |_| job.clone())?;
+            if let Err(error) = submit_stt_job(repo_root, job_id, None) {
+                let _ = stages::record_followup_submission_failure(
+                    repo_root,
+                    job_id,
+                    crate::index::TaskType::Stt,
+                    error,
+                );
+            }
             Ok(job)
         }
         Err(error) => {

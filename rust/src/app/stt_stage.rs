@@ -1,8 +1,10 @@
 use super::{
     StageJobDisposition, StageJobSubmission, SttRunSummary, SttTranscriptOutput, artifacts,
-    ensure_model_prepared, now_rfc3339, queue, read_line, stages,
+    ensure_model_prepared, now_rfc3339, queue, read_line, stages, submit_summary_job,
 };
-use crate::index::{IndexStore, JobRecord, JobStatus, ModelKind, TaskStatus, TaskType};
+use crate::index::{
+    IndexStore, JobRecord, JobStatus, ModelKind, QueuePayload, TaskStatus, TaskType,
+};
 use crate::whisper::{Toolchain as WhisperToolchain, run_transcription};
 use std::fs;
 use std::io::{BufRead, Write};
@@ -29,29 +31,49 @@ pub fn submit_stt_job(
         return Err(format!("ffmpeg must be completed before stt: {job_id}"));
     }
 
-    if let Some(task) = job.task(TaskType::Stt)
-        && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
-    {
-        let queue = if task.status == TaskStatus::Queued {
-            index_store.with_index_read(|index| {
-                Ok(queue::find_ticket(index, &job.job_id, TaskType::Stt))
-            })?
-        } else {
-            None
-        };
-        return Ok(StageJobSubmission {
-            job,
-            disposition: StageJobDisposition::Deduplicated,
-            planned_audio_files: Vec::new(),
-            queue,
-        });
-    }
-
     let stt_dir = PathBuf::from(&job.job_dir).join("stt");
     let all_audio_files = artifacts::supported_audio_files(&PathBuf::from(&job.job_dir))?;
     let audio_files = select_subset_audio_files(&all_audio_files, subset_audio_files)?;
     if audio_files.is_empty() {
         return Err(format!("no supported audio files found in job: {job_id}"));
+    }
+
+    if let Some(task) = job.task(TaskType::Stt)
+        && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
+    {
+        let requested_audio_files = normalized_audio_files(&audio_files);
+        let existing_entry = index_store.with_index_read(|index| {
+            Ok(queue::find_task_entry(index, &job.job_id, TaskType::Stt))
+        })?;
+
+        match existing_entry {
+            Some(entry) if stt_payload_matches(&entry, &requested_audio_files) => {
+                let queue = if task.status == TaskStatus::Queued {
+                    index_store.with_index_read(|index| {
+                        Ok(queue::find_ticket(index, &job.job_id, TaskType::Stt))
+                    })?
+                } else {
+                    None
+                };
+                return Ok(StageJobSubmission {
+                    job,
+                    disposition: StageJobDisposition::Deduplicated,
+                    planned_audio_files: audio_files,
+                    queue,
+                });
+            }
+            Some(_) => {
+                return Err(format!(
+                    "stt already queued or running with a different audio selection: {job_id}"
+                ));
+            }
+            None if task.status == TaskStatus::Running => {
+                return Err(format!(
+                    "stt task is marked running but queue entry is missing: {job_id}"
+                ));
+            }
+            None => {}
+        }
     }
 
     let all_transcripts_exist =
@@ -130,7 +152,19 @@ pub fn execute_stt_job(
     })();
 
     match result {
-        Ok(()) => stages::finalize_task_success(repo_root, job, TaskType::Stt, now_rfc3339()?),
+        Ok(()) => {
+            let completed =
+                stages::finalize_task_success(repo_root, job, TaskType::Stt, now_rfc3339()?)?;
+            if let Err(error) = submit_summary_job(repo_root, &completed.job_id, false) {
+                let _ = stages::record_followup_submission_failure(
+                    repo_root,
+                    &completed.job_id,
+                    TaskType::Summary,
+                    error,
+                );
+            }
+            Ok(completed)
+        }
         Err(error) => {
             stages::finalize_task_failure(
                 repo_root,
@@ -273,4 +307,18 @@ fn select_subset_audio_files(
         }
     }
     Ok(selected)
+}
+
+fn normalized_audio_files(audio_files: &[PathBuf]) -> Vec<String> {
+    audio_files
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect()
+}
+
+fn stt_payload_matches(entry: &crate::index::QueueEntry, requested_audio_files: &[String]) -> bool {
+    match &entry.payload {
+        QueuePayload::Stt { audio_files } => audio_files == requested_audio_files,
+        _ => false,
+    }
 }

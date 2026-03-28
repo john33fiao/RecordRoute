@@ -126,3 +126,35 @@ fn run_stt_retries_invalid_folder_selection() {
             .contains("Invalid selection. Enter a number between 1 and 1.")
     );
 }
+
+#[test]
+fn submit_stt_rejects_conflicting_inflight_subset_request() {
+    let repo_root = temp_workspace();
+    let job_dir = repo_root.join("db/job-1");
+    fs::create_dir_all(&job_dir).expect("job dir");
+    fs::write(job_dir.join("mono_mix.wav"), "audio").expect("mono mix");
+    fs::write(job_dir.join("channel_01.wav"), "audio").expect("channel");
+
+    let store = IndexStore::new(&repo_root);
+    let mut job = JobRecord::new(
+        "job-1".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+        PathBuf::from("/tmp/input.wav"),
+        job_dir,
+    );
+    job.mark_completed("2026-01-01T00:00:01Z".to_string(), JobOutputs::default())
+        .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+
+    let first = submit_stt_job(&repo_root, "job-1", Some(vec!["mono_mix.wav".to_string()]))
+        .expect("first stt submit");
+    assert!(first.should_execute());
+
+    let error = submit_stt_job(
+        &repo_root,
+        "job-1",
+        Some(vec!["channel_01.wav".to_string()]),
+    )
+    .expect_err("conflicting inflight subset should fail");
+    assert!(error.contains("different audio selection"));
+}
