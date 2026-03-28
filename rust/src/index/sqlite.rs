@@ -1,7 +1,10 @@
-use super::backend::{MetadataBackend, from_json, to_json};
+use super::backend::{
+    MetadataBackend, SerializedJobRecord, deserialize_job_record, from_json, serialize_job_record,
+    to_json,
+};
 use super::types::{
-    AudioArtifactRecord, IndexFile, JobRecord, ModelKind, SummaryEmbeddingRecord,
-    SummaryEmbeddingVectorRecord, SummaryRecord, TaskRecord, TranscriptRecord,
+    AudioArtifactRecord, IndexFile, ModelKind, SummaryEmbeddingVectorRecord, SummaryRecord,
+    TaskRecord, TranscriptRecord,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use std::fs;
@@ -80,26 +83,21 @@ impl MetadataBackend for SqliteMetadataStore {
             summary_embedding_json,
         ) in job_rows
         {
-            jobs.push(JobRecord {
+            jobs.push(deserialize_job_record(SerializedJobRecord {
                 job_id,
-                status: from_json(&status_json)?,
+                status_json,
                 started_at,
                 finished_at,
                 source_ref,
-                source_kind: from_json(&source_kind_json)?,
+                source_kind_json,
                 source_content_sha256,
                 source_file_name,
-                source_path: String::new(),
-                job_dir: String::new(),
-                probe: from_json(&probe_json)?,
-                split_strategy: from_json(&split_strategy_json)?,
-                outputs: from_json(&outputs_json)?,
+                probe_json,
+                split_strategy_json,
+                outputs_json,
                 error_message,
-                summary_embedding: summary_embedding_json
-                    .map(|raw| from_json::<SummaryEmbeddingRecord>(&raw))
-                    .transpose()?,
-                tasks: Vec::new(),
-            });
+                summary_embedding_json,
+            })?);
         }
 
         let mut tasks_stmt = connection
@@ -184,6 +182,7 @@ impl MetadataBackend for SqliteMetadataStore {
             .map_err(|error| format!("failed to clear sqlite queue state: {error}"))?;
 
         for job in &index.jobs {
+            let raw = serialize_job_record(job)?;
             tx.execute(
                 "INSERT INTO jobs (
                     job_id, status_json, started_at, finished_at, source_ref, source_kind_json,
@@ -191,19 +190,19 @@ impl MetadataBackend for SqliteMetadataStore {
                     outputs_json, error_message, summary_embedding_json
                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 params![
-                    job.job_id,
-                    to_json(&job.status)?,
-                    job.started_at,
-                    job.finished_at,
-                    job.source_ref,
-                    to_json(&job.source_kind)?,
-                    job.source_content_sha256,
-                    job.source_file_name,
-                    to_json(&job.probe)?,
-                    to_json(&job.split_strategy)?,
-                    to_json(&job.outputs)?,
-                    job.error_message,
-                    job.summary_embedding.as_ref().map(to_json).transpose()?,
+                    raw.job_id,
+                    raw.status_json,
+                    raw.started_at,
+                    raw.finished_at,
+                    raw.source_ref,
+                    raw.source_kind_json,
+                    raw.source_content_sha256,
+                    raw.source_file_name,
+                    raw.probe_json,
+                    raw.split_strategy_json,
+                    raw.outputs_json,
+                    raw.error_message,
+                    raw.summary_embedding_json,
                 ],
             )
             .map_err(|error| format!("failed to insert sqlite job {}: {error}", job.job_id))?;

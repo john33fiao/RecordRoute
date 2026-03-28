@@ -45,9 +45,7 @@ pub fn submit_summary_job(
         match existing_entry {
             Some(entry) if summary_payload_satisfies(&entry, force_regenerate) => {
                 let queue = if task.status == TaskStatus::Queued {
-                    index_store.with_index_read(|index| {
-                        Ok(queue::find_ticket(index, &job.job_id, TaskType::Summary))
-                    })?
+                    stages::queued_task_ticket(&index_store, &job.job_id, TaskType::Summary)?
                 } else {
                     None
                 };
@@ -126,19 +124,8 @@ pub fn submit_summary_job(
 
     let queued_at = now_rfc3339()?;
     let entry = queue::build_summary_entry(job_id, force_regenerate, queued_at.clone());
-    let (job, ticket) = index_store.with_index_mut(|index| {
-        let job_index = index
-            .jobs
-            .iter()
-            .position(|record| record.job_id == job_id)
-            .ok_or_else(|| format!("job not found in index: {job_id}"))?;
-        {
-            let job = &mut index.jobs[job_index];
-            job.enqueue_task(TaskType::Summary, queued_at.clone());
-        }
-        let ticket = queue::enqueue_entry(index, entry);
-        Ok((index.jobs[job_index].clone(), ticket))
-    })?;
+    let (job, ticket) =
+        stages::enqueue_existing_task(&index_store, job_id, TaskType::Summary, queued_at, entry)?;
     Ok(StageJobSubmission {
         job,
         disposition: StageJobDisposition::Submitted,

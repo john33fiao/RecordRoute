@@ -51,9 +51,7 @@ pub fn submit_stt_job(
         match existing_entry {
             Some(entry) if stt_payload_matches(&entry, &requested_audio_files) => {
                 let queue = if task.status == TaskStatus::Queued {
-                    index_store.with_index_read(|index| {
-                        Ok(queue::find_ticket(index, &job.job_id, TaskType::Stt))
-                    })?
+                    stages::queued_task_ticket(&index_store, &job.job_id, TaskType::Stt)?
                 } else {
                     None
                 };
@@ -90,19 +88,8 @@ pub fn submit_stt_job(
 
     let queued_at = now_rfc3339()?;
     let entry = queue::build_stt_entry(job_id, &audio_files, queued_at.clone());
-    let (job, ticket) = index_store.with_index_mut(|index| {
-        let job_index = index
-            .jobs
-            .iter()
-            .position(|record| record.job_id == job_id)
-            .ok_or_else(|| format!("job not found in index: {job_id}"))?;
-        {
-            let job = &mut index.jobs[job_index];
-            job.enqueue_task(TaskType::Stt, queued_at.clone());
-        }
-        let ticket = queue::enqueue_entry(index, entry);
-        Ok((index.jobs[job_index].clone(), ticket))
-    })?;
+    let (job, ticket) =
+        stages::enqueue_existing_task(&index_store, job_id, TaskType::Stt, queued_at, entry)?;
     Ok(StageJobSubmission {
         job,
         disposition: StageJobDisposition::Submitted,

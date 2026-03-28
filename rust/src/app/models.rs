@@ -17,6 +17,67 @@ struct ModelInspection {
     ready: bool,
 }
 
+#[derive(Debug, Clone)]
+struct PreparationWaitState {
+    ready: bool,
+    error: Option<String>,
+    preparation: ModelPreparationRecord,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PreparationTarget {
+    Model(ModelKind),
+    LlamaEmbedding,
+}
+
+impl PreparationTarget {
+    fn update(
+        self,
+        index_store: &IndexStore,
+        update: impl FnOnce(&mut ModelPreparationRecord),
+    ) -> Result<ModelPreparationRecord, String> {
+        match self {
+            PreparationTarget::Model(model) => index_store.update_model_preparation(model, update),
+            PreparationTarget::LlamaEmbedding => {
+                index_store.update_llama_embedding_preparation(update)
+            }
+        }
+    }
+
+    fn idle_error(self) -> String {
+        match self {
+            PreparationTarget::Model(model) => {
+                format!("{} model preparation is not running", model.as_str())
+            }
+            PreparationTarget::LlamaEmbedding => {
+                "llama embedding model preparation is not running".to_string()
+            }
+        }
+    }
+
+    fn completed_not_ready_error(self) -> String {
+        match self {
+            PreparationTarget::Model(model) => {
+                format!("{} model is not ready after preparation", model.as_str())
+            }
+            PreparationTarget::LlamaEmbedding => {
+                "llama embedding model is not ready after preparation".to_string()
+            }
+        }
+    }
+
+    fn failed_default_error(self) -> String {
+        match self {
+            PreparationTarget::Model(model) => {
+                format!("{} model preparation failed", model.as_str())
+            }
+            PreparationTarget::LlamaEmbedding => {
+                "llama embedding model preparation failed".to_string()
+            }
+        }
+    }
+}
+
 pub fn prepare_llama_model_with_repo_root(repo_root: &Path) -> Result<(), String> {
     let _ = prepare_llama_summary_model_with_progress(repo_root)?;
     let _ = prepare_llama_embedding_model_with_progress(repo_root)?;
@@ -82,39 +143,15 @@ pub fn submit_model_preparation(
 ) -> Result<ModelPrepareSubmission, String> {
     let index_store = IndexStore::new(repo_root);
     let inspection = inspect_model_preparation(repo_root, model)?;
-    if inspection.ready {
-        let finished_at = now_rfc3339()?;
-        let preparation = index_store.update_model_preparation(model, |record| {
-            record.mark_completed(finished_at.clone());
-        })?;
-        return Ok(ModelPrepareSubmission {
-            model,
-            disposition: ModelPrepareDisposition::AlreadyReady,
-            preparation,
-            execute_requested: false,
-            execute_embedding_requested: false,
-        });
-    }
-
-    let started_at = now_rfc3339()?;
-    let mut deduplicated = false;
-    let preparation = index_store.update_model_preparation(model, |record| {
-        if record.status == ModelPreparationStatus::Running && !is_model_preparation_stale(record) {
-            deduplicated = true;
-            return;
-        }
-        record.mark_running(started_at.clone());
-    })?;
+    let target = PreparationTarget::Model(model);
+    let (preparation, disposition, execute_requested) =
+        submit_preparation_record(&index_store, target, inspection)?;
 
     Ok(ModelPrepareSubmission {
         model,
-        disposition: if deduplicated {
-            ModelPrepareDisposition::Deduplicated
-        } else {
-            ModelPrepareDisposition::Submitted
-        },
+        disposition,
         preparation,
-        execute_requested: !deduplicated,
+        execute_requested,
         execute_embedding_requested: false,
     })
 }
@@ -123,103 +160,29 @@ pub fn execute_model_preparation(
     repo_root: &Path,
     model: ModelKind,
 ) -> Result<ModelPreparationRecord, String> {
-    let index_store = IndexStore::new(repo_root);
-    let heartbeat_at = now_rfc3339()?;
-    index_store.update_model_preparation(model, |record| {
-        if record.status == ModelPreparationStatus::Running {
-            record.touch(heartbeat_at.clone());
-        } else {
-            record.mark_running(heartbeat_at.clone());
-        }
-    })?;
-
-    let repo_root_for_heartbeat = repo_root.to_path_buf();
-    let (stop_tx, stop_rx) = mpsc::channel::<()>();
-    let heartbeat_thread =
-        thread::spawn(move || {
-            loop {
-                match stop_rx.recv_timeout(MODEL_PREPARATION_HEARTBEAT_INTERVAL) {
-                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                    Err(mpsc::RecvTimeoutError::Timeout) => {
-                        if let Ok(heartbeat) = now_rfc3339() {
-                            let _ = IndexStore::new(&repo_root_for_heartbeat)
-                                .update_model_preparation(model, |record| {
-                                    if record.status == ModelPreparationStatus::Running {
-                                        record.touch(heartbeat.clone());
-                                    }
-                                });
-                        }
-                    }
-                }
-            }
-        });
-
-    let result = ensure_model_with_toolchain(repo_root, model);
-    drop(stop_tx);
-    let _ = heartbeat_thread.join();
-
-    match result {
-        Ok(()) => {
-            let finished_at = now_rfc3339()?;
-            index_store.update_model_preparation(model, |record| {
-                record.mark_completed(finished_at.clone());
-            })
-        }
-        Err(error) => {
-            let finished_at = now_rfc3339()?;
-            index_store.update_model_preparation(model, |record| {
-                record.mark_failed(finished_at.clone(), error.clone());
-            })?;
-            Err(error)
-        }
-    }
+    execute_preparation_record(repo_root, PreparationTarget::Model(model), |root| {
+        ensure_model_with_toolchain(root, model)
+    })
 }
 
 pub fn wait_for_model_preparation(
     repo_root: &Path,
     model: ModelKind,
 ) -> Result<ModelPreparationRecord, String> {
-    loop {
-        let snapshot = collect_model_status_snapshot(repo_root)?;
-        let entry = snapshot.entry(model).clone();
-        if entry.ready {
-            return Ok(entry.preparation);
-        }
-
-        match entry.preparation.status {
-            ModelPreparationStatus::Running => {
-                if is_model_preparation_stale(&entry.preparation) {
-                    let submission = submit_model_preparation(repo_root, model)?;
-                    if submission.already_ready() {
-                        return Ok(submission.preparation);
-                    }
-                    if submission.should_execute() {
-                        return execute_model_preparation(repo_root, model);
-                    }
-                }
-                thread::sleep(MODEL_PREPARATION_WAIT_POLL_INTERVAL);
-            }
-            ModelPreparationStatus::Failed => {
-                return Err(entry.error.unwrap_or_else(|| {
-                    entry
-                        .preparation
-                        .last_error
-                        .unwrap_or_else(|| format!("{} model preparation failed", model.as_str()))
-                }));
-            }
-            ModelPreparationStatus::Idle => {
-                return Err(format!(
-                    "{} model preparation is not running",
-                    model.as_str()
-                ));
-            }
-            ModelPreparationStatus::Completed => {
-                return Err(entry.error.unwrap_or_else(|| {
-                    format!("{} model is not ready after preparation", model.as_str())
-                }));
-            }
-        }
-    }
+    wait_for_preparation_state(
+        repo_root,
+        PreparationTarget::Model(model),
+        |root| {
+            let entry = collect_model_status_snapshot(root)?.entry(model).clone();
+            Ok(PreparationWaitState {
+                ready: entry.ready,
+                error: entry.error,
+                preparation: entry.preparation,
+            })
+        },
+        |root| submit_model_preparation(root, model),
+        |root| execute_model_preparation(root, model),
+    )
 }
 
 pub fn ensure_model_prepared(
@@ -246,6 +209,148 @@ pub fn collect_model_status_snapshot(repo_root: &Path) -> Result<ModelStatusSnap
             preparations.llama_embedding,
         ),
     })
+}
+
+fn submit_preparation_record(
+    index_store: &IndexStore,
+    target: PreparationTarget,
+    inspection: ModelInspection,
+) -> Result<(ModelPreparationRecord, ModelPrepareDisposition, bool), String> {
+    if inspection.ready {
+        let finished_at = now_rfc3339()?;
+        let preparation = target.update(index_store, |record| {
+            record.mark_completed(finished_at.clone());
+        })?;
+        return Ok((
+            preparation,
+            ModelPrepareDisposition::AlreadyReady,
+            false,
+        ));
+    }
+
+    let started_at = now_rfc3339()?;
+    let mut deduplicated = false;
+    let preparation = target.update(index_store, |record| {
+        if record.status == ModelPreparationStatus::Running && !is_model_preparation_stale(record) {
+            deduplicated = true;
+            return;
+        }
+        record.mark_running(started_at.clone());
+    })?;
+
+    Ok((
+        preparation,
+        if deduplicated {
+            ModelPrepareDisposition::Deduplicated
+        } else {
+            ModelPrepareDisposition::Submitted
+        },
+        !deduplicated,
+    ))
+}
+
+fn execute_preparation_record(
+    repo_root: &Path,
+    target: PreparationTarget,
+    ensure: impl Fn(&Path) -> Result<(), String>,
+) -> Result<ModelPreparationRecord, String> {
+    let index_store = IndexStore::new(repo_root);
+    let heartbeat_at = now_rfc3339()?;
+    target.update(&index_store, |record| {
+        if record.status == ModelPreparationStatus::Running {
+            record.touch(heartbeat_at.clone());
+        } else {
+            record.mark_running(heartbeat_at.clone());
+        }
+    })?;
+
+    let repo_root_for_heartbeat = repo_root.to_path_buf();
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let heartbeat_thread = thread::spawn(move || {
+        loop {
+            match stop_rx.recv_timeout(MODEL_PREPARATION_HEARTBEAT_INTERVAL) {
+                Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if let Ok(heartbeat) = now_rfc3339() {
+                        let _ = target.update(
+                            &IndexStore::new(&repo_root_for_heartbeat),
+                            |record| {
+                                if record.status == ModelPreparationStatus::Running {
+                                    record.touch(heartbeat.clone());
+                                }
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    });
+
+    let result = ensure(repo_root);
+    drop(stop_tx);
+    let _ = heartbeat_thread.join();
+
+    match result {
+        Ok(()) => {
+            let finished_at = now_rfc3339()?;
+            target.update(&index_store, |record| {
+                record.mark_completed(finished_at.clone());
+            })
+        }
+        Err(error) => {
+            let finished_at = now_rfc3339()?;
+            target.update(&index_store, |record| {
+                record.mark_failed(finished_at.clone(), error.clone());
+            })?;
+            Err(error)
+        }
+    }
+}
+
+fn wait_for_preparation_state(
+    repo_root: &Path,
+    target: PreparationTarget,
+    load_state: impl Fn(&Path) -> Result<PreparationWaitState, String>,
+    resubmit: impl Fn(&Path) -> Result<ModelPrepareSubmission, String>,
+    execute: impl Fn(&Path) -> Result<ModelPreparationRecord, String>,
+) -> Result<ModelPreparationRecord, String> {
+    loop {
+        let state = load_state(repo_root)?;
+        if state.ready {
+            return Ok(state.preparation);
+        }
+
+        match state.preparation.status {
+            ModelPreparationStatus::Running => {
+                if is_model_preparation_stale(&state.preparation) {
+                    let submission = resubmit(repo_root)?;
+                    if submission.already_ready() {
+                        return Ok(submission.preparation);
+                    }
+                    if submission.should_execute() {
+                        return execute(repo_root);
+                    }
+                }
+                thread::sleep(MODEL_PREPARATION_WAIT_POLL_INTERVAL);
+            }
+            ModelPreparationStatus::Failed => {
+                return Err(state.error.unwrap_or_else(|| {
+                    state
+                        .preparation
+                        .last_error
+                        .unwrap_or_else(|| target.failed_default_error())
+                }));
+            }
+            ModelPreparationStatus::Idle => return Err(target.idle_error()),
+            ModelPreparationStatus::Completed => {
+                return Err(
+                    state
+                        .error
+                        .unwrap_or_else(|| target.completed_not_ready_error()),
+                );
+            }
+        }
+    }
 }
 
 fn collect_whisper_status_entry(
@@ -396,137 +501,44 @@ fn submit_llama_embedding_preparation(repo_root: &Path) -> Result<ModelPrepareSu
             return Err(error);
         }
     };
-
-    if inspection.ready {
-        let finished_at = now_rfc3339()?;
-        let preparation = index_store.update_llama_embedding_preparation(|record| {
-            record.mark_completed(finished_at.clone());
-        })?;
-        return Ok(ModelPrepareSubmission {
-            model: ModelKind::Llama,
-            disposition: ModelPrepareDisposition::AlreadyReady,
-            preparation,
-            execute_requested: false,
-            execute_embedding_requested: false,
-        });
-    }
-
-    let started_at = now_rfc3339()?;
-    let mut deduplicated = false;
-    let preparation = index_store.update_llama_embedding_preparation(|record| {
-        if record.status == ModelPreparationStatus::Running && !is_model_preparation_stale(record) {
-            deduplicated = true;
-            return;
-        }
-        record.mark_running(started_at.clone());
-    })?;
+    let (preparation, disposition, execute_requested) =
+        submit_preparation_record(&index_store, PreparationTarget::LlamaEmbedding, inspection)?;
 
     Ok(ModelPrepareSubmission {
         model: ModelKind::Llama,
-        disposition: if deduplicated {
-            ModelPrepareDisposition::Deduplicated
-        } else {
-            ModelPrepareDisposition::Submitted
-        },
+        disposition,
         preparation,
         execute_requested: false,
-        execute_embedding_requested: !deduplicated,
+        execute_embedding_requested: execute_requested,
     })
 }
 
 fn execute_llama_embedding_preparation(repo_root: &Path) -> Result<ModelPreparationRecord, String> {
-    let index_store = IndexStore::new(repo_root);
-    let heartbeat_at = now_rfc3339()?;
-    index_store.update_llama_embedding_preparation(|record| {
-        if record.status == ModelPreparationStatus::Running {
-            record.touch(heartbeat_at.clone());
-        } else {
-            record.mark_running(heartbeat_at.clone());
-        }
-    })?;
-
-    let repo_root_for_heartbeat = repo_root.to_path_buf();
-    let (stop_tx, stop_rx) = mpsc::channel::<()>();
-    let heartbeat_thread = thread::spawn(move || {
-        loop {
-            match stop_rx.recv_timeout(MODEL_PREPARATION_HEARTBEAT_INTERVAL) {
-                Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    if let Ok(heartbeat) = now_rfc3339() {
-                        let _ = IndexStore::new(&repo_root_for_heartbeat)
-                            .update_llama_embedding_preparation(|record| {
-                                if record.status == ModelPreparationStatus::Running {
-                                    record.touch(heartbeat.clone());
-                                }
-                            });
-                    }
-                }
-            }
-        }
-    });
-
-    let result = ensure_llama_embedding_model_with_toolchain(repo_root);
-    drop(stop_tx);
-    let _ = heartbeat_thread.join();
-
-    match result {
-        Ok(()) => {
-            let finished_at = now_rfc3339()?;
-            index_store.update_llama_embedding_preparation(|record| {
-                record.mark_completed(finished_at.clone());
-            })
-        }
-        Err(error) => {
-            let finished_at = now_rfc3339()?;
-            index_store.update_llama_embedding_preparation(|record| {
-                record.mark_failed(finished_at.clone(), error.clone());
-            })?;
-            Err(error)
-        }
-    }
+    execute_preparation_record(
+        repo_root,
+        PreparationTarget::LlamaEmbedding,
+        ensure_llama_embedding_model_with_toolchain,
+    )
 }
 
 fn wait_for_llama_embedding_model_prepared(
     repo_root: &Path,
 ) -> Result<ModelPreparationRecord, String> {
-    loop {
-        let preparations = IndexStore::new(repo_root).model_preparations()?;
-        let preparation = preparations.llama_embedding;
-        let entry = collect_model_status_snapshot(repo_root)?.llama;
-        if entry.embedding_ready {
-            return Ok(preparation);
-        }
-
-        match preparation.status {
-            ModelPreparationStatus::Running => {
-                if is_model_preparation_stale(&preparation) {
-                    let submission = submit_llama_embedding_preparation(repo_root)?;
-                    if submission.already_ready() {
-                        return Ok(submission.preparation);
-                    }
-                    if submission.should_execute() {
-                        return execute_llama_embedding_preparation(repo_root);
-                    }
-                }
-                thread::sleep(MODEL_PREPARATION_WAIT_POLL_INTERVAL);
-            }
-            ModelPreparationStatus::Failed => {
-                return Err(entry.embedding_error.unwrap_or_else(|| {
-                    preparation
-                        .last_error
-                        .unwrap_or_else(|| "llama embedding model preparation failed".to_string())
-                }));
-            }
-            ModelPreparationStatus::Idle => {
-                return Err("llama embedding model preparation is not running".to_string());
-            }
-            ModelPreparationStatus::Completed => {
-                return Err(entry.embedding_error.unwrap_or_else(|| {
-                    "llama embedding model is not ready after preparation".to_string()
-                }));
-            }
-        }
-    }
+    wait_for_preparation_state(
+        repo_root,
+        PreparationTarget::LlamaEmbedding,
+        |root| {
+            let preparation = IndexStore::new(root).model_preparations()?.llama_embedding;
+            let entry = collect_model_status_snapshot(root)?.llama;
+            Ok(PreparationWaitState {
+                ready: entry.embedding_ready,
+                error: entry.embedding_error,
+                preparation,
+            })
+        },
+        submit_llama_embedding_preparation,
+        execute_llama_embedding_preparation,
+    )
 }
 
 fn prepare_whisper_model_with_progress(repo_root: &Path) -> Result<ModelPreparationRecord, String> {
@@ -630,7 +642,7 @@ fn mark_llama_embedding_preparation_failed(
     error: String,
 ) -> Result<ModelPreparationRecord, String> {
     let finished_at = now_rfc3339()?;
-    IndexStore::new(repo_root).update_llama_embedding_preparation(|record| {
+    PreparationTarget::LlamaEmbedding.update(&IndexStore::new(repo_root), |record| {
         record.mark_failed(finished_at.clone(), error.clone());
     })
 }

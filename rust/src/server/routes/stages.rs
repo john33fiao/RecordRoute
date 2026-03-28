@@ -1,9 +1,10 @@
 use super::app_api;
 use super::types::{
     AppState, FileListResponse, SttProgressResponse, SttRequest, SttTranscriptListResponse,
-    SummaryEmbeddingResponse, SummaryRequest, SummarySearchRequest, SummarySearchResponse,
-    SummarySearchResultResponse, SummaryTextResponse, TaskSubmissionResponse,
-    build_queue_info_response,
+    SummaryRequest, SummarySearchRequest, SummarySearchResponse, SummarySearchResultResponse,
+    SummaryTextResponse,
+    build_summary_embedding_status_response, build_summary_embedding_submission_response,
+    build_task_status_response, build_task_submission_response,
 };
 use super::{error_response, run_blocking, run_blocking_app};
 use crate::index::{IndexStore, TaskType};
@@ -14,6 +15,12 @@ use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+
+fn maybe_wake_queue(state: &AppState, should_execute: bool) {
+    if should_execute {
+        state.queue_dispatcher.wake();
+    }
+}
 
 pub(crate) async fn post_stt(
     State(state): State<AppState>,
@@ -43,28 +50,20 @@ pub(crate) async fn post_stt(
             Err(error) => return error_response(error),
         };
 
-    if submission.should_execute() {
-        state.queue_dispatcher.wake();
-    }
+    maybe_wake_queue(&state, submission.should_execute());
 
-    let task = submission.job.task(TaskType::Stt).cloned();
-    let body = TaskSubmissionResponse {
-        job_id: job_id.clone(),
-        task_type: TaskType::Stt,
-        status: "accepted".to_string(),
-        message: if submission.reused() {
-            "stt outputs reused".to_string()
-        } else if submission.deduplicated() {
-            "stt already running".to_string()
-        } else {
-            "stt accepted".to_string()
-        },
-        reused: submission.reused(),
-        deduplicated: submission.deduplicated(),
-        queue: submission.queue.clone().map(build_queue_info_response),
-        task: task.map(super::errors::sanitize_task),
-    };
-    (StatusCode::ACCEPTED, Json(body)).into_response()
+    (
+        StatusCode::ACCEPTED,
+        Json(build_task_submission_response(
+            job_id,
+            TaskType::Stt,
+            &submission,
+            "stt accepted",
+            "stt outputs reused",
+            "stt already running",
+        )),
+    )
+    .into_response()
 }
 
 pub(crate) fn resolve_stt_subset(request: SttRequest) -> Result<Option<Vec<String>>, String> {
@@ -97,20 +96,13 @@ pub(crate) async fn get_stt(
         Err(error) => return error_response(crate::error::AppError::internal(error)),
     };
 
-    let body = TaskSubmissionResponse {
+    Json(build_task_status_response(
         job_id,
-        task_type: TaskType::Stt,
-        status: "ok".to_string(),
-        message: "stt task status".to_string(),
-        reused: false,
-        deduplicated: false,
-        queue: None,
-        task: job
-            .task(TaskType::Stt)
-            .cloned()
-            .map(super::errors::sanitize_task),
-    };
-    Json(body).into_response()
+        TaskType::Stt,
+        "stt task status",
+        job.task(TaskType::Stt).cloned(),
+    ))
+    .into_response()
 }
 
 pub(crate) async fn get_stt_progress(
@@ -191,31 +183,20 @@ pub(crate) async fn post_summary(
         Err(error) => return error_response(error),
     };
 
-    if submission.should_execute() {
-        state.queue_dispatcher.wake();
-    }
+    maybe_wake_queue(&state, submission.should_execute());
 
-    let body = TaskSubmissionResponse {
-        job_id: job_id.clone(),
-        task_type: TaskType::Summary,
-        status: "accepted".to_string(),
-        message: if submission.reused() {
-            "summary reused".to_string()
-        } else if submission.deduplicated() {
-            "summary already running".to_string()
-        } else {
-            "summary accepted".to_string()
-        },
-        reused: submission.reused(),
-        deduplicated: submission.deduplicated(),
-        queue: submission.queue.clone().map(build_queue_info_response),
-        task: submission
-            .job
-            .task(TaskType::Summary)
-            .cloned()
-            .map(super::errors::sanitize_task),
-    };
-    (StatusCode::ACCEPTED, Json(body)).into_response()
+    (
+        StatusCode::ACCEPTED,
+        Json(build_task_submission_response(
+            job_id,
+            TaskType::Summary,
+            &submission,
+            "summary accepted",
+            "summary reused",
+            "summary already running",
+        )),
+    )
+    .into_response()
 }
 
 pub(crate) async fn get_summary(
@@ -235,19 +216,12 @@ pub(crate) async fn get_summary(
         Err(error) => return error_response(crate::error::AppError::internal(error)),
     };
 
-    Json(TaskSubmissionResponse {
+    Json(build_task_status_response(
         job_id,
-        task_type: TaskType::Summary,
-        status: "ok".to_string(),
-        message: "summary task status".to_string(),
-        reused: false,
-        deduplicated: false,
-        queue: None,
-        task: job
-            .task(TaskType::Summary)
-            .cloned()
-            .map(super::errors::sanitize_task),
-    })
+        TaskType::Summary,
+        "summary task status",
+        job.task(TaskType::Summary).cloned(),
+    ))
     .into_response()
 }
 
@@ -288,31 +262,13 @@ pub(crate) async fn post_summary_embedding(
         Err(error) => return error_response(error),
     };
 
-    if submission.should_execute() {
-        state.queue_dispatcher.wake();
-    }
+    maybe_wake_queue(&state, submission.should_execute());
 
-    let body = SummaryEmbeddingResponse {
-        job_id: job_id.clone(),
-        status: "accepted".to_string(),
-        message: if submission.reused() {
-            "summary embedding reused".to_string()
-        } else if submission.deduplicated() {
-            "summary embedding already running".to_string()
-        } else {
-            "summary embedding accepted".to_string()
-        },
-        reused: submission.reused(),
-        deduplicated: submission.deduplicated(),
-        queue: submission.queue.clone().map(build_queue_info_response),
-        task: submission
-            .job
-            .task(TaskType::Embedding)
-            .cloned()
-            .map(super::errors::sanitize_task),
-        metadata: submission.job.summary_embedding,
-    };
-    (StatusCode::ACCEPTED, Json(body)).into_response()
+    (
+        StatusCode::ACCEPTED,
+        Json(build_summary_embedding_submission_response(job_id, &submission)),
+    )
+    .into_response()
 }
 
 pub(crate) async fn get_summary_embedding(
@@ -331,19 +287,7 @@ pub(crate) async fn get_summary_embedding(
         }
         Err(error) => return error_response(crate::error::AppError::internal(error)),
     };
-    Json(SummaryEmbeddingResponse {
-        job_id,
-        status: "ok".to_string(),
-        message: "summary embedding task status".to_string(),
-        reused: false,
-        deduplicated: false,
-        queue: None,
-        task: job
-            .task(TaskType::Embedding)
-            .cloned()
-            .map(super::errors::sanitize_task),
-        metadata: job.summary_embedding,
-    })
+    Json(build_summary_embedding_status_response(job_id, &job))
     .into_response()
 }
 

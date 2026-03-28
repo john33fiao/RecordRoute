@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -22,10 +23,6 @@ pub struct JobRecord {
     pub source_kind: SourceKind,
     pub source_content_sha256: String,
     pub source_file_name: String,
-    #[serde(skip)]
-    pub source_path: String,
-    #[serde(skip)]
-    pub job_dir: String,
     pub probe: JobProbe,
     pub split_strategy: SplitStrategy,
     pub outputs: JobOutputs,
@@ -282,6 +279,7 @@ pub struct JobSplitOutput {
 }
 
 impl IndexFile {
+    #[cfg(test)]
     pub(crate) fn empty() -> Self {
         Self {
             version: 4,
@@ -293,6 +291,7 @@ impl IndexFile {
 }
 
 impl JobRecord {
+    #[cfg(test)]
     pub fn new(job_id: String, started_at: String, source_path: PathBuf, _job_dir: PathBuf) -> Self {
         let source_file_name = source_path
             .file_name()
@@ -326,8 +325,6 @@ impl JobRecord {
             source_kind,
             source_content_sha256,
             source_file_name,
-            source_path: String::new(),
-            job_dir: String::new(),
             probe: JobProbe::default(),
             split_strategy: SplitStrategy::PerChannelPlusMergedMono,
             outputs: JobOutputs::default(),
@@ -564,21 +561,6 @@ impl ModelPreparationRecord {
             self.started_at = Some(heartbeat_at.clone());
         }
         self.heartbeat_at = Some(heartbeat_at);
-    }
-}
-
-impl JobOutputs {
-    pub(crate) fn has_reusable_files(&self) -> bool {
-        let Some(merged_mono_wav) = self.merged_mono_wav.as_deref() else {
-            return false;
-        };
-        if merged_mono_wav.trim().is_empty() || self.split_mono_wavs.is_empty() {
-            return false;
-        }
-
-        self.split_mono_wavs
-            .iter()
-            .all(|output| !output.path.trim().is_empty())
     }
 }
 

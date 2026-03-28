@@ -136,7 +136,7 @@ impl IndexStore {
             .rev()
             .find(|job| {
                 matches!(job.status, JobStatus::Queued | JobStatus::Running)
-                    && job.source_path == source
+                    && job.source_ref == source
             })
             .cloned())
     }
@@ -288,21 +288,11 @@ impl IndexStore {
     }
 
     pub(crate) fn read_index(&self) -> Result<IndexFile, String> {
-        let mut index = self.backend()?.read_index()?;
-        for job in &mut index.jobs {
-            self.populate_runtime_fields(job);
-        }
-        Ok(index)
+        self.backend()?.read_index()
     }
 
     fn write_index(&self, index: &IndexFile) -> Result<(), String> {
-        let sanitized = sanitize_runtime_fields(index);
-        self.backend()?.write_index(&sanitized)
-    }
-
-    fn populate_runtime_fields(&self, job: &mut JobRecord) {
-        job.job_dir = self.job_dir(&job.job_id).to_string_lossy().into_owned();
-        job.source_path = self.source_path(&job.source_ref).to_string_lossy().into_owned();
+        self.backend()?.write_index(index)
     }
 
     fn job_has_reusable_audio(&self, job: &JobRecord) -> Result<bool, String> {
@@ -345,13 +335,4 @@ impl IndexStore {
             .as_ref()
             .ok_or_else(|| "audio store is not initialized".to_string())
     }
-}
-
-fn sanitize_runtime_fields(index: &IndexFile) -> IndexFile {
-    let mut cloned = index.clone();
-    for job in &mut cloned.jobs {
-        job.job_dir.clear();
-        job.source_path.clear();
-    }
-    cloned
 }

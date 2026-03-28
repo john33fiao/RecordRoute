@@ -295,11 +295,116 @@ pub(crate) fn build_job_submission_response(
     }
 }
 
+pub(crate) fn build_task_submission_response(
+    job_id: String,
+    task_type: TaskType,
+    submission: &app::StageJobSubmission,
+    accepted_message: &str,
+    reused_message: &str,
+    deduplicated_message: &str,
+) -> TaskSubmissionResponse {
+    TaskSubmissionResponse {
+        job_id,
+        task_type,
+        status: "accepted".to_string(),
+        message: if submission.reused() {
+            reused_message.to_string()
+        } else if submission.deduplicated() {
+            deduplicated_message.to_string()
+        } else {
+            accepted_message.to_string()
+        },
+        reused: submission.reused(),
+        deduplicated: submission.deduplicated(),
+        queue: submission.queue.clone().map(build_queue_info_response),
+        task: submission
+            .job
+            .task(task_type)
+            .cloned()
+            .map(super::errors::sanitize_task),
+    }
+}
+
+pub(crate) fn build_task_status_response(
+    job_id: String,
+    task_type: TaskType,
+    message: &str,
+    task: Option<TaskRecord>,
+) -> TaskSubmissionResponse {
+    TaskSubmissionResponse {
+        job_id,
+        task_type,
+        status: "ok".to_string(),
+        message: message.to_string(),
+        reused: false,
+        deduplicated: false,
+        queue: None,
+        task: task.map(super::errors::sanitize_task),
+    }
+}
+
+pub(crate) fn build_summary_embedding_submission_response(
+    job_id: String,
+    submission: &app::StageJobSubmission,
+) -> SummaryEmbeddingResponse {
+    SummaryEmbeddingResponse {
+        job_id,
+        status: "accepted".to_string(),
+        message: if submission.reused() {
+            "summary embedding reused".to_string()
+        } else if submission.deduplicated() {
+            "summary embedding already running".to_string()
+        } else {
+            "summary embedding accepted".to_string()
+        },
+        reused: submission.reused(),
+        deduplicated: submission.deduplicated(),
+        queue: submission.queue.clone().map(build_queue_info_response),
+        task: submission
+            .job
+            .task(TaskType::Embedding)
+            .cloned()
+            .map(super::errors::sanitize_task),
+        metadata: submission.job.summary_embedding.clone(),
+    }
+}
+
+pub(crate) fn build_summary_embedding_status_response(
+    job_id: String,
+    job: &JobRecord,
+) -> SummaryEmbeddingResponse {
+    SummaryEmbeddingResponse {
+        job_id,
+        status: "ok".to_string(),
+        message: "summary embedding task status".to_string(),
+        reused: false,
+        deduplicated: false,
+        queue: None,
+        task: job
+            .task(TaskType::Embedding)
+            .cloned()
+            .map(super::errors::sanitize_task),
+        metadata: job.summary_embedding.clone(),
+    }
+}
+
 pub(crate) fn build_queue_info_response(queue: app::QueueTicket) -> QueueInfoResponse {
     QueueInfoResponse {
         category: queue.category,
         position: queue.position,
         queued_at: queue.queued_at,
+    }
+}
+
+pub(crate) fn build_batch_queue_submission_response(
+    submission: &app::BatchQueueSubmission,
+) -> BatchQueueSubmissionResponse {
+    BatchQueueSubmissionResponse {
+        total_jobs: submission.total_jobs,
+        ffmpeg_queued: submission.ffmpeg_queued,
+        stt_queued: submission.stt_queued,
+        summary_queued: submission.summary_queued,
+        embedding_queued: submission.embedding_queued,
     }
 }
 

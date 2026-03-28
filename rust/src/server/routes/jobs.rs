@@ -1,7 +1,8 @@
+use crate::app::FfmpegJobSubmission;
 use super::app_api;
 use super::types::{
-    AppState, BatchQueueSubmissionResponse, CreateJobRequest, JobListResponse, JobStatusResponse,
-    build_job_submission_response,
+    AppState, CreateJobRequest, JobListResponse, JobStatusResponse,
+    build_batch_queue_submission_response, build_job_submission_response,
 };
 use super::{error_response, run_blocking, run_blocking_app};
 use crate::index::IndexStore;
@@ -15,6 +16,28 @@ use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use std::path::PathBuf;
+
+fn maybe_wake_queue(state: &AppState, should_execute: bool) {
+    if should_execute {
+        state.queue_dispatcher.wake();
+    }
+}
+
+fn build_job_submission_http_response(submission: FfmpegJobSubmission) -> Response {
+    let status = if submission.reused() {
+        StatusCode::OK
+    } else {
+        StatusCode::ACCEPTED
+    };
+    let response = build_job_submission_response(
+        &submission.job,
+        submission.reused(),
+        submission.deduplicated(),
+        submission.queue.clone(),
+    );
+
+    (status, Json(response)).into_response()
+}
 
 pub(crate) async fn post_jobs(
     State(state): State<AppState>,
@@ -39,23 +62,8 @@ pub(crate) async fn post_jobs(
             Err(error) => return error_response(error),
         };
 
-    if submission.should_execute() {
-        state.queue_dispatcher.wake();
-    }
-
-    let status = if submission.reused() {
-        StatusCode::OK
-    } else {
-        StatusCode::ACCEPTED
-    };
-    let response = build_job_submission_response(
-        &submission.job,
-        submission.reused(),
-        submission.deduplicated(),
-        submission.queue.clone(),
-    );
-
-    (status, Json(response)).into_response()
+    maybe_wake_queue(&state, submission.should_execute());
+    build_job_submission_http_response(submission)
 }
 
 pub(crate) async fn post_jobs_upload(
@@ -83,23 +91,8 @@ pub(crate) async fn post_jobs_upload(
         Err(error) => return error_response(error),
     };
 
-    if submission.should_execute() {
-        state.queue_dispatcher.wake();
-    }
-
-    let status = if submission.reused() {
-        StatusCode::OK
-    } else {
-        StatusCode::ACCEPTED
-    };
-    let response = build_job_submission_response(
-        &submission.job,
-        submission.reused(),
-        submission.deduplicated(),
-        submission.queue.clone(),
-    );
-
-    (status, Json(response)).into_response()
+    maybe_wake_queue(&state, submission.should_execute());
+    build_job_submission_http_response(submission)
 }
 
 pub(crate) async fn post_jobs_batch_process(State(state): State<AppState>) -> Response {
@@ -110,25 +103,19 @@ pub(crate) async fn post_jobs_batch_process(State(state): State<AppState>) -> Re
             Err(error) => return error_response(error),
         };
 
-    if submission.ffmpeg_queued > 0
+    maybe_wake_queue(
+        &state,
+        submission.ffmpeg_queued > 0
         || submission.stt_queued > 0
         || submission.summary_queued > 0
-        || submission.embedding_queued > 0
-    {
-        state.queue_dispatcher.wake();
-    }
+        || submission.embedding_queued > 0,
+    );
 
     (
         StatusCode::ACCEPTED,
-        Json(BatchQueueSubmissionResponse {
-            total_jobs: submission.total_jobs,
-            ffmpeg_queued: submission.ffmpeg_queued,
-            stt_queued: submission.stt_queued,
-            summary_queued: submission.summary_queued,
-            embedding_queued: submission.embedding_queued,
-        }),
+        Json(build_batch_queue_submission_response(&submission)),
     )
-        .into_response()
+    .into_response()
 }
 
 pub(crate) async fn get_jobs_with_query(

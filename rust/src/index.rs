@@ -150,8 +150,6 @@ mod tests {
             &["channel_01.wav", "mono_mix.wav"],
         )
         .expect("mark invalid completed");
-        invalid_job
-            .job_dir = store.job_dir("job-2").to_string_lossy().into_owned();
         store.insert_job(invalid_job).expect("insert invalid job");
         fs::remove_file(store.job_dir("job-2").join("mono_mix.wav")).expect("remove mono mix");
 

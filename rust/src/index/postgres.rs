@@ -1,7 +1,10 @@
-use super::backend::{MetadataBackend, from_json, to_json};
+use super::backend::{
+    MetadataBackend, SerializedJobRecord, deserialize_job_record, from_json, serialize_job_record,
+    to_json,
+};
 use super::types::{
-    AudioArtifactRecord, IndexFile, JobRecord, SummaryEmbeddingVectorRecord, SummaryRecord,
-    TaskRecord, TranscriptRecord,
+    AudioArtifactRecord, IndexFile, SummaryEmbeddingVectorRecord, SummaryRecord, TaskRecord,
+    TranscriptRecord,
 };
 use postgres::{Client, NoTls};
 
@@ -43,26 +46,20 @@ impl MetadataBackend for PostgresMetadataStore {
         let mut jobs = rows
             .into_iter()
             .map(|row| {
-                let summary_embedding_json: Option<String> = row.get(12);
-                Ok(JobRecord {
+                deserialize_job_record(SerializedJobRecord {
                     job_id: row.get(0),
-                    status: from_json(&row.get::<_, String>(1))?,
+                    status_json: row.get(1),
                     started_at: row.get(2),
                     finished_at: row.get(3),
                     source_ref: row.get(4),
-                    source_kind: from_json(&row.get::<_, String>(5))?,
+                    source_kind_json: row.get(5),
                     source_content_sha256: row.get(6),
                     source_file_name: row.get(7),
-                    source_path: String::new(),
-                    job_dir: String::new(),
-                    probe: from_json(&row.get::<_, String>(8))?,
-                    split_strategy: from_json(&row.get::<_, String>(9))?,
-                    outputs: from_json(&row.get::<_, String>(10))?,
+                    probe_json: row.get(8),
+                    split_strategy_json: row.get(9),
+                    outputs_json: row.get(10),
                     error_message: row.get(11),
-                    summary_embedding: summary_embedding_json
-                        .map(|raw| from_json(&raw))
-                        .transpose()?,
-                    tasks: Vec::new(),
+                    summary_embedding_json: row.get(12),
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -127,6 +124,7 @@ impl MetadataBackend for PostgresMetadataStore {
         }
 
         for job in &index.jobs {
+            let raw = serialize_job_record(job)?;
             tx.execute(
                 "INSERT INTO jobs (
                     job_id, status_json, started_at, finished_at, source_ref, source_kind_json,
@@ -134,19 +132,19 @@ impl MetadataBackend for PostgresMetadataStore {
                     outputs_json, error_message, summary_embedding_json
                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
                 &[
-                    &job.job_id,
-                    &to_json(&job.status)?,
-                    &job.started_at,
-                    &job.finished_at,
-                    &job.source_ref,
-                    &to_json(&job.source_kind)?,
-                    &job.source_content_sha256,
-                    &job.source_file_name,
-                    &to_json(&job.probe)?,
-                    &to_json(&job.split_strategy)?,
-                    &to_json(&job.outputs)?,
-                    &job.error_message,
-                    &job.summary_embedding.as_ref().map(to_json).transpose()?,
+                    &raw.job_id,
+                    &raw.status_json,
+                    &raw.started_at,
+                    &raw.finished_at,
+                    &raw.source_ref,
+                    &raw.source_kind_json,
+                    &raw.source_content_sha256,
+                    &raw.source_file_name,
+                    &raw.probe_json,
+                    &raw.split_strategy_json,
+                    &raw.outputs_json,
+                    &raw.error_message,
+                    &raw.summary_embedding_json,
                 ],
             )
             .map_err(|error| format!("failed to insert postgres job {}: {error}", job.job_id))?;

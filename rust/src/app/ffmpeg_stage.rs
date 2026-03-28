@@ -12,14 +12,14 @@ use crate::index::{
     SourceKind,
 };
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::thread;
 
 pub fn run_with_repo_root(repo_root: &Path, input: &Path) -> Result<RunSummary, String> {
     let submission = submit_ffmpeg_job(repo_root, input)?;
 
     match submission.disposition {
-        FfmpegJobDisposition::Reused => run_summary_from_completed_job(submission.job),
+        FfmpegJobDisposition::Reused => run_summary_from_completed_job(repo_root, submission.job),
         FfmpegJobDisposition::Submitted => {
             queue::dispatch_until_task_terminal(
                 repo_root,
@@ -29,11 +29,11 @@ pub fn run_with_repo_root(repo_root: &Path, input: &Path) -> Result<RunSummary, 
             let job = IndexStore::new(repo_root)
                 .find_job(&submission.job.job_id)?
                 .ok_or_else(|| format!("job not found in index: {}", submission.job.job_id))?;
-            run_summary_from_completed_job(job)
+            run_summary_from_completed_job(repo_root, job)
         }
         FfmpegJobDisposition::Deduplicated => {
             let job = wait_for_ffmpeg_job_completion(repo_root, &submission.job.job_id)?;
-            run_summary_from_completed_job(job)
+            run_summary_from_completed_job(repo_root, job)
         }
     }
 }
@@ -97,7 +97,7 @@ pub fn submit_ffmpeg_job_from_imported_source(
         )
     })?;
 
-    let mut job = JobRecord::new_with_source(
+    let job = JobRecord::new_with_source(
         job_id,
         started_at.clone(),
         imported.source_ref.clone(),
@@ -105,8 +105,6 @@ pub fn submit_ffmpeg_job_from_imported_source(
         imported.source_content_sha256,
         imported.source_file_name,
     );
-    job.source_path = source_path.to_string_lossy().into_owned();
-    job.job_dir = job_dir.to_string_lossy().into_owned();
     let entry = queue::build_ffmpeg_entry(&job.job_id, Path::new(&job.source_ref), started_at);
     let (job, ticket) = index_store.with_index_mut(|index| {
         index.jobs.push(job.clone());
@@ -268,7 +266,7 @@ fn record_audio_outputs(
     Ok(())
 }
 
-fn run_summary_from_completed_job(job: JobRecord) -> Result<RunSummary, String> {
+fn run_summary_from_completed_job(repo_root: &Path, job: JobRecord) -> Result<RunSummary, String> {
     let merged_mono_wav = job.outputs.merged_mono_wav.clone().ok_or_else(|| {
         format!(
             "reusable completed job is missing merged output path: {}",
@@ -282,18 +280,20 @@ fn run_summary_from_completed_job(job: JobRecord) -> Result<RunSummary, String> 
         ));
     }
 
+    let job_dir = IndexStore::new(repo_root).job_dir(&job.job_id);
+
     Ok(RunSummary {
         job_id: job.job_id,
-        job_dir: PathBuf::from(&job.job_dir),
+        job_dir: job_dir.clone(),
         outputs: ConversionOutputs {
-            merged_mono_wav: PathBuf::from(&job.job_dir).join(merged_mono_wav),
+            merged_mono_wav: job_dir.join(merged_mono_wav),
             split_mono_wavs: job
                 .outputs
                 .split_mono_wavs
                 .into_iter()
                 .map(|output| SplitMonoOutput {
                     channel_index: output.channel_index,
-                    path: PathBuf::from(&job.job_dir).join(output.path),
+                    path: job_dir.join(output.path),
                 })
                 .collect(),
         },

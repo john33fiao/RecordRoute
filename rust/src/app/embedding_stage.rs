@@ -41,9 +41,7 @@ pub fn submit_summary_embedding_job(
         && matches!(task.status, TaskStatus::Queued | TaskStatus::Running)
     {
         let queue = if task.status == TaskStatus::Queued {
-            index_store.with_index_read(|index| {
-                Ok(queue::find_ticket(index, &job.job_id, TaskType::Embedding))
-            })?
+            stages::queued_task_ticket(&index_store, &job.job_id, TaskType::Embedding)?
         } else {
             None
         };
@@ -66,19 +64,13 @@ pub fn submit_summary_embedding_job(
 
     let queued_at = now_rfc3339()?;
     let entry = queue::build_embedding_entry(job_id, queued_at.clone());
-    let (job, ticket) = index_store.with_index_mut(|index| {
-        let job_index = index
-            .jobs
-            .iter()
-            .position(|record| record.job_id == job_id)
-            .ok_or_else(|| format!("job not found in index: {job_id}"))?;
-        {
-            let job = &mut index.jobs[job_index];
-            job.enqueue_task(TaskType::Embedding, queued_at.clone());
-        }
-        let ticket = queue::enqueue_entry(index, entry);
-        Ok((index.jobs[job_index].clone(), ticket))
-    })?;
+    let (job, ticket) = stages::enqueue_existing_task(
+        &index_store,
+        job_id,
+        TaskType::Embedding,
+        queued_at,
+        entry,
+    )?;
     Ok(StageJobSubmission {
         job,
         disposition: StageJobDisposition::Submitted,
@@ -190,7 +182,7 @@ pub fn search_summaries(
 
     let mut rows = Vec::new();
     for job in IndexStore::new(repo_root).list_completed_jobs()? {
-        let Some(metadata) = job.summary_embedding.clone() else {
+        let Some(_metadata) = job.summary_embedding.clone() else {
             continue;
         };
         let Ok(Some(sidecar)) = IndexStore::new(repo_root).get_summary_embedding(&job.job_id) else {

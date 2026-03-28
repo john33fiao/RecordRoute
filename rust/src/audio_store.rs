@@ -39,14 +39,6 @@ impl AudioStore {
         Ok(())
     }
 
-    pub fn audio_root(&self) -> &Path {
-        &self.root
-    }
-
-    pub fn cache_root(&self) -> &Path {
-        &self.cache_root
-    }
-
     pub fn spool_root(&self) -> &Path {
         &self.spool_root
     }
@@ -89,19 +81,6 @@ impl AudioStore {
             source_content_sha256: file_hash,
             source_file_name,
         })
-    }
-
-    pub fn publish_job_audio(
-        &self,
-        job_id: &str,
-        logical_name: &str,
-        source_path: &Path,
-    ) -> Result<String, String> {
-        self.ensure_dirs()?;
-        let storage_key = format!("jobs/{job_id}/{logical_name}");
-        let destination = self.resolve_storage_path(&storage_key);
-        copy_replace(source_path, &destination)?;
-        Ok(storage_key)
     }
 
     pub fn read_bytes(&self, storage_key: &str) -> Result<Vec<u8>, String> {

@@ -151,3 +151,34 @@ CLI 프롬프트와 문서가 실제 지원 명령을 자동으로 반영하도�
 
 - 문자열 의존 오류 분류를 줄여 계약을 단단하게 만드는 일
 - 상태 전이와 metadata 기록을 더 일관되게 묶는 일
+
+## 6. 1차 대상에서 제외한 항목 (2026-03-28 addendum)
+
+이번 1차 리팩터링에서는 아래 파일을 우선 대상에서 제외한다.
+기준은 "이미 응집도가 비교적 높고, 다른 큰 구조 정리를 끝낸 뒤 건드려도 늦지 않다"이다.
+
+- `rust/src/app.rs`
+  - facade / re-export / 공용 타입 조합 역할이 중심이라 먼저 쪼갤 필요가 작다.
+- `rust/src/server.rs`
+  - 라우트 연결과 runtime bridge 역할이 명확해 하위 route helper 정리 후 다시 보는 편이 낫다.
+- `rust/src/ffmpeg.rs`
+  - ffprobe / ffmpeg wrapper로서 책임 경계가 비교적 선명하다.
+- `rust/src/storage.rs`
+  - 환경 변수 해석 전용 모듈이라 우선순위가 낮다.
+- `rust/src/tool_runtime.rs`
+  - 공용 CLI runtime helper가 작고 단순해, 상위 wrapper 정리 이후에 확장 여부를 판단하는 편이 낫다.
+
+## 7. 후속 작업 (2026-03-28 addendum)
+
+이번 1차 리팩터링으로 `JobRecord` 런타임 필드 분리, queue 모듈 분할, stage/model/backend/route helper 정리는 반영됐다.
+다만 아래 항목은 후속 슬라이스로 남긴다.
+
+- `rust/src/llama.rs`, `rust/src/whisper.rs`
+  - 아직 단일 파일 책임이 크다.
+  - 다음 단계에서는 `toolchain discovery`, `download/cache`, `runtime fallback`, `output parsing` 단위로 내부 모듈을 나눈다.
+- SQLite / Postgres parity 검증
+  - `JobRecord` 공통 codec은 추출했지만 backend parity 전용 테스트는 아직 없다.
+  - 동일한 입력 인덱스를 두 backend가 같은 구조로 읽고 쓰는지 확인하는 테스트를 추가한다.
+- 문서 동기화
+  - 이번 변경은 내부 구조 정리라 public contract는 유지했지만, 리팩터링 가이드와 아키텍처 문서는 후속으로 동기화 여지가 남아 있다.
+  - 특히 queue 내부 구조와 model preparation runner 변경은 `docs/architecture.md`에 짧게 반영할 수 있다.
