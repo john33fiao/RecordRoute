@@ -7,6 +7,15 @@ use std::fs;
 use std::io::Cursor;
 use std::path::PathBuf;
 use uuid::Uuid;
+
+fn resolve_prompted_command(input: &[u8]) -> (CliCommand, String) {
+    let mut reader = Cursor::new(input.to_vec());
+    let mut output = Vec::new();
+    let command = resolve_cli_command(&[], &mut reader, &mut output).expect("command");
+
+    (command, String::from_utf8(output).expect("utf8"))
+}
+
 #[test]
 fn resolves_single_path_argument() {
     let args = vec![OsString::from("/tmp/input.mp3")];
@@ -86,32 +95,22 @@ fn resolves_legacy_input_as_ffmpeg_command() {
 
 #[test]
 fn prompts_for_mode_when_no_args() {
-    let mut reader = Cursor::new(b"2\n".to_vec());
-    let mut output = Vec::new();
-
-    let command = resolve_cli_command(&[], &mut reader, &mut output).expect("command");
+    let (command, output) = resolve_prompted_command(b"2\n");
 
     assert_eq!(command, CliCommand::Stt);
-    assert!(
-        String::from_utf8(output)
-            .expect("utf8")
-            .contains("Select mode:")
-    );
+    assert!(output.contains("Select mode:"));
+    assert!(output.contains("1. ffmpeg 작업"));
+    assert!(output.contains("4. prepare-models 작업"));
+    assert!(output.contains("7. search-summaries 작업"));
+    assert!(output.contains("8. server 작업"));
 }
 
 #[test]
 fn retries_invalid_mode_selection() {
-    let mut reader = Cursor::new(b"9\n1\n".to_vec());
-    let mut output = Vec::new();
-
-    let command = resolve_cli_command(&[], &mut reader, &mut output).expect("command");
+    let (command, output) = resolve_prompted_command(b"9\n1\n");
 
     assert_eq!(command, CliCommand::Ffmpeg { input: None });
-    assert!(
-        String::from_utf8(output)
-            .expect("utf8")
-            .contains("Invalid selection. Enter 1, 2, 3, or 4.")
-    );
+    assert!(output.contains("Invalid selection. Enter a number from 1 to 8."));
 }
 
 #[test]
@@ -180,21 +179,6 @@ fn server_command_rejects_extra_arguments() {
 }
 
 #[test]
-fn prompts_for_server_mode_when_selected() {
-    let mut reader = Cursor::new(b"4\n".to_vec());
-    let mut output = Vec::new();
-
-    let command = resolve_cli_command(&[], &mut reader, &mut output).expect("command");
-
-    assert_eq!(command, CliCommand::Server);
-    assert!(
-        String::from_utf8(output)
-            .expect("utf8")
-            .contains("4. server 작업")
-    );
-}
-
-#[test]
 fn summary_command_rejects_extra_arguments() {
     let args = vec![OsString::from("summary"), OsString::from("extra")];
     let mut reader = Cursor::new(Vec::<u8>::new());
@@ -236,18 +220,35 @@ fn prepare_models_command_rejects_extra_arguments() {
 }
 
 #[test]
-fn prompts_for_summary_mode_when_selected() {
-    let mut reader = Cursor::new(b"3\n".to_vec());
-    let mut output = Vec::new();
+fn prompts_for_fixed_modes_when_selected() {
+    let cases = vec![
+        (b"1\n".as_slice(), CliCommand::Ffmpeg { input: None }),
+        (b"2\n".as_slice(), CliCommand::Stt),
+        (b"3\n".as_slice(), CliCommand::Summary),
+        (b"4\n".as_slice(), CliCommand::PrepareModels),
+        (b"5\n".as_slice(), CliCommand::PrepareLlamaModel),
+        (b"6\n".as_slice(), CliCommand::EmbedSummaries),
+        (b"8\n".as_slice(), CliCommand::Server),
+    ];
 
-    let command = resolve_cli_command(&[], &mut reader, &mut output).expect("command");
+    for (input, expected) in cases {
+        let (command, _) = resolve_prompted_command(input);
+        assert_eq!(command, expected);
+    }
+}
 
-    assert_eq!(command, CliCommand::Summary);
-    assert!(
-        String::from_utf8(output)
-            .expect("utf8")
-            .contains("3. summary 작업")
+#[test]
+fn prompts_for_search_summaries_mode_when_selected() {
+    let (command, output) = resolve_prompted_command(b"7\nmeeting notes\n");
+
+    assert_eq!(
+        command,
+        CliCommand::SearchSummaries {
+            query: "meeting notes".to_string()
+        }
     );
+    assert!(output.contains("7. search-summaries 작업"));
+    assert!(output.contains("Search query: "));
 }
 
 #[test]

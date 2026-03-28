@@ -5,7 +5,9 @@
 ## 1) 프로젝트 개요
 - 핵심 애플리케이션은 `rust/` 크레이트(`recordroute_rust`)입니다.
 - 파이프라인 단계는 `ffmpeg -> stt -> summary -> embedding` 순서로 확장되었습니다.
-- 상태/결과 저장소 SoT는 `db/index.json`이며, 락 파일(`db/index.lock`)을 통해 동기화됩니다.
+- 상태/결과 저장소 SoT는 메타데이터 DB와 오디오 저장소입니다.
+- 메타데이터 기본 저장소는 `db/index.sqlite3`이며, `StorageConfig`를 통해 PostgreSQL backend도 지원합니다.
+- `db/index.json`은 legacy 입력으로만 남아 있고 현재 권위 저장소가 아니며, `db/index.lock`도 더 이상 사용하지 않습니다.
 
 ## 2) 주요 코드 위치
 - 바이너리 엔트리: `rust/src/main.rs`
@@ -18,7 +20,7 @@
 - Llama(요약/임베딩) 래퍼: `rust/src/llama.rs`
 - 아키텍처 문서(최신 기준): `docs/architecture.md`
 - OpenAPI 명세: `docs/openapi.yaml`
-- API 설계 TODO: `docs/API_TODO.md`
+- 과거 API TODO 기록: `docs/deprecated/API_TODO.md`
 
 ## 3) 실행/개발 기본 명령
 - 서버 실행(루트):
@@ -51,7 +53,7 @@
 추가 데이터 모델 메모:
 - `JobRecord`에는 `split_strategy`, `summary_embedding`이 포함됩니다.
 - `TaskRecord`는 `task_id`(uuid), `retry_count`, `last_error`를 관리합니다.
-- 인덱스 포맷 버전은 현재 `3`입니다.
+- 인덱스 포맷 버전은 현재 `4`입니다.
 - 모델 준비 상태는 `model_preparations.whisper|llama|llama_embedding`에 저장됩니다.
 
 ## 5) 구현 원칙
@@ -74,8 +76,10 @@
   - `/server/ping`
   - `/system/status`, `/models/status`
   - `/models/{whisper|llama}/prepare`
+- 큐 계열:
+  - `/queue`
 - Job 계열:
-  - `/jobs`, `/jobs/upload`, `/jobs/completed`, `/jobs/by-source`
+  - `/jobs`, `/jobs/completed`, `/jobs/upload`, `/jobs/batch-process`
   - `/jobs/{job_id}`, `/jobs/{job_id}/status`
 - 산출물/태스크 계열:
   - `/jobs/{job_id}/stt`, `/jobs/{job_id}/stt/progress`

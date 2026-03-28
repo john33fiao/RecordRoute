@@ -8,6 +8,33 @@ use std::ffi::{OsStr, OsString};
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
+const CLI_COMMAND_SPECS: &[CliCommandSpec] = &[
+    CliCommandSpec::new(CliCommandKind::Ffmpeg, "ffmpeg", "ffmpeg 작업"),
+    CliCommandSpec::new(CliCommandKind::Stt, "stt", "stt 작업"),
+    CliCommandSpec::new(CliCommandKind::Summary, "summary", "summary 작업"),
+    CliCommandSpec::new(
+        CliCommandKind::PrepareModels,
+        "prepare-models",
+        "prepare-models 작업",
+    ),
+    CliCommandSpec::new(
+        CliCommandKind::PrepareLlamaModel,
+        "prepare-llama-model",
+        "prepare-llama-model 작업",
+    ),
+    CliCommandSpec::new(
+        CliCommandKind::EmbedSummaries,
+        "embed-summaries",
+        "embed-summaries 작업",
+    ),
+    CliCommandSpec::new(
+        CliCommandKind::SearchSummaries,
+        "search-summaries",
+        "search-summaries 작업",
+    ),
+    CliCommandSpec::new(CliCommandKind::Server, "server", "server 작업"),
+];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CliCommand {
     Ffmpeg { input: Option<PathBuf> },
@@ -18,6 +45,87 @@ pub(crate) enum CliCommand {
     EmbedSummaries,
     SearchSummaries { query: String },
     Server,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CliCommandKind {
+    Ffmpeg,
+    Stt,
+    Summary,
+    PrepareModels,
+    PrepareLlamaModel,
+    EmbedSummaries,
+    SearchSummaries,
+    Server,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CliCommandSpec {
+    kind: CliCommandKind,
+    name: &'static str,
+    menu_label: &'static str,
+}
+
+impl CliCommandSpec {
+    const fn new(kind: CliCommandKind, name: &'static str, menu_label: &'static str) -> Self {
+        Self {
+            kind,
+            name,
+            menu_label,
+        }
+    }
+}
+
+impl CliCommandKind {
+    fn parse_args(self, args: &[OsString]) -> Result<CliCommand, String> {
+        match self {
+            Self::Ffmpeg => match args {
+                [_, input] => Ok(CliCommand::Ffmpeg {
+                    input: Some(PathBuf::from(input)),
+                }),
+                [_] => Ok(CliCommand::Ffmpeg { input: None }),
+                _ => Err("expected zero, one, or two arguments".to_string()),
+            },
+            Self::Stt => parse_argless_command(args, CliCommand::Stt, "stt"),
+            Self::Summary => parse_argless_command(args, CliCommand::Summary, "summary"),
+            Self::PrepareModels => {
+                parse_argless_command(args, CliCommand::PrepareModels, "prepare-models")
+            }
+            Self::PrepareLlamaModel => {
+                parse_argless_command(args, CliCommand::PrepareLlamaModel, "prepare-llama-model")
+            }
+            Self::EmbedSummaries => {
+                parse_argless_command(args, CliCommand::EmbedSummaries, "embed-summaries")
+            }
+            Self::SearchSummaries => parse_search_summaries_args(args),
+            Self::Server => parse_argless_command(args, CliCommand::Server, "server"),
+        }
+    }
+
+    fn resolve_interactive(
+        self,
+        reader: &mut dyn BufRead,
+        writer: &mut dyn Write,
+    ) -> Result<CliCommand, String> {
+        match self {
+            Self::Ffmpeg => Ok(CliCommand::Ffmpeg { input: None }),
+            Self::Stt => Ok(CliCommand::Stt),
+            Self::Summary => Ok(CliCommand::Summary),
+            Self::PrepareModels => Ok(CliCommand::PrepareModels),
+            Self::PrepareLlamaModel => Ok(CliCommand::PrepareLlamaModel),
+            Self::EmbedSummaries => Ok(CliCommand::EmbedSummaries),
+            Self::SearchSummaries => {
+                write!(writer, "Search query: ").map_err(|error| error.to_string())?;
+                writer.flush().map_err(|error| error.to_string())?;
+
+                let line = read_line(reader, "failed to read search query")?;
+                Ok(CliCommand::SearchSummaries {
+                    query: line.trim().to_string(),
+                })
+            }
+            Self::Server => Ok(CliCommand::Server),
+        }
+    }
 }
 
 pub fn main_cli() -> Result<(), String> {
@@ -94,49 +202,17 @@ pub(crate) fn resolve_cli_command(
 ) -> Result<CliCommand, String> {
     match args {
         [] => prompt_for_mode(reader, writer),
-        [mode] if mode == OsStr::new("ffmpeg") => Ok(CliCommand::Ffmpeg { input: None }),
-        [mode, input] if mode == OsStr::new("ffmpeg") => Ok(CliCommand::Ffmpeg {
-            input: Some(PathBuf::from(input)),
-        }),
-        [mode] if mode == OsStr::new("stt") => Ok(CliCommand::Stt),
-        [mode, ..] if mode == OsStr::new("stt") => {
-            Err("stt mode does not accept additional arguments".to_string())
+        [mode, ..] => {
+            if let Some(spec) = find_command_spec(mode) {
+                spec.kind.parse_args(args)
+            } else if let [input] = args {
+                Ok(CliCommand::Ffmpeg {
+                    input: Some(PathBuf::from(input)),
+                })
+            } else {
+                Err("expected zero, one, or two arguments".to_string())
+            }
         }
-        [mode] if mode == OsStr::new("summary") => Ok(CliCommand::Summary),
-        [mode, ..] if mode == OsStr::new("summary") => {
-            Err("summary mode does not accept additional arguments".to_string())
-        }
-        [mode] if mode == OsStr::new("prepare-models") => Ok(CliCommand::PrepareModels),
-        [mode, ..] if mode == OsStr::new("prepare-models") => {
-            Err("prepare-models mode does not accept additional arguments".to_string())
-        }
-        [mode] if mode == OsStr::new("prepare-llama-model") => Ok(CliCommand::PrepareLlamaModel),
-        [mode, ..] if mode == OsStr::new("prepare-llama-model") => {
-            Err("prepare-llama-model mode does not accept additional arguments".to_string())
-        }
-        [mode] if mode == OsStr::new("embed-summaries") => Ok(CliCommand::EmbedSummaries),
-        [mode, ..] if mode == OsStr::new("embed-summaries") => {
-            Err("embed-summaries mode does not accept additional arguments".to_string())
-        }
-        [mode, query] if mode == OsStr::new("search-summaries") => {
-            Ok(CliCommand::SearchSummaries {
-                query: query.to_string_lossy().into_owned(),
-            })
-        }
-        [mode] if mode == OsStr::new("search-summaries") => {
-            Err("search-summaries mode requires a query argument".to_string())
-        }
-        [mode, ..] if mode == OsStr::new("search-summaries") => {
-            Err("search-summaries mode accepts exactly one query argument".to_string())
-        }
-        [mode] if mode == OsStr::new("server") => Ok(CliCommand::Server),
-        [mode, ..] if mode == OsStr::new("server") => {
-            Err("server mode does not accept additional arguments".to_string())
-        }
-        [input] => Ok(CliCommand::Ffmpeg {
-            input: Some(PathBuf::from(input)),
-        }),
-        _ => Err("expected zero, one, or two arguments".to_string()),
     }
 }
 
@@ -161,24 +237,58 @@ pub fn resolve_input_path(
 fn prompt_for_mode(reader: &mut dyn BufRead, writer: &mut dyn Write) -> Result<CliCommand, String> {
     loop {
         writeln!(writer, "Select mode:").map_err(|error| error.to_string())?;
-        writeln!(writer, "1. ffmpeg 작업").map_err(|error| error.to_string())?;
-        writeln!(writer, "2. stt 작업").map_err(|error| error.to_string())?;
-        writeln!(writer, "3. summary 작업").map_err(|error| error.to_string())?;
-        writeln!(writer, "4. server 작업").map_err(|error| error.to_string())?;
+        for (index, spec) in CLI_COMMAND_SPECS.iter().enumerate() {
+            writeln!(writer, "{}. {}", index + 1, spec.menu_label)
+                .map_err(|error| error.to_string())?;
+        }
         write!(writer, "Enter number: ").map_err(|error| error.to_string())?;
         writer.flush().map_err(|error| error.to_string())?;
 
         let line = read_line(reader, "failed to read mode selection")?;
-        match line.trim() {
-            "1" => return Ok(CliCommand::Ffmpeg { input: None }),
-            "2" => return Ok(CliCommand::Stt),
-            "3" => return Ok(CliCommand::Summary),
-            "4" => return Ok(CliCommand::Server),
-            _ => {
-                writeln!(writer, "Invalid selection. Enter 1, 2, 3, or 4.")
-                    .map_err(|error| error.to_string())?;
-            }
+        if let Some(spec) = parse_mode_selection(line.trim()) {
+            return spec.kind.resolve_interactive(reader, writer);
         }
+
+        writeln!(
+            writer,
+            "Invalid selection. Enter a number from 1 to {}.",
+            CLI_COMMAND_SPECS.len()
+        )
+        .map_err(|error| error.to_string())?;
+    }
+}
+
+fn find_command_spec(mode: &OsStr) -> Option<&'static CliCommandSpec> {
+    CLI_COMMAND_SPECS
+        .iter()
+        .find(|spec| mode == OsStr::new(spec.name))
+}
+
+fn parse_mode_selection(selection: &str) -> Option<&'static CliCommandSpec> {
+    let index = selection.parse::<usize>().ok()?.checked_sub(1)?;
+    CLI_COMMAND_SPECS.get(index)
+}
+
+fn parse_argless_command(
+    args: &[OsString],
+    command: CliCommand,
+    name: &str,
+) -> Result<CliCommand, String> {
+    match args {
+        [_] => Ok(command),
+        [_, ..] => Err(format!("{name} mode does not accept additional arguments")),
+        _ => Err("expected zero, one, or two arguments".to_string()),
+    }
+}
+
+fn parse_search_summaries_args(args: &[OsString]) -> Result<CliCommand, String> {
+    match args {
+        [_, query] => Ok(CliCommand::SearchSummaries {
+            query: query.to_string_lossy().into_owned(),
+        }),
+        [_] => Err("search-summaries mode requires a query argument".to_string()),
+        [_, ..] => Err("search-summaries mode accepts exactly one query argument".to_string()),
+        _ => Err("expected zero, one, or two arguments".to_string()),
     }
 }
 

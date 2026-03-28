@@ -75,6 +75,7 @@
 
 `audio-cache`와 `audio-spool`은 재생성 가능한 작업 디렉터리다.
 로컬 cache/spool을 비워도 완료 job의 transcript/summary/embedding 조회와 후속 처리는 가능해야 한다.
+legacy `db/index.json` 파일이 남아 있어도 현재 backend는 이를 권위 저장소로 읽지 않는다.
 
 ## 4. 메타데이터 DB 스키마
 
@@ -98,6 +99,7 @@
   - embedding metadata와 벡터
 
 `job_dir`와 절대 파일 경로는 영속 메타데이터에 저장하지 않는다.
+현재 index 포맷 버전은 `4`다.
 
 ## 5. 오디오 저장 규약
 

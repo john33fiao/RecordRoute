@@ -115,39 +115,32 @@ embedding은 이제 별도 실험 코드가 아니라 정식 stage로 보는 편
 
 이제 stage별 차이는 prerequisite, payload 의미, 성공 시 domain write에 집중되고, 공통 lifecycle 반복은 주요 backlog가 아니다.
 
+### 2.12 interactive CLI 표시와 실제 지원 명령이 다시 동기화됐다
+
+- `app/cli.rs`는 이제 command metadata를 한 곳에 두고, argv parsing과 no-args 프롬프트 표시를 같은 정의에서 만든다.
+- interactive 메뉴가 `prepare-models`, `prepare-llama-model`, `embed-summaries`, `search-summaries`까지 모두 노출한다.
+- `search-summaries`는 interactive 선택 뒤 query를 한 번 더 받아 `CliCommand::SearchSummaries`로 연결된다.
+
+즉 다음에 CLI 명령이 늘어나도 메뉴와 실제 parser가 따로 드리프트할 이유가 크게 줄었다.
+
+### 2.13 기준 문서/가이드의 현재 상태 정리가 반영됐다
+
+- `AGENTS.md`는 DB-backed 저장 구조, index 포맷 버전, 현재 API 체크포인트를 기준 코드에 맞췄다.
+- `docs/architecture.md`는 legacy JSON 파일이 더 이상 권위 저장소가 아니라는 현재 저장 모델을 명시한다.
+- `docs/openapi.yaml`은 현재 router 기준으로 다시 확인했고, 상단 설명도 DB backend 현실에 맞게 다듬었다.
+
+즉 문서 동기화는 여전히 수동이지만, 지금 기준으로 바로 오해를 만드는 설명은 한 번 정리된 상태다.
+
 ## 3. 미완료 항목
 
-이 절의 항목만 보면 다음 작업을 이어갈 수 있다.
-
-### 3.6 P3. interactive CLI가 실제 지원 명령과 동기화되지 않는다
-
-- 현재 상태
-  - 인자 기반 CLI는 `prepare-models`, `prepare-llama-model`, `embed-summaries`, `search-summaries`를 지원한다.
-  - 하지만 no-args 프롬프트는 아직 `ffmpeg`, `stt`, `summary`, `server` 네 가지만 보여 준다.
-- 문제
-  - CLI 기능 추가가 대화형 UX에 자동 반영되지 않는다.
-- 다음 슬라이스
-  - 프롬프트 표시 목록을 `CliCommand` 정의와 같은 소스에서 만들거나, 적어도 한 곳에서만 관리하게 바꾼다.
-
-### 3.7 P3. 문서 동기화는 아직 수동이다
-
-- 현재 상태
-  - `docs/architecture.md`, `docs/openapi.yaml`은 현재 구조를 어느 정도 반영하지만 자동 생성 체계는 없다.
-  - 저장소 기준 문서 일부는 아직 legacy JSON 인덱스 전제를 남기고 있다.
-- 문제
-  - 코드 구조가 바뀔 때 문서 드리프트가 다시 생긴다.
-- 다음 슬라이스
-  - 최소한 저장소/런타임/메타 저장소 기준 문서를 현재 구조에 맞춰 한 번 더 정리한다.
+현재 기준으로 즉시 작업화할 미완료 리팩터 항목은 없다.
 
 ## 4. 다음 작업 순서 제안
 
-다음 작업은 아래 순서로 보는 편이 효율적이다.
-
-1. `3.6 CLI 표시 동기화`
-2. `3.7 문서 동기화`
+새 구조 변경이 생기면 이 문서를 다시 판정 문서로 갱신하고, 미완료 항목이 생길 때만 3장에 추가한다.
 
 ## 5. 사용법
 
 - 이미 끝난 축만 확인하려면 2장만 보면 된다.
 - 이후 작업 backlog만 보려면 3장만 보면 된다.
-- 실제 후속 구현은 3장의 항목을 위에서부터 하나씩 슬라이스로 잘라 진행하면 된다.
+- 3장이 비어 있으면 현재 기준으로는 신규 리팩터 backlog보다 회귀 방지와 drift 점검을 우선 보면 된다.
