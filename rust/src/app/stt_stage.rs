@@ -181,7 +181,7 @@ pub fn run_stt_with_repo_root(
     let index_store = IndexStore::new(repo_root);
     let candidates = collect_stt_candidates(&index_store)?;
     if candidates.is_empty() {
-        return Err("no job folders with supported audio files found in db/index.json".to_string());
+        return Err("no completed jobs with supported audio artifacts found".to_string());
     }
 
     let selected = select_stt_candidate(&candidates, reader, writer)?;

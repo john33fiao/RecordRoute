@@ -193,7 +193,7 @@ pub fn run_summary_with_repo_root(
     let index_store = IndexStore::new(repo_root);
     let candidates = collect_summary_candidates(&index_store)?;
     if candidates.is_empty() {
-        return Err("no job folders with transcription files found in db/index.json".to_string());
+        return Err("no completed jobs with transcription data found".to_string());
     }
 
     let selected = select_summary_candidate(&candidates, reader, writer)?;

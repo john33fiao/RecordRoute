@@ -6,6 +6,20 @@ use crate::test_support::{
 };
 use std::fs;
 use std::io::Cursor;
+
+#[test]
+fn run_summary_reports_current_storage_model_when_no_candidates_exist() {
+    let repo_root = temp_workspace();
+    let mut reader = Cursor::new(Vec::<u8>::new());
+    let mut output = Vec::new();
+
+    let error =
+        run_summary_with_repo_root(&repo_root, &mut reader, &mut output).expect_err("summary");
+
+    assert_eq!(error, "no completed jobs with transcription data found");
+    assert!(!error.contains("db/index.json"));
+}
+
 #[test]
 fn run_summary_processes_transcript_files_in_selected_job_dir() {
     let _guard = env_lock()
