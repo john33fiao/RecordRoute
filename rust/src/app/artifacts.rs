@@ -72,6 +72,26 @@ pub(crate) fn summary_prompt_file_path(
     Ok(summary_dir.join(file_name))
 }
 
+pub(crate) fn one_line_summary_prompt_file_path(
+    summary_dir: &Path,
+    source_file_name: &str,
+) -> Result<PathBuf, String> {
+    let mut file_name = OsString::from(".");
+    file_name.push(source_file_stem(source_file_name)?);
+    file_name.push(".one-line.prompt.txt");
+    Ok(summary_dir.join(file_name))
+}
+
+pub(crate) fn one_line_summary_output_path(
+    summary_dir: &Path,
+    source_file_name: &str,
+) -> Result<PathBuf, String> {
+    let mut file_name = OsString::from(".");
+    file_name.push(source_file_stem(source_file_name)?);
+    file_name.push(".one-line.txt");
+    Ok(summary_dir.join(file_name))
+}
+
 pub(crate) fn summary_file_name() -> &'static str {
     SUMMARY_FILE_NAME
 }

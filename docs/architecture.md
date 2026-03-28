@@ -94,7 +94,7 @@ legacy `db/index.json` 파일이 남아 있어도 현재 backend는 이를 권�
 - `transcripts`
   - transcript id, file name, text
 - `summaries`
-  - summary file name, markdown text
+  - summary file name, markdown text, optional one-line alias
 - `summary_embeddings`
   - embedding metadata와 벡터
 
@@ -153,6 +153,7 @@ ffmpeg 결과 오디오는 오디오 루트 아래 job별 디렉터리에 저장
 3. queued/running이면 `Deduplicated`
 4. 아니면 `llm` queue에 넣는다.
 5. 실행 시 transcript text로 prompt를 만들고 summary markdown을 생성한 뒤 DB에 저장한다.
+6. 같은 summary task 안에서 전체요약을 바탕으로 한줄요약(alias)을 생성해 같은 row에 저장한다.
 
 ### 6.4 embedding
 

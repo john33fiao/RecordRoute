@@ -1,6 +1,6 @@
 use super::types::{SttProgressResponse, SttTranscriptText};
 use crate::error::{AppError, AppResult};
-use crate::index::{IndexStore, JobRecord, TaskStatus, TaskType};
+use crate::index::{IndexStore, JobRecord, SummaryRecord, TaskStatus, TaskType};
 use std::path::Path;
 
 pub(crate) fn collect_job_files(repo_root: &Path, job_id: &str) -> AppResult<Vec<String>> {
@@ -98,12 +98,11 @@ pub(crate) fn read_stt_transcript(
         .ok_or_else(|| AppError::not_found(format!("transcript not found: {transcript_id}")))
 }
 
-pub(crate) fn read_summary_text(repo_root: &Path, job_id: &str) -> AppResult<String> {
+pub(crate) fn read_summary_text(repo_root: &Path, job_id: &str) -> AppResult<SummaryRecord> {
     let _job = find_job(repo_root, job_id)?;
     IndexStore::new(repo_root)
         .get_summary(job_id)
         .map_err(AppError::internal)?
-        .map(|summary| summary.text)
         .ok_or_else(|| AppError::not_found(format!("summary not found for job: {job_id}")))
 }
 

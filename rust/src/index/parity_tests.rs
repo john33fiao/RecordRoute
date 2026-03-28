@@ -5,8 +5,10 @@ use crate::storage::{
     METADATA_DRIVER_ENV_VAR, METADATA_POSTGRES_URL_ENV_VAR, METADATA_SQLITE_PATH_ENV_VAR,
 };
 use crate::test_support::{
-    env_lock, mark_job_completed_with_audio, seed_summary, seed_transcripts, test_job,
+    env_lock, mark_job_completed_with_audio, seed_summary_with_one_line, seed_transcripts,
+    test_job,
 };
+use rusqlite::Connection;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -264,7 +266,12 @@ fn backend_parity_round_trips_side_tables() {
             ],
         )
         .unwrap_or_else(|error| panic!("{} seed transcripts: {error}", case.name()));
-        seed_summary(store, "job-sidecar", "## 요약\n- 합의 완료")
+        seed_summary_with_one_line(
+            store,
+            "job-sidecar",
+            "## 요약\n- 합의 완료",
+            Some("합의 완료"),
+        )
             .unwrap_or_else(|error| panic!("{} seed summary: {error}", case.name()));
 
         assert_eq!(
@@ -327,11 +334,93 @@ fn backend_parity_round_trips_side_tables() {
                 job_id: "job-sidecar".to_string(),
                 file_name: "result.md".to_string(),
                 text: "## 요약\n- 합의 완료".to_string(),
+                one_line_summary: Some("합의 완료".to_string()),
             }),
             "{} summary should round-trip",
             case.name()
         );
     });
+}
+
+#[test]
+fn backend_parity_migrates_existing_summary_schema() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _env_guard = StorageEnvGuard::capture();
+
+    for case in backend_cases() {
+        let repo_root = temp_workspace("summary-migration", case.name());
+        configure_backend_env(&case);
+
+        match &case {
+            BackendCase::Sqlite => {
+                let sqlite_path = repo_root.join("db/index.sqlite3");
+                fs::create_dir_all(
+                    sqlite_path
+                        .parent()
+                        .expect("sqlite path should have a parent directory"),
+                )
+                .expect("sqlite dir");
+                let connection = Connection::open(&sqlite_path).expect("sqlite open");
+                connection
+                    .execute_batch(
+                        "
+                        CREATE TABLE summaries (
+                            job_id TEXT PRIMARY KEY,
+                            file_name TEXT NOT NULL,
+                            text TEXT NOT NULL
+                        );
+                        ",
+                    )
+                    .expect("legacy sqlite summaries schema");
+            }
+            BackendCase::Postgres { url } => {
+                let mut client = Client::connect(url, NoTls).expect("postgres connect");
+                client
+                    .batch_execute(
+                        "
+                        DROP TABLE IF EXISTS summary_embeddings, summaries, transcripts,
+                            stt_dictionary_keywords, audio_artifacts, tasks, jobs,
+                            model_preparations, queue_state CASCADE;
+                        CREATE TABLE summaries (
+                            job_id TEXT PRIMARY KEY,
+                            file_name TEXT NOT NULL,
+                            text TEXT NOT NULL
+                        );
+                        ",
+                    )
+                    .expect("legacy postgres summaries schema");
+            }
+        }
+
+        let store = IndexStore::new(&repo_root);
+        store
+            .ensure_db_dir()
+            .unwrap_or_else(|error| panic!("{} migrate legacy summary schema: {error}", case.name()));
+        store
+            .upsert_summary(&SummaryRecord {
+                job_id: "job-migrated".to_string(),
+                file_name: "result.md".to_string(),
+                text: "migrated summary".to_string(),
+                one_line_summary: Some("migrated alias".to_string()),
+            })
+            .unwrap_or_else(|error| panic!("{} upsert migrated summary: {error}", case.name()));
+
+        assert_eq!(
+            store
+                .get_summary("job-migrated")
+                .unwrap_or_else(|error| panic!("{} read migrated summary: {error}", case.name())),
+            Some(SummaryRecord {
+                job_id: "job-migrated".to_string(),
+                file_name: "result.md".to_string(),
+                text: "migrated summary".to_string(),
+                one_line_summary: Some("migrated alias".to_string()),
+            }),
+            "{} migrated summary schema should support one_line_summary",
+            case.name()
+        );
+    }
 }
 
 #[test]

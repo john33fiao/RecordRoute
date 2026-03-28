@@ -293,7 +293,7 @@ impl MetadataBackend for PostgresMetadataStore {
         let mut client = self.connect()?;
         client
             .query_opt(
-                "SELECT job_id, file_name, text FROM summaries WHERE job_id = $1",
+                "SELECT job_id, file_name, text, one_line_summary FROM summaries WHERE job_id = $1",
                 &[&job_id],
             )
             .map_err(|error| format!("failed to read postgres summary: {error}"))?
@@ -302,6 +302,7 @@ impl MetadataBackend for PostgresMetadataStore {
                     job_id: row.get(0),
                     file_name: row.get(1),
                     text: row.get(2),
+                    one_line_summary: row.get(3),
                 })
             })
             .transpose()
@@ -311,11 +312,19 @@ impl MetadataBackend for PostgresMetadataStore {
         let mut client = self.connect()?;
         client
             .execute(
-                "INSERT INTO summaries (job_id, file_name, text)
-                 VALUES ($1, $2, $3)
+                "INSERT INTO summaries (job_id, file_name, text, one_line_summary)
+                 VALUES ($1, $2, $3, $4)
                  ON CONFLICT (job_id)
-                 DO UPDATE SET file_name = EXCLUDED.file_name, text = EXCLUDED.text",
-                &[&record.job_id, &record.file_name, &record.text],
+                 DO UPDATE SET
+                    file_name = EXCLUDED.file_name,
+                    text = EXCLUDED.text,
+                    one_line_summary = EXCLUDED.one_line_summary",
+                &[
+                    &record.job_id,
+                    &record.file_name,
+                    &record.text,
+                    &record.one_line_summary,
+                ],
             )
             .map_err(|error| {
                 format!(
@@ -513,7 +522,8 @@ fn initialize_schema(client: &mut Client) -> Result<(), String> {
             CREATE TABLE IF NOT EXISTS summaries (
                 job_id TEXT PRIMARY KEY,
                 file_name TEXT NOT NULL,
-                text TEXT NOT NULL
+                text TEXT NOT NULL,
+                one_line_summary TEXT NULL
             );
             CREATE TABLE IF NOT EXISTS summary_embeddings (
                 job_id TEXT PRIMARY KEY,
@@ -526,6 +536,7 @@ fn initialize_schema(client: &mut Client) -> Result<(), String> {
                 storage_key TEXT NOT NULL,
                 PRIMARY KEY (job_id, logical_name)
             );
+            ALTER TABLE summaries ADD COLUMN IF NOT EXISTS one_line_summary TEXT NULL;
             ",
         )
         .map_err(|error| format!("failed to initialize postgres metadata schema: {error}"))

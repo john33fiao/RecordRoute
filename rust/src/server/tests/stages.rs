@@ -7,7 +7,8 @@ use super::super::types::{
 use super::support::*;
 use crate::index::{IndexStore, TaskType};
 use crate::test_support::{
-    mark_job_completed_with_audio, seed_summary, seed_transcripts, test_job,
+    mark_job_completed_with_audio, seed_summary, seed_summary_with_one_line, seed_transcripts,
+    test_job,
 };
 use axum::http::StatusCode;
 use tower::util::ServiceExt;
@@ -208,7 +209,8 @@ async fn get_summary_text_returns_result_md_as_json() {
     mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
         .expect("mark completed");
     store.insert_job(job).expect("insert job");
-    seed_summary(&store, job_id, "summary body").expect("seed summary");
+    seed_summary_with_one_line(&store, job_id, "summary body", Some("summary alias"))
+        .expect("seed summary");
 
     let app = router_with_repo_root(repo_root);
     let response = app
@@ -221,6 +223,36 @@ async fn get_summary_text_returns_result_md_as_json() {
     assert_eq!(body.job_id, job_id);
     assert_eq!(body.file_name, "result.md");
     assert_eq!(body.text, "summary body");
+    assert_eq!(body.one_line_summary.as_deref(), Some("summary alias"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_summary_text_returns_null_one_line_summary_when_alias_missing() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let job_id = "job-summary-text-no-alias";
+    let mut job = test_job(
+        job_id,
+        "2026-01-01T00:00:00Z",
+        "sources/job-summary-text-no-alias/source.wav",
+        "hash-summary-text-no-alias",
+        "summary-no-alias.wav",
+    );
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+    seed_summary(&store, job_id, "summary body").expect("seed summary");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(get_request("/jobs/job-summary-text-no-alias/summary/text"))
+        .await
+        .expect("summary text response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: SummaryTextResponse = read_json(response).await;
+    assert_eq!(body.job_id, job_id);
+    assert_eq!(body.one_line_summary, None);
 }
 
 #[tokio::test(flavor = "multi_thread")]

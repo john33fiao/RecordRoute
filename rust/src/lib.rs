@@ -133,10 +133,20 @@ pub(crate) mod test_support {
     }
 
     pub(crate) fn seed_summary(store: &IndexStore, job_id: &str, text: &str) -> Result<(), String> {
+        seed_summary_with_one_line(store, job_id, text, None)
+    }
+
+    pub(crate) fn seed_summary_with_one_line(
+        store: &IndexStore,
+        job_id: &str,
+        text: &str,
+        one_line_summary: Option<&str>,
+    ) -> Result<(), String> {
         store.upsert_summary(&SummaryRecord {
             job_id: job_id.to_string(),
             file_name: "result.md".to_string(),
             text: text.to_string(),
+            one_line_summary: one_line_summary.map(str::to_string),
         })
     }
 

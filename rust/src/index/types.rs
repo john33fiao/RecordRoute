@@ -241,6 +241,8 @@ pub struct SummaryRecord {
     pub job_id: String,
     pub file_name: String,
     pub text: String,
+    #[serde(default)]
+    pub one_line_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

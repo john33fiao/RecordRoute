@@ -1097,6 +1097,11 @@ components:
         text:
           type: string
           description: Markdown summary body
+        one_line_summary:
+          oneOf:
+            - type: string
+            - type: 'null'
+          description: Optional one-line alias for the recording
 
     SummarySearchRequest:
       type: object

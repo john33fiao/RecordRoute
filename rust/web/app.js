@@ -36,6 +36,7 @@ const state = {
   transcripts: [],
   summaryStatus: null,
   summaryText: "",
+  summaryOneLine: "",
   embeddingStatus: null,
   systemStatus: null,
   modelsStatus: null,
@@ -659,6 +660,7 @@ async function refreshSelectedJob(jobId, { showMessage = false } = {}) {
     state.embeddingStatus = embeddingResult.data;
     state.transcripts = [];
     state.summaryText = "";
+    state.summaryOneLine = "";
 
     await Promise.all([refreshTranscripts(jobId), refreshSummaryText(jobId)]);
     renderSelectedJob();
@@ -695,8 +697,10 @@ async function refreshSummaryText(jobId) {
   try {
     const { data } = await fetchJson(`/jobs/${encodeURIComponent(jobId)}/summary/text`);
     state.summaryText = data?.text || "";
+    state.summaryOneLine = data?.one_line_summary || "";
   } catch (_error) {
     state.summaryText = "";
+    state.summaryOneLine = "";
   }
 }
 
@@ -710,6 +714,7 @@ function clearSelectedJob() {
   state.transcripts = [];
   state.summaryStatus = null;
   state.summaryText = "";
+  state.summaryOneLine = "";
   state.embeddingStatus = null;
   stopPoller("selected-job");
   renderSelectedJob();
@@ -890,7 +895,9 @@ function renderSelectedJob() {
     return;
   }
 
-  elements.selectedJobTitle.textContent = `${job.source_file_name} · ${job.job_id}`;
+  elements.selectedJobTitle.textContent = `${job.source_file_name} · ${
+    state.summaryOneLine || job.job_id
+  }`;
   elements.jobOverview.innerHTML = [
     ["job_id", job.job_id],
     ["status", job.status],

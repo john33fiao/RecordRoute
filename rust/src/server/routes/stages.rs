@@ -243,8 +243,9 @@ pub(crate) async fn get_summary_text(
 
     Json(SummaryTextResponse {
         job_id,
-        file_name: crate::app::artifacts::summary_file_name().to_string(),
-        text: summary,
+        file_name: summary.file_name,
+        text: summary.text,
+        one_line_summary: summary.one_line_summary,
     })
     .into_response()
 }

@@ -344,13 +344,14 @@ impl MetadataBackend for SqliteMetadataStore {
         let connection = self.open()?;
         connection
             .query_row(
-                "SELECT job_id, file_name, text FROM summaries WHERE job_id = ?",
+                "SELECT job_id, file_name, text, one_line_summary FROM summaries WHERE job_id = ?",
                 [job_id],
                 |row| {
                     Ok(SummaryRecord {
                         job_id: row.get(0)?,
                         file_name: row.get(1)?,
                         text: row.get(2)?,
+                        one_line_summary: row.get(3)?,
                     })
                 },
             )
@@ -362,11 +363,19 @@ impl MetadataBackend for SqliteMetadataStore {
         let connection = self.open()?;
         connection
             .execute(
-                "INSERT INTO summaries (job_id, file_name, text)
-                 VALUES (?, ?, ?)
+                "INSERT INTO summaries (job_id, file_name, text, one_line_summary)
+                 VALUES (?, ?, ?, ?)
                  ON CONFLICT(job_id)
-                 DO UPDATE SET file_name = excluded.file_name, text = excluded.text",
-                params![record.job_id, record.file_name, record.text],
+                 DO UPDATE SET
+                    file_name = excluded.file_name,
+                    text = excluded.text,
+                    one_line_summary = excluded.one_line_summary",
+                params![
+                    record.job_id,
+                    record.file_name,
+                    record.text,
+                    record.one_line_summary
+                ],
             )
             .map_err(|error| {
                 format!(
@@ -581,7 +590,8 @@ fn initialize_schema(connection: &Connection) -> Result<(), String> {
             CREATE TABLE IF NOT EXISTS summaries (
                 job_id TEXT PRIMARY KEY,
                 file_name TEXT NOT NULL,
-                text TEXT NOT NULL
+                text TEXT NOT NULL,
+                one_line_summary TEXT NULL
             );
             CREATE TABLE IF NOT EXISTS summary_embeddings (
                 job_id TEXT PRIMARY KEY,
@@ -596,5 +606,28 @@ fn initialize_schema(connection: &Connection) -> Result<(), String> {
             );
             ",
         )
-        .map_err(|error| format!("failed to initialize sqlite schema: {error}"))
+        .map_err(|error| format!("failed to initialize sqlite schema: {error}"))?;
+    ensure_summary_one_line_column(connection)
+}
+
+fn ensure_summary_one_line_column(connection: &Connection) -> Result<(), String> {
+    let mut stmt = connection
+        .prepare("PRAGMA table_info(summaries)")
+        .map_err(|error| format!("failed to inspect sqlite summaries schema: {error}"))?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| format!("failed to query sqlite summaries schema: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("failed to collect sqlite summaries schema: {error}"))?;
+    if columns.iter().any(|column| column == "one_line_summary") {
+        return Ok(());
+    }
+
+    connection
+        .execute(
+            "ALTER TABLE summaries ADD COLUMN one_line_summary TEXT NULL",
+            [],
+        )
+        .map_err(|error| format!("failed to migrate sqlite summaries schema: {error}"))?;
+    Ok(())
 }

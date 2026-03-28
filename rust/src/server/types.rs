@@ -153,6 +153,7 @@ pub(crate) struct SummaryTextResponse {
     pub job_id: String,
     pub file_name: String,
     pub text: String,
+    pub one_line_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

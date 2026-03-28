@@ -152,10 +152,17 @@ pub fn execute_summary_job(
                 summary_file.display()
             )
         })?;
+        let one_line_summary = generate_one_line_summary(
+            &toolchain,
+            &summary_dir,
+            &job.source_file_name,
+            &summary_text,
+        )?;
         index_store.upsert_summary(&SummaryRecord {
             job_id: job_id.to_string(),
             file_name: artifacts::summary_file_name().to_string(),
             text: summary_text,
+            one_line_summary: Some(one_line_summary),
         })?;
         Ok(())
     })();
@@ -326,6 +333,77 @@ fn build_summary_prompt(transcript_files: &[TranscriptRecord]) -> Result<String,
     }
 
     Ok(prompt)
+}
+
+fn build_one_line_summary_prompt(summary_text: &str) -> String {
+    format!(
+        "당신은 녹음 파일의 제목 아래에 붙일 한국어 한줄 별칭(alias)을 만드는 도우미다.\n\
+- 아래 요약을 읽고 핵심 맥락만 담은 한줄 별칭을 만든다.\n\
+- 출력은 한국어 평문 한 줄만 작성한다.\n\
+- 마크다운 헤더, bullet, 번호, 따옴표, 파일명, job id는 쓰지 않는다.\n\
+- 길이는 가능하면 30자 안팎으로 유지한다.\n\
+- 확인할 수 없는 내용은 추측하지 않는다.\n\
+\n[summary]\n{summary_text}\n"
+    )
+}
+
+fn generate_one_line_summary(
+    toolchain: &LlamaToolchain,
+    summary_dir: &Path,
+    source_file_name: &str,
+    summary_text: &str,
+) -> Result<String, String> {
+    let prompt_file = artifacts::one_line_summary_prompt_file_path(summary_dir, source_file_name)?;
+    let output_file = artifacts::one_line_summary_output_path(summary_dir, source_file_name)?;
+    fs::write(&prompt_file, build_one_line_summary_prompt(summary_text)).map_err(|error| {
+        format!(
+            "failed to write one-line summary prompt {}: {error}",
+            prompt_file.display()
+        )
+    })?;
+    let generation_result = run_summary_generation(toolchain, &prompt_file, &output_file);
+    let _ = fs::remove_file(&prompt_file);
+    if let Err(error) = generation_result {
+        let _ = fs::remove_file(&output_file);
+        return Err(error);
+    }
+    let raw = match fs::read_to_string(&output_file) {
+        Ok(raw) => raw,
+        Err(error) => {
+            let _ = fs::remove_file(&output_file);
+            return Err(format!(
+                "failed to read generated one-line summary {}: {error}",
+                output_file.display()
+            ));
+        }
+    };
+    let _ = fs::remove_file(&output_file);
+
+    let one_line_summary = normalize_one_line_summary(&raw);
+    if one_line_summary.is_empty() {
+        return Err("generated one-line summary is empty".to_string());
+    }
+    Ok(one_line_summary)
+}
+
+fn normalize_one_line_summary(text: &str) -> String {
+    let collapsed = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let trimmed = collapsed.trim();
+    let trimmed = trimmed
+        .strip_prefix("## ")
+        .or_else(|| trimmed.strip_prefix("# "))
+        .unwrap_or(trimmed);
+    let trimmed = trimmed
+        .strip_prefix("- ")
+        .or_else(|| trimmed.strip_prefix("* "))
+        .or_else(|| trimmed.strip_prefix("> "))
+        .unwrap_or(trimmed);
+    trimmed.trim_matches('"').trim().to_string()
 }
 
 fn summary_payload_satisfies(entry: &crate::index::QueueEntry, requested_force: bool) -> bool {

@@ -1,8 +1,9 @@
 use super::super::*;
 use super::support::*;
-use crate::index::{IndexStore, QueuePayload};
+use crate::index::{IndexStore, QueuePayload, TaskType};
 use crate::test_support::{
-    env_lock, mark_job_completed_with_audio, seed_summary, seed_transcripts, test_job,
+    env_lock, mark_job_completed_with_audio, seed_summary, seed_summary_with_one_line,
+    seed_transcripts, test_job,
 };
 use std::fs;
 use std::io::Cursor;
@@ -119,6 +120,16 @@ fn run_summary_processes_transcript_files_in_selected_job_dir() {
     );
     assert!(!summary.summary_dir.join(".input.prompt.txt").exists());
 
+    let persisted_summary = store
+        .get_summary("job-1")
+        .expect("persisted summary read")
+        .expect("persisted summary");
+    assert_eq!(persisted_summary.text, "synthetic summary");
+    assert_eq!(
+        persisted_summary.one_line_summary.as_deref(),
+        Some("synthetic one-line summary")
+    );
+
     let prompt = fs::read_to_string(prompt_capture).expect("prompt capture");
     assert!(prompt.contains("[channel_01.txt]"));
     assert!(prompt.contains("[channel_02.txt]"));
@@ -127,6 +138,7 @@ fn run_summary_processes_transcript_files_in_selected_job_dir() {
     assert!(prompt.contains("## 요약"));
     assert!(prompt.contains("통화, 회의, 음성 메모"));
     assert!(prompt.contains("화자 A가 일정과 비용을 설명했다."));
+    assert!(prompt.contains("한줄 별칭"));
 
     let llama_log = fs::read_to_string(llama_log).expect("llama log");
     assert!(llama_log.contains("--single-turn"));
@@ -181,6 +193,13 @@ fn run_summary_reuses_existing_summary_record_without_llama_toolchain() {
         "existing summary"
     );
     assert!(!summary.summary_dir.join(".input.prompt.txt").exists());
+
+    let persisted_summary = store
+        .get_summary("job-1")
+        .expect("persisted summary read")
+        .expect("persisted summary");
+    assert_eq!(persisted_summary.text, "existing summary");
+    assert_eq!(persisted_summary.one_line_summary, None);
 }
 
 #[test]
@@ -288,4 +307,68 @@ fn submit_summary_upgrades_queued_request_to_force_regenerate() {
     let deduplicated =
         submit_summary_job(&repo_root, "job-1", false).expect("compatible summary submit");
     assert!(deduplicated.deduplicated());
+}
+
+#[test]
+fn force_regenerate_rebuilds_summary_and_one_line_summary_together() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    unsafe {
+        std::env::remove_var("RECORDROUTE_LLAMA_MODEL");
+    }
+
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let llama_bin = repo_root
+        .join(".build/llama")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    let llama_log = repo_root.join("llama-force.log");
+    let prompt_capture = repo_root.join("llama-force-prompts.txt");
+    fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+    fs::create_dir_all(&llama_bin).expect("llama bin");
+
+    write_build_script(&build_script_path(&repo_root, "llama"));
+    write_fake_llama_cli(
+        &fake_command_path(&llama_bin, "llama-cli"),
+        &llama_log,
+        &prompt_capture,
+        false,
+    );
+
+    let mut job = test_job(
+        "job-1",
+        "2026-01-01T00:00:00Z",
+        "sources/job-1/source.wav",
+        "hash-job-1",
+        "input.wav",
+    );
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+    seed_transcripts(
+        &store,
+        "job-1",
+        &[("mono_mix", "현장 일정과 견적 검토를 다시 잡기로 했다.")],
+    )
+    .expect("seed transcript");
+    seed_summary_with_one_line(&store, "job-1", "old summary", Some("old one-line summary"))
+        .expect("seed summary");
+
+    let submission = submit_summary_job(&repo_root, "job-1", true).expect("submit summary");
+    assert!(submission.should_execute());
+
+    queue::dispatch_until_task_terminal(&repo_root, "job-1", TaskType::Summary)
+        .expect("dispatch summary");
+
+    let persisted_summary = store
+        .get_summary("job-1")
+        .expect("persisted summary read")
+        .expect("persisted summary");
+    assert_eq!(persisted_summary.text, "synthetic summary");
+    assert_eq!(
+        persisted_summary.one_line_summary.as_deref(),
+        Some("synthetic one-line summary")
+    );
 }
