@@ -1,6 +1,7 @@
 use super::app_api;
 use super::types::{
-    AppState, CreateJobRequest, JobListResponse, JobStatusResponse, build_job_submission_response,
+    AppState, BatchQueueSubmissionResponse, CreateJobRequest, JobListResponse, JobStatusResponse,
+    build_job_submission_response,
 };
 use super::{error_response, run_blocking, run_blocking_app};
 use crate::index::IndexStore;
@@ -99,6 +100,35 @@ pub(crate) async fn post_jobs_upload(
     );
 
     (status, Json(response)).into_response()
+}
+
+pub(crate) async fn post_jobs_batch_process(State(state): State<AppState>) -> Response {
+    let repo_root = state.repo_root.clone();
+    let submission =
+        match run_blocking_app(move || app_api::submit_batch_pipeline_jobs(&repo_root)).await {
+            Ok(submission) => submission,
+            Err(error) => return error_response(error),
+        };
+
+    if submission.ffmpeg_queued > 0
+        || submission.stt_queued > 0
+        || submission.summary_queued > 0
+        || submission.embedding_queued > 0
+    {
+        state.queue_dispatcher.wake();
+    }
+
+    (
+        StatusCode::ACCEPTED,
+        Json(BatchQueueSubmissionResponse {
+            total_jobs: submission.total_jobs,
+            ffmpeg_queued: submission.ffmpeg_queued,
+            stt_queued: submission.stt_queued,
+            summary_queued: submission.summary_queued,
+            embedding_queued: submission.embedding_queued,
+        }),
+    )
+        .into_response()
 }
 
 pub(crate) async fn get_jobs(State(state): State<AppState>) -> Response {

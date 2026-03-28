@@ -1,6 +1,6 @@
 use crate::app::{
-    self, FfmpegJobSubmission, ModelPrepareSubmission, ModelStatusSnapshot, StageJobSubmission,
-    SummarySearchResult,
+    self, BatchQueueSubmission, FfmpegJobSubmission, ModelPrepareSubmission, ModelStatusSnapshot,
+    StageJobSubmission, SummarySearchResult,
 };
 use crate::error::{AppError, AppResult};
 use crate::index::{ModelKind, ModelPreparationRecord};
@@ -33,6 +33,10 @@ pub(crate) fn submit_summary_embedding_job(
     job_id: &str,
 ) -> AppResult<StageJobSubmission> {
     app::submit_summary_embedding_job(repo_root, job_id).map_err(classify_stage_submission_error)
+}
+
+pub(crate) fn submit_batch_pipeline_jobs(repo_root: &Path) -> AppResult<BatchQueueSubmission> {
+    app::submit_batch_pipeline_jobs(repo_root).map_err(AppError::internal)
 }
 
 pub(crate) fn search_summaries(

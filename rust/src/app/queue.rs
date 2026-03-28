@@ -1,4 +1,7 @@
-use super::{embedding_stage, ffmpeg_stage, now_rfc3339, stt_stage, summary_stage};
+use super::{
+    BatchQueueSubmission, artifacts, embedding_stage, ffmpeg_stage, now_rfc3339, stt_stage,
+    summary_stage,
+};
 use crate::index::{
     ActiveQueueBatch, IndexFile, IndexStore, QueueBatch, QueueCategory, QueueEntry, QueuePayload,
     TaskQueueState, TaskStatus, TaskType,
@@ -244,6 +247,74 @@ pub fn dispatch_until_task_terminal(
     }
 }
 
+pub fn submit_batch_pipeline_jobs(repo_root: &Path) -> Result<BatchQueueSubmission, String> {
+    let queued_at = now_rfc3339()?;
+    IndexStore::new(repo_root).with_index_mut(|index| {
+        let mut summary = BatchQueueSubmission {
+            total_jobs: index.jobs.len(),
+            ..BatchQueueSubmission::default()
+        };
+
+        let job_ids = index
+            .jobs
+            .iter()
+            .map(|job| job.job_id.clone())
+            .collect::<Vec<_>>();
+
+        for job_id in job_ids {
+            let Some(job_index) = index.jobs.iter().position(|job| job.job_id == job_id) else {
+                continue;
+            };
+            let job = index.jobs[job_index].clone();
+            let job_dir = PathBuf::from(&job.job_dir);
+
+            if !job
+                .task(TaskType::Ffmpeg)
+                .is_some_and(|task| task.status == TaskStatus::Completed)
+            {
+                let entry =
+                    build_ffmpeg_entry(&job.job_id, Path::new(&job.source_path), queued_at.clone());
+                index.jobs[job_index].mark_ffmpeg_queued(queued_at.clone());
+                enqueue_entry(index, entry);
+                summary.ffmpeg_queued = summary.ffmpeg_queued.saturating_add(1);
+            }
+
+            if !job
+                .task(TaskType::Stt)
+                .is_some_and(|task| task.status == TaskStatus::Completed)
+            {
+                let audio_files = artifacts::supported_audio_files(&job_dir).unwrap_or_default();
+                let entry = build_stt_entry(&job.job_id, &audio_files, queued_at.clone());
+                index.jobs[job_index].enqueue_task(TaskType::Stt, queued_at.clone());
+                enqueue_entry(index, entry);
+                summary.stt_queued = summary.stt_queued.saturating_add(1);
+            }
+
+            if !job
+                .task(TaskType::Summary)
+                .is_some_and(|task| task.status == TaskStatus::Completed)
+            {
+                let entry = build_summary_entry(&job.job_id, false, queued_at.clone());
+                index.jobs[job_index].enqueue_task(TaskType::Summary, queued_at.clone());
+                enqueue_entry(index, entry);
+                summary.summary_queued = summary.summary_queued.saturating_add(1);
+            }
+
+            if !job
+                .task(TaskType::Embedding)
+                .is_some_and(|task| task.status == TaskStatus::Completed)
+            {
+                let entry = build_embedding_entry(&job.job_id, queued_at.clone());
+                index.jobs[job_index].enqueue_task(TaskType::Embedding, queued_at.clone());
+                enqueue_entry(index, entry);
+                summary.embedding_queued = summary.embedding_queued.saturating_add(1);
+            }
+        }
+
+        Ok(summary)
+    })
+}
+
 fn reserve_next_entry(
     repo_root: &Path,
     state: &mut DispatchState,
@@ -294,7 +365,26 @@ fn reserve_next_entry(
                     index.task_queue.active_batch.as_mut().ok_or_else(|| {
                         "active batch disappeared while reserving work".to_string()
                     })?;
-                let entry = active_batch.entries.remove(0);
+                let total_entries = active_batch.entries.len();
+                let mut selected = None;
+
+                for _ in 0..total_entries {
+                    let candidate = active_batch.entries.remove(0);
+                    if is_entry_ready(index, &candidate) {
+                        selected = Some(candidate);
+                        break;
+                    }
+                    active_batch.entries.push(candidate);
+                }
+
+                let Some(entry) = selected else {
+                    if !index.task_queue.pending_batches.is_empty() {
+                        rotate_active_batch(index);
+                        continue;
+                    }
+                    return Ok(None);
+                };
+
                 active_batch.running = Some(entry.clone());
                 entry
             };
@@ -305,6 +395,23 @@ fn reserve_next_entry(
             return Ok(Some(QueueWorkItem { entry }));
         }
     })
+}
+
+fn is_entry_ready(index: &IndexFile, entry: &QueueEntry) -> bool {
+    let Some(job) = index.jobs.iter().find(|job| job.job_id == entry.job_id) else {
+        return false;
+    };
+
+    match entry.task_type {
+        TaskType::Ffmpeg => true,
+        TaskType::Stt => job.status == crate::index::JobStatus::Completed,
+        TaskType::Summary => job
+            .task(TaskType::Stt)
+            .is_some_and(|task| task.status == TaskStatus::Completed),
+        TaskType::Embedding => job
+            .task(TaskType::Summary)
+            .is_some_and(|task| task.status == TaskStatus::Completed),
+    }
 }
 
 fn promote_pending_batch(index: &mut IndexFile) {
@@ -402,7 +509,14 @@ fn execute_work_item(repo_root: &Path, entry: &QueueEntry) -> Result<(), String>
             Ok(())
         }
         QueuePayload::Stt { audio_files } => {
-            let paths = audio_files.iter().map(PathBuf::from).collect::<Vec<_>>();
+            let paths = if audio_files.is_empty() {
+                let job = IndexStore::new(repo_root)
+                    .find_job(&entry.job_id)?
+                    .ok_or_else(|| format!("job not found: {}", entry.job_id))?;
+                artifacts::supported_audio_files(&PathBuf::from(job.job_dir))?
+            } else {
+                audio_files.iter().map(PathBuf::from).collect::<Vec<_>>()
+            };
             stt_stage::execute_stt_job(repo_root, &entry.job_id, &paths)?;
             Ok(())
         }
@@ -664,6 +778,111 @@ mod tests {
             .expect("summary task should exist");
         assert_eq!(task.status, TaskStatus::Queued);
         assert!(task.started_at.is_none());
+    }
+
+    #[test]
+    fn reserve_next_entry_skips_blocked_summary_until_stt_completed() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+
+        let mut blocked_job = JobRecord::new(
+            "job-summary".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/job-summary.wav"),
+            store.job_dir("job-summary"),
+        );
+        blocked_job
+            .mark_completed(
+                "2026-01-01T00:00:01Z".to_string(),
+                crate::index::JobOutputs::default(),
+            )
+            .expect("ffmpeg completed");
+        blocked_job.enqueue_task(TaskType::Summary, "2026-01-01T00:00:03Z".to_string());
+        store.insert_job(blocked_job).expect("insert blocked job");
+
+        let mut stt_ready_job = JobRecord::new(
+            "job-stt".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/job-stt.wav"),
+            store.job_dir("job-stt"),
+        );
+        stt_ready_job
+            .mark_completed(
+                "2026-01-01T00:00:01Z".to_string(),
+                crate::index::JobOutputs::default(),
+            )
+            .expect("ffmpeg completed");
+        stt_ready_job.enqueue_task(TaskType::Stt, "2026-01-01T00:00:04Z".to_string());
+        store.insert_job(stt_ready_job).expect("insert stt job");
+
+        store
+            .with_index_mut(|index| {
+                index.task_queue.active_batch = Some(ActiveQueueBatch {
+                    category: QueueCategory::Llm,
+                    running: None,
+                    entries: vec![build_summary_entry(
+                        "job-summary",
+                        false,
+                        "2026-01-01T00:00:03Z".to_string(),
+                    )],
+                });
+                index.task_queue.pending_batches = vec![QueueBatch {
+                    category: QueueCategory::Stt,
+                    entries: vec![build_stt_entry(
+                        "job-stt",
+                        &[PathBuf::from("mono_mix.wav")],
+                        "2026-01-01T00:00:04Z".to_string(),
+                    )],
+                }];
+                Ok(())
+            })
+            .expect("seed queue");
+
+        let mut state = DispatchState::default();
+        let work = reserve_next_entry(&repo_root, &mut state, "2026-01-01T00:00:10Z".to_string())
+            .expect("reserve")
+            .expect("work item");
+        assert_eq!(work.entry.category, QueueCategory::Stt);
+        assert_eq!(work.entry.job_id, "job-stt");
+    }
+
+    #[test]
+    fn submit_batch_pipeline_jobs_enqueues_unfinished_tasks() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+
+        let mut completed = JobRecord::new(
+            "job-complete".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/job-complete.wav"),
+            store.job_dir("job-complete"),
+        );
+        completed
+            .mark_completed(
+                "2026-01-01T00:00:01Z".to_string(),
+                crate::index::JobOutputs::default(),
+            )
+            .expect("ffmpeg complete");
+        completed.enqueue_task(TaskType::Stt, "2026-01-01T00:00:02Z".to_string());
+        completed
+            .complete_task(TaskType::Stt, "2026-01-01T00:00:03Z".to_string())
+            .expect("stt complete");
+        store.insert_job(completed).expect("insert completed");
+
+        let queued = JobRecord::new(
+            "job-queued".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/job-queued.wav"),
+            store.job_dir("job-queued"),
+        );
+        store.insert_job(queued).expect("insert queued");
+
+        let result = submit_batch_pipeline_jobs(&repo_root).expect("batch submit");
+        assert_eq!(result.total_jobs, 2);
+        assert_eq!(result.ffmpeg_queued, 1);
+        assert_eq!(result.stt_queued, 2);
+        assert_eq!(result.summary_queued, 2);
+        assert_eq!(result.embedding_queued, 2);
     }
 
     fn temp_workspace() -> PathBuf {

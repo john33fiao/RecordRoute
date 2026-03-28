@@ -62,6 +62,7 @@ pub(crate) fn router_with_repo_root_and_upload_limits(
         .route("/jobs/completed", get(jobs::get_completed_jobs))
         .route("/jobs/by-source", get(jobs::get_jobs_by_source))
         .route("/jobs/upload", jobs_upload_route(upload_limits))
+        .route("/jobs/batch-process", post(jobs::post_jobs_batch_process))
         .route("/queue", get(queue_routes::get_queue))
         .route("/jobs/{job_id}", get(jobs::get_job))
         .route("/jobs/{job_id}/status", get(jobs::get_job_status))
