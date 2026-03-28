@@ -17,6 +17,13 @@ const AUDIO_FILE_EXTENSIONS = [
   ".m4b",
 ];
 
+const QUEUE_COLUMNS = [
+  { key: "ffmpeg", label: "FFMPEG", description: "오디오 분리" },
+  { key: "stt", label: "STT", description: "전사" },
+  { key: "llm", label: "LLM", description: "요약" },
+  { key: "embed", label: "EMBED", description: "임베딩" },
+];
+
 const state = {
   jobs: [],
   selectedJobId: null,
@@ -31,6 +38,8 @@ const state = {
   embeddingStatus: null,
   systemStatus: null,
   modelsStatus: null,
+  queueStatus: null,
+  queueLoaded: false,
   searchResults: [],
   uploadQueue: [],
   pollers: new Map(),
@@ -71,6 +80,7 @@ function captureElements() {
   elements.embeddingStatus = document.getElementById("embedding-status");
   elements.embeddingMetadata = document.getElementById("embedding-metadata");
   elements.filesView = document.getElementById("files-view");
+  elements.queueBoard = document.getElementById("queue-board");
   elements.searchResults = document.getElementById("search-results");
 
   elements.systemRefreshButton = document.getElementById("system-refresh-button");
@@ -87,6 +97,7 @@ function captureElements() {
   elements.summarySubmitButton = document.getElementById("summary-submit-button");
   elements.summaryForceCheckbox = document.getElementById("summary-force-checkbox");
   elements.embeddingSubmitButton = document.getElementById("embedding-submit-button");
+  elements.queueRefreshButton = document.getElementById("queue-refresh-button");
   elements.searchForm = document.getElementById("search-form");
   elements.searchQueryInput = document.getElementById("search-query-input");
   elements.searchLimitInput = document.getElementById("search-limit-input");
@@ -99,7 +110,9 @@ function bindEvents() {
     refreshSystemAndModels({ showMessage: true });
   });
   elements.jobsRefreshButton.addEventListener("click", () => {
-    refreshJobs({ showMessage: true });
+    Promise.all([refreshJobs({ showMessage: true }), refreshQueue()]).catch((error) => {
+      console.error(error);
+    });
   });
   elements.selectedJobRefreshButton.addEventListener("click", () => {
     if (!state.selectedJobId) {
@@ -118,11 +131,14 @@ function bindEvents() {
   elements.sttSubmitButton.addEventListener("click", onSttSubmit);
   elements.summarySubmitButton.addEventListener("click", onSummarySubmit);
   elements.embeddingSubmitButton.addEventListener("click", onEmbeddingSubmit);
+  elements.queueRefreshButton.addEventListener("click", () => {
+    refreshQueue({ showMessage: true });
+  });
   elements.searchForm.addEventListener("submit", onSearchSubmit);
 }
 
 async function bootstrap() {
-  await Promise.all([refreshSystemAndModels(), refreshJobs()]);
+  await Promise.all([refreshSystemAndModels(), refreshJobs(), refreshQueue()]);
 }
 
 async function onUploadSubmit(event) {
@@ -169,7 +185,7 @@ async function onUploadSubmit(event) {
     state.uploadQueue = [];
     renderUploadQueue();
     setUploadDropzoneDragState(false);
-    await refreshJobs();
+    await Promise.all([refreshJobs(), refreshQueue()]);
     if (selectedJobId) {
       await refreshSelectedJob(selectedJobId, { showMessage: true });
     }
@@ -318,7 +334,7 @@ async function onSttSubmit() {
       data.message || successMessage(status, "STT 요청이 접수되었습니다."),
       "info"
     );
-    await refreshSelectedJob(jobId);
+    await Promise.all([refreshSelectedJob(jobId), refreshQueue()]);
   } catch (error) {
     setMessage("selected-job", error.message, "error");
   } finally {
@@ -342,7 +358,7 @@ async function onSummarySubmit() {
       }),
     });
     setMessage("selected-job", data.message || "요약 요청이 접수되었습니다.", "info");
-    await refreshSelectedJob(jobId);
+    await Promise.all([refreshSelectedJob(jobId), refreshQueue()]);
   } catch (error) {
     setMessage("selected-job", error.message, "error");
   } finally {
@@ -362,7 +378,7 @@ async function onEmbeddingSubmit() {
       method: "POST",
     });
     setMessage("selected-job", data.message || "Embedding 요청이 접수되었습니다.", "info");
-    await refreshSelectedJob(jobId);
+    await Promise.all([refreshSelectedJob(jobId), refreshQueue()]);
   } catch (error) {
     setMessage("selected-job", error.message, "error");
   } finally {
@@ -425,7 +441,7 @@ async function onBatchProcessSubmit() {
       `embed ${data?.embedding_queued ?? 0}건`,
     ].join(" · ");
     setMessage("upload", message, "success");
-    await refreshJobs({ showMessage: true });
+    await Promise.all([refreshJobs({ showMessage: true }), refreshQueue()]);
     if (state.selectedJobId) {
       await refreshSelectedJob(state.selectedJobId);
     }
@@ -495,6 +511,22 @@ async function refreshJobs({ showMessage = false } = {}) {
     }
   } catch (error) {
     setMessage("jobs", error.message, "error");
+  }
+}
+
+async function refreshQueue({ showMessage = false } = {}) {
+  try {
+    const { data } = await fetchJson("/queue");
+    state.queueStatus = data;
+    state.queueLoaded = true;
+    renderQueueBoard();
+    syncQueuePoller();
+    if (showMessage) {
+      setMessage("queue", "전역 큐 상태를 갱신했습니다.", "success");
+    }
+  } catch (error) {
+    renderQueueBoard();
+    setMessage("queue", error.message, "error");
   }
 }
 
@@ -605,6 +637,7 @@ function renderAll() {
   renderSystem();
   renderJobs();
   renderSelectedJob();
+  renderQueueBoard();
   renderSearchResults();
   updateActionStates();
 }
@@ -932,6 +965,112 @@ function renderSearchResults() {
   });
 }
 
+function renderQueueBoard() {
+  if (!elements.queueBoard) {
+    return;
+  }
+
+  const columns = buildQueueColumns();
+  elements.queueBoard.innerHTML = columns.map(renderQueueColumn).join("");
+}
+
+function buildQueueColumns() {
+  const columns = new Map(
+    QUEUE_COLUMNS.map((column) => [
+      column.key,
+      {
+        ...column,
+        active: false,
+        running: null,
+        entries: [],
+      },
+    ])
+  );
+
+  const activeBatch = state.queueStatus?.active_batch;
+  if (activeBatch && columns.has(activeBatch.category)) {
+    const column = columns.get(activeBatch.category);
+    column.active = true;
+    column.running = activeBatch.running || null;
+    column.entries.push(...normalizeQueueEntries(activeBatch.entries));
+  }
+
+  const pendingBatches = Array.isArray(state.queueStatus?.pending_batches)
+    ? state.queueStatus.pending_batches
+    : [];
+  for (const batch of pendingBatches) {
+    if (!columns.has(batch.category)) {
+      continue;
+    }
+    const column = columns.get(batch.category);
+    if (!column.running && batch.running) {
+      column.running = batch.running;
+    }
+    column.entries.push(...normalizeQueueEntries(batch.entries));
+  }
+
+  return QUEUE_COLUMNS.map((column) => {
+    const item = columns.get(column.key);
+    return {
+      ...item,
+      totalCount: item.entries.length + (item.running ? 1 : 0),
+      emptyMessage: state.queueLoaded ? "남은 작업이 없습니다." : "큐 상태를 확인하는 중입니다.",
+    };
+  });
+}
+
+function normalizeQueueEntries(entries) {
+  return Array.isArray(entries) ? entries.filter(Boolean) : [];
+}
+
+function renderQueueColumn(column) {
+  const statusBadgeLabel = column.active ? "활성" : column.totalCount > 0 ? "대기" : "비어 있음";
+  const statusTone = column.active ? "running" : "idle";
+  const cards = [];
+  if (column.running) {
+    cards.push(renderQueueCard(column.running, "running"));
+  }
+  for (const entry of column.entries) {
+    cards.push(renderQueueCard(entry, "queued"));
+  }
+
+  return `
+    <section class="queue-column" data-active="${column.active ? "true" : "false"}">
+      <div class="queue-column-head">
+        <div class="queue-column-copy">
+          <p class="queue-column-kicker">${escapeHtml(column.label)}</p>
+          <h3>${escapeHtml(column.description)}</h3>
+          <p>${column.active ? "현재 진행 중인 카테고리" : "남아 있는 작업 대기열"}</p>
+        </div>
+        <div class="queue-column-meta">
+          ${statusBadge(statusTone, statusBadgeLabel)}
+          <span class="queue-column-count">남은 ${escapeHtml(String(column.totalCount))}건</span>
+        </div>
+      </div>
+      <div class="queue-column-body">
+        ${cards.join("") || `<p class="queue-empty">${escapeHtml(column.emptyMessage)}</p>`}
+      </div>
+    </section>
+  `;
+}
+
+function renderQueueCard(entry, stateLabel) {
+  const isRunning = stateLabel === "running";
+  return `
+    <article class="queue-card ${isRunning ? "is-running" : ""}">
+      <div class="queue-card-head">
+        <p class="queue-card-title">${escapeHtml(resolveJobDisplayName(entry.job_id))}</p>
+        <div class="badge-row">
+          ${statusBadge(isRunning ? "running" : "idle", isRunning ? "진행 중" : "대기")}
+          ${statusBadge("idle", formatTaskTypeLabel(entry.task_type))}
+        </div>
+      </div>
+      <p class="queue-card-meta">${escapeHtml(entry.job_id)}</p>
+      <p class="queue-card-meta">queued: ${escapeHtml(formatDate(entry.queued_at))}</p>
+    </article>
+  `;
+}
+
 function updateActionStates() {
   const hasJob = Boolean(state.selectedJobId);
   const runningTask = state.selectedJob?.tasks?.some((task) => task.status === "running");
@@ -941,6 +1080,7 @@ function updateActionStates() {
   elements.systemRefreshButton.disabled = false;
   elements.jobsRefreshButton.disabled = false;
   elements.selectedJobRefreshButton.disabled = !hasJob;
+  elements.queueRefreshButton.disabled = false;
   elements.sttSubmitButton.disabled = !hasJob || state.loading.stt || runningTask;
   elements.summarySubmitButton.disabled = !hasJob || state.loading.summary || runningTask;
   elements.embeddingSubmitButton.disabled = !hasJob || state.loading.embedding || runningTask;
@@ -963,6 +1103,18 @@ function syncSelectedJobPoller() {
     startPoller("selected-job", () => refreshSelectedJob(state.selectedJobId));
   } else {
     stopPoller("selected-job");
+  }
+}
+
+function syncQueuePoller() {
+  const hasActiveBatch = Boolean(state.queueStatus?.active_batch);
+  const hasPendingBatch = Array.isArray(state.queueStatus?.pending_batches)
+    ? state.queueStatus.pending_batches.length > 0
+    : false;
+  if (hasActiveBatch || hasPendingBatch) {
+    startPoller("queue", () => refreshQueue());
+  } else {
+    stopPoller("queue");
   }
 }
 
@@ -1113,6 +1265,30 @@ function encodePath(path) {
 
 function isSelectableAudioFile(file) {
   return file === "mono_mix.wav" || /^channel_\d+\.wav$/i.test(file);
+}
+
+function resolveJobDisplayName(jobId) {
+  const selected = state.selectedJob?.job_id === jobId ? state.selectedJob : null;
+  if (selected?.source_file_name) {
+    return selected.source_file_name;
+  }
+  const job = state.jobs.find((item) => item.job_id === jobId);
+  return job?.source_file_name || jobId;
+}
+
+function formatTaskTypeLabel(taskType) {
+  switch (taskType) {
+    case "ffmpeg":
+      return "FFmpeg";
+    case "stt":
+      return "STT";
+    case "summary":
+      return "Summary";
+    case "embedding":
+      return "Embedding";
+    default:
+      return taskType || "task";
+  }
 }
 
 function escapeHtml(value) {

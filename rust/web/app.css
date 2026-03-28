@@ -81,7 +81,8 @@ pre {
 }
 
 .header-summary,
-.meta-caption {
+.meta-caption,
+.panel-caption {
   margin: 14px 0 0;
   max-width: 48rem;
   color: var(--muted);
@@ -528,9 +529,109 @@ pre {
 }
 
 .file-list,
+.queue-board,
 .results-table {
   display: grid;
   gap: 10px;
+}
+
+.queue-board {
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.queue-column {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.46);
+  min-height: 280px;
+}
+
+.queue-column[data-active="true"] {
+  border-color: rgba(14, 109, 98, 0.42);
+  background:
+    linear-gradient(180deg, rgba(14, 109, 98, 0.12) 0%, rgba(255, 255, 255, 0.68) 100%);
+  box-shadow: 0 16px 32px rgba(14, 109, 98, 0.12);
+}
+
+.queue-column-head,
+.queue-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.queue-column-copy h3,
+.queue-card-title {
+  margin: 0;
+}
+
+.queue-column-copy p,
+.queue-card-meta {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.queue-column-kicker {
+  margin: 0 0 6px;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.queue-column-meta {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.queue-column-count {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.queue-column-body {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.queue-card {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(36, 54, 61, 0.08);
+  background: rgba(16, 28, 34, 0.04);
+}
+
+.queue-card.is-running {
+  border-color: rgba(154, 77, 45, 0.22);
+  background: rgba(154, 77, 45, 0.08);
+}
+
+.queue-card-title {
+  font-weight: 700;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.queue-card-meta {
+  word-break: break-word;
+}
+
+.queue-empty {
+  margin: 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(16, 28, 34, 0.04);
+  color: var(--muted);
 }
 
 .file-list a {
@@ -607,6 +708,10 @@ pre {
   .page-header {
     grid-template-columns: 1fr;
   }
+
+  .queue-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
@@ -631,5 +736,18 @@ pre {
 
   .model-row {
     grid-template-columns: 1fr;
+  }
+
+  .queue-column-head,
+  .queue-card-head {
+    flex-direction: column;
+  }
+
+  .queue-board {
+    grid-template-columns: 1fr;
+  }
+
+  .queue-column-meta {
+    justify-items: start;
   }
 }
