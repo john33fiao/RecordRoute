@@ -1,147 +1,153 @@
-# Rust 리팩토링 점검 메모 (2026-03-26, P1 반영 후 기준)
+# Rust 리팩토링 메모 (2026-03-28 코드 기준)
 
-## 범위 재정렬
+이 문서는 현재 코드베이스를 기준으로 이미 정리된 구조와 아직 남아 있는 리팩터링 포인트를 구분해서 적는다.
+과거 배치 기록이 아니라 "지금 다시 손댄다면 어디를 먼저 볼지"에 초점을 둔다.
 
-- 대상: `rust/src/*.rs`, `rust/src/app/*`, `rust/src/server/*`, `rust/src/index/*`
-- 기준:
-  - 단순 라인 수보다 먼저 계약 불일치, 상태 전이 ownership, 저장소 안정성, 테스트 가독성을 본다.
-  - 이미 반영된 구조 개선과 아직 남은 과제를 분리해서 관리한다.
+## 1. 현재 구조에서 이미 안정된 부분
 
-## 1. 현재 상태 요약
+### 1.1 대형 모듈 분리
 
-### 이미 해결된 항목
+초기의 단일 파일 집중 구조는 상당 부분 분해돼 있다.
 
-#### summary 산출물 파일 규약 통일
+- `app/*`
+  - ffmpeg / stt / summary / embedding / models / cli / artifacts 분리
+- `server/*`
+  - routes / files / upload / errors / types / app_api 분리
+- `index/*`
+  - types / store / lock 분리
 
-- `rust/src/app/artifacts.rs`
-  - summary canonical 파일명을 `summary/result.md`로 고정했다.
-  - legacy `result.txt`, `<source_stem>.md` 산출물은 `ensure_summary_output_path`에서 canonical 경로로 승격한다.
-- `rust/src/server/files.rs`
-  - summary 조회는 공통 artifact helper를 통해 canonical 경로를 읽는다.
+즉 현재 구조는 "전면 재작성"보다 각 하위 모듈 단위의 점진적 정리가 맞다.
 
-의미:
+### 1.2 테스트 분리
 
-- 초기 점검 시 발견된 `app.rs` vs `server.rs` 간 summary 파일명 불일치는 해소됐다.
-- 이제 summary contract 관련 후속 작업은 문서/테스트 정리 위주다.
+테스트는 프로덕션 파일 inline 비중이 낮고 다음 구조로 나뉘어 있다.
 
-#### `db/index.json` 원자적 쓰기 도입
+- `rust/src/app/tests/*`
+- `rust/src/server/tests/*`
+- 각 영역별 `support.rs`
 
-- `rust/src/index/store.rs`
-  - `index.<uuid>.tmp`에 먼저 기록하고 sync 후 replace 하는 흐름으로 저장한다.
-- `rust/src/index.rs`
-  - atomic replace 이후 temp 파일이 남지 않는 테스트가 있다.
+리팩터링 시 테스트 보조 코드까지 함께 움직일 수 있는 형태는 이미 갖춰져 있다.
 
-의미:
+### 1.3 인덱스 저장 안정성
 
-- 초기 점검 시의 `fs::write` 직접 덮어쓰기 위험은 이미 제거됐다.
-- 저장소 안정성 이슈의 우선순위는 이제 lock 경합 처리 쪽으로 옮겨간다.
+`IndexStore`는 다음 특성을 갖는다.
 
-#### 부분 모듈 분리 시작
+- `db/index.lock` 기반 동기화
+- 임시 파일 기록 후 원자적 replace
+- stale lock 판단 시 `PermissionDenied` 계열을 별도 취급
 
-- `rust/src/app/artifacts.rs`, `rust/src/app/stages.rs`
-- `rust/src/server/errors.rs`, `rust/src/server/files.rs`, `rust/src/server/upload.rs`
-- `rust/src/index/store.rs`, `rust/src/index/lock.rs`, `rust/src/index/types.rs`
+즉 현재 우선순위는 "인덱스 파일이 깨지는가"보다 "상태 갱신을 얼마나 일관되게 한 번에 묶느냐" 쪽이다.
 
-의미:
+### 1.4 산출물 규약 정리
 
-- 후속 리팩토링은 전면 재작성보다 남은 responsibility를 단계적으로 떼는 방향이 맞다.
+summary 결과는 canonical 경로 `summary/result.md`로 정리돼 있다.
+legacy `result.txt`, `<source_stem>.md`는 `app/artifacts.rs`가 읽는 시점에 승격한다.
 
-## 2. 이번 1차에서 정리한 항목
+## 2. 지금도 남아 있는 구조적 부채
 
-### P0. `index.lock` 경합 시 AccessDenied를 stale lock 오류로 오판하지 않도록 수정
+### 2.1 도메인 오류가 끝까지 typed 하지는 않다
 
-근거:
+`AppError` 계층은 도입돼 있지만, `server/app_api.rs`는 여전히 여러 경로에서 문자열 prefix를 보고 `BadRequest`, `NotFound`, `DependencyUnavailable`를 분류한다.
 
-- Windows에서 다른 스레드가 잡고 있는 `db/index.lock`를 읽는 동안 `PermissionDenied/AccessDenied`가 발생할 수 있었다.
-- 이 경우 기존 구현은 stale 검사 중 즉시 오류를 반환해 API polling 테스트가 간헐적으로 실패했다.
+예:
 
-반영:
-
-- `rust/src/index/lock.rs`
-  - lock 내용 읽기나 metadata 조회가 `PermissionDenied`면 stale로 보지 않고 "현재 사용 중인 lock"으로 간주한다.
-  - timeout/polling 동작은 유지한다.
-- `rust/src/index.rs`
-  - active handle을 실제로 잡아 둔 상태에서도 `AccessDenied` 대신 timeout으로 처리되는 테스트를 추가했다.
-
-기대 효과:
-
-- `server::tests::post_jobs_returns_accepted_then_job_transitions_to_completed`가 Windows에서도 안정적으로 통과해야 한다.
-
-### P0. 문자열 prefix 기반 HTTP 에러 분류 제거
-
-근거:
-
-- 기존 server는 `starts_with("job not found:")`, `starts_with("summary not found:")` 같은 문자열 규칙으로 HTTP status를 정했다.
-- 메시지 문구가 바뀌면 status 분류가 같이 깨지는 구조였다.
-
-반영:
-
-- `rust/src/error.rs`
-  - `AppErrorKind`, `AppError`, `AppResult<T>`를 추가했다.
-- `rust/src/app.rs`
-  - server가 직접 호출하는 submit/status/model 준비 경계에 typed error wrapper를 추가했다.
-- `rust/src/server/upload.rs`, `rust/src/server/files.rs`
-  - request/lookup/file access 계열 오류를 `AppError`로 직접 반환하도록 바꿨다.
-- `rust/src/server/errors.rs`
-  - 문자열 prefix 분기를 없애고 `AppErrorKind -> StatusCode` 매핑만 담당하게 바꿨다.
-- `rust/src/server.rs`
-  - handler가 더 이상 문자열을 직접 분류하지 않는다.
-
-현재 kind 기준:
-
-- `BadRequest`: 잘못된 입력 path, 잘못된 multipart body, 잘못된 transcript/file selector
-- `NotFound`: job 없음, transcript 없음, summary 없음, 파일 없음
-- `DependencyUnavailable`: ffmpeg/whisper/llama 툴체인 또는 모델 준비 불가
-- `Internal`: 나머지 저장소/파일시스템/비동기 실행 오류
-
-## 3. 이번 P1 배치 완료 상태
-
-### P1. `app.rs`, `server.rs` 추가 분리 완료
-
-현재:
-
-- `rust/src/app.rs`는 facade만 남기고 구현을 `app/cli.rs`, `app/ffmpeg_stage.rs`, `app/stt_stage.rs`, `app/summary_stage.rs`, `app/models.rs`로 분리했다.
-- `rust/src/server.rs`는 router bootstrap만 남기고 `server/types.rs`, `server/app_api.rs`, `server/routes/{ping,jobs,models,stages}.rs`로 분리했다.
-- server 전용 `String -> AppError` 분류 래퍼를 `server/app_api.rs`로 이동했고, `server/errors.rs`, `server/files.rs`, `server/upload.rs`는 지원 모듈로 유지했다.
+- `error.starts_with("job not found:")`
+- `error.starts_with("input file not found:")`
 
 의미:
 
-- 공개 인터페이스(`router()`, `router_with_repo_root()`, `serve()` 및 HTTP path/request/response shape)는 유지하면서 책임 경계를 분명히 했다.
-- 이후 작업은 `app.rs`, `server.rs`의 대형 파일 구조를 다시 헤치지 않고 세부 모듈 단위로 진행할 수 있다.
+- HTTP status 분류가 도메인 오류 타입보다 에러 메시지 문구에 여전히 일부 의존한다.
+- app 계층에서 typed error를 직접 올릴 수 있도록 바꾸면 server 계층 단순화 여지가 있다.
 
-### P1. inline test 분리 완료
+### 2.2 상태 갱신 원자성이 stage마다 완전히 동일하지 않다
 
-현재:
+특히 embedding 경로는 다음 두 단계를 분리해서 기록한다.
 
-- `rust/src/app/tests.rs`, `rust/src/server/tests.rs`를 추가하고 기존 inline test를 `app/tests/*`, `server/tests/*`로 옮겼다.
-- fake toolchain/script writer/temp workspace/request helper는 각 `support.rs`로 모았다.
-- `cargo test --manifest-path rust/Cargo.toml` 기준 103개 테스트가 모두 green이다.
+1. task 완료 기록
+2. `summary_embedding` metadata 기록
 
-의미:
+둘 다 결국 `IndexStore::update_job()`로 저장되지만, 한 번의 클로저 업데이트로 묶여 있지 않다.
+짧은 순간 task 상태와 metadata가 완전히 동시에 보이지 않을 수 있다.
 
-- 프로덕션 코드와 테스트 코드의 읽기 경계가 분리돼 이후 리뷰 속도와 추가 분해 판단이 좋아졌다.
-- 이번 배치는 계약 변경 없이 구조만 바꾸는 P1 목표를 충족했다.
+### 2.3 model/toolchain 준비 로직이 여러 층에 나뉘어 있다
 
-### P2. `llama.rs`, `whisper.rs` 구조 공통화
+현재 관련 책임이 다음 파일에 흩어져 있다.
 
-현재:
+- `app/models.rs`
+- `whisper.rs`
+- `llama.rs`
 
-- 툴체인 탐지, 모델 준비, 실행, 오류 후처리 패턴이 비슷하지만 아직 공통화되지 않았다.
+중복되는 패턴:
 
-권장:
+- 모델 소스 해석
+- 준비 가능 여부 점검
+- 준비 실행
+- CPU fallback
+- 실행 파일 탐색
 
-- `toolchain`, `model`, `runtime`, `output` 성격으로 느슨하게 정리
-- 과도한 generic 추상화보다 공통 helper 1~2개부터 시작
+generic 추상화를 크게 넣기보다, 공통 helper를 더 줄일 수 있는 후보가 남아 있다.
 
-## 4. 우선순위 업데이트
+### 2.4 stage submit / execute 패턴도 반복된다
 
-1. 이번 P1 분리 이후에도 `cargo test --manifest-path rust/Cargo.toml` green 상태를 유지한다.
-2. `llama.rs`, `whisper.rs` 공통 패턴을 helper 수준으로 묶는다.
-3. 필요 시 `rust/tests/` integration 승격 여부를 재평가한다.
-4. contract 변경이 생길 때만 OpenAPI/architecture 문서를 후속 동기화한다.
+`ffmpeg_stage.rs`, `stt_stage.rs`, `summary_stage.rs`, `embedding_stage.rs`는 각각 다음 흐름을 비슷하게 반복한다.
 
-## 5. 최종 판단
+- reusable / deduplicated / submitted 판정
+- running task upsert
+- execute
+- success / failure finalize
 
-- 초기 점검에서 가장 급했던 `summary 파일 규약 불일치`와 `index.json 원자성 부족`은 이미 해결됐다.
-- 이번 배치로 `app.rs`, `server.rs` 책임 분리와 inline test 외부화가 완료됐다.
-- 현재 남은 다음 우선순위는 `llama.rs`, `whisper.rs` 공통 패턴 정리이며, public contract 변경 없이 점진 분리로 가는 방향이 맞다.
+각 stage의 의미 차이는 유지하되, 반복되는 update 패턴을 더 줄일 수는 있다.
+
+### 2.5 CLI UX가 지원 명령과 완전히 맞물리지는 않는다
+
+직접 인자 모드에서는 다음 명령까지 지원한다.
+
+- `prepare-models`
+- `prepare-llama-model`
+- `embed-summaries`
+- `search-summaries`
+
+하지만 no-args 대화형 프롬프트는 아직 `ffmpeg`, `stt`, `summary`, `server`만 보여 준다.
+CLI 기능 추가가 인터랙티브 UX에 자동 반영되지는 않는 상태다.
+
+### 2.6 문서 동기화가 자동화돼 있지 않다
+
+- `docs/openapi.yaml`
+- `docs/architecture.md`
+- `docs/embeddings.md`
+
+이 문서들은 수동 유지다.
+라우트나 응답 타입이 바뀌면 코드와 문서가 다시 어긋날 가능성이 높다.
+
+## 3. 다음 우선순위 제안
+
+### 우선순위 1
+
+app 계층에서 typed error를 직접 반환하게 만들어 `server/app_api.rs`의 문자열 기반 분류를 줄인다.
+
+### 우선순위 2
+
+embedding 완료와 metadata 기록처럼 한 job의 상태를 두 번 쓰는 경로를 한 번의 update로 묶는다.
+
+### 우선순위 3
+
+`llama.rs`, `whisper.rs`, `app/models.rs` 사이의 모델 준비 공통 패턴을 helper 수준으로 정리한다.
+
+### 우선순위 4
+
+CLI 프롬프트와 문서가 실제 지원 명령을 자동으로 반영하도록 최소한의 동기화 장치를 둔다.
+
+## 4. 리팩터링 원칙
+
+- public contract를 바꾸지 않는 구조 개선을 우선한다.
+- `db/index.json`을 단일 SoT로 유지한다.
+- reuse / deduplicate 규칙을 흐트러뜨리지 않는다.
+- 문서와 테스트를 같이 옮긴다.
+
+## 5. 요약
+
+현재 RecordRoute는 이미 모듈 분리와 인덱스 저장 안정성 면에서는 초반 단계를 지났다.
+다음 리팩터링은 파일 쪼개기보다 다음 두 가지에 초점을 맞추는 편이 맞다.
+
+- 문자열 의존 오류 분류를 줄여 계약을 단단하게 만드는 일
+- 상태 전이와 metadata 기록을 더 일관되게 묶는 일

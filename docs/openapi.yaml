@@ -13,6 +13,7 @@ servers:
     description: Local development server
 
 tags:
+  - name: web
   - name: server
   - name: system
   - name: models
@@ -21,6 +22,45 @@ tags:
   - name: summary
   - name: files
 paths:
+  /:
+    get:
+      tags: [web]
+      summary: Serve embedded web UI index page
+      operationId: getWebIndex
+      responses:
+        '200':
+          description: HTML index page
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /app.js:
+    get:
+      tags: [web]
+      summary: Serve embedded web UI JavaScript bundle
+      operationId: getWebAppJs
+      responses:
+        '200':
+          description: JavaScript asset
+          content:
+            text/javascript:
+              schema:
+                type: string
+
+  /app.css:
+    get:
+      tags: [web]
+      summary: Serve embedded web UI stylesheet
+      operationId: getWebAppCss
+      responses:
+        '200':
+          description: CSS asset
+          content:
+            text/css:
+              schema:
+                type: string
+
   /server/ping:
     post:
       tags: [server]
@@ -395,6 +435,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
     get:
       tags: [stt]
@@ -530,6 +576,12 @@ paths:
                 $ref: '#/components/schemas/TaskSubmissionResponse'
         '400':
           description: Invalid request or job state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job not found
           content:
             application/json:
               schema:
@@ -718,7 +770,7 @@ paths:
       description: |
         서버 구현(axum)은 와일드카드 라우트(`/jobs/{job_id}/files/{*file_name}`)로 동작합니다.
         이 명세에서는 OpenAPI 호환성을 위해 `{file_name}`으로 표기합니다.
-        `file_name`은 `stt/result.txt`처럼 슬래시를 포함할 수 있으며,
+        `file_name`은 `stt/channel_01.txt` 또는 `summary/result.md`처럼 슬래시를 포함할 수 있으며,
         클라이언트는 경로를 URL 인코딩해서 전달해야 합니다.
       operationId: getJobFile
       x-axum-route: /jobs/{job_id}/files/{*file_name}
