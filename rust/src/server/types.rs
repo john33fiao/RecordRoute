@@ -228,6 +228,15 @@ pub(crate) struct JobListResponse {
     pub jobs: Vec<JobRecord>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct BatchQueueSubmissionResponse {
+    pub total_jobs: usize,
+    pub ffmpeg_queued: usize,
+    pub stt_queued: usize,
+    pub summary_queued: usize,
+    pub embedding_queued: usize,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct AppState {
     pub repo_root: PathBuf,

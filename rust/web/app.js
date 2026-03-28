@@ -36,6 +36,7 @@ const state = {
   pollers: new Map(),
   loading: {
     upload: false,
+    batchProcess: false,
     stt: false,
     summary: false,
     embedding: false,
@@ -79,6 +80,7 @@ function captureElements() {
   elements.uploadDropzone = document.getElementById("upload-dropzone");
   elements.uploadInput = document.getElementById("upload-input");
   elements.uploadSubmitButton = document.getElementById("upload-submit-button");
+  elements.batchProcessButton = document.getElementById("batch-process-button");
   elements.uploadQueue = document.getElementById("upload-queue");
   elements.sttForm = document.getElementById("stt-form");
   elements.sttSubmitButton = document.getElementById("stt-submit-button");
@@ -107,6 +109,7 @@ function bindEvents() {
     refreshSelectedJob(state.selectedJobId, { showMessage: true });
   });
   elements.uploadForm.addEventListener("submit", onUploadSubmit);
+  elements.batchProcessButton.addEventListener("click", onBatchProcessSubmit);
   elements.uploadInput.addEventListener("change", onUploadInputChange);
   elements.uploadDropzone.addEventListener("dragenter", onUploadDragEnter);
   elements.uploadDropzone.addEventListener("dragover", onUploadDragOver);
@@ -405,6 +408,31 @@ async function onSearchSubmit(event) {
     setMessage("search", error.message, "error");
   } finally {
     setLoading("search", false);
+  }
+}
+
+async function onBatchProcessSubmit() {
+  setLoading("batchProcess", true);
+  try {
+    const { data } = await fetchJson("/jobs/batch-process", {
+      method: "POST",
+    });
+    const message = [
+      `일괄처리 큐 등록 완료`,
+      `ffmpeg ${data?.ffmpeg_queued ?? 0}건`,
+      `stt ${data?.stt_queued ?? 0}건`,
+      `llm ${data?.summary_queued ?? 0}건`,
+      `embed ${data?.embedding_queued ?? 0}건`,
+    ].join(" · ");
+    setMessage("upload", message, "success");
+    await refreshJobs({ showMessage: true });
+    if (state.selectedJobId) {
+      await refreshSelectedJob(state.selectedJobId);
+    }
+  } catch (error) {
+    setMessage("upload", error.message, "error");
+  } finally {
+    setLoading("batchProcess", false);
   }
 }
 
@@ -909,6 +937,7 @@ function updateActionStates() {
   const runningTask = state.selectedJob?.tasks?.some((task) => task.status === "running");
 
   elements.uploadSubmitButton.disabled = state.loading.upload;
+  elements.batchProcessButton.disabled = state.loading.batchProcess;
   elements.systemRefreshButton.disabled = false;
   elements.jobsRefreshButton.disabled = false;
   elements.selectedJobRefreshButton.disabled = !hasJob;

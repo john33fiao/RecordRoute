@@ -182,6 +182,15 @@ impl ModelStatusSnapshot {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BatchQueueSubmission {
+    pub total_jobs: usize,
+    pub ffmpeg_queued: usize,
+    pub stt_queued: usize,
+    pub summary_queued: usize,
+    pub embedding_queued: usize,
+}
+
 pub use cli::main_cli;
 #[allow(unused_imports)]
 pub use cli::resolve_input_path;
@@ -251,4 +260,5 @@ pub(crate) fn path_to_string(path: &Path) -> String {
 mod tests;
 pub use queue::{
     DispatchState, QueueTicket, dispatch_one, queue_snapshot, recover_interrupted_active_entry,
+    submit_batch_pipeline_jobs,
 };
