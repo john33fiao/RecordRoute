@@ -28,8 +28,8 @@ pub(crate) async fn post_stt(
     payload: Result<Json<SttRequest>, JsonRejection>,
 ) -> Response {
     let subset = match payload {
-        Ok(Json(request)) => match resolve_stt_subset(request) {
-            Ok(subset) => subset,
+        Ok(Json(request)) => match resolve_stt_subset(&request) {
+            Ok(subset) => (subset, request.keywords),
             Err(error) => return error_response(crate::error::AppError::bad_request(error)),
         },
         Err(_) => {
@@ -40,15 +40,17 @@ pub(crate) async fn post_stt(
                 .into_response();
         }
     };
+    let (subset, keywords) = subset;
     let repo_root = state.repo_root.clone();
     let submit_job_id = job_id.clone();
-    let submission =
-        match run_blocking_app(move || app_api::submit_stt_job(&repo_root, &submit_job_id, subset))
-            .await
-        {
-            Ok(submission) => submission,
-            Err(error) => return error_response(error),
-        };
+    let submission = match run_blocking_app(move || {
+        app_api::submit_stt_job(&repo_root, &submit_job_id, subset, keywords)
+    })
+    .await
+    {
+        Ok(submission) => submission,
+        Err(error) => return error_response(error),
+    };
 
     maybe_wake_queue(&state, submission.should_execute());
 
@@ -66,7 +68,7 @@ pub(crate) async fn post_stt(
         .into_response()
 }
 
-pub(crate) fn resolve_stt_subset(request: SttRequest) -> Result<Option<Vec<String>>, String> {
+pub(crate) fn resolve_stt_subset(request: &SttRequest) -> Result<Option<Vec<String>>, String> {
     if request.mono_mix_only && !request.audio_files.is_empty() {
         return Err("audio_files cannot be combined with mono_mix_only".to_string());
     }
@@ -76,7 +78,7 @@ pub(crate) fn resolve_stt_subset(request: SttRequest) -> Result<Option<Vec<Strin
     if request.audio_files.is_empty() {
         return Ok(None);
     }
-    Ok(Some(request.audio_files))
+    Ok(Some(request.audio_files.clone()))
 }
 
 pub(crate) async fn get_stt(

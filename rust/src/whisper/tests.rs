@@ -173,7 +173,7 @@ fn run_transcription_creates_text_output() {
     fs::create_dir_all(repo_root.join("models/whisper")).expect("models dir");
     fs::write(&toolchain.model_path, "model").expect("model file");
 
-    run_transcription(&toolchain, &input, &output).expect("transcription");
+    run_transcription(&toolchain, &input, &output, "ko", &[]).expect("transcription");
 
     assert_eq!(
         fs::read_to_string(output).expect("transcript"),
@@ -183,10 +183,73 @@ fn run_transcription_creates_text_output() {
     let log = fs::read_to_string(log).expect("whisper log");
     assert!(log.contains("ARG=-m"));
     assert!(log.contains("ARG=-l"));
-    assert!(log.contains("ARG=auto"));
+    assert!(log.contains("ARG=ko"));
     assert!(!log.contains("ARG=-ng"));
     assert!(!log.contains("GGML_METAL=0"));
     assert!(!log.contains("GGML_METAL_DEVICES=0"));
+}
+
+#[test]
+fn transcription_language_defaults_to_korean_and_respects_env_override() {
+    let _guard = crate::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    unsafe { std::env::remove_var(LANGUAGE_ENV_VAR) };
+    assert_eq!(transcription_language_from_env(), "ko");
+
+    unsafe { std::env::set_var(LANGUAGE_ENV_VAR, "en") };
+    assert_eq!(transcription_language_from_env(), "en");
+    unsafe { std::env::remove_var(LANGUAGE_ENV_VAR) };
+}
+
+#[test]
+fn run_transcription_passes_keyword_prompt_when_keywords_are_provided() {
+    let _guard = crate::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let repo_root = temp_workspace();
+    let build_bin = repo_root
+        .join(".build/whisper")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    let input = repo_root.join("sample.wav");
+    let output = repo_root.join("stt/sample.txt");
+    let log = repo_root.join("whisper-keywords.log");
+    fs::create_dir_all(&build_bin).expect("build bin");
+    write_test_audio(&input);
+    write_executable(
+        &fake_whisper_cli_path(&build_bin),
+        &format!(
+            "#!/bin/sh\nnext=''\nout=''\nlog='{}'\n: > \"$log\"\nfor arg in \"$@\"; do\n  printf 'ARG=%s\\n' \"$arg\" >> \"$log\"\n  if [ \"$next\" = 'of' ]; then\n    out=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -of)\n      next='of'\n      ;;\n  esac\ndone\nmkdir -p \"$(dirname \"$out\")\"\nprintf 'synthetic transcript' > \"$out.txt\"\n",
+            log.display()
+        ),
+        &format!(
+            "@echo off\r\nsetlocal EnableExtensions EnableDelayedExpansion\r\nset \"out=\"\r\nset \"next=\"\r\n> \"{log}\" type nul\r\n:loop\r\nif \"%~1\"==\"\" goto done\r\n>> \"{log}\" echo ARG=%~1\r\nif /I \"!next!\"==\"of\" (\r\n  set \"out=%~1\"\r\n  set \"next=\"\r\n) else if /I \"%~1\"==\"-of\" (\r\n  set \"next=of\"\r\n)\r\nshift\r\ngoto loop\r\n:done\r\nif defined out (\r\n  for %%I in (\"!out!\") do if not exist \"%%~dpI\" mkdir \"%%~dpI\"\r\n  > \"!out!.txt\" <nul set /p =synthetic transcript\r\n)\r\nexit /b 0\r\n",
+            log = log.display()
+        ),
+    );
+
+    let toolchain = Toolchain {
+        whisper_cli_path: fake_whisper_cli_path(&build_bin),
+        build_script_path: build_script_path(&repo_root, "whisper"),
+        model_path: repo_root.join("models/whisper/ggml-base.bin"),
+    };
+    fs::create_dir_all(repo_root.join("models/whisper")).expect("models dir");
+    fs::write(&toolchain.model_path, "model").expect("model file");
+
+    run_transcription(
+        &toolchain,
+        &input,
+        &output,
+        "ko",
+        &["Acme".to_string(), "베타".to_string()],
+    )
+    .expect("transcription");
+
+    let log = fs::read_to_string(log).expect("whisper log");
+    assert!(log.contains("ARG=--prompt"));
+    assert!(log.contains("ARG=Acme, 베타"));
 }
 
 #[test]
@@ -217,7 +280,7 @@ fn run_transcription_deduplicates_consecutive_transcript_lines() {
     fs::create_dir_all(repo_root.join("models/whisper")).expect("models dir");
     fs::write(&toolchain.model_path, "model").expect("model file");
 
-    run_transcription(&toolchain, &input, &output).expect("transcription");
+    run_transcription(&toolchain, &input, &output, "ko", &[]).expect("transcription");
 
     assert_eq!(
         fs::read_to_string(output)
@@ -270,7 +333,7 @@ fn run_transcription_retries_on_cpu_after_backend_failure() {
     fs::create_dir_all(repo_root.join("models/whisper")).expect("models dir");
     fs::write(&toolchain.model_path, "model").expect("model file");
 
-    run_transcription(&toolchain, &input, &output).expect("transcription");
+    run_transcription(&toolchain, &input, &output, "ko", &[]).expect("transcription");
 
     assert_eq!(
         fs::read_to_string(output).expect("transcript"),
@@ -326,7 +389,7 @@ fn run_transcription_refreshes_invalid_managed_model_once() {
     };
 
     unsafe { std::env::set_var(MODEL_SOURCE_DIR_ENV_VAR, &source_dir) };
-    run_transcription(&toolchain, &input, &output).expect("transcription");
+    run_transcription(&toolchain, &input, &output, "ko", &[]).expect("transcription");
     unsafe { std::env::remove_var(MODEL_SOURCE_DIR_ENV_VAR) };
 
     assert_eq!(

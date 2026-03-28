@@ -183,7 +183,7 @@ pub fn execute_ffmpeg_job(
                 repo_root,
                 job_id,
                 crate::index::TaskType::Stt,
-                || submit_stt_job(repo_root, job_id, None),
+                || submit_stt_job(repo_root, job_id, None, Vec::new()),
             );
             Ok(job)
         }

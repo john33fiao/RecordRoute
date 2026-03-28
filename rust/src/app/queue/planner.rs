@@ -44,6 +44,10 @@ pub fn submit_batch_pipeline_jobs(repo_root: &Path) -> Result<BatchQueueSubmissi
             if should_enqueue_batch_stt(&store, index, &job, &audio_files)? {
                 let entry = build_stt_entry(&job.job_id, &audio_files, queued_at.clone());
                 index.jobs[job_index].enqueue_task(TaskType::Stt, queued_at.clone());
+                index.jobs[job_index].set_task_request_fingerprint(
+                    TaskType::Stt,
+                    entry.payload.request_fingerprint(),
+                );
                 enqueue_entry(index, entry);
                 summary.stt_queued = summary.stt_queued.saturating_add(1);
                 continue;
@@ -84,7 +88,18 @@ fn should_enqueue_batch_stt(
     job: &JobRecord,
     audio_files: &[PathBuf],
 ) -> Result<bool, String> {
-    if audio_files.is_empty() || all_transcripts_exist(store, &job.job_id, audio_files)? {
+    if audio_files.is_empty() {
+        return Ok(false);
+    }
+
+    let default_entry = build_stt_entry(&job.job_id, audio_files, String::new());
+    let default_request_fingerprint = default_entry.payload.request_fingerprint();
+    let transcripts_reusable = all_transcripts_exist(store, &job.job_id, audio_files)?
+        && job
+            .task(TaskType::Stt)
+            .and_then(|task| task.request_fingerprint.as_ref())
+            == default_request_fingerprint.as_ref();
+    if transcripts_reusable {
         return Ok(false);
     }
 

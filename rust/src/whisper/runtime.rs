@@ -1,4 +1,5 @@
 use super::Toolchain;
+use super::build_keyword_prompt;
 use super::download::{refresh_managed_model, should_refresh_managed_model};
 use super::output::{postprocess_transcript, transcript_output_prefix};
 use crate::tool_runtime::{
@@ -12,6 +13,8 @@ pub(crate) fn run_transcription(
     toolchain: &Toolchain,
     input: &Path,
     output_text: &Path,
+    language: &str,
+    keywords: &[String],
 ) -> Result<(), String> {
     if !input.is_file() {
         return Err(format!(
@@ -31,16 +34,18 @@ pub(crate) fn run_transcription(
     }
     let _ = fs::remove_file(output_text);
 
-    match attempt_transcription(toolchain, input, &output_prefix) {
+    match attempt_transcription(toolchain, input, &output_prefix, language, keywords) {
         Ok(()) => {}
         Err(error) if should_refresh_managed_model(toolchain, &error) => {
             refresh_managed_model(toolchain)?;
-            attempt_transcription(toolchain, input, &output_prefix).map_err(|retry_error| {
-                format!(
-                    "{retry_error} (after refreshing managed model cache {})",
-                    toolchain.model_path.display()
-                )
-            })?;
+            attempt_transcription(toolchain, input, &output_prefix, language, keywords).map_err(
+                |retry_error| {
+                    format!(
+                        "{retry_error} (after refreshing managed model cache {})",
+                        toolchain.model_path.display()
+                    )
+                },
+            )?;
         }
         Err(error) => return Err(error),
     }
@@ -60,6 +65,8 @@ fn attempt_transcription(
     toolchain: &Toolchain,
     input: &Path,
     output_prefix: &Path,
+    language: &str,
+    keywords: &[String],
 ) -> Result<(), String> {
     run_with_cpu_fallback(
         || {
@@ -67,6 +74,8 @@ fn attempt_transcription(
                 toolchain,
                 input,
                 output_prefix,
+                language,
+                keywords,
                 WhisperRuntimeBackend::Preferred,
             )
         },
@@ -75,6 +84,8 @@ fn attempt_transcription(
                 toolchain,
                 input,
                 output_prefix,
+                language,
+                keywords,
                 WhisperRuntimeBackend::CpuFallback,
             )
         },
@@ -86,6 +97,8 @@ fn execute_transcription(
     toolchain: &Toolchain,
     input: &Path,
     output_prefix: &Path,
+    language: &str,
+    keywords: &[String],
     backend: WhisperRuntimeBackend,
 ) -> Result<(), String> {
     let mut command = Command::new(&toolchain.whisper_cli_path);
@@ -95,11 +108,14 @@ fn execute_transcription(
         .arg("-f")
         .arg(input)
         .arg("-l")
-        .arg("auto")
+        .arg(language)
         .arg("-otxt")
         .arg("-np")
         .arg("-of")
         .arg(output_prefix);
+    if let Some(prompt) = build_keyword_prompt(keywords) {
+        command.arg("--prompt").arg(prompt);
+    }
     configure_runtime_backend(&mut command, backend);
 
     let output = command.output().map_err(|error| {

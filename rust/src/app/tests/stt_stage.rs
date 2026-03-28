@@ -1,6 +1,6 @@
 use super::super::*;
 use super::support::*;
-use crate::index::{IndexStore, JobOutputs, JobRecord};
+use crate::index::{IndexStore, JobOutputs, JobRecord, QueuePayload, TaskType};
 use crate::test_support::env_lock;
 use std::fs;
 use std::io::Cursor;
@@ -14,7 +14,10 @@ fn run_stt_reports_current_storage_model_when_no_candidates_exist() {
 
     let error = run_stt_with_repo_root(&repo_root, &mut reader, &mut output).expect_err("stt");
 
-    assert_eq!(error, "no completed jobs with supported audio artifacts found");
+    assert_eq!(
+        error,
+        "no completed jobs with supported audio artifacts found"
+    );
     assert!(!error.contains("db/index.json"));
 }
 
@@ -88,7 +91,7 @@ fn run_stt_processes_audio_files_in_selected_job_dir() {
 
     let whisper_log = fs::read_to_string(whisper_log).expect("whisper log");
     assert!(whisper_log.contains("-l"));
-    assert!(whisper_log.contains("auto"));
+    assert!(whisper_log.contains("ko"));
     assert!(whisper_log.contains("channel_01.wav"));
     assert!(whisper_log.contains("mono_mix.wav"));
 }
@@ -159,15 +162,111 @@ fn submit_stt_rejects_conflicting_inflight_subset_request() {
         .expect("mark completed");
     store.insert_job(job).expect("insert job");
 
-    let first = submit_stt_job(&repo_root, "job-1", Some(vec!["mono_mix.wav".to_string()]))
-        .expect("first stt submit");
+    let first = submit_stt_job(
+        &repo_root,
+        "job-1",
+        Some(vec!["mono_mix.wav".to_string()]),
+        Vec::new(),
+    )
+    .expect("first stt submit");
     assert!(first.should_execute());
 
     let error = submit_stt_job(
         &repo_root,
         "job-1",
         Some(vec!["channel_01.wav".to_string()]),
+        Vec::new(),
     )
     .expect_err("conflicting inflight subset should fail");
-    assert!(error.to_string().contains("different audio selection"));
+    assert!(error.to_string().contains("different options"));
+}
+
+#[test]
+fn submit_stt_reuses_existing_transcripts_when_profile_matches_completed_task() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    unsafe { std::env::remove_var("RECORDROUTE_WHISPER_LANGUAGE") };
+
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let mut job = super::super::super::test_support::test_job(
+        "job-1",
+        "2026-01-01T00:00:00Z",
+        "sources/job-1/source.wav",
+        "hash-job-1",
+        "input.wav",
+    );
+    super::super::super::test_support::mark_job_completed_with_audio(
+        &store,
+        &mut job,
+        "2026-01-01T00:00:01Z",
+        &["mono_mix.wav"],
+    )
+    .expect("mark completed");
+    job.enqueue_task(TaskType::Stt, "2026-01-01T00:00:02Z".to_string());
+    job.set_task_request_fingerprint(
+        TaskType::Stt,
+        QueuePayload::Stt {
+            audio_files: vec!["mono_mix.wav".to_string()],
+            language: "ko".to_string(),
+            keywords: Vec::new(),
+        }
+        .request_fingerprint(),
+    );
+    job.complete_task(TaskType::Stt, "2026-01-01T00:00:03Z".to_string())
+        .expect("complete stt");
+    store.insert_job(job).expect("insert job");
+    super::super::super::test_support::seed_transcripts(&store, "job-1", &[("mono_mix", "text")])
+        .expect("seed transcript");
+
+    let submission = submit_stt_job(&repo_root, "job-1", None, Vec::new()).expect("submit stt");
+
+    assert!(submission.reused());
+}
+
+#[test]
+fn submit_stt_submits_when_keywords_change_completed_task_profile() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    unsafe { std::env::remove_var("RECORDROUTE_WHISPER_LANGUAGE") };
+
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let mut job = super::super::super::test_support::test_job(
+        "job-1",
+        "2026-01-01T00:00:00Z",
+        "sources/job-1/source.wav",
+        "hash-job-1",
+        "input.wav",
+    );
+    super::super::super::test_support::mark_job_completed_with_audio(
+        &store,
+        &mut job,
+        "2026-01-01T00:00:01Z",
+        &["mono_mix.wav"],
+    )
+    .expect("mark completed");
+    job.enqueue_task(TaskType::Stt, "2026-01-01T00:00:02Z".to_string());
+    job.set_task_request_fingerprint(
+        TaskType::Stt,
+        QueuePayload::Stt {
+            audio_files: vec!["mono_mix.wav".to_string()],
+            language: "ko".to_string(),
+            keywords: Vec::new(),
+        }
+        .request_fingerprint(),
+    );
+    job.complete_task(TaskType::Stt, "2026-01-01T00:00:03Z".to_string())
+        .expect("complete stt");
+    store.insert_job(job).expect("insert job");
+    super::super::super::test_support::seed_transcripts(&store, "job-1", &[("mono_mix", "text")])
+        .expect("seed transcript");
+
+    let submission =
+        submit_stt_job(&repo_root, "job-1", None, vec!["Acme".to_string()]).expect("submit stt");
+
+    assert!(submission.should_execute());
+    assert!(!submission.reused());
 }

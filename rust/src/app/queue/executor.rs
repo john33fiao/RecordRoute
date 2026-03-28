@@ -87,7 +87,11 @@ fn execute_work_item(repo_root: &Path, entry: &QueueEntry) -> Result<(), String>
             ffmpeg_stage::execute_ffmpeg_job(repo_root, &entry.job_id, Path::new(input_path))?;
             Ok(())
         }
-        QueuePayload::Stt { audio_files } => {
+        QueuePayload::Stt {
+            audio_files,
+            language,
+            keywords,
+        } => {
             let paths = if audio_files.is_empty() {
                 let job = IndexStore::new(repo_root)
                     .find_job(&entry.job_id)?
@@ -96,7 +100,7 @@ fn execute_work_item(repo_root: &Path, entry: &QueueEntry) -> Result<(), String>
             } else {
                 audio_files.iter().map(PathBuf::from).collect::<Vec<_>>()
             };
-            stt_stage::execute_stt_job(repo_root, &entry.job_id, &paths)?;
+            stt_stage::execute_stt_job(repo_root, &entry.job_id, &paths, language, keywords)?;
             Ok(())
         }
         QueuePayload::Summary { force_regenerate } => {

@@ -2,6 +2,7 @@ use super::QueueTicket;
 use crate::index::{
     IndexFile, QueueBatch, QueueCategory, QueueEntry, QueuePayload, TaskQueueState, TaskType,
 };
+use crate::whisper::{normalize_keywords, normalize_language, transcription_language_from_env};
 use std::path::{Path, PathBuf};
 
 pub fn build_ffmpeg_entry(job_id: &str, input_path: &Path, queued_at: String) -> QueueEntry {
@@ -17,6 +18,17 @@ pub fn build_ffmpeg_entry(job_id: &str, input_path: &Path, queued_at: String) ->
 }
 
 pub fn build_stt_entry(job_id: &str, audio_files: &[PathBuf], queued_at: String) -> QueueEntry {
+    let language = transcription_language_from_env();
+    build_stt_entry_with_options(job_id, audio_files, &language, &[], queued_at)
+}
+
+pub fn build_stt_entry_with_options(
+    job_id: &str,
+    audio_files: &[PathBuf],
+    language: &str,
+    keywords: &[String],
+    queued_at: String,
+) -> QueueEntry {
     QueueEntry {
         job_id: job_id.to_string(),
         task_type: TaskType::Stt,
@@ -32,6 +44,8 @@ pub fn build_stt_entry(job_id: &str, audio_files: &[PathBuf], queued_at: String)
                         .to_string()
                 })
                 .collect(),
+            language: normalize_language(language).unwrap_or_else(transcription_language_from_env),
+            keywords: normalize_keywords(keywords),
         },
     }
 }

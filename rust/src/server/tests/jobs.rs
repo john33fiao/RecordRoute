@@ -6,7 +6,7 @@ use super::super::types::{
 };
 use super::support::*;
 use crate::index::{IndexStore, JobRecord, JobStatus, TaskType};
-use crate::test_support::{mark_job_completed_with_audio, test_job};
+use crate::test_support::{env_lock, mark_job_completed_with_audio, test_job};
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use std::fs;
@@ -41,6 +41,9 @@ async fn post_jobs_batch_process_enqueues_unfinished_pipeline_tasks() {
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn post_jobs_returns_accepted_then_job_transitions_to_completed() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let repo_root = temp_workspace();
     let scripts_dir = repo_root.join("scripts");
     let build_bin = repo_root
@@ -114,6 +117,9 @@ async fn post_jobs_returns_accepted_then_job_transitions_to_completed() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn post_jobs_upload_accepts_file_and_stores_content_hashed_path() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let repo_root = temp_workspace();
     let scripts_dir = repo_root.join("scripts");
     let build_bin = repo_root
@@ -374,6 +380,9 @@ async fn post_jobs_upload_reuses_completed_job_for_same_content() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn post_jobs_deduplicates_running_job() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let repo_root = temp_workspace();
     let scripts_dir = repo_root.join("scripts");
     let build_bin = repo_root

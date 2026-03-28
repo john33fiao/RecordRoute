@@ -18,8 +18,8 @@ mod planner;
 mod scheduler;
 
 pub use entries::{
-    build_embedding_entry, build_ffmpeg_entry, build_stt_entry, build_summary_entry, enqueue_entry,
-    find_task_entry, find_ticket, update_queued_entry,
+    build_embedding_entry, build_ffmpeg_entry, build_stt_entry, build_stt_entry_with_options,
+    build_summary_entry, enqueue_entry, find_task_entry, find_ticket, update_queued_entry,
 };
 pub use executor::{dispatch_one, dispatch_until_task_terminal, recover_interrupted_active_entry};
 pub use planner::submit_batch_pipeline_jobs;
@@ -66,7 +66,7 @@ pub fn queue_snapshot(repo_root: &Path) -> Result<TaskQueueState, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::index::{IndexStore, JobRecord, QueueBatch, TaskStatus};
+    use crate::index::{IndexStore, JobRecord, QueueBatch, QueuePayload, TaskStatus};
     use crate::test_support::{mark_job_completed_with_audio, seed_transcripts, test_job};
     use std::fs;
     use uuid::Uuid;
@@ -404,6 +404,15 @@ mod tests {
         )
         .expect("ffmpeg complete");
         completed.enqueue_task(TaskType::Stt, "2026-01-01T00:00:02Z".to_string());
+        completed.set_task_request_fingerprint(
+            TaskType::Stt,
+            QueuePayload::Stt {
+                audio_files: vec!["mono_mix.wav".to_string()],
+                language: "ko".to_string(),
+                keywords: Vec::new(),
+            }
+            .request_fingerprint(),
+        );
         completed
             .complete_task(TaskType::Stt, "2026-01-01T00:00:03Z".to_string())
             .expect("stt complete");
@@ -441,6 +450,15 @@ mod tests {
         mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:00Z", &["mono_mix.wav"])
             .expect("mark ffmpeg completed");
         job.enqueue_task(TaskType::Stt, "2026-01-01T00:00:01Z".to_string());
+        job.set_task_request_fingerprint(
+            TaskType::Stt,
+            QueuePayload::Stt {
+                audio_files: vec!["mono_mix.wav".to_string()],
+                language: "ko".to_string(),
+                keywords: Vec::new(),
+            }
+            .request_fingerprint(),
+        );
         job.complete_task(TaskType::Stt, "2026-01-01T00:00:02Z".to_string())
             .expect("stt complete");
         job.enqueue_task(TaskType::Summary, "2026-01-01T00:00:02Z".to_string());

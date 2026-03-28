@@ -13,9 +13,10 @@ use axum::http::StatusCode;
 use tower::util::ServiceExt;
 #[test]
 fn resolve_stt_subset_defaults_to_all_audio_files() {
-    let subset = resolve_stt_subset(SttRequest {
+    let subset = resolve_stt_subset(&SttRequest {
         audio_files: Vec::new(),
         mono_mix_only: false,
+        keywords: Vec::new(),
     })
     .expect("subset");
     assert_eq!(subset, None);
@@ -23,9 +24,10 @@ fn resolve_stt_subset_defaults_to_all_audio_files() {
 
 #[test]
 fn resolve_stt_subset_supports_mono_mix_only_mode() {
-    let subset = resolve_stt_subset(SttRequest {
+    let subset = resolve_stt_subset(&SttRequest {
         audio_files: Vec::new(),
         mono_mix_only: true,
+        keywords: Vec::new(),
     })
     .expect("subset");
     assert_eq!(subset, Some(vec!["mono_mix.wav".to_string()]));
@@ -33,9 +35,10 @@ fn resolve_stt_subset_supports_mono_mix_only_mode() {
 
 #[test]
 fn resolve_stt_subset_rejects_mixed_modes() {
-    let error = resolve_stt_subset(SttRequest {
+    let error = resolve_stt_subset(&SttRequest {
         audio_files: vec!["channel_01.wav".to_string()],
         mono_mix_only: true,
+        keywords: Vec::new(),
     })
     .expect_err("mixed mode should fail");
     assert!(error.contains("audio_files cannot be combined with mono_mix_only"));

@@ -26,6 +26,8 @@ async fn get_queue_returns_active_and_pending_batches() {
                         queued_at: "2026-01-01T00:00:01Z".to_string(),
                         payload: QueuePayload::Stt {
                             audio_files: vec!["mono_mix.wav".to_string()],
+                            language: "ko".to_string(),
+                            keywords: Vec::new(),
                         },
                     }),
                     entries: vec![QueueEntry {
@@ -35,6 +37,8 @@ async fn get_queue_returns_active_and_pending_batches() {
                         queued_at: "2026-01-01T00:00:02Z".to_string(),
                         payload: QueuePayload::Stt {
                             audio_files: vec!["channel_01.wav".to_string()],
+                            language: "ko".to_string(),
+                            keywords: Vec::new(),
                         },
                     }],
                 }),

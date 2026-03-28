@@ -20,6 +20,8 @@ RecordRoute는 오디오 파일을 **회의록 작업 흐름에 맞춰 순차적
 - STT는 기존 변환이 끝난 Job을 대상으로 실행됩니다.
 - `wav`, `mp3`, `flac`, `ogg` 파일을 대상으로 `stt/*.txt`가 생성됩니다.
 - 특정 파일만 선택하거나(`audio_files`), `mono_mix.wav`만 대상으로 실행할 수 있습니다.
+- 기본 전사 언어는 `.env`의 `RECORDROUTE_WHISPER_LANGUAGE`를 사용하며, 기본 예시는 `ko`입니다.
+- 고유명사나 제품명 보정을 위해 요청별 `keywords`를 함께 전달할 수 있습니다.
 
 ### 3) STT 결과 기반으로 요약을 생성함
 - 요약은 해당 Job의 `stt/*.txt`를 모아 생성됩니다.
@@ -123,6 +125,11 @@ curl -X POST http://127.0.0.1:38080/jobs/<job_id>/stt \
   -H 'Content-Type: application/json' \
   -d '{"mono_mix_only":true}'
 
+# 특정 키워드 힌트와 함께 실행
+curl -X POST http://127.0.0.1:38080/jobs/<job_id>/stt \
+  -H 'Content-Type: application/json' \
+  -d '{"keywords":["RecordRoute","김현수","Dooray"]}'
+
 # 상태 조회
 curl http://127.0.0.1:38080/jobs/<job_id>/stt
 ```
@@ -159,6 +166,8 @@ curl http://127.0.0.1:38080/jobs/<job_id>/files/stt/mono_mix.txt
 
 - `RECORDROUTE_WHISPER_MODEL`
   - Whisper 모델 경로(또는 shorthand)
+- `RECORDROUTE_WHISPER_LANGUAGE`
+  - Whisper 기본 전사 언어 코드(`ko`, `en`, `auto` 등)
 - `RECORDROUTE_LLAMA_MODEL`
   - 로컬 GGUF 경로 또는 Hugging Face repo
 - `HF_TOKEN`
@@ -168,6 +177,7 @@ curl http://127.0.0.1:38080/jobs/<job_id>/files/stt/mono_mix.txt
 
 ```env
 RECORDROUTE_WHISPER_MODEL=models/whisper/ggml-base.bin
+RECORDROUTE_WHISPER_LANGUAGE=ko
 RECORDROUTE_LLAMA_MODEL=ggml-org/gemma-3-4b-it-GGUF
 HF_TOKEN=
 ```

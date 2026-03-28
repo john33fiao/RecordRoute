@@ -8,7 +8,10 @@ use crate::index::{
     IndexStore, JobRecord, JobStatus, ModelKind, QueuePayload, TaskStatus, TaskType,
     TranscriptRecord,
 };
-use crate::whisper::{Toolchain as WhisperToolchain, run_transcription};
+use crate::whisper::{
+    Toolchain as WhisperToolchain, normalize_keywords, run_transcription,
+    transcription_language_from_env,
+};
 use std::fs;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -25,6 +28,7 @@ pub fn submit_stt_job(
     repo_root: &Path,
     job_id: &str,
     subset_audio_files: Option<Vec<String>>,
+    keywords: Vec<String>,
 ) -> AppResult<StageJobSubmission> {
     let index_store = IndexStore::new(repo_root);
     let job = index_store
@@ -48,17 +52,26 @@ pub fn submit_stt_job(
     }
 
     let requested_audio_files = normalized_audio_files(&audio_files);
+    let requested_language = transcription_language_from_env();
+    let requested_keywords = normalize_keywords(&keywords);
     if let Some(submission) = stages::resolve_inflight_stage_submission(
         &index_store,
         &job,
         TaskType::Stt,
         audio_files.clone(),
         |existing_entry, status| match existing_entry {
-            Some(entry) if stt_payload_matches(entry, &requested_audio_files) => {
+            Some(entry)
+                if stt_payload_matches(
+                    entry,
+                    &requested_audio_files,
+                    &requested_language,
+                    &requested_keywords,
+                ) =>
+            {
                 stages::InflightSubmissionResolution::Deduplicate
             }
             Some(_) => stages::InflightSubmissionResolution::Conflict(format!(
-                "stt already queued or running with a different audio selection: {job_id}"
+                "stt already queued or running with different options: {job_id}"
             )),
             None if status == TaskStatus::Running => {
                 stages::InflightSubmissionResolution::Conflict(format!(
@@ -74,9 +87,19 @@ pub fn submit_stt_job(
         return Ok(submission);
     }
 
-    let all_transcripts_exist =
-        all_transcripts_exist(&index_store, job_id, &audio_files).map_err(AppError::internal)?;
-    if all_transcripts_exist {
+    let requested_fingerprint = QueuePayload::Stt {
+        audio_files: requested_audio_files.clone(),
+        language: requested_language.clone(),
+        keywords: requested_keywords.clone(),
+    }
+    .request_fingerprint();
+    let transcripts_reusable = all_transcripts_exist(&index_store, job_id, &audio_files)
+        .map_err(AppError::internal)?
+        && job
+            .task(TaskType::Stt)
+            .and_then(|task| task.request_fingerprint.as_ref())
+            == requested_fingerprint.as_ref();
+    if transcripts_reusable {
         return Ok(StageJobSubmission {
             job,
             disposition: StageJobDisposition::Reused,
@@ -86,7 +109,13 @@ pub fn submit_stt_job(
     }
 
     let queued_at = now_rfc3339().map_err(AppError::internal)?;
-    let entry = queue::build_stt_entry(job_id, &audio_files, queued_at.clone());
+    let entry = queue::build_stt_entry_with_options(
+        job_id,
+        &audio_files,
+        &requested_language,
+        &requested_keywords,
+        queued_at.clone(),
+    );
     let (job, ticket) =
         stages::enqueue_existing_task(&index_store, job_id, TaskType::Stt, queued_at, entry)
             .map_err(AppError::internal)?;
@@ -102,6 +131,8 @@ pub fn execute_stt_job(
     repo_root: &Path,
     job_id: &str,
     audio_files: &[PathBuf],
+    language: &str,
+    keywords: &[String],
 ) -> Result<JobRecord, String> {
     let index_store = IndexStore::new(repo_root);
     let job = index_store
@@ -129,7 +160,7 @@ pub fn execute_stt_job(
                 index_store.job_dir(job_id).join(audio)
             };
             let transcript = artifacts::transcript_output_path(&stt_dir, &absolute_audio)?;
-            run_transcription(&toolchain, &absolute_audio, &transcript)?;
+            run_transcription(&toolchain, &absolute_audio, &transcript, language, keywords)?;
             let file_name = artifacts::transcript_file_name(&absolute_audio)?;
             let transcript_id = artifacts::transcript_id_from_file_name(&file_name)?;
             let text = fs::read_to_string(&transcript).map_err(|error| {
@@ -185,8 +216,8 @@ pub fn run_stt_with_repo_root(
     }
 
     let selected = select_stt_candidate(&candidates, reader, writer)?;
-    let submission =
-        submit_stt_job(repo_root, &selected.job_id, None).map_err(|error| error.to_string())?;
+    let submission = submit_stt_job(repo_root, &selected.job_id, None, Vec::new())
+        .map_err(|error| error.to_string())?;
     if submission.should_execute() {
         queue::dispatch_until_task_terminal(repo_root, &selected.job_id, TaskType::Stt)?;
     } else if submission.deduplicated() {
@@ -320,9 +351,22 @@ fn normalized_audio_files(audio_files: &[PathBuf]) -> Vec<String> {
         .collect()
 }
 
-fn stt_payload_matches(entry: &crate::index::QueueEntry, requested_audio_files: &[String]) -> bool {
+fn stt_payload_matches(
+    entry: &crate::index::QueueEntry,
+    requested_audio_files: &[String],
+    requested_language: &str,
+    requested_keywords: &[String],
+) -> bool {
     match &entry.payload {
-        QueuePayload::Stt { audio_files } => audio_files == requested_audio_files,
+        QueuePayload::Stt {
+            audio_files,
+            language,
+            keywords,
+        } => {
+            audio_files == requested_audio_files
+                && language == requested_language
+                && keywords == requested_keywords
+        }
         _ => false,
     }
 }

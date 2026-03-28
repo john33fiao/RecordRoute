@@ -60,7 +60,13 @@ pub(crate) fn enqueue_existing_task(
             let job = &mut index.jobs[job_index];
             match task_type {
                 TaskType::Ffmpeg => job.mark_ffmpeg_queued(queued_at.clone()),
-                _ => job.enqueue_task(task_type, queued_at.clone()),
+                _ => {
+                    job.enqueue_task(task_type, queued_at.clone());
+                    job.set_task_request_fingerprint(
+                        task_type,
+                        entry.payload.request_fingerprint(),
+                    );
+                }
             }
         }
         let ticket = queue::enqueue_entry(index, entry);

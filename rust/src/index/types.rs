@@ -106,9 +106,20 @@ pub struct QueueEntry {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum QueuePayload {
-    Ffmpeg { input_path: String },
-    Stt { audio_files: Vec<String> },
-    Summary { force_regenerate: bool },
+    Ffmpeg {
+        input_path: String,
+    },
+    Stt {
+        #[serde(default)]
+        audio_files: Vec<String>,
+        #[serde(default = "default_stt_language")]
+        language: String,
+        #[serde(default)]
+        keywords: Vec<String>,
+    },
+    Summary {
+        force_regenerate: bool,
+    },
     Embedding,
 }
 
@@ -251,6 +262,8 @@ pub struct TaskRecord {
     pub finished_at: Option<String>,
     pub last_error: Option<String>,
     pub retry_count: u32,
+    #[serde(default)]
+    pub request_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -390,6 +403,20 @@ impl JobRecord {
         ));
     }
 
+    pub fn set_task_request_fingerprint(
+        &mut self,
+        task_type: TaskType,
+        request_fingerprint: Option<String>,
+    ) {
+        if let Some(task) = self
+            .tasks
+            .iter_mut()
+            .find(|task| task.task_type == task_type)
+        {
+            task.request_fingerprint = request_fingerprint;
+        }
+    }
+
     #[cfg(test)]
     pub fn upsert_running_task(&mut self, task_type: TaskType, started_at: String) {
         let retry_count = self
@@ -405,6 +432,7 @@ impl JobRecord {
             finished_at: None,
             last_error: None,
             retry_count,
+            request_fingerprint: None,
         });
     }
 
@@ -482,6 +510,7 @@ impl TaskRecord {
             finished_at: None,
             last_error: None,
             retry_count,
+            request_fingerprint: None,
         }
     }
 
@@ -508,6 +537,21 @@ impl TaskRecord {
         }
         self.finished_at = Some(finished_at);
         self.last_error = Some(error);
+    }
+}
+
+impl QueuePayload {
+    pub fn request_fingerprint(&self) -> Option<String> {
+        match self {
+            Self::Stt {
+                audio_files,
+                language,
+                keywords,
+            } => serde_json::to_string(&(audio_files, language, keywords))
+                .ok()
+                .map(|raw| format!("stt:{raw}")),
+            _ => None,
+        }
     }
 }
 
@@ -579,4 +623,8 @@ fn default_queue_burst_limit() -> u32 {
 
 fn default_task_id() -> String {
     String::new()
+}
+
+fn default_stt_language() -> String {
+    "ko".to_string()
 }

@@ -22,8 +22,9 @@ pub(crate) fn submit_stt_job(
     repo_root: &Path,
     job_id: &str,
     subset_audio_files: Option<Vec<String>>,
+    keywords: Vec<String>,
 ) -> AppResult<StageJobSubmission> {
-    app::submit_stt_job(repo_root, job_id, subset_audio_files)
+    app::submit_stt_job(repo_root, job_id, subset_audio_files, keywords)
 }
 
 pub(crate) fn submit_summary_job(

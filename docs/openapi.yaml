@@ -866,7 +866,13 @@ components:
         mono_mix_only:
           type: boolean
           default: false
-      description: mono_mix_only=true and non-empty audio_files cannot be used together.
+        keywords:
+          type: array
+          items:
+            type: string
+          default: []
+          description: Optional keyword hints passed to whisper initial prompt for proper nouns and domain terms
+      description: mono_mix_only=true and non-empty audio_files cannot be used together. Language is taken from RECORDROUTE_WHISPER_LANGUAGE on the server.
 
     TaskSubmissionResponse:
       type: object

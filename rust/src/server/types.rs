@@ -46,6 +46,8 @@ pub(crate) struct SttRequest {
     pub audio_files: Vec<String>,
     #[serde(default)]
     pub mono_mix_only: bool,
+    #[serde(default)]
+    pub keywords: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

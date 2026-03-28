@@ -133,6 +133,8 @@ fn backend_parity_round_trips_index_metadata() {
                     queued_at: "2026-01-01T00:00:02Z".to_string(),
                     payload: QueuePayload::Stt {
                         audio_files: vec!["mono_mix.wav".to_string()],
+                        language: "ko".to_string(),
+                        keywords: Vec::new(),
                     },
                 }),
                 entries: Vec::new(),
