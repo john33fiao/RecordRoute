@@ -91,6 +91,14 @@ embedding은 이제 별도 실험 코드가 아니라 정식 stage로 보는 편
 
 이제 embedding 성공 직후 metadata와 vector row가 따로 어긋나는 구조는 주요 backlog가 아니다.
 
+### 2.9 SQLite/Postgres backend parity 테스트가 추가됐다
+
+- `index::tests::parity_tests`가 동일한 `IndexStore` 시나리오를 SQLite에 항상 적용하고, `RECORDROUTE_METADATA_POSTGRES_URL`이 있을 때는 Postgres에도 그대로 적용한다.
+- 기본 index 상태, job/task/model preparation/queue round-trip, transcript/summary/audio artifact 저장, embedding commit 경로를 backend 공통으로 검증한다.
+- Postgres 쪽은 전용 fixture가 RecordRoute 메타 테이블만 초기화하고 시작한다.
+
+이제 저장 구조가 늘어날 때 sqlite/postgres 구현이 조용히 어긋나는 리스크는 별도 backlog보다 회귀 테스트로 먼저 잡는 편이 맞다.
+
 ## 3. 미완료 항목
 
 이 절의 항목만 보면 다음 작업을 이어갈 수 있다.
@@ -120,17 +128,6 @@ embedding은 이제 별도 실험 코드가 아니라 정식 stage로 보는 편
   - 공통 stage lifecycle helper를 만들고,
   - stage별 차이점은 payload 검증과 후속 chaining만 남긴다.
 
-### 3.5 P2. SQLite/Postgres backend parity 테스트가 없다
-
-- 현재 상태
-  - backend abstraction과 두 구현은 존재한다.
-  - 하지만 동일 시나리오를 두 backend에 공통 적용하는 전용 parity 테스트 묶음은 보이지 않는다.
-- 문제
-  - 저장 구조가 늘수록 sqlite와 postgres 구현이 조용히 어긋날 위험이 커진다.
-  - 특히 transcript, summary, queue, model preparation, embedding round-trip의 동작 일치가 중요하다.
-- 다음 슬라이스
-  - backend 공통 fixture를 만들고 핵심 저장/조회 시나리오를 두 backend에 같은 테스트로 적용한다.
-
 ### 3.6 P3. interactive CLI가 실제 지원 명령과 동기화되지 않는다
 
 - 현재 상태
@@ -155,11 +152,10 @@ embedding은 이제 별도 실험 코드가 아니라 정식 stage로 보는 편
 
 다음 작업은 아래 순서로 보는 편이 효율적이다.
 
-1. `3.5 backend parity 테스트`
-2. `3.3 model/toolchain helper 축소`
-3. `3.4 stage lifecycle helper 정리`
-4. `3.6 CLI 표시 동기화`
-5. `3.7 문서 동기화`
+1. `3.3 model/toolchain helper 축소`
+2. `3.4 stage lifecycle helper 정리`
+3. `3.6 CLI 표시 동기화`
+4. `3.7 문서 동기화`
 
 ## 5. 사용법
 

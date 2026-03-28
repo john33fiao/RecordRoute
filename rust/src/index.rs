@@ -26,6 +26,10 @@ mod tests {
     use std::path::PathBuf;
     use uuid::Uuid;
 
+    mod parity_tests {
+        include!("index/parity_tests.rs");
+    }
+
     #[test]
     fn initializes_empty_index_when_missing() {
         let repo_root = temp_workspace();
