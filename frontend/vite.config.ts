@@ -58,6 +58,7 @@ export default defineConfig({
     port: 3000,
     open: true,
     proxy: {
+      '/jobs': 'http://127.0.0.1:38080',
       '/models': 'http://127.0.0.1:38080',
       '/system': 'http://127.0.0.1:38080',
     },
