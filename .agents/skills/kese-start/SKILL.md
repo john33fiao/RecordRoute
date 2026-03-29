@@ -21,5 +21,6 @@ description: KESE 주요정보통신기반시설(CII) 취약점 분석평가를 
 
 ## Wrapper Notes
 
-- 원본이 정의한 출력 경로와 의미를 바꾸지 마십시오. 예: `reports/kese/`
+- 이 저장소에서는 upstream `reports/kese/`를 `docs/kese/reports/`로 재해석하십시오.
+- 보고서와 관련 산출물은 모두 `docs/kese/reports/` 하위에 생성하십시오.
 - `modules/KESE-KIT` 내부 파일은 사용만 하고 수정하지 마십시오. 별도 요청이 있을 때만 수정합니다.

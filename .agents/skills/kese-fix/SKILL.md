@@ -21,5 +21,6 @@ description: KESE CII 시스템에서 발견된 보안 취약점을 자동 수�
 
 ## Wrapper Notes
 
-- 원본이 정의한 출력 경로와 의미를 바꾸지 마십시오. 예: `scripts/kese-hardening/`
+- 원본의 하드닝 산출물 의미는 유지하되, 이 저장소에서는 `scripts/kese-hardening/`를 `docs/kese/scripts/kese-hardening/`로 재해석하십시오.
+- 생성하는 스크립트, 설정 파일, README류 산출물은 모두 `docs/kese/scripts/kese-hardening/` 하위에 두십시오.
 - `modules/KESE-KIT` 내부 파일은 사용만 하고 수정하지 마십시오. 별도 요청이 있을 때만 수정합니다.

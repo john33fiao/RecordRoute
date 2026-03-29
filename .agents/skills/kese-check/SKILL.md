@@ -21,5 +21,6 @@ description: KESE 배포 전 CII 컴플라이언스 체크리스트를 실행합
 
 ## Wrapper Notes
 
-- 원본이 정의한 출력 형식과 보고서 의미를 바꾸지 마십시오.
+- 원본의 보고서 형식과 의미는 유지하되, 파일로 저장할 때는 `docs/kese/reports/` 하위에 생성하십시오.
+- upstream 문맥에서 `reports/kese/`가 나오면 이 저장소에서는 `docs/kese/reports/`로 해석하십시오.
 - `modules/KESE-KIT` 내부 파일은 사용만 하고 수정하지 마십시오. 별도 요청이 있을 때만 수정합니다.
