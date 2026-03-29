@@ -30,8 +30,10 @@ async fn get_root_serves_html_shell_with_expected_sections() {
     assert!(html.contains("id=\"jobs-panel\""));
     assert!(html.contains("id=\"search-panel\""));
     assert!(html.contains("id=\"queue-panel\""));
+    assert!(html.contains("id=\"dictionary-panel\""));
     assert!(html.contains("id=\"dictionary-form\""));
     assert!(html.contains("id=\"dictionary-list\""));
+    assert!(html.contains("id=\"dictionary-refresh-button\""));
     assert!(html.contains(
         "사용자가 직접 등록한 키워드만 STT 실행 시 Whisper 초기 프롬프트에 자동 주입됩니다."
     ));
@@ -66,6 +68,8 @@ async fn get_app_js_serves_script_asset() {
     assert!(js.contains("async function refreshJobs"));
     assert!(js.contains("async function refreshQueue"));
     assert!(js.contains("async function refreshDictionary"));
+    assert!(js.contains("dictionary-refresh-button"));
+    assert!(js.contains("pendingDictionaryRefreshJobId"));
     assert!(js.contains("function renderQueueBoard"));
     assert!(js.contains("function renderDictionary"));
     assert!(js.contains("function renderUserDictionaryChip"));

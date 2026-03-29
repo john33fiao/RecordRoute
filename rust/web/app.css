@@ -565,20 +565,11 @@ pre {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.dictionary-section {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border);
-}
-
 .dictionary-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
+  margin-bottom: 0;
 }
 
-.dictionary-head h3 {
+.dictionary-head h2 {
   margin: 0;
 }
 

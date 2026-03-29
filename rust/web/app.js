@@ -44,6 +44,7 @@ const state = {
   queueLoaded: false,
   dictionaryKeywords: emptyDictionaryKeywords(),
   dictionaryLoaded: false,
+  pendingDictionaryRefreshJobId: null,
   searchResults: [],
   uploadQueue: [],
   pollers: new Map(),
@@ -89,6 +90,7 @@ function captureElements() {
   elements.dictionaryForm = document.getElementById("dictionary-form");
   elements.dictionaryInput = document.getElementById("dictionary-input");
   elements.dictionaryList = document.getElementById("dictionary-list");
+  elements.dictionaryRefreshButton = document.getElementById("dictionary-refresh-button");
   elements.searchResults = document.getElementById("search-results");
 
   elements.systemRefreshButton = document.getElementById("system-refresh-button");
@@ -142,6 +144,11 @@ function bindEvents() {
   elements.embeddingSubmitButton.addEventListener("click", onEmbeddingSubmit);
   elements.queueRefreshButton.addEventListener("click", () => {
     refreshQueue({ showMessage: true });
+  });
+  elements.dictionaryRefreshButton.addEventListener("click", () => {
+    refreshDictionary({ showMessage: true }).catch((error) => {
+      console.error(error);
+    });
   });
   elements.dictionaryForm.addEventListener("submit", onDictionarySubmit);
   elements.dictionaryList.addEventListener("click", onDictionaryListClick);
@@ -385,9 +392,11 @@ async function onSummarySubmit() {
         force_regenerate: elements.summaryForceCheckbox.checked,
       }),
     });
+    state.pendingDictionaryRefreshJobId = data?.reused ? null : jobId;
     setMessage("selected-job", data.message || "요약 요청이 접수되었습니다.", "info");
     await Promise.all([refreshSelectedJob(jobId), refreshQueue()]);
   } catch (error) {
+    state.pendingDictionaryRefreshJobId = null;
     setMessage("selected-job", error.message, "error");
   } finally {
     setLoading("summary", false);
@@ -625,6 +634,7 @@ async function refreshJobs({ showMessage = false } = {}) {
 }
 
 async function refreshDictionary({ showMessage = false } = {}) {
+  setLoading("dictionary", true);
   try {
     const { data } = await fetchJson("/dictionary/keywords");
     state.dictionaryKeywords = normalizeDictionaryKeywords(data);
@@ -636,6 +646,9 @@ async function refreshDictionary({ showMessage = false } = {}) {
   } catch (error) {
     renderDictionary();
     setMessage("dictionary", error.message, "error");
+  } finally {
+    setLoading("dictionary", false);
+    renderDictionary();
   }
 }
 
@@ -660,6 +673,7 @@ async function refreshSelectedJob(jobId, { showMessage = false } = {}) {
   renderJobs();
 
   const encodedJobId = encodeURIComponent(jobId);
+  const previousSummaryStatus = state.summaryStatus?.task?.status || null;
   try {
     const [jobResult, statusResult, filesResult, sttResult, progressResult, summaryResult, embeddingResult] =
       await Promise.all([
@@ -679,11 +693,25 @@ async function refreshSelectedJob(jobId, { showMessage = false } = {}) {
     state.sttProgress = progressResult.data;
     state.summaryStatus = summaryResult.data;
     state.embeddingStatus = embeddingResult.data;
+    const currentSummaryStatus = state.summaryStatus?.task?.status || null;
     state.transcripts = [];
     state.summaryText = "";
     state.summaryOneLine = "";
 
     await Promise.all([refreshTranscripts(jobId), refreshSummaryText(jobId)]);
+    if (
+      state.pendingDictionaryRefreshJobId === jobId &&
+      currentSummaryStatus === "completed" &&
+      previousSummaryStatus !== "completed"
+    ) {
+      await refreshDictionary();
+      state.pendingDictionaryRefreshJobId = null;
+    } else if (
+      state.pendingDictionaryRefreshJobId === jobId &&
+      currentSummaryStatus === "failed"
+    ) {
+      state.pendingDictionaryRefreshJobId = null;
+    }
     renderSelectedJob();
     syncSelectedJobPoller();
     if (showMessage) {
@@ -1321,6 +1349,7 @@ function updateActionStates() {
   elements.jobsRefreshButton.disabled = false;
   elements.selectedJobRefreshButton.disabled = !hasJob;
   elements.queueRefreshButton.disabled = false;
+  elements.dictionaryRefreshButton.disabled = state.loading.dictionary;
   elements.dictionarySubmitButton.disabled = state.loading.dictionary;
   elements.sttSubmitButton.disabled = !hasJob || state.loading.stt || runningTask;
   elements.summarySubmitButton.disabled = !hasJob || state.loading.summary || runningTask;

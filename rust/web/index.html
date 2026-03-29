@@ -191,34 +191,35 @@
           </div>
           <div class="notice" id="queue-message" aria-live="polite"></div>
           <div class="queue-board" id="queue-board"></div>
+        </section>
 
-          <section class="dictionary-section">
-            <div class="dictionary-head">
-              <div>
-                <p class="panel-kicker">Dictionary</p>
-                <h3>주요 키워드</h3>
-                <p class="panel-caption">
-                  사용자가 직접 등록한 키워드만 STT 실행 시 Whisper 초기 프롬프트에 자동 주입됩니다.
-                  자동 생성 키워드는 후보 목록으로만 관리됩니다.
-                </p>
-              </div>
+        <section class="panel panel-wide" id="dictionary-panel">
+          <div class="panel-head dictionary-head">
+            <div>
+              <p class="panel-kicker">Dictionary</p>
+              <h2>주요 키워드</h2>
+              <p class="panel-caption">
+                사용자가 직접 등록한 키워드만 STT 실행 시 Whisper 초기 프롬프트에 자동 주입됩니다.
+                자동 생성 키워드는 후보 목록으로만 관리됩니다.
+              </p>
             </div>
-            <div class="notice" id="dictionary-message" aria-live="polite"></div>
-            <form class="dictionary-form" id="dictionary-form">
-              <label class="field field-wide">
-                <span>Keyword</span>
-                <input
-                  id="dictionary-input"
-                  name="keyword"
-                  type="text"
-                  placeholder="예: RecordRoute, Dooray, 김현수"
-                  autocomplete="off"
-                />
-              </label>
-              <button class="primary-button" id="dictionary-submit-button" type="submit">확인</button>
-            </form>
-            <div class="dictionary-list" id="dictionary-list"></div>
-          </section>
+            <button class="ghost-button" id="dictionary-refresh-button" type="button">키워드 새로고침</button>
+          </div>
+          <div class="notice" id="dictionary-message" aria-live="polite"></div>
+          <form class="dictionary-form" id="dictionary-form">
+            <label class="field field-wide">
+              <span>Keyword</span>
+              <input
+                id="dictionary-input"
+                name="keyword"
+                type="text"
+                placeholder="예: RecordRoute, Dooray, 김현수"
+                autocomplete="off"
+              />
+            </label>
+            <button class="primary-button" id="dictionary-submit-button" type="submit">확인</button>
+          </form>
+          <div class="dictionary-list" id="dictionary-list"></div>
         </section>
       </main>
     </div>
