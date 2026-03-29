@@ -275,8 +275,32 @@ impl IndexStore {
         self.backend()?.get_summary(job_id)
     }
 
+    #[cfg(test)]
     pub fn upsert_summary(&self, record: &SummaryRecord) -> Result<(), String> {
         self.backend()?.upsert_summary(record)
+    }
+
+    pub fn commit_summary_success(
+        &self,
+        job_id: &str,
+        finished_at: String,
+        record: &SummaryRecord,
+        auto_keywords: &[String],
+    ) -> Result<JobRecord, String> {
+        self.ensure_db_dir()?;
+        let mut index = self.read_index()?;
+        let updated = {
+            let job = index
+                .jobs
+                .iter_mut()
+                .find(|job| job.job_id == job_id)
+                .ok_or_else(|| format!("job not found in index: {job_id}"))?;
+            job.complete_task(TaskType::Summary, finished_at)?;
+            job.clone()
+        };
+        self.backend()?
+            .write_index_with_summary_and_keywords(&index, record, auto_keywords)?;
+        Ok(updated)
     }
 
     pub fn get_summary_embedding(

@@ -1035,7 +1035,7 @@ components:
           type: array
           items:
             type: string
-          description: Auto-generated keyword suggestions stored in metadata only
+          description: LLM-extracted global keyword suggestions stored for later review and future STT injection; they are not injected automatically yet
 
     SttRequest:
       type: object

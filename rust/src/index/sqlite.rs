@@ -1,6 +1,7 @@
 use super::backend::{
-    DICTIONARY_AUTO_DEMO_KEYWORDS, DICTIONARY_AUTO_DEMO_SEED_FLAG, MetadataBackend,
-    SerializedJobRecord, deserialize_job_record, from_json, serialize_job_record, to_json,
+    LEGACY_DICTIONARY_AUTO_DEMO_CLEANUP_FLAG, LEGACY_DICTIONARY_AUTO_DEMO_KEYWORDS,
+    MetadataBackend, SerializedJobRecord, deserialize_job_record, from_json, serialize_job_record,
+    to_json,
 };
 use super::types::{
     AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile, ModelKind,
@@ -421,6 +422,7 @@ impl MetadataBackend for SqliteMetadataStore {
             .map_err(|error| format!("failed to read sqlite summary: {error}"))
     }
 
+    #[cfg(test)]
     fn upsert_summary(&self, record: &SummaryRecord) -> Result<(), String> {
         let connection = self.open()?;
         connection
@@ -446,6 +448,23 @@ impl MetadataBackend for SqliteMetadataStore {
                 )
             })?;
         Ok(())
+    }
+
+    fn write_index_with_summary_and_keywords(
+        &self,
+        index: &IndexFile,
+        record: &SummaryRecord,
+        auto_keywords: &[String],
+    ) -> Result<(), String> {
+        let mut connection = self.open()?;
+        let tx = connection
+            .transaction()
+            .map_err(|error| format!("failed to start sqlite transaction: {error}"))?;
+        write_index_transaction(&tx, index)?;
+        upsert_summary_transaction(&tx, record)?;
+        upsert_auto_keywords_transaction(&tx, auto_keywords)?;
+        tx.commit()
+            .map_err(|error| format!("failed to commit sqlite summary transaction: {error}"))
     }
 
     fn get_summary_embedding(
@@ -591,6 +610,52 @@ fn upsert_summary_embedding_transaction(
     Ok(())
 }
 
+fn upsert_summary_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    record: &SummaryRecord,
+) -> Result<(), String> {
+    tx.execute(
+        "INSERT INTO summaries (job_id, file_name, text, one_line_summary)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(job_id)
+         DO UPDATE SET
+            file_name = excluded.file_name,
+            text = excluded.text,
+            one_line_summary = excluded.one_line_summary",
+        params![
+            record.job_id,
+            record.file_name,
+            record.text,
+            record.one_line_summary
+        ],
+    )
+    .map_err(|error| {
+        format!(
+            "failed to upsert sqlite summary for job {}: {error}",
+            record.job_id
+        )
+    })?;
+    Ok(())
+}
+
+fn upsert_auto_keywords_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    keywords: &[String],
+) -> Result<(), String> {
+    for keyword in keywords {
+        tx.execute(
+            "INSERT INTO stt_dictionary_keywords (keyword, source)
+             VALUES (?, ?)
+             ON CONFLICT(keyword) DO NOTHING",
+            params![keyword, DictionaryKeywordSource::Auto.as_str()],
+        )
+        .map_err(|error| {
+            format!("failed to upsert sqlite auto dictionary keyword {keyword}: {error}")
+        })?;
+    }
+    Ok(())
+}
+
 fn ensure_parent_dir(path: &Path) -> Result<(), String> {
     let Some(parent) = path.parent() else {
         return Err(format!(
@@ -675,7 +740,7 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), String> {
         .map_err(|error| format!("failed to initialize sqlite schema: {error}"))?;
     ensure_summary_one_line_column(connection)?;
     ensure_dictionary_keyword_source_column(connection)?;
-    ensure_dictionary_auto_keywords_seeded(connection)
+    cleanup_legacy_dictionary_auto_demo_keywords(connection)
 }
 
 fn ensure_summary_one_line_column(connection: &Connection) -> Result<(), String> {
@@ -730,43 +795,42 @@ fn ensure_dictionary_keyword_source_column(connection: &Connection) -> Result<()
     Ok(())
 }
 
-fn ensure_dictionary_auto_keywords_seeded(connection: &mut Connection) -> Result<(), String> {
-    let seeded = connection
+fn cleanup_legacy_dictionary_auto_demo_keywords(connection: &mut Connection) -> Result<(), String> {
+    let cleaned = connection
         .query_row(
             "SELECT flag
              FROM metadata_bootstrap_flags
              WHERE flag = ?",
-            [DICTIONARY_AUTO_DEMO_SEED_FLAG],
+            [LEGACY_DICTIONARY_AUTO_DEMO_CLEANUP_FLAG],
             |row| row.get::<_, String>(0),
         )
         .optional()
-        .map_err(|error| format!("failed to read sqlite dictionary bootstrap flag: {error}"))?
+        .map_err(|error| format!("failed to read sqlite dictionary cleanup flag: {error}"))?
         .is_some();
-    if seeded {
+    if cleaned {
         return Ok(());
     }
 
-    let tx = connection
-        .transaction()
-        .map_err(|error| format!("failed to start sqlite dictionary seed transaction: {error}"))?;
-    for keyword in DICTIONARY_AUTO_DEMO_KEYWORDS {
+    let tx = connection.transaction().map_err(|error| {
+        format!("failed to start sqlite dictionary cleanup transaction: {error}")
+    })?;
+    for keyword in LEGACY_DICTIONARY_AUTO_DEMO_KEYWORDS {
         tx.execute(
-            "INSERT INTO stt_dictionary_keywords (keyword, source)
-             VALUES (?, ?)
-             ON CONFLICT(keyword) DO NOTHING",
+            "DELETE FROM stt_dictionary_keywords
+             WHERE keyword = ? AND source = ?",
             params![keyword, DictionaryKeywordSource::Auto.as_str()],
         )
         .map_err(|error| {
-            format!("failed to seed sqlite auto dictionary keyword {keyword}: {error}")
+            format!("failed to cleanup sqlite legacy auto dictionary keyword {keyword}: {error}")
         })?;
     }
     tx.execute(
         "INSERT INTO metadata_bootstrap_flags (flag)
          VALUES (?)
          ON CONFLICT(flag) DO NOTHING",
-        [DICTIONARY_AUTO_DEMO_SEED_FLAG],
+        [LEGACY_DICTIONARY_AUTO_DEMO_CLEANUP_FLAG],
     )
-    .map_err(|error| format!("failed to persist sqlite dictionary bootstrap flag: {error}"))?;
+    .map_err(|error| format!("failed to persist sqlite dictionary cleanup flag: {error}"))?;
     tx.commit()
-        .map_err(|error| format!("failed to commit sqlite dictionary seed transaction: {error}"))
+        .map_err(|error| format!("failed to commit sqlite dictionary cleanup transaction: {error}"))
 }

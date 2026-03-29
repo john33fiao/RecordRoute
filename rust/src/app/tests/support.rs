@@ -110,15 +110,33 @@ pub(super) fn write_fake_llama_cli(
     prompt_capture_path: &Path,
     fail: bool,
 ) {
+    write_fake_llama_cli_with_keyword_output(
+        path,
+        log_path,
+        prompt_capture_path,
+        fail,
+        "회의\n일정\n견적\n",
+    );
+}
+
+pub(super) fn write_fake_llama_cli_with_keyword_output(
+    path: &Path,
+    log_path: &Path,
+    prompt_capture_path: &Path,
+    fail: bool,
+    keyword_output: &str,
+) {
     let log = log_path.display();
     let prompt_capture = prompt_capture_path.display();
+    let unix_keyword_output = keyword_output.replace('\'', "'\"'\"'");
+    let windows_keyword_output = render_windows_keyword_output(keyword_output);
     let unix_script = if fail {
         format!(
             "#!/bin/sh\ntouch '{log}'\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\ndone\nprintf 'HF_TOKEN=%s\\n' \"${{HF_TOKEN:-}}\" >> '{log}'\nprintf 'LLAMA_CACHE=%s\\n' \"${{LLAMA_CACHE:-}}\" >> '{log}'\nprintf 'synthetic llama failure' >&2\nexit 1\n"
         )
     } else {
         format!(
-            "#!/bin/sh\ntouch '{log}'\nprompt=''\nmodel=''\nhf_repo=''\nprompt_kind='summary'\nnext=''\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\n  if [ \"$next\" = 'f' ]; then\n    prompt=\"$arg\"\n    next=''\n    continue\n  fi\n  if [ \"$next\" = 'm' ]; then\n    model=\"$arg\"\n    next=''\n    continue\n  fi\n  if [ \"$next\" = 'hf' ]; then\n    hf_repo=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -f)\n      next='f'\n      ;;\n    -m)\n      next='m'\n      ;;\n    -hf)\n      next='hf'\n      ;;\n  esac\ndone\nprintf 'HF_TOKEN=%s\\n' \"${{HF_TOKEN:-}}\" >> '{log}'\nprintf 'LLAMA_CACHE=%s\\n' \"${{LLAMA_CACHE:-}}\" >> '{log}'\nif [ -n \"$prompt\" ]; then\n  cat \"$prompt\" >> '{prompt_capture}'\n  printf '\\n---PROMPT---\\n' >> '{prompt_capture}'\n  if grep -q '한줄 별칭' \"$prompt\"; then\n    prompt_kind='one-line'\n  fi\nfi\nif [ -n \"$model\" ]; then\n  mkdir -p \"$(dirname \"$model\")\"\n  printf 'synthetic model' > \"$model\"\nelif [ -n \"$hf_repo\" ] && [ -n \"${{LLAMA_CACHE:-}}\" ]; then\n  mkdir -p \"$LLAMA_CACHE\"\n  printf 'synthetic downloaded model' > \"$LLAMA_CACHE/downloaded-model.gguf\"\nfi\nif [ -n \"$prompt\" ]; then\n  if [ \"$prompt_kind\" = 'one-line' ]; then\n    printf 'synthetic one-line summary'\n  else\n    printf 'synthetic summary'\n  fi\nfi\n"
+            "#!/bin/sh\ntouch '{log}'\nprompt=''\nmodel=''\nhf_repo=''\nprompt_kind='summary'\nnext=''\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{log}'\n  if [ \"$next\" = 'f' ]; then\n    prompt=\"$arg\"\n    next=''\n    continue\n  fi\n  if [ \"$next\" = 'm' ]; then\n    model=\"$arg\"\n    next=''\n    continue\n  fi\n  if [ \"$next\" = 'hf' ]; then\n    hf_repo=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -f)\n      next='f'\n      ;;\n    -m)\n      next='m'\n      ;;\n    -hf)\n      next='hf'\n      ;;\n  esac\ndone\nprintf 'HF_TOKEN=%s\\n' \"${{HF_TOKEN:-}}\" >> '{log}'\nprintf 'LLAMA_CACHE=%s\\n' \"${{LLAMA_CACHE:-}}\" >> '{log}'\nif [ -n \"$prompt\" ]; then\n  cat \"$prompt\" >> '{prompt_capture}'\n  printf '\\n---PROMPT---\\n' >> '{prompt_capture}'\n  if grep -q '한줄 별칭' \"$prompt\"; then\n    prompt_kind='one-line'\n  elif grep -q '한 줄당 키워드 1개' \"$prompt\"; then\n    prompt_kind='keywords'\n  fi\nfi\nif [ -n \"$model\" ]; then\n  mkdir -p \"$(dirname \"$model\")\"\n  printf 'synthetic model' > \"$model\"\nelif [ -n \"$hf_repo\" ] && [ -n \"${{LLAMA_CACHE:-}}\" ]; then\n  mkdir -p \"$LLAMA_CACHE\"\n  printf 'synthetic downloaded model' > \"$LLAMA_CACHE/downloaded-model.gguf\"\nfi\nif [ -n \"$prompt\" ]; then\n  if [ \"$prompt_kind\" = 'one-line' ]; then\n    printf 'synthetic one-line summary'\n  elif [ \"$prompt_kind\" = 'keywords' ]; then\n    printf '%s' '{unix_keyword_output}'\n  else\n    printf 'synthetic summary'\n  fi\nfi\n"
         )
     };
     let windows_script = if fail {
@@ -127,10 +145,31 @@ pub(super) fn write_fake_llama_cli(
         )
     } else {
         format!(
-            "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nif not exist \"{log}\" > \"{log}\" type nul\nset \"prompt=\"\nset \"model=\"\nset \"hf_repo=\"\nset \"prompt_kind=summary\"\nset \"next=\"\n:loop\nif \"%~1\"==\"\" goto after\nset \"arg=%~1\"\nif \"!arg:~0,4!\"==\"\\\\?\\\" set \"arg=!arg:~4!\"\n>> \"{log}\" echo(!arg!\nif /I \"!next!\"==\"f\" (\n  set \"prompt=!arg!\"\n  set \"next=\"\n) else if /I \"!next!\"==\"m\" (\n  set \"model=!arg!\"\n  set \"next=\"\n) else if /I \"!next!\"==\"hf\" (\n  set \"hf_repo=!arg!\"\n  set \"next=\"\n) else if /I \"!arg!\"==\"-f\" (\n  set \"next=f\"\n) else if /I \"!arg!\"==\"-m\" (\n  set \"next=m\"\n) else if /I \"!arg!\"==\"-hf\" (\n  set \"next=hf\"\n)\nshift\ngoto loop\n:after\nset \"llama_cache=!LLAMA_CACHE!\"\nif \"!llama_cache:~0,4!\"==\"\\\\?\\\" set \"llama_cache=!llama_cache:~4!\"\n>> \"{log}\" echo HF_TOKEN=!HF_TOKEN!\n>> \"{log}\" echo LLAMA_CACHE=!llama_cache!\nif defined prompt (\n  type \"!prompt!\" >> \"{prompt_capture}\"\n  >> \"{prompt_capture}\" echo ---PROMPT---\n  findstr /C:\"한줄 별칭\" \"!prompt!\" >nul && set \"prompt_kind=one-line\"\n)\nif defined model (\n  for %%I in (\"!model!\") do if not exist \"%%~dpI\" mkdir \"%%~dpI\"\n  > \"!model!\" <nul set /p =synthetic model\n) else if defined hf_repo if defined llama_cache (\n  if not exist \"!llama_cache!\" mkdir \"!llama_cache!\"\n  > \"!llama_cache!\\downloaded-model.gguf\" <nul set /p =synthetic downloaded model\n)\nif defined prompt (\n  if /I \"!prompt_kind!\"==\"one-line\" (\n    <nul set /p =synthetic one-line summary\n  ) else (\n    <nul set /p =synthetic summary\n  )\n)\nexit /b 0\n"
+            "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nif not exist \"{log}\" > \"{log}\" type nul\nset \"prompt=\"\nset \"model=\"\nset \"hf_repo=\"\nset \"prompt_kind=summary\"\nset \"next=\"\n:loop\nif \"%~1\"==\"\" goto after\nset \"arg=%~1\"\nif \"!arg:~0,4!\"==\"\\\\?\\\" set \"arg=!arg:~4!\"\n>> \"{log}\" echo(!arg!\nif /I \"!next!\"==\"f\" (\n  set \"prompt=!arg!\"\n  set \"next=\"\n) else if /I \"!next!\"==\"m\" (\n  set \"model=!arg!\"\n  set \"next=\"\n) else if /I \"!next!\"==\"hf\" (\n  set \"hf_repo=!arg!\"\n  set \"next=\"\n) else if /I \"!arg!\"==\"-f\" (\n  set \"next=f\"\n) else if /I \"!arg!\"==\"-m\" (\n  set \"next=m\"\n) else if /I \"!arg!\"==\"-hf\" (\n  set \"next=hf\"\n)\nshift\ngoto loop\n:after\nset \"llama_cache=!LLAMA_CACHE!\"\nif \"!llama_cache:~0,4!\"==\"\\\\?\\\" set \"llama_cache=!llama_cache:~4!\"\n>> \"{log}\" echo HF_TOKEN=!HF_TOKEN!\n>> \"{log}\" echo LLAMA_CACHE=!llama_cache!\nif defined prompt (\n  type \"!prompt!\" >> \"{prompt_capture}\"\n  >> \"{prompt_capture}\" echo ---PROMPT---\n  findstr /C:\"한줄 별칭\" \"!prompt!\" >nul && set \"prompt_kind=one-line\"\n  findstr /C:\"한 줄당 키워드 1개\" \"!prompt!\" >nul && set \"prompt_kind=keywords\"\n)\nif defined model (\n  for %%I in (\"!model!\") do if not exist \"%%~dpI\" mkdir \"%%~dpI\"\n  > \"!model!\" <nul set /p =synthetic model\n) else if defined hf_repo if defined llama_cache (\n  if not exist \"!llama_cache!\" mkdir \"!llama_cache!\"\n  > \"!llama_cache!\\downloaded-model.gguf\" <nul set /p =synthetic downloaded model\n)\nif defined prompt (\n  if /I \"!prompt_kind!\"==\"one-line\" (\n    <nul set /p =synthetic one-line summary\n  ) else if /I \"!prompt_kind!\"==\"keywords\" (\n{windows_keyword_output}  ) else (\n    <nul set /p =synthetic summary\n  )\n)\nexit /b 0\n"
         )
     };
     write_platform_script(path, &unix_script, &windows_script);
+}
+
+fn render_windows_keyword_output(keyword_output: &str) -> String {
+    if keyword_output.is_empty() {
+        return "    rem no keyword output\n".to_string();
+    }
+
+    keyword_output
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| format!("    echo {}\n", escape_windows_batch_line(line)))
+        .collect()
+}
+
+fn escape_windows_batch_line(line: &str) -> String {
+    line.replace('^', "^^")
+        .replace('&', "^&")
+        .replace('|', "^|")
+        .replace('<', "^<")
+        .replace('>', "^>")
+        .replace('%', "%%")
 }
 
 pub(super) fn write_fake_llama_embedding(path: &Path, log_path: &Path) {

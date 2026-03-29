@@ -1,6 +1,7 @@
 use super::backend::{
-    DICTIONARY_AUTO_DEMO_KEYWORDS, DICTIONARY_AUTO_DEMO_SEED_FLAG, MetadataBackend,
-    SerializedJobRecord, deserialize_job_record, from_json, serialize_job_record, to_json,
+    LEGACY_DICTIONARY_AUTO_DEMO_CLEANUP_FLAG, LEGACY_DICTIONARY_AUTO_DEMO_KEYWORDS,
+    MetadataBackend, SerializedJobRecord, deserialize_job_record, from_json, serialize_job_record,
+    to_json,
 };
 use super::types::{
     AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile,
@@ -366,6 +367,7 @@ impl MetadataBackend for PostgresMetadataStore {
             .transpose()
     }
 
+    #[cfg(test)]
     fn upsert_summary(&self, record: &SummaryRecord) -> Result<(), String> {
         let mut client = self.connect()?;
         client
@@ -391,6 +393,23 @@ impl MetadataBackend for PostgresMetadataStore {
                 )
             })?;
         Ok(())
+    }
+
+    fn write_index_with_summary_and_keywords(
+        &self,
+        index: &IndexFile,
+        record: &SummaryRecord,
+        auto_keywords: &[String],
+    ) -> Result<(), String> {
+        let mut client = self.connect()?;
+        let mut tx = client
+            .transaction()
+            .map_err(|error| format!("failed to start postgres transaction: {error}"))?;
+        write_index_transaction(&mut tx, index)?;
+        upsert_summary_transaction(&mut tx, record)?;
+        upsert_auto_keywords_transaction(&mut tx, auto_keywords)?;
+        tx.commit()
+            .map_err(|error| format!("failed to commit postgres summary transaction: {error}"))
     }
 
     fn get_summary_embedding(
@@ -534,6 +553,52 @@ fn upsert_summary_embedding_transaction(
     Ok(())
 }
 
+fn upsert_summary_transaction(
+    tx: &mut postgres::Transaction<'_>,
+    record: &SummaryRecord,
+) -> Result<(), String> {
+    tx.execute(
+        "INSERT INTO summaries (job_id, file_name, text, one_line_summary)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (job_id)
+         DO UPDATE SET
+            file_name = EXCLUDED.file_name,
+            text = EXCLUDED.text,
+            one_line_summary = EXCLUDED.one_line_summary",
+        &[
+            &record.job_id,
+            &record.file_name,
+            &record.text,
+            &record.one_line_summary,
+        ],
+    )
+    .map_err(|error| {
+        format!(
+            "failed to upsert postgres summary for job {}: {error}",
+            record.job_id
+        )
+    })?;
+    Ok(())
+}
+
+fn upsert_auto_keywords_transaction(
+    tx: &mut postgres::Transaction<'_>,
+    keywords: &[String],
+) -> Result<(), String> {
+    for keyword in keywords {
+        tx.execute(
+            "INSERT INTO stt_dictionary_keywords (keyword, source)
+             VALUES ($1, $2)
+             ON CONFLICT (keyword) DO NOTHING",
+            &[&keyword, &DictionaryKeywordSource::Auto.as_str()],
+        )
+        .map_err(|error| {
+            format!("failed to upsert postgres auto dictionary keyword {keyword}: {error}")
+        })?;
+    }
+    Ok(())
+}
+
 fn initialize_schema(client: &mut Client) -> Result<(), String> {
     client
         .batch_execute(
@@ -609,39 +674,39 @@ fn initialize_schema(client: &mut Client) -> Result<(), String> {
         .map_err(|error| format!("failed to initialize postgres metadata schema: {error}"))?;
 
     let mut tx = client.transaction().map_err(|error| {
-        format!("failed to start postgres dictionary seed transaction: {error}")
+        format!("failed to start postgres dictionary cleanup transaction: {error}")
     })?;
-    let seeded = tx
+    let cleaned = tx
         .query_opt(
             "SELECT flag
              FROM metadata_bootstrap_flags
              WHERE flag = $1",
-            &[&DICTIONARY_AUTO_DEMO_SEED_FLAG],
+            &[&LEGACY_DICTIONARY_AUTO_DEMO_CLEANUP_FLAG],
         )
-        .map_err(|error| format!("failed to read postgres dictionary bootstrap flag: {error}"))?
+        .map_err(|error| format!("failed to read postgres dictionary cleanup flag: {error}"))?
         .is_some();
-    if !seeded {
-        for keyword in DICTIONARY_AUTO_DEMO_KEYWORDS {
+    if !cleaned {
+        for keyword in LEGACY_DICTIONARY_AUTO_DEMO_KEYWORDS {
             tx.execute(
-                "INSERT INTO stt_dictionary_keywords (keyword, source)
-                 VALUES ($1, $2)
-                 ON CONFLICT (keyword) DO NOTHING",
+                "DELETE FROM stt_dictionary_keywords
+                 WHERE keyword = $1 AND source = $2",
                 &[&keyword, &DictionaryKeywordSource::Auto.as_str()],
             )
             .map_err(|error| {
-                format!("failed to seed postgres auto dictionary keyword {keyword}: {error}")
+                format!(
+                    "failed to cleanup postgres legacy auto dictionary keyword {keyword}: {error}"
+                )
             })?;
         }
         tx.execute(
             "INSERT INTO metadata_bootstrap_flags (flag)
              VALUES ($1)
              ON CONFLICT (flag) DO NOTHING",
-            &[&DICTIONARY_AUTO_DEMO_SEED_FLAG],
+            &[&LEGACY_DICTIONARY_AUTO_DEMO_CLEANUP_FLAG],
         )
-        .map_err(|error| {
-            format!("failed to persist postgres dictionary bootstrap flag: {error}")
-        })?;
+        .map_err(|error| format!("failed to persist postgres dictionary cleanup flag: {error}"))?;
     }
-    tx.commit()
-        .map_err(|error| format!("failed to commit postgres dictionary seed transaction: {error}"))
+    tx.commit().map_err(|error| {
+        format!("failed to commit postgres dictionary cleanup transaction: {error}")
+    })
 }

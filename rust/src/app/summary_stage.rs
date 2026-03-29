@@ -9,9 +9,12 @@ use crate::index::{
     TranscriptRecord,
 };
 use crate::llama::{Toolchain as LlamaToolchain, run_summary_generation};
+use crate::whisper::normalize_keywords;
 use std::fs;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
+
+const MAX_SUMMARY_KEYWORDS: usize = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SummaryCandidate {
@@ -19,6 +22,14 @@ struct SummaryCandidate {
     source_file_name: String,
     job_dir: PathBuf,
     transcript_files: Vec<String>,
+}
+
+enum SummaryExecutionResult {
+    ReusedExisting,
+    Generated {
+        summary: SummaryRecord,
+        auto_keywords: Vec<String>,
+    },
 }
 
 pub fn submit_summary_job(
@@ -116,7 +127,7 @@ pub fn execute_summary_job(
         .spool_root()
         .join("summary")
         .join(job_id);
-    let result = (|| -> Result<(), String> {
+    let result = (|| -> Result<SummaryExecutionResult, String> {
         let transcript_files = index_store.list_transcripts(job_id)?;
         if transcript_files.is_empty() {
             return Err(format!("no transcripts found for summary: {job_id}"));
@@ -130,7 +141,7 @@ pub fn execute_summary_job(
         })?;
         let summary_file = artifacts::summary_output_path(&summary_dir, &job.source_file_name)?;
         if !force_regenerate && index_store.get_summary(job_id)?.is_some() {
-            return Ok(());
+            return Ok(SummaryExecutionResult::ReusedExisting);
         }
 
         let prompt_file = artifacts::summary_prompt_file_path(&summary_dir, &job.source_file_name)?;
@@ -158,19 +169,40 @@ pub fn execute_summary_job(
             &job.source_file_name,
             &summary_text,
         )?;
-        index_store.upsert_summary(&SummaryRecord {
-            job_id: job_id.to_string(),
-            file_name: artifacts::summary_file_name().to_string(),
-            text: summary_text,
-            one_line_summary: Some(one_line_summary),
-        })?;
-        Ok(())
+        let auto_keywords = generate_summary_keywords(
+            &toolchain,
+            &summary_dir,
+            &job.source_file_name,
+            &summary_text,
+        )?;
+        Ok(SummaryExecutionResult::Generated {
+            summary: SummaryRecord {
+                job_id: job_id.to_string(),
+                file_name: artifacts::summary_file_name().to_string(),
+                text: summary_text,
+                one_line_summary: Some(one_line_summary),
+            },
+            auto_keywords,
+        })
     })();
 
     match result {
-        Ok(()) => {
-            let completed =
-                stages::finalize_task_success(repo_root, job, TaskType::Summary, now_rfc3339()?)?;
+        Ok(execution) => {
+            let finished_at = now_rfc3339()?;
+            let completed = match execution {
+                SummaryExecutionResult::ReusedExisting => {
+                    stages::finalize_task_success(repo_root, job, TaskType::Summary, finished_at)?
+                }
+                SummaryExecutionResult::Generated {
+                    summary,
+                    auto_keywords,
+                } => index_store.commit_summary_success(
+                    job_id,
+                    finished_at,
+                    &summary,
+                    &auto_keywords,
+                )?,
+            };
             let _ = stages::submit_followup_task(
                 repo_root,
                 &completed.job_id,
@@ -347,6 +379,19 @@ fn build_one_line_summary_prompt(summary_text: &str) -> String {
     )
 }
 
+fn build_summary_keywords_prompt(summary_text: &str) -> String {
+    format!(
+        "당신은 한국어 녹음 요약에서 STT 힌트용 핵심 키워드만 추려내는 도우미다.\n\
+- 아래 요약에서 고유명사, 제품명, 서비스명, 조직명, 전문 용어처럼 STT 품질에 도움이 될 표현만 고른다.\n\
+- 출력은 한국어 평문으로만 작성하고 한 줄당 키워드 1개만 쓴다.\n\
+- 최대 {MAX_SUMMARY_KEYWORDS}개까지만 출력한다.\n\
+- 번호, bullet, 설명 문장, 따옴표, 헤더, `키워드:` 같은 접두어는 쓰지 않는다.\n\
+- 일반 명사나 불필요하게 짧은 표현은 제외한다.\n\
+- 확인할 수 없는 내용은 추측하지 않는다.\n\
+\n[summary]\n{summary_text}\n"
+    )
+}
+
 fn generate_one_line_summary(
     toolchain: &LlamaToolchain,
     summary_dir: &Path,
@@ -355,35 +400,81 @@ fn generate_one_line_summary(
 ) -> Result<String, String> {
     let prompt_file = artifacts::one_line_summary_prompt_file_path(summary_dir, source_file_name)?;
     let output_file = artifacts::one_line_summary_output_path(summary_dir, source_file_name)?;
-    fs::write(&prompt_file, build_one_line_summary_prompt(summary_text)).map_err(|error| {
-        format!(
-            "failed to write one-line summary prompt {}: {error}",
-            prompt_file.display()
-        )
-    })?;
-    let generation_result = run_summary_generation(toolchain, &prompt_file, &output_file);
-    let _ = fs::remove_file(&prompt_file);
-    if let Err(error) = generation_result {
-        let _ = fs::remove_file(&output_file);
-        return Err(error);
-    }
-    let raw = match fs::read_to_string(&output_file) {
-        Ok(raw) => raw,
-        Err(error) => {
-            let _ = fs::remove_file(&output_file);
-            return Err(format!(
-                "failed to read generated one-line summary {}: {error}",
-                output_file.display()
-            ));
-        }
-    };
-    let _ = fs::remove_file(&output_file);
-
+    let raw = run_summary_followup_prompt(
+        toolchain,
+        &prompt_file,
+        &output_file,
+        &build_one_line_summary_prompt(summary_text),
+        "one-line summary",
+    )?;
     let one_line_summary = normalize_one_line_summary(&raw);
     if one_line_summary.is_empty() {
         return Err("generated one-line summary is empty".to_string());
     }
     Ok(one_line_summary)
+}
+
+fn generate_summary_keywords(
+    toolchain: &LlamaToolchain,
+    summary_dir: &Path,
+    source_file_name: &str,
+    summary_text: &str,
+) -> Result<Vec<String>, String> {
+    let prompt_file = artifacts::summary_keywords_prompt_file_path(summary_dir, source_file_name)?;
+    let output_file = artifacts::summary_keywords_output_path(summary_dir, source_file_name)?;
+    let raw = run_summary_followup_prompt(
+        toolchain,
+        &prompt_file,
+        &output_file,
+        &build_summary_keywords_prompt(summary_text),
+        "summary keywords",
+    )?;
+
+    let mut parsed = normalize_keywords(
+        &raw.lines()
+            .filter_map(normalize_summary_keyword_line)
+            .collect::<Vec<_>>(),
+    );
+    if parsed.len() > MAX_SUMMARY_KEYWORDS {
+        parsed.truncate(MAX_SUMMARY_KEYWORDS);
+    }
+    if parsed.is_empty() {
+        return Err("generated summary keywords are empty".to_string());
+    }
+    Ok(parsed)
+}
+
+fn run_summary_followup_prompt(
+    toolchain: &LlamaToolchain,
+    prompt_file: &Path,
+    output_file: &Path,
+    prompt: &str,
+    label: &str,
+) -> Result<String, String> {
+    fs::write(prompt_file, prompt).map_err(|error| {
+        format!(
+            "failed to write {label} prompt {}: {error}",
+            prompt_file.display()
+        )
+    })?;
+    let generation_result = run_summary_generation(toolchain, prompt_file, output_file);
+    let _ = fs::remove_file(prompt_file);
+    if let Err(error) = generation_result {
+        let _ = fs::remove_file(output_file);
+        return Err(error);
+    }
+    let raw = match fs::read_to_string(output_file) {
+        Ok(raw) => raw,
+        Err(error) => {
+            let _ = fs::remove_file(output_file);
+            return Err(format!(
+                "failed to read generated {label} {}: {error}",
+                output_file.display()
+            ));
+        }
+    };
+    let _ = fs::remove_file(output_file);
+    Ok(raw)
 }
 
 fn normalize_one_line_summary(text: &str) -> String {
@@ -404,6 +495,54 @@ fn normalize_one_line_summary(text: &str) -> String {
         .or_else(|| trimmed.strip_prefix("> "))
         .unwrap_or(trimmed);
     trimmed.trim_matches('"').trim().to_string()
+}
+
+fn normalize_summary_keyword_line(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+
+    let trimmed = trimmed
+        .strip_prefix("- ")
+        .or_else(|| trimmed.strip_prefix("* "))
+        .or_else(|| trimmed.strip_prefix("> "))
+        .unwrap_or(trimmed);
+    let trimmed = strip_ordered_list_prefix(trimmed);
+    let trimmed = trimmed
+        .strip_prefix("키워드:")
+        .or_else(|| trimmed.strip_prefix("키워드 :"))
+        .or_else(|| trimmed.strip_prefix("keywords:"))
+        .or_else(|| trimmed.strip_prefix("keywords :"))
+        .unwrap_or(trimmed)
+        .trim();
+    let trimmed = trimmed.trim_matches(|c| matches!(c, '"' | '\'' | '`'));
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn strip_ordered_list_prefix(text: &str) -> &str {
+    let digit_end = text
+        .char_indices()
+        .take_while(|(_, ch)| ch.is_ascii_digit())
+        .last()
+        .map(|(index, ch)| index + ch.len_utf8())
+        .unwrap_or(0);
+    if digit_end == 0 || digit_end >= text.len() {
+        return text;
+    }
+
+    let suffix = &text[digit_end..];
+    if let Some(rest) = suffix.strip_prefix(". ") {
+        return rest;
+    }
+    if let Some(rest) = suffix.strip_prefix(") ") {
+        return rest;
+    }
+    text
 }
 
 fn summary_payload_satisfies(entry: &crate::index::QueueEntry, requested_force: bool) -> bool {

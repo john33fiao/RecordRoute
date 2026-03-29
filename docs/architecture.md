@@ -1,4 +1,4 @@
-# RecordRoute 아키텍처 (2026-03-28 코드 기준)
+# RecordRoute 아키텍처 (2026-03-29 코드 기준)
 
 이 문서는 현재 `rust/src/**` 구현을 기준으로 RecordRoute의 실행 구조와 저장 모델을 요약한다.
 이제 저장소는 `db/index.json`과 `db/<job_id>` 파일 트리가 아니라, 메타데이터 DB와 오디오 전용 경로 저장소로 분리되어 있다.
@@ -89,6 +89,8 @@ legacy `db/index.json` 파일이 남아 있어도 현재 backend는 이를 권�
   - whisper/llama/llama_embedding 준비 상태
 - `queue_state`
   - active batch, pending batch, burst limit
+- `stt_dictionary_keywords`
+  - user keyword와 summary 기반 auto keyword 저장
 - `audio_artifacts`
   - job별 logical file name과 오디오 storage key
 - `transcripts`
@@ -145,6 +147,7 @@ ffmpeg 결과 오디오는 오디오 루트 아래 job별 디렉터리에 저장
 4. queued/running이면 `Deduplicated`
 5. 아니면 `stt` queue에 넣는다.
 6. 실행 시 오디오를 읽고 whisper 결과를 spool에 잠시 만든 뒤 transcript text를 DB에 저장한다.
+7. 현재 STT prompt 주입에는 `user` source keyword만 사용하고 `auto` keyword는 아직 자동 주입하지 않는다.
 
 ### 6.3 summary
 
@@ -154,6 +157,7 @@ ffmpeg 결과 오디오는 오디오 루트 아래 job별 디렉터리에 저장
 4. 아니면 `llm` queue에 넣는다.
 5. 실행 시 transcript text로 prompt를 만들고 summary markdown을 생성한 뒤 DB에 저장한다.
 6. 같은 summary task 안에서 전체요약을 바탕으로 한줄요약(alias)을 생성해 같은 row에 저장한다.
+7. 이어서 같은 generative LLM으로 summary 기반 핵심 keyword를 추출하고 전역 `stt_dictionary_keywords`의 `auto` source에 저장한다.
 
 ### 6.4 embedding
 

@@ -1,4 +1,7 @@
 use super::*;
+use super::backend::{
+    LEGACY_DICTIONARY_AUTO_DEMO_CLEANUP_FLAG, LEGACY_DICTIONARY_AUTO_DEMO_KEYWORDS,
+};
 use ::postgres::{Client, NoTls};
 use crate::storage::{
     AUDIO_CACHE_ROOT_ENV_VAR, AUDIO_ROOT_ENV_VAR, AUDIO_SPOOL_ROOT_ENV_VAR,
@@ -231,22 +234,26 @@ fn backend_parity_persists_dictionary_keywords_with_sources() {
     run_backend_matrix("dictionary-keywords", |case, _repo_root, store| {
         let initial = store
             .list_stt_dictionary_keywords()
-            .unwrap_or_else(|error| panic!("{} list seeded keywords: {error}", case.name()));
+            .unwrap_or_else(|error| panic!("{} list keywords: {error}", case.name()));
         assert!(initial.user_keywords.is_empty());
-        assert_eq!(
-            sorted_strings(initial.auto_keywords),
-            sorted_strings(vec![
-                "회의록".to_string(),
-                "배포".to_string(),
-                "액션아이템".to_string(),
-            ]),
-            "{} auto demo keywords should be seeded once",
+        assert!(
+            initial.auto_keywords.is_empty(),
+            "{} auto keywords should start empty",
             case.name()
         );
 
         store
             .upsert_stt_dictionary_keyword("RecordRoute", DictionaryKeywordSource::User)
             .unwrap_or_else(|error| panic!("{} upsert user keyword: {error}", case.name()));
+        store
+            .upsert_stt_dictionary_keyword("회의록", DictionaryKeywordSource::Auto)
+            .unwrap_or_else(|error| panic!("{} upsert auto keyword: {error}", case.name()));
+        store
+            .upsert_stt_dictionary_keyword("배포", DictionaryKeywordSource::Auto)
+            .unwrap_or_else(|error| panic!("{} upsert auto keyword: {error}", case.name()));
+        store
+            .upsert_stt_dictionary_keyword("액션아이템", DictionaryKeywordSource::Auto)
+            .unwrap_or_else(|error| panic!("{} upsert auto keyword: {error}", case.name()));
         store
             .promote_stt_dictionary_keyword("배포")
             .unwrap_or_else(|error| panic!("{} promote auto keyword: {error}", case.name()));
@@ -271,6 +278,42 @@ fn backend_parity_persists_dictionary_keywords_with_sources() {
             persisted.auto_keywords,
             vec!["회의록".to_string()],
             "{} auto keywords should exclude promoted and deleted values",
+            case.name()
+        );
+    });
+}
+
+#[test]
+fn backend_parity_cleans_legacy_auto_demo_keywords_once() {
+    run_backend_matrix("dictionary-cleanup", |case, repo_root, _store| {
+        seed_legacy_auto_demo_keywords(case, repo_root)
+            .unwrap_or_else(|error| panic!("{} seed legacy auto keywords: {error}", case.name()));
+
+        let reloaded = IndexStore::new(repo_root);
+        reloaded
+            .ensure_db_dir()
+            .unwrap_or_else(|error| panic!("{} rerun cleanup: {error}", case.name()));
+        let cleaned = reloaded
+            .list_stt_dictionary_keywords()
+            .unwrap_or_else(|error| panic!("{} list cleaned keywords: {error}", case.name()));
+        assert!(cleaned.user_keywords.is_empty());
+        assert!(
+            cleaned.auto_keywords.is_empty(),
+            "{} legacy demo auto keywords should be removed once",
+            case.name()
+        );
+
+        reloaded
+            .upsert_stt_dictionary_keyword("회의록", DictionaryKeywordSource::Auto)
+            .unwrap_or_else(|error| panic!("{} insert post-cleanup auto keyword: {error}", case.name()));
+
+        let persisted = IndexStore::new(repo_root)
+            .list_stt_dictionary_keywords()
+            .unwrap_or_else(|error| panic!("{} list persisted keywords: {error}", case.name()));
+        assert_eq!(
+            persisted.auto_keywords,
+            vec!["회의록".to_string()],
+            "{} cleanup flag should not delete newly added auto keywords",
             case.name()
         );
     });
@@ -639,4 +682,58 @@ fn temp_workspace(test_name: &str, backend_name: &str) -> PathBuf {
 fn sorted_strings(mut values: Vec<String>) -> Vec<String> {
     values.sort();
     values
+}
+
+fn seed_legacy_auto_demo_keywords(case: &BackendCase, repo_root: &Path) -> Result<(), String> {
+    match case {
+        BackendCase::Sqlite => {
+            let db_path = repo_root.join("db/index.sqlite3");
+            let connection = Connection::open(&db_path).map_err(|error| {
+                format!("failed to open sqlite cleanup fixture {}: {error}", db_path.display())
+            })?;
+            connection
+                .execute(
+                    "DELETE FROM metadata_bootstrap_flags WHERE flag = ?",
+                    [LEGACY_DICTIONARY_AUTO_DEMO_CLEANUP_FLAG],
+                )
+                .map_err(|error| format!("failed to clear sqlite cleanup flag: {error}"))?;
+            for keyword in LEGACY_DICTIONARY_AUTO_DEMO_KEYWORDS {
+                connection
+                    .execute(
+                        "INSERT INTO stt_dictionary_keywords (keyword, source)
+                         VALUES (?, ?)
+                         ON CONFLICT(keyword) DO UPDATE SET source = excluded.source",
+                        [keyword, DictionaryKeywordSource::Auto.as_str()],
+                    )
+                    .map_err(|error| {
+                        format!("failed to seed sqlite legacy auto keyword {keyword}: {error}")
+                    })?;
+            }
+            Ok(())
+        }
+        BackendCase::Postgres { url } => {
+            let mut client = Client::connect(url, NoTls)
+                .map_err(|error| format!("failed to connect postgres cleanup fixture: {error}"))?;
+            client
+                .execute(
+                    "DELETE FROM metadata_bootstrap_flags WHERE flag = $1",
+                    &[&LEGACY_DICTIONARY_AUTO_DEMO_CLEANUP_FLAG],
+                )
+                .map_err(|error| format!("failed to clear postgres cleanup flag: {error}"))?;
+            for keyword in LEGACY_DICTIONARY_AUTO_DEMO_KEYWORDS {
+                client
+                    .execute(
+                        "INSERT INTO stt_dictionary_keywords (keyword, source)
+                         VALUES ($1, $2)
+                         ON CONFLICT (keyword)
+                         DO UPDATE SET source = EXCLUDED.source",
+                        &[&keyword, &DictionaryKeywordSource::Auto.as_str()],
+                    )
+                    .map_err(|error| {
+                        format!("failed to seed postgres legacy auto keyword {keyword}: {error}")
+                    })?;
+            }
+            Ok(())
+        }
+    }
 }

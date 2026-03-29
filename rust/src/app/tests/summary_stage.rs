@@ -1,6 +1,6 @@
 use super::super::*;
 use super::support::*;
-use crate::index::{IndexStore, QueuePayload, TaskType};
+use crate::index::{DictionaryKeywordSource, IndexStore, QueuePayload, TaskStatus, TaskType};
 use crate::test_support::{
     env_lock, mark_job_completed_with_audio, seed_summary, seed_summary_with_one_line,
     seed_transcripts, test_job,
@@ -129,6 +129,18 @@ fn run_summary_processes_transcript_files_in_selected_job_dir() {
         persisted_summary.one_line_summary.as_deref(),
         Some("synthetic one-line summary")
     );
+    let stored_keywords = store
+        .list_stt_dictionary_keywords()
+        .expect("stored auto keywords");
+    assert!(stored_keywords.user_keywords.is_empty());
+    assert_eq!(
+        sorted_strings(stored_keywords.auto_keywords),
+        sorted_strings(vec![
+            "회의".to_string(),
+            "일정".to_string(),
+            "견적".to_string(),
+        ])
+    );
 
     let prompt = fs::read_to_string(prompt_capture).expect("prompt capture");
     assert!(prompt.contains("[channel_01.txt]"));
@@ -149,6 +161,77 @@ fn run_summary_processes_transcript_files_in_selected_job_dir() {
     let embedding_log = fs::read_to_string(embedding_log).expect("embedding log");
     assert!(embedding_log.contains("-hf"));
     assert!(embedding_log.contains("Qwen/Qwen3-Embedding-4B-GGUF"));
+}
+
+#[test]
+fn run_summary_skips_existing_dictionary_entries_when_storing_keywords() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    unsafe {
+        std::env::remove_var("RECORDROUTE_LLAMA_MODEL");
+    }
+
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let llama_bin = repo_root
+        .join(".build/llama")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    let llama_log = repo_root.join("llama-keywords.log");
+    let prompt_capture = repo_root.join("llama-keywords-prompts.txt");
+    fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+    fs::create_dir_all(&llama_bin).expect("llama bin");
+
+    write_build_script(&build_script_path(&repo_root, "llama"));
+    write_fake_llama_cli_with_keyword_output(
+        &fake_command_path(&llama_bin, "llama-cli"),
+        &llama_log,
+        &prompt_capture,
+        false,
+        "회의\n회의\n일정\n신규키워드\n",
+    );
+    write_fake_llama_embedding(
+        &fake_command_path(&llama_bin, "llama-embedding"),
+        &repo_root.join("llama-keywords-embedding.log"),
+    );
+
+    store
+        .upsert_stt_dictionary_keyword("회의", DictionaryKeywordSource::User)
+        .expect("seed user keyword");
+    store
+        .upsert_stt_dictionary_keyword("일정", DictionaryKeywordSource::Auto)
+        .expect("seed auto keyword");
+
+    let mut job = test_job(
+        "job-1",
+        "2026-01-01T00:00:00Z",
+        "sources/job-1/source.wav",
+        "hash-job-1",
+        "input.wav",
+    );
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+    seed_transcripts(
+        &store,
+        "job-1",
+        &[("mono_mix", "회의 일정과 견적 검토를 다시 잡기로 했다.")],
+    )
+    .expect("seed transcript");
+
+    let mut reader = Cursor::new(b"1\n".to_vec());
+    let mut output = Vec::new();
+    run_summary_with_repo_root(&repo_root, &mut reader, &mut output).expect("summary run");
+
+    let stored_keywords = store
+        .list_stt_dictionary_keywords()
+        .expect("stored keywords after summary");
+    assert_eq!(stored_keywords.user_keywords, vec!["회의".to_string()]);
+    assert_eq!(
+        sorted_strings(stored_keywords.auto_keywords),
+        sorted_strings(vec!["일정".to_string(), "신규키워드".to_string()])
+    );
 }
 
 #[test]
@@ -371,4 +454,86 @@ fn force_regenerate_rebuilds_summary_and_one_line_summary_together() {
         persisted_summary.one_line_summary.as_deref(),
         Some("synthetic one-line summary")
     );
+}
+
+#[test]
+fn summary_keyword_generation_failure_rolls_back_summary_commit() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    unsafe {
+        std::env::remove_var("RECORDROUTE_LLAMA_MODEL");
+    }
+
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let llama_bin = repo_root
+        .join(".build/llama")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    let llama_log = repo_root.join("llama-keyword-failure.log");
+    let prompt_capture = repo_root.join("llama-keyword-failure-prompts.txt");
+    fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+    fs::create_dir_all(&llama_bin).expect("llama bin");
+
+    write_build_script(&build_script_path(&repo_root, "llama"));
+    write_fake_llama_cli_with_keyword_output(
+        &fake_command_path(&llama_bin, "llama-cli"),
+        &llama_log,
+        &prompt_capture,
+        false,
+        "## 키워드\n",
+    );
+
+    let mut job = test_job(
+        "job-1",
+        "2026-01-01T00:00:00Z",
+        "sources/job-1/source.wav",
+        "hash-job-1",
+        "input.wav",
+    );
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+    seed_transcripts(
+        &store,
+        "job-1",
+        &[("mono_mix", "회의 일정과 견적 검토를 다시 잡기로 했다.")],
+    )
+    .expect("seed transcript");
+
+    let submission = submit_summary_job(&repo_root, "job-1", false).expect("submit summary");
+    assert!(submission.should_execute());
+    let error = queue::dispatch_until_task_terminal(&repo_root, "job-1", TaskType::Summary)
+        .expect_err("summary keyword extraction should fail");
+    assert!(error.contains("generated summary keywords are empty"));
+
+    let persisted_job = store
+        .find_job("job-1")
+        .expect("reload job")
+        .expect("job should exist");
+    assert_eq!(
+        persisted_job
+            .task(TaskType::Summary)
+            .map(|task| task.status),
+        Some(TaskStatus::Failed)
+    );
+    assert!(
+        persisted_job.task(TaskType::Embedding).is_none(),
+        "embedding follow-up should not be submitted after summary failure"
+    );
+    assert!(
+        store.get_summary("job-1").expect("summary read").is_none(),
+        "summary row should not be partially committed"
+    );
+    let stored_keywords = store
+        .list_stt_dictionary_keywords()
+        .expect("stored keywords after failure");
+    assert!(stored_keywords.user_keywords.is_empty());
+    assert!(stored_keywords.auto_keywords.is_empty());
+}
+
+fn sorted_strings(mut values: Vec<String>) -> Vec<String> {
+    values.sort();
+    values
 }

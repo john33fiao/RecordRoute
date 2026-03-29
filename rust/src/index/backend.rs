@@ -36,7 +36,14 @@ pub(crate) trait MetadataBackend {
     fn count_transcripts(&self, job_id: &str) -> Result<usize, String>;
 
     fn get_summary(&self, job_id: &str) -> Result<Option<SummaryRecord>, String>;
+    #[cfg(test)]
     fn upsert_summary(&self, record: &SummaryRecord) -> Result<(), String>;
+    fn write_index_with_summary_and_keywords(
+        &self,
+        index: &IndexFile,
+        record: &SummaryRecord,
+        auto_keywords: &[String],
+    ) -> Result<(), String>;
 
     fn get_summary_embedding(
         &self,
@@ -66,8 +73,9 @@ pub(crate) struct SerializedJobRecord {
     pub summary_embedding_json: Option<String>,
 }
 
-pub(crate) const DICTIONARY_AUTO_DEMO_SEED_FLAG: &str = "dictionary_auto_demo_seed_v1";
-pub(crate) const DICTIONARY_AUTO_DEMO_KEYWORDS: [&str; 3] = ["회의록", "배포", "액션아이템"];
+pub(crate) const LEGACY_DICTIONARY_AUTO_DEMO_CLEANUP_FLAG: &str =
+    "legacy_dictionary_auto_demo_cleanup_v1";
+pub(crate) const LEGACY_DICTIONARY_AUTO_DEMO_KEYWORDS: [&str; 3] = ["회의록", "배포", "액션아이템"];
 
 pub(crate) fn to_json<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_string(value).map_err(|error| format!("failed to serialize metadata: {error}"))

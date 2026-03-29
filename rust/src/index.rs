@@ -92,22 +92,22 @@ mod tests {
         let repo_root = temp_workspace();
         let store = IndexStore::new(&repo_root);
 
-        let initial = store
-            .list_stt_dictionary_keywords()
-            .expect("list seeded keywords");
+        let initial = store.list_stt_dictionary_keywords().expect("list keywords");
         assert!(initial.user_keywords.is_empty());
-        assert_eq!(
-            sorted_strings(initial.auto_keywords),
-            sorted_strings(vec![
-                "회의록".to_string(),
-                "배포".to_string(),
-                "액션아이템".to_string(),
-            ])
-        );
+        assert!(initial.auto_keywords.is_empty());
 
         store
             .upsert_stt_dictionary_keyword("RecordRoute", DictionaryKeywordSource::User)
             .expect("insert keyword");
+        store
+            .upsert_stt_dictionary_keyword("회의록", DictionaryKeywordSource::Auto)
+            .expect("insert auto keyword");
+        store
+            .upsert_stt_dictionary_keyword("배포", DictionaryKeywordSource::Auto)
+            .expect("insert auto keyword");
+        store
+            .upsert_stt_dictionary_keyword("액션아이템", DictionaryKeywordSource::Auto)
+            .expect("insert auto keyword");
         store
             .upsert_stt_dictionary_keyword("회의록", DictionaryKeywordSource::User)
             .expect("promote auto keyword through user insert");

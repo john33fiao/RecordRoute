@@ -3,13 +3,15 @@ use super::super::types::{DictionaryKeywordListResponse, ErrorResponse};
 use super::support::{
     get_request, post_empty_request, post_json_request, read_json, temp_workspace,
 };
+use crate::index::{DictionaryKeywordSource, IndexStore};
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use tower::util::ServiceExt;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn dictionary_keyword_routes_support_crud() {
-    let app = router_with_repo_root(temp_workspace());
+    let repo_root = temp_workspace();
+    let app = router_with_repo_root(repo_root);
 
     let initial = app
         .clone()
@@ -19,14 +21,7 @@ async fn dictionary_keyword_routes_support_crud() {
     assert_eq!(initial.status(), StatusCode::OK);
     let initial_body: DictionaryKeywordListResponse = read_json(initial).await;
     assert!(initial_body.user_keywords.is_empty());
-    assert_eq!(
-        sorted_strings(initial_body.auto_keywords),
-        sorted_strings(vec![
-            "회의록".to_string(),
-            "배포".to_string(),
-            "액션아이템".to_string(),
-        ])
-    );
+    assert!(initial_body.auto_keywords.is_empty());
 
     let created = app
         .clone()
@@ -39,14 +34,7 @@ async fn dictionary_keyword_routes_support_crud() {
     assert_eq!(created.status(), StatusCode::OK);
     let created_body: DictionaryKeywordListResponse = read_json(created).await;
     assert_eq!(created_body.user_keywords, vec!["RecordRoute".to_string()]);
-    assert_eq!(
-        sorted_strings(created_body.auto_keywords),
-        sorted_strings(vec![
-            "회의록".to_string(),
-            "배포".to_string(),
-            "액션아이템".to_string(),
-        ])
-    );
+    assert!(created_body.auto_keywords.is_empty());
 
     let deleted = app
         .clone()
@@ -62,14 +50,7 @@ async fn dictionary_keyword_routes_support_crud() {
     assert_eq!(deleted.status(), StatusCode::OK);
     let deleted_body: DictionaryKeywordListResponse = read_json(deleted).await;
     assert!(deleted_body.user_keywords.is_empty());
-    assert_eq!(
-        sorted_strings(deleted_body.auto_keywords),
-        sorted_strings(vec![
-            "회의록".to_string(),
-            "배포".to_string(),
-            "액션아이템".to_string(),
-        ])
-    );
+    assert!(deleted_body.auto_keywords.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -93,7 +74,18 @@ async fn delete_dictionary_keyword_returns_404_when_missing() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn dictionary_keyword_routes_support_auto_promote_and_delete() {
-    let app = router_with_repo_root(temp_workspace());
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    store
+        .upsert_stt_dictionary_keyword("회의록", DictionaryKeywordSource::Auto)
+        .expect("seed auto keyword");
+    store
+        .upsert_stt_dictionary_keyword("배포", DictionaryKeywordSource::Auto)
+        .expect("seed auto keyword");
+    store
+        .upsert_stt_dictionary_keyword("액션아이템", DictionaryKeywordSource::Auto)
+        .expect("seed auto keyword");
+    let app = router_with_repo_root(repo_root);
 
     let promoted = app
         .clone()
@@ -129,7 +121,18 @@ async fn dictionary_keyword_routes_support_auto_promote_and_delete() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn adding_existing_auto_keyword_promotes_it_to_user() {
-    let app = router_with_repo_root(temp_workspace());
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    store
+        .upsert_stt_dictionary_keyword("회의록", DictionaryKeywordSource::Auto)
+        .expect("seed auto keyword");
+    store
+        .upsert_stt_dictionary_keyword("배포", DictionaryKeywordSource::Auto)
+        .expect("seed auto keyword");
+    store
+        .upsert_stt_dictionary_keyword("액션아이템", DictionaryKeywordSource::Auto)
+        .expect("seed auto keyword");
+    let app = router_with_repo_root(repo_root);
 
     let response = app
         .oneshot(post_json_request(
