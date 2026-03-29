@@ -73,7 +73,15 @@ interface PreparingState {
 const POLL_INTERVAL_MS = 1200;
 
 const cardBaseClass =
-  'rounded-[28px] border border-slate-800/90 bg-slate-950/70 p-5 shadow-[0_18px_60px_rgba(2,6,23,0.38)] backdrop-blur';
+  'rounded-2xl bg-slate-900/55 p-5 shadow-lg shadow-slate-950/20 backdrop-blur-sm';
+
+const buttonBaseClass = 'h-12 rounded-xl px-5 text-base font-semibold transition-all';
+
+const primaryButtonClass =
+  'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white hover:from-violet-500 hover:to-fuchsia-500 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-400';
+
+const secondaryButtonClass =
+  'border border-slate-800 bg-slate-900/60 text-slate-200 hover:bg-slate-800/70 disabled:bg-slate-900/40 disabled:text-slate-500';
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
@@ -102,14 +110,14 @@ function tryParseJson(text: string) {
 function statusChipClass(tone: StatusTone) {
   switch (tone) {
     case 'ready':
-      return 'border-emerald-500/25 bg-emerald-500/12 text-emerald-200';
+      return 'border-green-500/30 bg-green-500/15 text-green-300';
     case 'running':
-      return 'border-sky-500/25 bg-sky-500/12 text-sky-200';
+      return 'border-violet-500/30 bg-violet-500/15 text-violet-300';
     case 'failed':
-      return 'border-rose-500/25 bg-rose-500/12 text-rose-200';
+      return 'border-red-500/30 bg-red-500/15 text-red-300';
     case 'idle':
     default:
-      return 'border-slate-700 bg-slate-900/90 text-slate-300';
+      return 'border-slate-700 bg-slate-800/70 text-slate-300';
   }
 }
 
@@ -277,12 +285,12 @@ function SummaryCard({
     <div
       className={cn(
         cardBaseClass,
-        'min-h-[152px] transition-colors',
-        isLoading && 'animate-pulse border-slate-800/70',
+        'min-h-[132px] transition-colors',
+        isLoading && 'animate-pulse',
       )}
     >
-      <p className="text-sm uppercase tracking-[0.24em] text-slate-500">{title}</p>
-      <div className="mt-8">
+      <p className="text-xs font-medium tracking-[0.3em] text-slate-500">{title}</p>
+      <div className="mt-7">
         <Badge className={cn('rounded-full border px-4 py-2 font-mono text-base', statusChipClass(chip.tone))}>
           {chip.label}
         </Badge>
@@ -309,7 +317,7 @@ function DetailCard({
   errorMessage?: string | null;
 }) {
   return (
-    <div className={cn(cardBaseClass, 'rounded-[32px] px-6 py-6 sm:px-8')}>
+    <div className={cn(cardBaseClass, 'px-6 py-6 sm:px-8')}>
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-4">
           <div className="space-y-2">
@@ -332,14 +340,14 @@ function DetailCard({
         <Button
           onClick={onAction}
           disabled={actionDisabled}
-          className="h-14 min-w-[188px] rounded-full bg-emerald-500 px-7 text-lg font-semibold text-slate-950 shadow-[0_14px_40px_rgba(16,185,129,0.22)] hover:bg-emerald-400 disabled:bg-slate-800 disabled:text-slate-400"
+          className={cn(buttonBaseClass, primaryButtonClass, 'w-full sm:w-auto sm:min-w-[188px]')}
         >
           {actionLabel}
         </Button>
       </div>
 
       {errorMessage ? (
-        <div className="mt-5 rounded-2xl border border-rose-500/20 bg-rose-500/8 px-4 py-3 text-sm text-rose-200">
+        <div className="mt-5 rounded-xl border border-red-500/20 bg-red-500/8 px-4 py-3 text-sm text-red-200">
           {errorMessage}
         </div>
       ) : null}
@@ -584,12 +592,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] max-w-[min(960px,calc(100%-2rem))] overflow-hidden border-slate-800/90 bg-slate-950/95 p-0 text-slate-100 shadow-[0_28px_100px_rgba(2,6,23,0.68)]">
+      <DialogContent className="max-h-[88vh] max-w-[min(1120px,calc(100%-2rem))] overflow-hidden rounded-3xl border-0 bg-slate-950 p-0 text-slate-100 shadow-[0_28px_100px_rgba(2,6,23,0.68)]">
         <div className="max-h-[88vh] overflow-y-auto px-5 py-5 sm:px-8 sm:py-8">
           <DialogHeader className="gap-6 pr-14 text-left">
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-5">
               <div className="space-y-3">
-                <p className="text-sm font-medium tracking-[0.34em] text-emerald-300/90">
+                <p className="text-sm font-medium tracking-[0.34em] text-violet-300/90">
                   SYSTEM / MODELS
                 </p>
                 <DialogTitle className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">
@@ -598,11 +606,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               </div>
 
               <Button
-                variant="ghost"
-                size="lg"
                 onClick={() => void loadStatuses()}
                 disabled={isLoading}
-                className="h-14 rounded-full border border-slate-800 bg-slate-900/90 px-6 text-lg font-semibold text-slate-200 hover:bg-slate-800 disabled:bg-slate-900"
+                className={cn(buttonBaseClass, secondaryButtonClass, 'w-full sm:w-auto')}
               >
                 {isLoading ? <LoaderCircle className="size-5 animate-spin" /> : <RefreshCw className="size-5" />}
                 새로고침
@@ -610,7 +616,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             </div>
 
             {loadError ? (
-              <div className="rounded-[24px] border border-rose-500/20 bg-rose-500/8 px-5 py-4 text-sm text-rose-100">
+              <div className="rounded-xl border border-red-500/20 bg-red-500/8 px-5 py-4 text-sm text-red-100">
                 <div className="flex items-start gap-3">
                   <TriangleAlert className="mt-0.5 size-4 shrink-0" />
                   <p>{loadError}</p>
@@ -619,10 +625,10 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             ) : null}
 
             {systemErrors.length > 0 ? (
-              <div className="rounded-[24px] border border-amber-400/20 bg-amber-400/8 px-5 py-4">
+              <div className="rounded-xl border border-violet-500/20 bg-violet-500/8 px-5 py-4">
                 <div className="flex items-start gap-3">
-                  <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-200" />
-                  <div className="space-y-1 text-sm text-amber-50/90">
+                  <TriangleAlert className="mt-0.5 size-4 shrink-0 text-violet-200" />
+                  <div className="space-y-1 text-sm text-violet-50/90">
                     {systemErrors.map((message) => (
                       <p key={message}>{message}</p>
                     ))}
@@ -632,13 +638,15 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             ) : null}
           </DialogHeader>
 
-          <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <SummaryCard title="FFmpeg" chip={ffmpegRuntimeChip} isLoading={isLoading && !systemStatus} />
-            <SummaryCard title="Whisper" chip={whisperRuntimeChip} isLoading={isLoading && !systemStatus} />
-            <SummaryCard title="Llama" chip={llamaRuntimeChip} isLoading={isLoading && !systemStatus} />
-            <SummaryCard title="Whisper Model" chip={whisperModelChip} isLoading={isLoading && !modelStatus} />
-            <SummaryCard title="Llama Model" chip={llamaModelChip} isLoading={isLoading && !modelStatus} />
-            <SummaryCard title="Embedding Model" chip={embeddingModelChip} isLoading={isLoading && !modelStatus} />
+          <div className="mt-8 overflow-x-auto pb-2">
+            <div className="grid min-w-[1020px] grid-cols-6 gap-3">
+              <SummaryCard title="FFMPEG" chip={ffmpegRuntimeChip} isLoading={isLoading && !systemStatus} />
+              <SummaryCard title="WHISPER" chip={whisperRuntimeChip} isLoading={isLoading && !systemStatus} />
+              <SummaryCard title="LLAMA" chip={llamaRuntimeChip} isLoading={isLoading && !systemStatus} />
+              <SummaryCard title="WHISPER MODEL" chip={whisperModelChip} isLoading={isLoading && !modelStatus} />
+              <SummaryCard title="LLAMA MODEL" chip={llamaModelChip} isLoading={isLoading && !modelStatus} />
+              <SummaryCard title="EMBEDDING MODEL" chip={embeddingModelChip} isLoading={isLoading && !modelStatus} />
+            </div>
           </div>
 
           <div className="mt-8 space-y-5">
