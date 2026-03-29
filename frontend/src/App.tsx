@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { FileAudio, FileText, Upload, Clock, History, Search, Settings, Sparkles } from 'lucide-react';
+import { Upload, Clock, History, Search, Settings, Sparkles, Tags } from 'lucide-react';
 import { UploadSection } from './components/UploadSection';
 import { JobQueue } from './components/JobQueue';
 import { HistoryPanel } from './components/HistoryPanel';
 import { SearchPanel } from './components/SearchPanel';
+import { DictionaryPanel } from './components/DictionaryPanel';
 import { SettingsDialog } from './components/SettingsDialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
@@ -78,6 +79,10 @@ function AppContent() {
               <Search className="size-4" />
               검색
             </TabsTrigger>
+            <TabsTrigger value="dictionary" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-600 data-[state=active]:to-fuchsia-600 gap-2">
+              <Tags className="size-4" />
+              키워드
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="upload" className="space-y-6">
@@ -94,6 +99,10 @@ function AppContent() {
 
           <TabsContent value="search" className="space-y-6">
             <SearchPanel />
+          </TabsContent>
+
+          <TabsContent value="dictionary" className="space-y-6">
+            <DictionaryPanel />
           </TabsContent>
         </Tabs>
       </div>

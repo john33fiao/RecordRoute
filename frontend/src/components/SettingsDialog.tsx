@@ -272,6 +272,38 @@ function dedupeChips(chips: StatusChip[]) {
   });
 }
 
+function resolveServerAddress() {
+  if (typeof window !== 'undefined' && window.location.host) {
+    return window.location.host;
+  }
+
+  return '127.0.0.1:38080';
+}
+
+function resolveServerCaption({
+  isLoading,
+  systemStatus,
+  loadError,
+}: {
+  isLoading: boolean;
+  systemStatus: SystemStatusResponse | null;
+  loadError: string | null;
+}) {
+  if (loadError) {
+    return '서버 상태를 확인할 수 없습니다.';
+  }
+
+  if (isLoading && !systemStatus) {
+    return '서버 상태를 확인하는 중입니다.';
+  }
+
+  if ((systemStatus?.errors?.length ?? 0) > 0) {
+    return '환경 준비가 필요합니다. setup을 다시 실행하세요.';
+  }
+
+  return '모든 런타임과 모델이 준비되었습니다.';
+}
+
 function SummaryCard({
   title,
   chip,
@@ -563,6 +595,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const llamaDetailChipList = dedupeChips(llamaDetailChips);
 
   const systemErrors = systemStatus?.errors ?? [];
+  const serverAddress = resolveServerAddress();
+  const serverCaption = resolveServerCaption({
+    isLoading,
+    systemStatus,
+    loadError,
+  });
   const whisperActionDisabled =
     isLoading ||
     preparing.whisper ||
@@ -611,6 +649,18 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 {isLoading ? <LoaderCircle className="size-5 animate-spin" /> : <RefreshCw className="size-5" />}
                 새로고침
               </Button>
+            </div>
+
+            <div className="rounded-2xl border border-violet-500/20 bg-gradient-to-br from-violet-500/12 via-slate-900/88 to-slate-950 px-5 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+              <p className="text-xs font-medium uppercase tracking-[0.34em] text-violet-300/90">
+                Server
+              </p>
+              <p className="mt-3 break-all font-mono text-2xl font-semibold text-white sm:text-[2rem]">
+                {serverAddress}
+              </p>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+                {serverCaption}
+              </p>
             </div>
 
             {loadError ? (
