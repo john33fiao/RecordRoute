@@ -64,6 +64,12 @@ touch_packaged_outputs() {
       touch "${path}"
     fi
   done
+
+  if [[ -d "${package_dir}/frontend/build" ]]; then
+    while IFS= read -r -d '' path; do
+      touch "${path}"
+    done < <(find "${package_dir}/frontend/build" -type f -print0)
+  fi
 }
 
 ensure_bundled_sources
