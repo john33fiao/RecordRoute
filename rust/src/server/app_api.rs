@@ -4,7 +4,7 @@ use crate::app::{
 };
 use crate::audio_store::ImportedSource;
 use crate::error::{AppError, AppResult};
-use crate::index::{ModelKind, ModelPreparationRecord};
+use crate::index::{DictionaryKeywords, ModelKind, ModelPreparationRecord};
 use std::path::Path;
 
 pub(crate) fn submit_ffmpeg_job(repo_root: &Path, input: &Path) -> AppResult<FfmpegJobSubmission> {
@@ -46,19 +46,33 @@ pub(crate) fn submit_batch_pipeline_jobs(repo_root: &Path) -> AppResult<BatchQue
     app::submit_batch_pipeline_jobs(repo_root).map_err(AppError::internal)
 }
 
-pub(crate) fn list_stt_dictionary_keywords(repo_root: &Path) -> AppResult<Vec<String>> {
+pub(crate) fn list_stt_dictionary_keywords(repo_root: &Path) -> AppResult<DictionaryKeywords> {
     app::list_stt_dictionary_keywords(repo_root).map_err(AppError::internal)
 }
 
 pub(crate) fn add_stt_dictionary_keyword(
     repo_root: &Path,
     keyword: String,
-) -> AppResult<Vec<String>> {
+) -> AppResult<DictionaryKeywords> {
     app::add_stt_dictionary_keyword(repo_root, keyword).map_err(AppError::bad_request)
 }
 
 pub(crate) fn delete_stt_dictionary_keyword(repo_root: &Path, keyword: String) -> AppResult<bool> {
     app::delete_stt_dictionary_keyword(repo_root, keyword).map_err(AppError::bad_request)
+}
+
+pub(crate) fn promote_auto_stt_dictionary_keyword(
+    repo_root: &Path,
+    keyword: String,
+) -> AppResult<bool> {
+    app::promote_auto_stt_dictionary_keyword(repo_root, keyword).map_err(AppError::bad_request)
+}
+
+pub(crate) fn delete_auto_stt_dictionary_keyword(
+    repo_root: &Path,
+    keyword: String,
+) -> AppResult<bool> {
+    app::delete_auto_stt_dictionary_keyword(repo_root, keyword).map_err(AppError::bad_request)
 }
 
 pub(crate) fn search_summaries(

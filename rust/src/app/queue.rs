@@ -443,8 +443,14 @@ mod tests {
         let repo_root = temp_workspace();
         let store = IndexStore::new(&repo_root);
         store
-            .upsert_stt_dictionary_keyword("RecordRoute")
+            .upsert_stt_dictionary_keyword(
+                "RecordRoute",
+                crate::index::DictionaryKeywordSource::User,
+            )
             .expect("insert dictionary keyword");
+        store
+            .upsert_stt_dictionary_keyword("회의록", crate::index::DictionaryKeywordSource::Auto)
+            .expect("insert auto dictionary keyword");
 
         let mut job = test_job(
             "job-stt",

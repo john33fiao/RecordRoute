@@ -1,10 +1,10 @@
 use super::backend::{
-    MetadataBackend, SerializedJobRecord, deserialize_job_record, from_json, serialize_job_record,
-    to_json,
+    DICTIONARY_AUTO_DEMO_KEYWORDS, DICTIONARY_AUTO_DEMO_SEED_FLAG, MetadataBackend,
+    SerializedJobRecord, deserialize_job_record, from_json, serialize_job_record, to_json,
 };
 use super::types::{
-    AudioArtifactRecord, IndexFile, SummaryEmbeddingVectorRecord, SummaryRecord, TaskRecord,
-    TranscriptRecord,
+    AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile,
+    SummaryEmbeddingVectorRecord, SummaryRecord, TaskRecord, TranscriptRecord,
 };
 use postgres::{Client, NoTls};
 
@@ -121,47 +121,105 @@ impl MetadataBackend for PostgresMetadataStore {
             .map_err(|error| format!("failed to commit postgres transaction: {error}"))
     }
 
-    fn list_stt_dictionary_keywords(&self) -> Result<Vec<String>, String> {
+    fn list_stt_dictionary_keywords(&self) -> Result<DictionaryKeywords, String> {
         let mut client = self.connect()?;
-        client
+        let rows = client
             .query(
-                "SELECT keyword
+                "SELECT keyword, source
                  FROM stt_dictionary_keywords
                  ORDER BY LOWER(keyword) ASC, keyword ASC",
                 &[],
             )
-            .map_err(|error| format!("failed to read postgres dictionary keywords: {error}"))?
-            .into_iter()
-            .map(|row| Ok(row.get(0)))
-            .collect()
+            .map_err(|error| format!("failed to read postgres dictionary keywords: {error}"))?;
+
+        let mut keywords = DictionaryKeywords::default();
+        for row in rows {
+            let keyword: String = row.get(0);
+            let source: String = row.get(1);
+            match source.parse::<DictionaryKeywordSource>()? {
+                DictionaryKeywordSource::User => keywords.user_keywords.push(keyword),
+                DictionaryKeywordSource::Auto => keywords.auto_keywords.push(keyword),
+            }
+        }
+
+        Ok(keywords)
     }
 
-    fn upsert_stt_dictionary_keyword(&self, keyword: &str) -> Result<(), String> {
+    fn upsert_stt_dictionary_keyword(
+        &self,
+        keyword: &str,
+        source: DictionaryKeywordSource,
+    ) -> Result<(), String> {
         let mut client = self.connect()?;
-        client
-            .execute(
-                "INSERT INTO stt_dictionary_keywords (keyword)
-                 VALUES ($1)
-                 ON CONFLICT (keyword) DO NOTHING",
-                &[&keyword],
-            )
-            .map_err(|error| {
-                format!("failed to upsert postgres dictionary keyword {keyword}: {error}")
-            })?;
+        match source {
+            DictionaryKeywordSource::User => {
+                client
+                    .execute(
+                        "INSERT INTO stt_dictionary_keywords (keyword, source)
+                         VALUES ($1, $2)
+                         ON CONFLICT (keyword)
+                         DO UPDATE SET source = EXCLUDED.source
+                         WHERE stt_dictionary_keywords.source = $3",
+                        &[
+                            &keyword,
+                            &DictionaryKeywordSource::User.as_str(),
+                            &DictionaryKeywordSource::Auto.as_str(),
+                        ],
+                    )
+                    .map_err(|error| {
+                        format!("failed to upsert postgres dictionary keyword {keyword}: {error}")
+                    })?;
+            }
+            DictionaryKeywordSource::Auto => {
+                client
+                    .execute(
+                        "INSERT INTO stt_dictionary_keywords (keyword, source)
+                         VALUES ($1, $2)
+                         ON CONFLICT (keyword) DO NOTHING",
+                        &[&keyword, &DictionaryKeywordSource::Auto.as_str()],
+                    )
+                    .map_err(|error| {
+                        format!("failed to upsert postgres dictionary keyword {keyword}: {error}")
+                    })?;
+            }
+        }
         Ok(())
     }
 
-    fn delete_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String> {
+    fn delete_stt_dictionary_keyword(
+        &self,
+        keyword: &str,
+        source: DictionaryKeywordSource,
+    ) -> Result<bool, String> {
         let mut client = self.connect()?;
         let deleted = client
             .execute(
-                "DELETE FROM stt_dictionary_keywords WHERE keyword = $1",
-                &[&keyword],
+                "DELETE FROM stt_dictionary_keywords WHERE keyword = $1 AND source = $2",
+                &[&keyword, &source.as_str()],
             )
             .map_err(|error| {
                 format!("failed to delete postgres dictionary keyword {keyword}: {error}")
             })?;
         Ok(deleted > 0)
+    }
+
+    fn promote_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String> {
+        let mut client = self.connect()?;
+        let updated = client
+            .execute(
+                "UPDATE stt_dictionary_keywords
+                 SET source = $2
+                 WHERE keyword = $1 AND source = $3",
+                &[
+                    &keyword,
+                    &DictionaryKeywordSource::User.as_str(),
+                    &DictionaryKeywordSource::Auto.as_str(),
+                ],
+            )
+            .map_err(|error| {
+                format!("failed to promote postgres dictionary keyword {keyword}: {error}")
+            })?;
+        Ok(updated > 0)
     }
 
     fn list_audio_artifacts(&self, job_id: &str) -> Result<Vec<AudioArtifactRecord>, String> {
@@ -510,7 +568,11 @@ fn initialize_schema(client: &mut Client) -> Result<(), String> {
                 data_json TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS stt_dictionary_keywords (
-                keyword TEXT PRIMARY KEY
+                keyword TEXT PRIMARY KEY,
+                source TEXT NOT NULL DEFAULT 'user'
+            );
+            CREATE TABLE IF NOT EXISTS metadata_bootstrap_flags (
+                flag TEXT PRIMARY KEY
             );
             CREATE TABLE IF NOT EXISTS transcripts (
                 job_id TEXT NOT NULL,
@@ -537,7 +599,49 @@ fn initialize_schema(client: &mut Client) -> Result<(), String> {
                 PRIMARY KEY (job_id, logical_name)
             );
             ALTER TABLE summaries ADD COLUMN IF NOT EXISTS one_line_summary TEXT NULL;
+            ALTER TABLE stt_dictionary_keywords
+                ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user';
+            UPDATE stt_dictionary_keywords
+            SET source = 'user'
+            WHERE source IS NULL OR source = '';
             ",
         )
-        .map_err(|error| format!("failed to initialize postgres metadata schema: {error}"))
+        .map_err(|error| format!("failed to initialize postgres metadata schema: {error}"))?;
+
+    let mut tx = client.transaction().map_err(|error| {
+        format!("failed to start postgres dictionary seed transaction: {error}")
+    })?;
+    let seeded = tx
+        .query_opt(
+            "SELECT flag
+             FROM metadata_bootstrap_flags
+             WHERE flag = $1",
+            &[&DICTIONARY_AUTO_DEMO_SEED_FLAG],
+        )
+        .map_err(|error| format!("failed to read postgres dictionary bootstrap flag: {error}"))?
+        .is_some();
+    if !seeded {
+        for keyword in DICTIONARY_AUTO_DEMO_KEYWORDS {
+            tx.execute(
+                "INSERT INTO stt_dictionary_keywords (keyword, source)
+                 VALUES ($1, $2)
+                 ON CONFLICT (keyword) DO NOTHING",
+                &[&keyword, &DictionaryKeywordSource::Auto.as_str()],
+            )
+            .map_err(|error| {
+                format!("failed to seed postgres auto dictionary keyword {keyword}: {error}")
+            })?;
+        }
+        tx.execute(
+            "INSERT INTO metadata_bootstrap_flags (flag)
+             VALUES ($1)
+             ON CONFLICT (flag) DO NOTHING",
+            &[&DICTIONARY_AUTO_DEMO_SEED_FLAG],
+        )
+        .map_err(|error| {
+            format!("failed to persist postgres dictionary bootstrap flag: {error}")
+        })?;
+    }
+    tx.commit()
+        .map_err(|error| format!("failed to commit postgres dictionary seed transaction: {error}"))
 }

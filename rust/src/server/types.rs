@@ -1,7 +1,7 @@
 use crate::app;
 use crate::index::{
-    JobOutputs, JobProbe, JobRecord, JobStatus, ModelKind, ModelPreparationRecord, QueueCategory,
-    SourceKind, TaskRecord, TaskType,
+    DictionaryKeywords, JobOutputs, JobProbe, JobRecord, JobStatus, ModelKind,
+    ModelPreparationRecord, QueueCategory, SourceKind, TaskRecord, TaskType,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -57,7 +57,8 @@ pub(crate) struct DictionaryKeywordRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct DictionaryKeywordListResponse {
-    pub keywords: Vec<String>,
+    pub user_keywords: Vec<String>,
+    pub auto_keywords: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -217,6 +218,15 @@ pub(crate) struct QueueStatusResponse {
     pub burst_limit: u32,
     pub active_batch: Option<QueueBatchResponse>,
     pub pending_batches: Vec<QueueBatchResponse>,
+}
+
+impl From<DictionaryKeywords> for DictionaryKeywordListResponse {
+    fn from(value: DictionaryKeywords) -> Self {
+        Self {
+            user_keywords: value.user_keywords,
+            auto_keywords: value.auto_keywords,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

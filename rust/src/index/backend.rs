@@ -1,6 +1,6 @@
 use super::types::{
-    AudioArtifactRecord, IndexFile, JobRecord, SummaryEmbeddingRecord,
-    SummaryEmbeddingVectorRecord, SummaryRecord, TranscriptRecord,
+    AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile, JobRecord,
+    SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord, SummaryRecord, TranscriptRecord,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -10,9 +10,18 @@ pub(crate) trait MetadataBackend {
     fn read_index(&self) -> Result<IndexFile, String>;
     fn write_index(&self, index: &IndexFile) -> Result<(), String>;
 
-    fn list_stt_dictionary_keywords(&self) -> Result<Vec<String>, String>;
-    fn upsert_stt_dictionary_keyword(&self, keyword: &str) -> Result<(), String>;
-    fn delete_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String>;
+    fn list_stt_dictionary_keywords(&self) -> Result<DictionaryKeywords, String>;
+    fn upsert_stt_dictionary_keyword(
+        &self,
+        keyword: &str,
+        source: DictionaryKeywordSource,
+    ) -> Result<(), String>;
+    fn delete_stt_dictionary_keyword(
+        &self,
+        keyword: &str,
+        source: DictionaryKeywordSource,
+    ) -> Result<bool, String>;
+    fn promote_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String>;
 
     fn list_audio_artifacts(&self, job_id: &str) -> Result<Vec<AudioArtifactRecord>, String>;
     fn upsert_audio_artifact(&self, record: &AudioArtifactRecord) -> Result<(), String>;
@@ -56,6 +65,9 @@ pub(crate) struct SerializedJobRecord {
     pub error_message: Option<String>,
     pub summary_embedding_json: Option<String>,
 }
+
+pub(crate) const DICTIONARY_AUTO_DEMO_SEED_FLAG: &str = "dictionary_auto_demo_seed_v1";
+pub(crate) const DICTIONARY_AUTO_DEMO_KEYWORDS: [&str; 3] = ["회의록", "배포", "액션아이템"];
 
 pub(crate) fn to_json<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_string(value).map_err(|error| format!("failed to serialize metadata: {error}"))

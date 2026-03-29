@@ -1,31 +1,49 @@
-use crate::index::IndexStore;
+use crate::index::{DictionaryKeywordSource, DictionaryKeywords, IndexStore};
 use crate::whisper::normalize_keywords;
 use std::path::Path;
 
-pub fn list_stt_dictionary_keywords(repo_root: &Path) -> Result<Vec<String>, String> {
+pub fn list_stt_dictionary_keywords(repo_root: &Path) -> Result<DictionaryKeywords, String> {
     IndexStore::new(repo_root).list_stt_dictionary_keywords()
 }
 
 pub fn add_stt_dictionary_keyword(
     repo_root: &Path,
     keyword: String,
-) -> Result<Vec<String>, String> {
+) -> Result<DictionaryKeywords, String> {
     let keyword = normalize_single_keyword(keyword)?;
     let store = IndexStore::new(repo_root);
-    store.upsert_stt_dictionary_keyword(&keyword)?;
+    store.upsert_stt_dictionary_keyword(&keyword, DictionaryKeywordSource::User)?;
     store.list_stt_dictionary_keywords()
 }
 
 pub fn delete_stt_dictionary_keyword(repo_root: &Path, keyword: String) -> Result<bool, String> {
     let keyword = normalize_single_keyword(keyword)?;
-    IndexStore::new(repo_root).delete_stt_dictionary_keyword(&keyword)
+    IndexStore::new(repo_root)
+        .delete_stt_dictionary_keyword(&keyword, DictionaryKeywordSource::User)
+}
+
+pub fn promote_auto_stt_dictionary_keyword(
+    repo_root: &Path,
+    keyword: String,
+) -> Result<bool, String> {
+    let keyword = normalize_single_keyword(keyword)?;
+    IndexStore::new(repo_root).promote_stt_dictionary_keyword(&keyword)
+}
+
+pub fn delete_auto_stt_dictionary_keyword(
+    repo_root: &Path,
+    keyword: String,
+) -> Result<bool, String> {
+    let keyword = normalize_single_keyword(keyword)?;
+    IndexStore::new(repo_root)
+        .delete_stt_dictionary_keyword(&keyword, DictionaryKeywordSource::Auto)
 }
 
 pub(crate) fn resolve_stt_keywords(
     index_store: &IndexStore,
     requested_keywords: &[String],
 ) -> Result<Vec<String>, String> {
-    let mut merged = index_store.list_stt_dictionary_keywords()?;
+    let mut merged = index_store.list_stt_dictionary_keywords()?.user_keywords;
     merged.extend(requested_keywords.iter().cloned());
     Ok(normalize_keywords(&merged))
 }

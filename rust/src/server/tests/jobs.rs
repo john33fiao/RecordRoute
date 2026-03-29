@@ -329,6 +329,9 @@ async fn post_jobs_upload_returns_400_and_cleans_temp_files_for_malformed_multip
 
 #[tokio::test(flavor = "multi_thread")]
 async fn post_jobs_upload_reuses_completed_job_for_same_content() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let repo_root = temp_workspace();
     let scripts_dir = repo_root.join("scripts");
     let build_bin = repo_root

@@ -42,7 +42,7 @@ const state = {
   modelsStatus: null,
   queueStatus: null,
   queueLoaded: false,
-  dictionaryKeywords: [],
+  dictionaryKeywords: emptyDictionaryKeywords(),
   dictionaryLoaded: false,
   searchResults: [],
   uploadQueue: [],
@@ -535,30 +535,51 @@ async function onDictionarySubmit(event) {
 }
 
 async function onDictionaryListClick(event) {
-  const button = event.target.closest("[data-dictionary-keyword]");
+  const button = event.target.closest("[data-dictionary-action]");
   if (!button || state.loading.dictionary) {
     return;
   }
 
   const keyword = button.dataset.dictionaryKeyword || "";
-  if (!keyword) {
+  const action = button.dataset.dictionaryAction || "";
+  if (!keyword || !action) {
     return;
   }
 
-  if (!window.confirm(`${keyword} 키워드를 삭제하시겠습니까?`)) {
-    return;
+  let requestPath = "";
+  let requestOptions = {};
+  let successMessage = "";
+
+  switch (action) {
+    case "delete-user":
+      if (!window.confirm(`${keyword} 키워드를 삭제하시겠습니까?`)) {
+        return;
+      }
+      requestPath = `/dictionary/keywords/${encodeURIComponent(keyword)}`;
+      requestOptions = { method: "DELETE" };
+      successMessage = "키워드를 삭제했습니다.";
+      break;
+    case "promote-auto":
+      requestPath = `/dictionary/keywords/auto/${encodeURIComponent(keyword)}/promote`;
+      requestOptions = { method: "POST" };
+      successMessage = "자동 생성 키워드를 사용자 등록 키워드로 옮겼습니다.";
+      break;
+    case "delete-auto":
+      requestPath = `/dictionary/keywords/auto/${encodeURIComponent(keyword)}`;
+      requestOptions = { method: "DELETE" };
+      successMessage = "자동 생성 키워드를 삭제했습니다.";
+      break;
+    default:
+      return;
   }
 
   setLoading("dictionary", true);
   try {
-    const { data } = await fetchJson(
-      `/dictionary/keywords/${encodeURIComponent(keyword)}`,
-      { method: "DELETE" }
-    );
+    const { data } = await fetchJson(requestPath, requestOptions);
     state.dictionaryKeywords = normalizeDictionaryKeywords(data);
     state.dictionaryLoaded = true;
     renderDictionary();
-    setMessage("dictionary", "키워드를 삭제했습니다.", "success");
+    setMessage("dictionary", successMessage, "success");
   } catch (error) {
     setMessage("dictionary", error.message, "error");
   } finally {
@@ -1098,32 +1119,89 @@ function renderDictionary() {
     return;
   }
 
-  if (!state.dictionaryKeywords.length) {
-    elements.dictionaryList.innerHTML = '<p class="muted">등록된 키워드가 없습니다.</p>';
-    return;
-  }
-
   elements.dictionaryList.innerHTML = `
-    <ul class="dictionary-chip-list">
-      ${state.dictionaryKeywords
-        .map(
-          (keyword) => `
-            <li class="dictionary-chip">
-              <span>${escapeHtml(keyword)}</span>
-              <button
-                type="button"
-                class="dictionary-remove-button"
-                data-dictionary-keyword="${escapeAttribute(keyword)}"
-                ${state.loading.dictionary ? "disabled" : ""}
-                aria-label="${escapeAttribute(`${keyword} 삭제`)}"
-              >
-                X
-              </button>
-            </li>
-          `
-        )
-        .join("")}
-    </ul>
+    <div class="dictionary-groups">
+      ${renderDictionaryGroup({
+        title: "사용자 등록 키워드",
+        description: "직접 추가한 키워드만 STT 기본 프롬프트에 주입됩니다.",
+        emptyMessage: "사용자가 직접 등록한 키워드가 없습니다.",
+        items: state.dictionaryKeywords.userKeywords,
+        renderChip: renderUserDictionaryChip,
+      })}
+      ${renderDictionaryGroup({
+        title: "자동 생성 키워드",
+        description: "LLM이 확인한 후보 키워드입니다. + 버튼으로 사용자 키워드로 옮길 수 있습니다.",
+        emptyMessage: "자동 생성된 키워드가 없습니다.",
+        items: state.dictionaryKeywords.autoKeywords,
+        renderChip: renderAutoDictionaryChip,
+      })}
+    </div>
+  `;
+}
+
+function renderDictionaryGroup({ title, description, emptyMessage, items, renderChip }) {
+  return `
+    <section class="dictionary-group">
+      <div class="dictionary-group-head">
+        <h4>${escapeHtml(title)}</h4>
+        <p>${escapeHtml(description)}</p>
+      </div>
+      ${
+        items.length
+          ? `<ul class="dictionary-chip-list">${items.map((keyword) => renderChip(keyword)).join("")}</ul>`
+          : `<p class="muted">${escapeHtml(emptyMessage)}</p>`
+      }
+    </section>
+  `;
+}
+
+function renderUserDictionaryChip(keyword) {
+  return `
+    <li class="dictionary-chip">
+      <span>${escapeHtml(keyword)}</span>
+      <div class="dictionary-chip-actions">
+        <button
+          type="button"
+          class="dictionary-action-button dictionary-remove-button"
+          data-dictionary-action="delete-user"
+          data-dictionary-keyword="${escapeAttribute(keyword)}"
+          ${state.loading.dictionary ? "disabled" : ""}
+          aria-label="${escapeAttribute(`${keyword} 삭제`)}"
+        >
+          X
+        </button>
+      </div>
+    </li>
+  `;
+}
+
+function renderAutoDictionaryChip(keyword) {
+  return `
+    <li class="dictionary-chip">
+      <span>${escapeHtml(keyword)}</span>
+      <div class="dictionary-chip-actions">
+        <button
+          type="button"
+          class="dictionary-action-button dictionary-promote-button"
+          data-dictionary-action="promote-auto"
+          data-dictionary-keyword="${escapeAttribute(keyword)}"
+          ${state.loading.dictionary ? "disabled" : ""}
+          aria-label="${escapeAttribute(`${keyword} 사용자 키워드로 이동`)}"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          class="dictionary-action-button dictionary-remove-button"
+          data-dictionary-action="delete-auto"
+          data-dictionary-keyword="${escapeAttribute(keyword)}"
+          ${state.loading.dictionary ? "disabled" : ""}
+          aria-label="${escapeAttribute(`${keyword} 자동 키워드 삭제`)}"
+        >
+          X
+        </button>
+      </div>
+    </li>
   `;
 }
 
@@ -1343,7 +1421,17 @@ function formatBytes(bytes) {
 }
 
 function normalizeDictionaryKeywords(data) {
-  return Array.isArray(data?.keywords) ? data.keywords.filter(Boolean) : [];
+  return {
+    userKeywords: Array.isArray(data?.user_keywords) ? data.user_keywords.filter(Boolean) : [],
+    autoKeywords: Array.isArray(data?.auto_keywords) ? data.auto_keywords.filter(Boolean) : [],
+  };
+}
+
+function emptyDictionaryKeywords() {
+  return {
+    userKeywords: [],
+    autoKeywords: [],
+  };
 }
 
 async function fetchJson(path, options = {}) {

@@ -226,7 +226,7 @@ pub(super) async fn wait_for_model_preparation_state(
     app: &Router,
     model: ModelKind,
 ) -> ModelStatusEntryResponse {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(10);
 
     loop {
         let response = app

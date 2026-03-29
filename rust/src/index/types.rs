@@ -49,6 +49,34 @@ pub enum SourceKind {
     Upload,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DictionaryKeywordSource {
+    User,
+    Auto,
+}
+
+impl DictionaryKeywordSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Auto => "auto",
+        }
+    }
+}
+
+impl std::str::FromStr for DictionaryKeywordSource {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "user" => Ok(Self::User),
+            "auto" => Ok(Self::Auto),
+            _ => Err(format!("unknown dictionary keyword source: {value}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskType {
@@ -226,6 +254,14 @@ pub struct AudioArtifactRecord {
     pub job_id: String,
     pub logical_name: String,
     pub storage_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct DictionaryKeywords {
+    #[serde(default)]
+    pub user_keywords: Vec<String>,
+    #[serde(default)]
+    pub auto_keywords: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

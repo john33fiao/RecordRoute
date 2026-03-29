@@ -189,8 +189,11 @@ fn submit_stt_merges_persisted_dictionary_keywords_into_queue_payload() {
     fs::create_dir_all(&job_dir).expect("job dir");
     fs::write(job_dir.join("mono_mix.wav"), "audio").expect("mono mix");
     store
-        .upsert_stt_dictionary_keyword("RecordRoute")
+        .upsert_stt_dictionary_keyword("RecordRoute", crate::index::DictionaryKeywordSource::User)
         .expect("insert dictionary keyword");
+    store
+        .upsert_stt_dictionary_keyword("배포", crate::index::DictionaryKeywordSource::Auto)
+        .expect("insert auto dictionary keyword");
 
     let mut job = JobRecord::new(
         "job-1".to_string(),

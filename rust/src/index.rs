@@ -11,11 +11,11 @@ mod types;
 
 pub use store::IndexStore;
 pub use types::{
-    ActiveQueueBatch, AudioArtifactRecord, IndexFile, JobOutputs, JobProbe, JobRecord,
-    JobSplitOutput, JobStatus, ModelKind, ModelPreparationRecord, ModelPreparationStatus,
-    QueueBatch, QueueCategory, QueueEntry, QueuePayload, SourceKind, SummaryEmbeddingRecord,
-    SummaryEmbeddingVectorRecord, SummaryRecord, TaskQueueState, TaskRecord, TaskStatus, TaskType,
-    TranscriptRecord,
+    ActiveQueueBatch, AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile,
+    JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus, ModelKind, ModelPreparationRecord,
+    ModelPreparationStatus, QueueBatch, QueueCategory, QueueEntry, QueuePayload, SourceKind,
+    SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord, SummaryRecord, TaskQueueState,
+    TaskRecord, TaskStatus, TaskType, TranscriptRecord,
 };
 
 #[cfg(test)]
@@ -88,34 +88,66 @@ mod tests {
     }
 
     #[test]
-    fn persists_stt_dictionary_keywords_in_sqlite_backend() {
+    fn persists_stt_dictionary_keywords_with_sources_in_sqlite_backend() {
         let repo_root = temp_workspace();
         let store = IndexStore::new(&repo_root);
 
+        let initial = store
+            .list_stt_dictionary_keywords()
+            .expect("list seeded keywords");
+        assert!(initial.user_keywords.is_empty());
+        assert_eq!(
+            sorted_strings(initial.auto_keywords),
+            sorted_strings(vec![
+                "회의록".to_string(),
+                "배포".to_string(),
+                "액션아이템".to_string(),
+            ])
+        );
+
         store
-            .upsert_stt_dictionary_keyword("RecordRoute")
+            .upsert_stt_dictionary_keyword("RecordRoute", DictionaryKeywordSource::User)
             .expect("insert keyword");
         store
-            .upsert_stt_dictionary_keyword("Dooray")
-            .expect("insert keyword");
+            .upsert_stt_dictionary_keyword("회의록", DictionaryKeywordSource::User)
+            .expect("promote auto keyword through user insert");
         store
-            .upsert_stt_dictionary_keyword("RecordRoute")
+            .promote_stt_dictionary_keyword("배포")
+            .expect("promote auto keyword");
+        store
+            .upsert_stt_dictionary_keyword("RecordRoute", DictionaryKeywordSource::User)
             .expect("dedupe keyword");
 
+        let persisted = store.list_stt_dictionary_keywords().expect("list keywords");
         assert_eq!(
-            store.list_stt_dictionary_keywords().expect("list keywords"),
-            vec!["Dooray".to_string(), "RecordRoute".to_string()]
+            sorted_strings(persisted.user_keywords),
+            sorted_strings(vec![
+                "RecordRoute".to_string(),
+                "회의록".to_string(),
+                "배포".to_string(),
+            ])
         );
+        assert_eq!(persisted.auto_keywords, vec!["액션아이템".to_string()]);
 
         assert!(
             store
-                .delete_stt_dictionary_keyword("Dooray")
+                .delete_stt_dictionary_keyword("액션아이템", DictionaryKeywordSource::Auto)
                 .expect("delete keyword")
         );
+
+        let reloaded = IndexStore::new(&repo_root);
+        let reloaded_keywords = reloaded
+            .list_stt_dictionary_keywords()
+            .expect("list keywords after reload");
         assert_eq!(
-            store.list_stt_dictionary_keywords().expect("list keywords"),
-            vec!["RecordRoute".to_string()]
+            sorted_strings(reloaded_keywords.user_keywords),
+            sorted_strings(vec![
+                "RecordRoute".to_string(),
+                "회의록".to_string(),
+                "배포".to_string(),
+            ])
         );
+        assert!(reloaded_keywords.auto_keywords.is_empty());
     }
 
     #[test]
@@ -479,5 +511,10 @@ mod tests {
         let path = std::env::temp_dir().join(format!("recordroute-index-{}", Uuid::now_v7()));
         fs::create_dir_all(&path).expect("temp workspace");
         path
+    }
+
+    fn sorted_strings(mut values: Vec<String>) -> Vec<String> {
+        values.sort();
+        values
     }
 }

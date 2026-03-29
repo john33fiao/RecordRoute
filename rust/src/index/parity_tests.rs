@@ -227,6 +227,56 @@ fn backend_parity_round_trips_index_metadata() {
 }
 
 #[test]
+fn backend_parity_persists_dictionary_keywords_with_sources() {
+    run_backend_matrix("dictionary-keywords", |case, _repo_root, store| {
+        let initial = store
+            .list_stt_dictionary_keywords()
+            .unwrap_or_else(|error| panic!("{} list seeded keywords: {error}", case.name()));
+        assert!(initial.user_keywords.is_empty());
+        assert_eq!(
+            sorted_strings(initial.auto_keywords),
+            sorted_strings(vec![
+                "회의록".to_string(),
+                "배포".to_string(),
+                "액션아이템".to_string(),
+            ]),
+            "{} auto demo keywords should be seeded once",
+            case.name()
+        );
+
+        store
+            .upsert_stt_dictionary_keyword("RecordRoute", DictionaryKeywordSource::User)
+            .unwrap_or_else(|error| panic!("{} upsert user keyword: {error}", case.name()));
+        store
+            .promote_stt_dictionary_keyword("배포")
+            .unwrap_or_else(|error| panic!("{} promote auto keyword: {error}", case.name()));
+        assert!(
+            store
+                .delete_stt_dictionary_keyword("액션아이템", DictionaryKeywordSource::Auto)
+                .unwrap_or_else(|error| panic!("{} delete auto keyword: {error}", case.name())),
+            "{} delete auto keyword should succeed",
+            case.name()
+        );
+
+        let persisted = store
+            .list_stt_dictionary_keywords()
+            .unwrap_or_else(|error| panic!("{} list persisted keywords: {error}", case.name()));
+        assert_eq!(
+            sorted_strings(persisted.user_keywords),
+            sorted_strings(vec!["RecordRoute".to_string(), "배포".to_string()]),
+            "{} user keywords should contain inserted and promoted values",
+            case.name()
+        );
+        assert_eq!(
+            persisted.auto_keywords,
+            vec!["회의록".to_string()],
+            "{} auto keywords should exclude promoted and deleted values",
+            case.name()
+        );
+    });
+}
+
+#[test]
 fn backend_parity_round_trips_side_tables() {
     run_backend_matrix("side-tables", |case, _repo_root, store| {
         store
@@ -381,7 +431,7 @@ fn backend_parity_migrates_existing_summary_schema() {
                     .batch_execute(
                         "
                         DROP TABLE IF EXISTS summary_embeddings, summaries, transcripts,
-                            stt_dictionary_keywords, audio_artifacts, tasks, jobs,
+                            metadata_bootstrap_flags, stt_dictionary_keywords, audio_artifacts, tasks, jobs,
                             model_preparations, queue_state CASCADE;
                         CREATE TABLE summaries (
                             job_id TEXT PRIMARY KEY,
@@ -562,6 +612,7 @@ fn reset_postgres_metadata(url: &str) -> Result<(), String> {
         .batch_execute(
             "
             TRUNCATE TABLE
+                metadata_bootstrap_flags,
                 summary_embeddings,
                 summaries,
                 transcripts,
@@ -583,4 +634,9 @@ fn temp_workspace(test_name: &str, backend_name: &str) -> PathBuf {
     ));
     fs::create_dir_all(&path).expect("temp workspace");
     path
+}
+
+fn sorted_strings(mut values: Vec<String>) -> Vec<String> {
+    values.sort();
+    values
 }

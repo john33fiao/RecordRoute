@@ -10,6 +10,9 @@ use tower::util::ServiceExt;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn get_queue_returns_active_and_pending_batches() {
+    let _guard = crate::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let repo_root = temp_workspace();
     let app = router_with_repo_root(repo_root.clone());
 

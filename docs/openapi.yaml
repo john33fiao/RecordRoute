@@ -20,6 +20,7 @@ tags:
   - name: system
   - name: models
   - name: queue
+  - name: dictionary
   - name: jobs
   - name: stt
   - name: summary
@@ -201,6 +202,166 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueStatusResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /dictionary/keywords:
+    get:
+      tags: [dictionary]
+      summary: List grouped STT dictionary keywords
+      operationId: getDictionaryKeywords
+      responses:
+        '200':
+          description: Grouped dictionary keywords
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryKeywordListResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags: [dictionary]
+      summary: Add or promote a user-managed STT dictionary keyword
+      operationId: postDictionaryKeyword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DictionaryKeywordRequest'
+      responses:
+        '200':
+          description: Dictionary keyword added or promoted into the user list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryKeywordListResponse'
+        '400':
+          description: Invalid request body or empty keyword
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /dictionary/keywords/{keyword}:
+    delete:
+      tags: [dictionary]
+      summary: Delete a user-managed dictionary keyword
+      operationId: deleteDictionaryKeyword
+      parameters:
+        - name: keyword
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Updated grouped dictionary keywords
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryKeywordListResponse'
+        '404':
+          description: User dictionary keyword not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid keyword
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /dictionary/keywords/auto/{keyword}/promote:
+    post:
+      tags: [dictionary]
+      summary: Promote an auto-generated keyword into the user-managed list
+      operationId: postPromoteAutoDictionaryKeyword
+      parameters:
+        - name: keyword
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Updated grouped dictionary keywords
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryKeywordListResponse'
+        '404':
+          description: Auto-generated dictionary keyword not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid keyword
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /dictionary/keywords/auto/{keyword}:
+    delete:
+      tags: [dictionary]
+      summary: Delete an auto-generated dictionary keyword
+      operationId: deleteAutoDictionaryKeyword
+      parameters:
+        - name: keyword
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Updated grouped dictionary keywords
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryKeywordListResponse'
+        '404':
+          description: Auto-generated dictionary keyword not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid keyword
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
           content:
@@ -853,6 +1014,28 @@ components:
         force_regenerate:
           type: boolean
           default: false
+
+    DictionaryKeywordRequest:
+      type: object
+      required: [keyword]
+      properties:
+        keyword:
+          type: string
+
+    DictionaryKeywordListResponse:
+      type: object
+      required: [user_keywords, auto_keywords]
+      properties:
+        user_keywords:
+          type: array
+          items:
+            type: string
+          description: User-managed keywords that are injected into STT prompts
+        auto_keywords:
+          type: array
+          items:
+            type: string
+          description: Auto-generated keyword suggestions stored in metadata only
 
     SttRequest:
       type: object

@@ -197,7 +197,8 @@ pub use cli::main_cli;
 #[allow(unused_imports)]
 pub use cli::resolve_input_path;
 pub use dictionary::{
-    add_stt_dictionary_keyword, delete_stt_dictionary_keyword, list_stt_dictionary_keywords,
+    add_stt_dictionary_keyword, delete_auto_stt_dictionary_keyword, delete_stt_dictionary_keyword,
+    list_stt_dictionary_keywords, promote_auto_stt_dictionary_keyword,
 };
 pub use embedding_stage::{
     SummarySearchResult, backfill_summary_embeddings, search_summaries,

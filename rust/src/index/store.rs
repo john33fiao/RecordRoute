@@ -2,9 +2,9 @@ use super::backend::MetadataBackend;
 use super::postgres::PostgresMetadataStore;
 use super::sqlite::SqliteMetadataStore;
 use super::types::{
-    AudioArtifactRecord, IndexFile, JobRecord, JobStatus, ModelKind, ModelPreparationRecord,
-    ModelPreparations, SummaryEmbeddingVectorRecord, SummaryRecord, TaskQueueState, TaskType,
-    TranscriptRecord,
+    AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile, JobRecord,
+    JobStatus, ModelKind, ModelPreparationRecord, ModelPreparations, SummaryEmbeddingVectorRecord,
+    SummaryRecord, TaskQueueState, TaskType, TranscriptRecord,
 };
 use crate::audio_store::AudioStore;
 use crate::storage::{MetadataDriver, StorageConfig};
@@ -217,16 +217,30 @@ impl IndexStore {
         updated.ok_or_else(|| "failed to update llama embedding preparation".to_string())
     }
 
-    pub fn list_stt_dictionary_keywords(&self) -> Result<Vec<String>, String> {
+    pub fn list_stt_dictionary_keywords(&self) -> Result<DictionaryKeywords, String> {
         self.backend()?.list_stt_dictionary_keywords()
     }
 
-    pub fn upsert_stt_dictionary_keyword(&self, keyword: &str) -> Result<(), String> {
-        self.backend()?.upsert_stt_dictionary_keyword(keyword)
+    pub fn upsert_stt_dictionary_keyword(
+        &self,
+        keyword: &str,
+        source: DictionaryKeywordSource,
+    ) -> Result<(), String> {
+        self.backend()?
+            .upsert_stt_dictionary_keyword(keyword, source)
     }
 
-    pub fn delete_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String> {
-        self.backend()?.delete_stt_dictionary_keyword(keyword)
+    pub fn delete_stt_dictionary_keyword(
+        &self,
+        keyword: &str,
+        source: DictionaryKeywordSource,
+    ) -> Result<bool, String> {
+        self.backend()?
+            .delete_stt_dictionary_keyword(keyword, source)
+    }
+
+    pub fn promote_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String> {
+        self.backend()?.promote_stt_dictionary_keyword(keyword)
     }
 
     pub fn list_audio_artifacts(&self, job_id: &str) -> Result<Vec<AudioArtifactRecord>, String> {

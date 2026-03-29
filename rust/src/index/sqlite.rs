@@ -1,10 +1,10 @@
 use super::backend::{
-    MetadataBackend, SerializedJobRecord, deserialize_job_record, from_json, serialize_job_record,
-    to_json,
+    DICTIONARY_AUTO_DEMO_KEYWORDS, DICTIONARY_AUTO_DEMO_SEED_FLAG, MetadataBackend,
+    SerializedJobRecord, deserialize_job_record, from_json, serialize_job_record, to_json,
 };
 use super::types::{
-    AudioArtifactRecord, IndexFile, ModelKind, SummaryEmbeddingVectorRecord, SummaryRecord,
-    TaskRecord, TranscriptRecord,
+    AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile, ModelKind,
+    SummaryEmbeddingVectorRecord, SummaryRecord, TaskRecord, TranscriptRecord,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use std::fs;
@@ -21,10 +21,10 @@ impl SqliteMetadataStore {
 
     fn open(&self) -> Result<Connection, String> {
         ensure_parent_dir(&self.db_path)?;
-        let connection = Connection::open(&self.db_path).map_err(|error| {
+        let mut connection = Connection::open(&self.db_path).map_err(|error| {
             format!("failed to open sqlite {}: {error}", self.db_path.display())
         })?;
-        initialize_schema(&connection)?;
+        initialize_schema(&mut connection)?;
         Ok(connection)
     }
 }
@@ -172,47 +172,109 @@ impl MetadataBackend for SqliteMetadataStore {
             .map_err(|error| format!("failed to commit sqlite index transaction: {error}"))
     }
 
-    fn list_stt_dictionary_keywords(&self) -> Result<Vec<String>, String> {
+    fn list_stt_dictionary_keywords(&self) -> Result<DictionaryKeywords, String> {
         let connection = self.open()?;
         let mut stmt = connection
             .prepare(
-                "SELECT keyword
+                "SELECT keyword, source
                  FROM stt_dictionary_keywords
                  ORDER BY keyword COLLATE NOCASE ASC, keyword ASC",
             )
             .map_err(|error| format!("failed to prepare sqlite dictionary read: {error}"))?;
-        stmt.query_map([], |row| row.get::<_, String>(0))
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
             .map_err(|error| format!("failed to query sqlite dictionary keywords: {error}"))?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| format!("failed to collect sqlite dictionary keywords: {error}"))
+            .map_err(|error| format!("failed to collect sqlite dictionary keywords: {error}"))?;
+
+        let mut keywords = DictionaryKeywords::default();
+        for (keyword, source) in rows {
+            match source.parse::<DictionaryKeywordSource>()? {
+                DictionaryKeywordSource::User => keywords.user_keywords.push(keyword),
+                DictionaryKeywordSource::Auto => keywords.auto_keywords.push(keyword),
+            }
+        }
+
+        Ok(keywords)
     }
 
-    fn upsert_stt_dictionary_keyword(&self, keyword: &str) -> Result<(), String> {
+    fn upsert_stt_dictionary_keyword(
+        &self,
+        keyword: &str,
+        source: DictionaryKeywordSource,
+    ) -> Result<(), String> {
         let connection = self.open()?;
-        connection
-            .execute(
-                "INSERT INTO stt_dictionary_keywords (keyword)
-                 VALUES (?)
-                 ON CONFLICT(keyword) DO NOTHING",
-                [keyword],
-            )
-            .map_err(|error| {
-                format!("failed to upsert sqlite dictionary keyword {keyword}: {error}")
-            })?;
+        match source {
+            DictionaryKeywordSource::User => {
+                connection
+                    .execute(
+                        "INSERT INTO stt_dictionary_keywords (keyword, source)
+                         VALUES (?, ?)
+                         ON CONFLICT(keyword)
+                         DO UPDATE SET source = excluded.source
+                         WHERE stt_dictionary_keywords.source = ?",
+                        params![
+                            keyword,
+                            DictionaryKeywordSource::User.as_str(),
+                            DictionaryKeywordSource::Auto.as_str()
+                        ],
+                    )
+                    .map_err(|error| {
+                        format!("failed to upsert sqlite dictionary keyword {keyword}: {error}")
+                    })?;
+            }
+            DictionaryKeywordSource::Auto => {
+                connection
+                    .execute(
+                        "INSERT INTO stt_dictionary_keywords (keyword, source)
+                         VALUES (?, ?)
+                         ON CONFLICT(keyword) DO NOTHING",
+                        params![keyword, DictionaryKeywordSource::Auto.as_str()],
+                    )
+                    .map_err(|error| {
+                        format!("failed to upsert sqlite dictionary keyword {keyword}: {error}")
+                    })?;
+            }
+        }
         Ok(())
     }
 
-    fn delete_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String> {
+    fn delete_stt_dictionary_keyword(
+        &self,
+        keyword: &str,
+        source: DictionaryKeywordSource,
+    ) -> Result<bool, String> {
         let connection = self.open()?;
         let deleted = connection
             .execute(
-                "DELETE FROM stt_dictionary_keywords WHERE keyword = ?",
-                [keyword],
+                "DELETE FROM stt_dictionary_keywords WHERE keyword = ? AND source = ?",
+                params![keyword, source.as_str()],
             )
             .map_err(|error| {
                 format!("failed to delete sqlite dictionary keyword {keyword}: {error}")
             })?;
         Ok(deleted > 0)
+    }
+
+    fn promote_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String> {
+        let connection = self.open()?;
+        let updated = connection
+            .execute(
+                "UPDATE stt_dictionary_keywords
+                 SET source = ?
+                 WHERE keyword = ? AND source = ?",
+                params![
+                    DictionaryKeywordSource::User.as_str(),
+                    keyword,
+                    DictionaryKeywordSource::Auto.as_str()
+                ],
+            )
+            .map_err(|error| {
+                format!("failed to promote sqlite dictionary keyword {keyword}: {error}")
+            })?;
+        Ok(updated > 0)
     }
 
     fn list_audio_artifacts(&self, job_id: &str) -> Result<Vec<AudioArtifactRecord>, String> {
@@ -544,7 +606,7 @@ fn ensure_parent_dir(path: &Path) -> Result<(), String> {
     })
 }
 
-fn initialize_schema(connection: &Connection) -> Result<(), String> {
+fn initialize_schema(connection: &mut Connection) -> Result<(), String> {
     connection
         .execute_batch(
             "
@@ -578,7 +640,11 @@ fn initialize_schema(connection: &Connection) -> Result<(), String> {
                 data_json TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS stt_dictionary_keywords (
-                keyword TEXT PRIMARY KEY
+                keyword TEXT PRIMARY KEY,
+                source TEXT NOT NULL DEFAULT 'user'
+            );
+            CREATE TABLE IF NOT EXISTS metadata_bootstrap_flags (
+                flag TEXT PRIMARY KEY
             );
             CREATE TABLE IF NOT EXISTS transcripts (
                 job_id TEXT NOT NULL,
@@ -607,7 +673,9 @@ fn initialize_schema(connection: &Connection) -> Result<(), String> {
             ",
         )
         .map_err(|error| format!("failed to initialize sqlite schema: {error}"))?;
-    ensure_summary_one_line_column(connection)
+    ensure_summary_one_line_column(connection)?;
+    ensure_dictionary_keyword_source_column(connection)?;
+    ensure_dictionary_auto_keywords_seeded(connection)
 }
 
 fn ensure_summary_one_line_column(connection: &Connection) -> Result<(), String> {
@@ -630,4 +698,75 @@ fn ensure_summary_one_line_column(connection: &Connection) -> Result<(), String>
         )
         .map_err(|error| format!("failed to migrate sqlite summaries schema: {error}"))?;
     Ok(())
+}
+
+fn ensure_dictionary_keyword_source_column(connection: &Connection) -> Result<(), String> {
+    let mut stmt = connection
+        .prepare("PRAGMA table_info(stt_dictionary_keywords)")
+        .map_err(|error| format!("failed to inspect sqlite dictionary schema: {error}"))?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| format!("failed to query sqlite dictionary schema: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("failed to collect sqlite dictionary schema: {error}"))?;
+    if !columns.iter().any(|column| column == "source") {
+        connection
+            .execute(
+                "ALTER TABLE stt_dictionary_keywords
+                 ADD COLUMN source TEXT NOT NULL DEFAULT 'user'",
+                [],
+            )
+            .map_err(|error| format!("failed to migrate sqlite dictionary schema: {error}"))?;
+    }
+
+    connection
+        .execute(
+            "UPDATE stt_dictionary_keywords
+             SET source = 'user'
+             WHERE source IS NULL OR source = ''",
+            [],
+        )
+        .map_err(|error| format!("failed to backfill sqlite dictionary sources: {error}"))?;
+    Ok(())
+}
+
+fn ensure_dictionary_auto_keywords_seeded(connection: &mut Connection) -> Result<(), String> {
+    let seeded = connection
+        .query_row(
+            "SELECT flag
+             FROM metadata_bootstrap_flags
+             WHERE flag = ?",
+            [DICTIONARY_AUTO_DEMO_SEED_FLAG],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("failed to read sqlite dictionary bootstrap flag: {error}"))?
+        .is_some();
+    if seeded {
+        return Ok(());
+    }
+
+    let tx = connection
+        .transaction()
+        .map_err(|error| format!("failed to start sqlite dictionary seed transaction: {error}"))?;
+    for keyword in DICTIONARY_AUTO_DEMO_KEYWORDS {
+        tx.execute(
+            "INSERT INTO stt_dictionary_keywords (keyword, source)
+             VALUES (?, ?)
+             ON CONFLICT(keyword) DO NOTHING",
+            params![keyword, DictionaryKeywordSource::Auto.as_str()],
+        )
+        .map_err(|error| {
+            format!("failed to seed sqlite auto dictionary keyword {keyword}: {error}")
+        })?;
+    }
+    tx.execute(
+        "INSERT INTO metadata_bootstrap_flags (flag)
+         VALUES (?)
+         ON CONFLICT(flag) DO NOTHING",
+        [DICTIONARY_AUTO_DEMO_SEED_FLAG],
+    )
+    .map_err(|error| format!("failed to persist sqlite dictionary bootstrap flag: {error}"))?;
+    tx.commit()
+        .map_err(|error| format!("failed to commit sqlite dictionary seed transaction: {error}"))
 }

@@ -593,6 +593,35 @@ pre {
   margin-top: 14px;
 }
 
+.dictionary-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.dictionary-group {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.44);
+}
+
+.dictionary-group-head {
+  display: grid;
+  gap: 4px;
+}
+
+.dictionary-group-head h4 {
+  margin: 0;
+}
+
+.dictionary-group-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .dictionary-chip-list {
   list-style: none;
   display: flex;
@@ -616,23 +645,40 @@ pre {
   word-break: break-word;
 }
 
-.dictionary-remove-button {
+.dictionary-chip-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.dictionary-action-button {
   width: 28px;
   height: 28px;
   border: 0;
   border-radius: 999px;
-  background: rgba(179, 58, 58, 0.12);
-  color: var(--error);
   cursor: pointer;
   font-weight: 700;
   transition: background-color 140ms ease, opacity 140ms ease;
+}
+
+.dictionary-promote-button {
+  background: rgba(14, 109, 98, 0.12);
+  color: var(--accent);
+}
+
+.dictionary-promote-button:hover {
+  background: rgba(14, 109, 98, 0.2);
+}
+
+.dictionary-remove-button {
+  background: rgba(179, 58, 58, 0.12);
+  color: var(--error);
 }
 
 .dictionary-remove-button:hover {
   background: rgba(179, 58, 58, 0.2);
 }
 
-.dictionary-remove-button:disabled {
+.dictionary-action-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
