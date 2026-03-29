@@ -62,6 +62,7 @@
 - `RECORDROUTE_AUDIO_ROOT`
 - `RECORDROUTE_AUDIO_CACHE_ROOT`
 - `RECORDROUTE_AUDIO_SPOOL_ROOT`
+- `RECORDROUTE_QUEUE_BURST_LIMIT` (기본값 `100`)
 
 기본값을 그대로 쓰면 메타DB와 오디오 둘 다 `db/` 아래에 놓인다.
 운영에서 외부 분리가 필요하면 메타DB를 PostgreSQL로 바꾸거나 `RECORDROUTE_AUDIO_ROOT`를 SMB 마운트, OneDrive 동기화 폴더 등으로 바꾼다.
@@ -182,6 +183,7 @@ ffmpeg 결과 오디오는 오디오 루트 아래 job별 디렉터리에 저장
 - 한 시점에는 active batch 하나만 실행
 - 같은 category는 batch에 병합
 - 다른 category가 기다리면 `burst_limit`만큼 처리 후 rotate
+- `burst_limit`는 `RECORDROUTE_QUEUE_BURST_LIMIT`로 조정하며, 비어 있거나 잘못된 값이면 `100`을 사용
 - queue 상태도 메타DB에 영속화
 
 Job/Task 상태는 항상 메타DB와 함께 갱신된다.

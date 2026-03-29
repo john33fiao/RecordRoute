@@ -33,6 +33,7 @@ pub(crate) mod test_support {
         AudioArtifactRecord, IndexStore, JobOutputs, JobRecord, JobSplitOutput, SourceKind,
         SummaryRecord, TranscriptRecord,
     };
+    use std::ffi::OsString;
     use std::fs;
     use std::path::Path;
     use std::sync::{Mutex, OnceLock};
@@ -40,6 +41,29 @@ pub(crate) mod test_support {
     pub(crate) fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    pub(crate) struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        pub(crate) fn capture(key: &'static str) -> Self {
+            Self {
+                key,
+                previous: std::env::var_os(key),
+            }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe { std::env::set_var(self.key, value) },
+                None => unsafe { std::env::remove_var(self.key) },
+            }
+        }
     }
 
     pub(crate) fn test_job(

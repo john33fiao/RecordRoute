@@ -1601,6 +1601,7 @@ components:
         burst_limit:
           type: integer
           minimum: 1
+          description: Effective category burst rotation limit. Derived from RECORDROUTE_QUEUE_BURST_LIMIT and defaults to 100.
         active_batch:
           oneOf:
             - $ref: '#/components/schemas/QueueBatchResponse'

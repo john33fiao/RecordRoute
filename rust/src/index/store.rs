@@ -353,11 +353,15 @@ impl IndexStore {
     }
 
     pub(crate) fn read_index(&self) -> Result<IndexFile, String> {
-        self.backend()?.read_index()
+        let mut index = self.backend()?.read_index()?;
+        index.task_queue.normalize_burst_limit();
+        Ok(index)
     }
 
     fn write_index(&self, index: &IndexFile) -> Result<(), String> {
-        self.backend()?.write_index(index)
+        let mut normalized = index.clone();
+        normalized.task_queue.normalize_burst_limit();
+        self.backend()?.write_index(&normalized)
     }
 
     fn job_has_reusable_audio(&self, job: &JobRecord) -> Result<bool, String> {

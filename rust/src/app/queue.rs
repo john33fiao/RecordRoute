@@ -129,6 +129,12 @@ mod tests {
 
     #[test]
     fn burst_rotation_moves_remaining_batch_behind_waiting_category() {
+        let _guard = crate::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _env_guard =
+            crate::test_support::EnvVarGuard::capture(crate::index::QUEUE_BURST_LIMIT_ENV_VAR);
+        unsafe { std::env::set_var(crate::index::QUEUE_BURST_LIMIT_ENV_VAR, "3") };
         let repo_root = temp_workspace();
         let store = IndexStore::new(&repo_root);
 

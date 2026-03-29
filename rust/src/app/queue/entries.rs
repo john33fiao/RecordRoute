@@ -1,6 +1,6 @@
 use super::QueueTicket;
 use crate::index::{
-    IndexFile, QueueBatch, QueueCategory, QueueEntry, QueuePayload, TaskQueueState, TaskType,
+    IndexFile, QueueBatch, QueueCategory, QueueEntry, QueuePayload, TaskType,
 };
 use crate::whisper::{normalize_keywords, normalize_language, transcription_language_from_env};
 use std::path::{Path, PathBuf};
@@ -73,9 +73,7 @@ pub fn build_embedding_entry(job_id: &str, queued_at: String) -> QueueEntry {
 
 pub fn enqueue_entry(index: &mut IndexFile, entry: QueueEntry) -> QueueTicket {
     let state = &mut index.task_queue;
-    if state.burst_limit == 0 {
-        state.burst_limit = TaskQueueState::default().burst_limit;
-    }
+    state.normalize_burst_limit();
 
     if let Some(active_batch) = state.active_batch.as_mut()
         && active_batch.category == entry.category

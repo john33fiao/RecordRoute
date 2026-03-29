@@ -18,13 +18,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-const STORAGE_ENV_KEYS: [&str; 6] = [
+const STORAGE_ENV_KEYS: [&str; 7] = [
     METADATA_DRIVER_ENV_VAR,
     METADATA_SQLITE_PATH_ENV_VAR,
     METADATA_POSTGRES_URL_ENV_VAR,
     AUDIO_ROOT_ENV_VAR,
     AUDIO_CACHE_ROOT_ENV_VAR,
     AUDIO_SPOOL_ROOT_ENV_VAR,
+    QUEUE_BURST_LIMIT_ENV_VAR,
 ];
 
 #[derive(Debug, Clone)]
@@ -128,7 +129,7 @@ fn backend_parity_round_trips_index_metadata() {
                 panic!("{} update llama embedding preparation: {error}", case.name())
             });
 
-        let expected_queue = TaskQueueState {
+        let stored_queue = TaskQueueState {
             active_batch: Some(ActiveQueueBatch {
                 category: QueueCategory::Stt,
                 running: Some(QueueEntry {
@@ -158,9 +159,13 @@ fn backend_parity_round_trips_index_metadata() {
             }],
             burst_limit: 5,
         };
+        let expected_queue = TaskQueueState {
+            burst_limit: 100,
+            ..stored_queue.clone()
+        };
         store
             .with_index_mut(|index| {
-                index.task_queue = expected_queue.clone();
+                index.task_queue = stored_queue.clone();
                 Ok(())
             })
             .unwrap_or_else(|error| panic!("{} persist queue state: {error}", case.name()));

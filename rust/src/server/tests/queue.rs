@@ -13,6 +13,9 @@ async fn get_queue_returns_active_and_pending_batches() {
     let _guard = crate::test_support::env_lock()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _env_guard =
+        crate::test_support::EnvVarGuard::capture(crate::index::QUEUE_BURST_LIMIT_ENV_VAR);
+    unsafe { std::env::set_var(crate::index::QUEUE_BURST_LIMIT_ENV_VAR, "250") };
     let repo_root = temp_workspace();
     let app = router_with_repo_root(repo_root.clone());
 
@@ -70,7 +73,7 @@ async fn get_queue_returns_active_and_pending_batches() {
     assert_eq!(response.status(), StatusCode::OK);
     let body: QueueStatusResponse = read_json(response).await;
 
-    assert_eq!(body.burst_limit, 5);
+    assert_eq!(body.burst_limit, 250);
 
     let active = body.active_batch.expect("active batch");
     assert_eq!(active.category, QueueCategory::Stt);

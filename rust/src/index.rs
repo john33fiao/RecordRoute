@@ -10,6 +10,8 @@ mod store;
 mod types;
 
 pub use store::IndexStore;
+#[cfg(test)]
+pub(crate) use types::QUEUE_BURST_LIMIT_ENV_VAR;
 pub use types::{
     ActiveQueueBatch, AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile,
     JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus, ModelKind, ModelPreparationRecord,
@@ -65,6 +67,11 @@ mod tests {
 
     #[test]
     fn persists_default_version_and_queue_to_sqlite_backend() {
+        let _guard = crate::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _env_guard = crate::test_support::EnvVarGuard::capture(QUEUE_BURST_LIMIT_ENV_VAR);
+        unsafe { std::env::remove_var(QUEUE_BURST_LIMIT_ENV_VAR) };
         let repo_root = temp_workspace();
         let store = IndexStore::new(&repo_root);
         store.ensure_db_dir().expect("db dir");
@@ -83,7 +90,7 @@ mod tests {
 
         let persisted = store.read_index().expect("persisted index");
         assert_eq!(persisted.version, 4);
-        assert_eq!(persisted.task_queue.burst_limit, 3);
+        assert_eq!(persisted.task_queue.burst_limit, 100);
         assert!(repo_root.join("db/index.sqlite3").is_file());
     }
 

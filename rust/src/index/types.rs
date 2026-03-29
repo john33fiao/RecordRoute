@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
 
+pub const QUEUE_BURST_LIMIT_ENV_VAR: &str = "RECORDROUTE_QUEUE_BURST_LIMIT";
+const DEFAULT_QUEUE_BURST_LIMIT: u32 = 100;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IndexFile {
     pub version: u32,
@@ -168,6 +171,12 @@ impl Default for TaskQueueState {
             pending_batches: Vec::new(),
             burst_limit: default_queue_burst_limit(),
         }
+    }
+}
+
+impl TaskQueueState {
+    pub(crate) fn normalize_burst_limit(&mut self) {
+        self.burst_limit = effective_queue_burst_limit();
     }
 }
 
@@ -656,7 +665,23 @@ fn build_task_id() -> String {
 }
 
 fn default_queue_burst_limit() -> u32 {
-    3
+    effective_queue_burst_limit()
+}
+
+pub(crate) fn effective_queue_burst_limit() -> u32 {
+    std::env::var(QUEUE_BURST_LIMIT_ENV_VAR)
+        .ok()
+        .and_then(|value| parse_queue_burst_limit(&value))
+        .unwrap_or(DEFAULT_QUEUE_BURST_LIMIT)
+}
+
+fn parse_queue_burst_limit(value: &str) -> Option<u32> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    trimmed.parse::<u32>().ok().filter(|value| *value > 0)
 }
 
 fn default_task_id() -> String {
@@ -665,4 +690,47 @@ fn default_task_id() -> String {
 
 fn default_stt_language() -> String {
     "ko".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{QUEUE_BURST_LIMIT_ENV_VAR, TaskQueueState, effective_queue_burst_limit};
+
+    #[test]
+    fn queue_burst_limit_defaults_to_100_when_unset() {
+        let _guard = crate::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _env_guard = crate::test_support::EnvVarGuard::capture(QUEUE_BURST_LIMIT_ENV_VAR);
+        unsafe { std::env::remove_var(QUEUE_BURST_LIMIT_ENV_VAR) };
+
+        assert_eq!(effective_queue_burst_limit(), 100);
+        assert_eq!(TaskQueueState::default().burst_limit, 100);
+    }
+
+    #[test]
+    fn queue_burst_limit_uses_env_when_positive_integer() {
+        let _guard = crate::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _env_guard = crate::test_support::EnvVarGuard::capture(QUEUE_BURST_LIMIT_ENV_VAR);
+        unsafe { std::env::set_var(QUEUE_BURST_LIMIT_ENV_VAR, "250") };
+
+        assert_eq!(effective_queue_burst_limit(), 250);
+        assert_eq!(TaskQueueState::default().burst_limit, 250);
+    }
+
+    #[test]
+    fn queue_burst_limit_falls_back_to_100_for_invalid_values() {
+        let _guard = crate::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _env_guard = crate::test_support::EnvVarGuard::capture(QUEUE_BURST_LIMIT_ENV_VAR);
+
+        for value in ["", "0", "abc"] {
+            unsafe { std::env::set_var(QUEUE_BURST_LIMIT_ENV_VAR, value) };
+            assert_eq!(effective_queue_burst_limit(), 100, "value {value:?}");
+            assert_eq!(TaskQueueState::default().burst_limit, 100, "value {value:?}");
+        }
+    }
 }
