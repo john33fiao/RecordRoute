@@ -73,15 +73,15 @@ interface PreparingState {
 const POLL_INTERVAL_MS = 1200;
 
 const cardBaseClass =
-  'rounded-2xl bg-slate-900/55 p-5 shadow-lg shadow-slate-950/20 backdrop-blur-sm';
+  'rounded-xl border border-slate-800 bg-slate-900/50 backdrop-blur-sm';
 
-const buttonBaseClass = 'h-12 rounded-xl px-5 text-base font-semibold transition-all';
+const buttonBaseClass = 'h-10 rounded-lg px-4 text-sm font-medium transition-all';
 
 const primaryButtonClass =
   'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white hover:from-violet-500 hover:to-fuchsia-500 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-400';
 
 const secondaryButtonClass =
-  'border border-slate-800 bg-slate-900/60 text-slate-200 hover:bg-slate-800/70 disabled:bg-slate-900/40 disabled:text-slate-500';
+  'border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:bg-slate-800/70 disabled:text-slate-500';
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
@@ -285,16 +285,14 @@ function SummaryCard({
     <div
       className={cn(
         cardBaseClass,
-        'min-h-[132px] transition-colors',
+        'flex items-center justify-between gap-4 p-4 transition-colors',
         isLoading && 'animate-pulse',
       )}
     >
-      <p className="text-xs font-medium tracking-[0.3em] text-slate-500">{title}</p>
-      <div className="mt-7">
-        <Badge className={cn('rounded-full border px-4 py-2 font-mono text-base', statusChipClass(chip.tone))}>
-          {chip.label}
-        </Badge>
-      </div>
+      <p className="text-sm font-medium text-slate-300">{title}</p>
+      <Badge className={cn('rounded-full border px-3 py-1.5 font-mono text-sm', statusChipClass(chip.tone))}>
+        {chip.label}
+      </Badge>
     </div>
   );
 }
@@ -317,19 +315,19 @@ function DetailCard({
   errorMessage?: string | null;
 }) {
   return (
-    <div className={cn(cardBaseClass, 'px-6 py-6 sm:px-8')}>
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-        <div className="space-y-4">
+    <div className={cn(cardBaseClass, 'p-6 space-y-6')}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-4 min-w-0">
           <div className="space-y-2">
-            <h3 className="text-3xl font-semibold tracking-tight text-white">{title}</h3>
-            <p className="max-w-xl text-lg text-slate-400">{description}</p>
+            <h3 className="text-xl font-semibold text-white">{title}</h3>
+            <p className="max-w-xl text-sm text-slate-400">{description}</p>
           </div>
 
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2">
             {chips.map((chip) => (
               <Badge
                 key={`${title}-${chip.label}`}
-                className={cn('rounded-full border px-4 py-2 font-mono text-base', statusChipClass(chip.tone))}
+                className={cn('rounded-full border px-3 py-1.5 font-mono text-sm', statusChipClass(chip.tone))}
               >
                 {chip.label}
               </Badge>
@@ -340,14 +338,14 @@ function DetailCard({
         <Button
           onClick={onAction}
           disabled={actionDisabled}
-          className={cn(buttonBaseClass, primaryButtonClass, 'w-full sm:w-auto sm:min-w-[188px]')}
+          className={cn(buttonBaseClass, primaryButtonClass, 'w-full sm:w-auto sm:min-w-[160px]')}
         >
           {actionLabel}
         </Button>
       </div>
 
       {errorMessage ? (
-        <div className="mt-5 rounded-xl border border-red-500/20 bg-red-500/8 px-4 py-3 text-sm text-red-200">
+        <div className="rounded-lg border border-red-500/20 bg-red-500/8 px-4 py-3 text-sm text-red-200">
           {errorMessage}
         </div>
       ) : null}
@@ -593,15 +591,15 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[88vh] max-w-[min(1120px,calc(100%-2rem))] overflow-hidden rounded-3xl border-0 bg-slate-950 p-0 text-slate-100 shadow-[0_28px_100px_rgba(2,6,23,0.68)]">
-        <div className="max-h-[88vh] overflow-y-auto px-5 py-5 sm:px-8 sm:py-8">
+        <div className="max-h-[88vh] overflow-y-auto p-6 space-y-6 sm:p-8">
           <DialogHeader className="gap-6 pr-14 text-left">
-            <div className="space-y-5">
+            <div className="space-y-4">
               <div className="space-y-3">
                 <p className="text-sm font-medium tracking-[0.34em] text-violet-300/90">
                   SYSTEM / MODELS
                 </p>
-                <DialogTitle className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                  런타임과 모델 준비 상태
+                <DialogTitle asChild>
+                  <h2 className="text-xl font-semibold text-white">런타임과 모델 준비 상태</h2>
                 </DialogTitle>
               </div>
 
@@ -638,18 +636,33 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             ) : null}
           </DialogHeader>
 
-          <div className="mt-8 overflow-x-auto pb-2">
-            <div className="grid min-w-[1020px] grid-cols-6 gap-3">
-              <SummaryCard title="FFMPEG" chip={ffmpegRuntimeChip} isLoading={isLoading && !systemStatus} />
-              <SummaryCard title="WHISPER" chip={whisperRuntimeChip} isLoading={isLoading && !systemStatus} />
-              <SummaryCard title="LLAMA" chip={llamaRuntimeChip} isLoading={isLoading && !systemStatus} />
-              <SummaryCard title="WHISPER MODEL" chip={whisperModelChip} isLoading={isLoading && !modelStatus} />
-              <SummaryCard title="LLAMA MODEL" chip={llamaModelChip} isLoading={isLoading && !modelStatus} />
-              <SummaryCard title="EMBEDDING MODEL" chip={embeddingModelChip} isLoading={isLoading && !modelStatus} />
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-xl font-semibold text-white">모듈 준비 상태</h2>
+              <Badge variant="outline" className="border-violet-500 text-violet-400">
+                6개 모듈
+              </Badge>
+            </div>
+
+            <div className="space-y-3">
+              <SummaryCard title="FFmpeg" chip={ffmpegRuntimeChip} isLoading={isLoading && !systemStatus} />
+              <SummaryCard title="Whisper" chip={whisperRuntimeChip} isLoading={isLoading && !systemStatus} />
+              <SummaryCard title="Llama" chip={llamaRuntimeChip} isLoading={isLoading && !systemStatus} />
+              <SummaryCard title="Whisper Model" chip={whisperModelChip} isLoading={isLoading && !modelStatus} />
+              <SummaryCard title="Llama Model" chip={llamaModelChip} isLoading={isLoading && !modelStatus} />
+              <SummaryCard title="Embedding Model" chip={embeddingModelChip} isLoading={isLoading && !modelStatus} />
             </div>
           </div>
 
-          <div className="mt-8 space-y-5">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-xl font-semibold text-white">모델 준비</h2>
+              <Badge variant="outline" className="border-violet-500 text-violet-400">
+                2개 액션
+              </Badge>
+            </div>
+
+            <div className="space-y-5">
             <DetailCard
               title="Whisper"
               description="STT 전사용 모델과 준비 상태"
@@ -669,6 +682,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               onAction={() => void handlePrepare('llama')}
               errorMessage={modelStatus?.llama.error ?? modelStatus?.llama.embedding_error}
             />
+            </div>
           </div>
         </div>
       </DialogContent>
