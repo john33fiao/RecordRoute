@@ -2,6 +2,7 @@ const POLL_INTERVAL_MS = 2000;
 const UPLOAD_FILE_MAX_BYTES = 512 * 1024 * 1024;
 const UPLOAD_FILE_MAX_LABEL = "512MB";
 const TRANSCRIPT_PREVIEW_LINES = 10;
+const QUEUE_COLLAPSE_THRESHOLD = 10;
 const AUDIO_FILE_EXTENSIONS = [
   ".wav",
   ".mp3",
@@ -42,6 +43,7 @@ const state = {
   modelsStatus: null,
   queueStatus: null,
   queueLoaded: false,
+  queueExpanded: emptyQueueExpandedState(),
   dictionaryKeywords: emptyDictionaryKeywords(),
   dictionaryLoaded: false,
   pendingDictionaryRefreshJobId: null,
@@ -62,6 +64,10 @@ const state = {
 };
 
 const elements = {};
+
+function emptyQueueExpandedState() {
+  return Object.fromEntries(QUEUE_COLUMNS.map((column) => [column.key, false]));
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   captureElements();
@@ -145,6 +151,7 @@ function bindEvents() {
   elements.queueRefreshButton.addEventListener("click", () => {
     refreshQueue({ showMessage: true });
   });
+  elements.queueBoard.addEventListener("click", onQueueBoardClick);
   elements.dictionaryRefreshButton.addEventListener("click", () => {
     refreshDictionary({ showMessage: true }).catch((error) => {
       console.error(error);
@@ -229,6 +236,21 @@ function onTranscriptToggleClick(event) {
   const expanded = item.classList.toggle("is-expanded");
   toggle.setAttribute("aria-expanded", String(expanded));
   toggle.textContent = expanded ? "접기" : `펼치기 (${TRANSCRIPT_PREVIEW_LINES}줄)`;
+}
+
+function onQueueBoardClick(event) {
+  const toggle = event.target.closest("[data-queue-toggle]");
+  if (!toggle) {
+    return;
+  }
+
+  const columnKey = toggle.dataset.queueToggle;
+  if (!columnKey || !(columnKey in state.queueExpanded)) {
+    return;
+  }
+
+  state.queueExpanded[columnKey] = !state.queueExpanded[columnKey];
+  renderQueueBoard();
 }
 
 function onUploadInputChange(event) {
@@ -1294,16 +1316,36 @@ function normalizeQueueEntries(entries) {
 function renderQueueColumn(column) {
   const statusBadgeLabel = column.active ? "활성" : column.totalCount > 0 ? "대기" : "비어 있음";
   const statusTone = column.active ? "running" : "idle";
+  const isExpanded = Boolean(state.queueExpanded[column.key]);
+  const isCollapsible = column.entries.length > QUEUE_COLLAPSE_THRESHOLD;
+  const visibleEntries = isExpanded ? column.entries : column.entries.slice(0, QUEUE_COLLAPSE_THRESHOLD);
+  const hiddenCount = isCollapsible && !isExpanded ? column.entries.length - visibleEntries.length : 0;
   const cards = [];
   if (column.running) {
     cards.push(renderQueueCard(column.running, "running"));
   }
-  for (const entry of column.entries) {
+  for (const entry of visibleEntries) {
     cards.push(renderQueueCard(entry, "queued"));
   }
+  const toggleButton = isCollapsible
+    ? `
+        <button
+          class="ghost-button queue-column-toggle"
+          data-queue-toggle="${escapeAttribute(column.key)}"
+          aria-expanded="${isExpanded ? "true" : "false"}"
+          type="button"
+        >
+          ${isExpanded ? "접기" : `더 보기 (${escapeHtml(String(hiddenCount))})`}
+        </button>
+      `
+    : "";
 
   return `
-    <section class="queue-column" data-active="${column.active ? "true" : "false"}">
+    <section
+      class="queue-column"
+      data-active="${column.active ? "true" : "false"}"
+      data-expanded="${isExpanded ? "true" : "false"}"
+    >
       <div class="queue-column-head">
         <div class="queue-column-copy">
           <p class="queue-column-kicker">${escapeHtml(column.label)}</p>
@@ -1317,6 +1359,7 @@ function renderQueueColumn(column) {
       </div>
       <div class="queue-column-body">
         ${cards.join("") || `<p class="queue-empty">${escapeHtml(column.emptyMessage)}</p>`}
+        ${toggleButton}
       </div>
     </section>
   `;

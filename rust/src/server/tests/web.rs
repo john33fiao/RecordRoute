@@ -70,7 +70,10 @@ async fn get_app_js_serves_script_asset() {
     assert!(js.contains("async function refreshDictionary"));
     assert!(js.contains("dictionary-refresh-button"));
     assert!(js.contains("pendingDictionaryRefreshJobId"));
+    assert!(js.contains("const QUEUE_COLLAPSE_THRESHOLD = 10;"));
+    assert!(js.contains("function onQueueBoardClick"));
     assert!(js.contains("function renderQueueBoard"));
+    assert!(js.contains("data-queue-toggle"));
     assert!(js.contains("function renderDictionary"));
     assert!(js.contains("function renderUserDictionaryChip"));
     assert!(js.contains("data-dictionary-action=\"promote-auto\""));
@@ -104,6 +107,8 @@ async fn get_app_css_serves_stylesheet_asset() {
     assert!(css.contains(".panel"));
     assert!(css.contains(".jobs-list"));
     assert!(css.contains(".queue-board"));
+    assert!(css.contains("grid-template-rows: auto minmax(0, 1fr);"));
+    assert!(css.contains(".queue-column-toggle"));
     assert!(css.contains(".dictionary-form"));
     assert!(css.contains(".dictionary-chip"));
     assert!(css.contains(".dictionary-group"));

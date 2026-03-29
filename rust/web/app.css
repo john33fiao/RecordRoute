@@ -676,6 +676,8 @@ pre {
 
 .queue-column {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
   gap: 14px;
   padding: 16px;
   border: 1px solid var(--border);
@@ -736,6 +738,12 @@ pre {
   display: grid;
   gap: 10px;
   align-content: start;
+}
+
+.queue-column-toggle {
+  justify-self: start;
+  padding: 8px 12px;
+  font-size: 0.88rem;
 }
 
 .queue-card {
