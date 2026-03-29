@@ -209,6 +209,56 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /queue/pause:
+    post:
+      tags: [queue]
+      summary: Pause or resume background queue dispatching
+      operationId: postQueuePause
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueuePauseRequest'
+      responses:
+        '200':
+          description: Updated queue snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueStatusResponse'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /queue/cancel-pending:
+    post:
+      tags: [queue]
+      summary: Cancel queued tasks without interrupting the currently running task
+      operationId: postQueueCancelPending
+      responses:
+        '200':
+          description: Pending queue entries cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueCancelPendingResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /dictionary/keywords:
     get:
       tags: [dictionary]
@@ -1596,8 +1646,10 @@ components:
 
     QueueStatusResponse:
       type: object
-      required: [burst_limit, active_batch, pending_batches]
+      required: [paused, burst_limit, active_batch, pending_batches]
       properties:
+        paused:
+          type: boolean
         burst_limit:
           type: integer
           minimum: 1
@@ -1610,6 +1662,33 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/QueueBatchResponse'
+
+    QueuePauseRequest:
+      type: object
+      required: [paused]
+      properties:
+        paused:
+          type: boolean
+
+    QueueCancelPendingResponse:
+      type: object
+      required: [total_cancelled, ffmpeg_cancelled, stt_cancelled, summary_cancelled, embedding_cancelled]
+      properties:
+        total_cancelled:
+          type: integer
+          minimum: 0
+        ffmpeg_cancelled:
+          type: integer
+          minimum: 0
+        stt_cancelled:
+          type: integer
+          minimum: 0
+        summary_cancelled:
+          type: integer
+          minimum: 0
+        embedding_cancelled:
+          type: integer
+          minimum: 0
 
     TaskType:
       type: string

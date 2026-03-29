@@ -28,11 +28,42 @@ pub use planner::submit_batch_pipeline_jobs;
 #[cfg(test)]
 use scheduler::{clear_running_entry_in_index, reserve_next_entry};
 
+const QUEUE_CANCELLED_BY_USER_MESSAGE: &str = "cancelled by user";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueueTicket {
     pub category: QueueCategory,
     pub position: usize,
     pub queued_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct QueueCancelPendingResult {
+    pub total_cancelled: usize,
+    pub ffmpeg_cancelled: usize,
+    pub stt_cancelled: usize,
+    pub summary_cancelled: usize,
+    pub embedding_cancelled: usize,
+}
+
+impl QueueCancelPendingResult {
+    fn record_cancelled(&mut self, task_type: TaskType) {
+        self.total_cancelled = self.total_cancelled.saturating_add(1);
+        match task_type {
+            TaskType::Ffmpeg => {
+                self.ffmpeg_cancelled = self.ffmpeg_cancelled.saturating_add(1);
+            }
+            TaskType::Stt => {
+                self.stt_cancelled = self.stt_cancelled.saturating_add(1);
+            }
+            TaskType::Summary => {
+                self.summary_cancelled = self.summary_cancelled.saturating_add(1);
+            }
+            TaskType::Embedding => {
+                self.embedding_cancelled = self.embedding_cancelled.saturating_add(1);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -63,6 +94,74 @@ struct QueueWorkItem {
 
 pub fn queue_snapshot(repo_root: &Path) -> Result<TaskQueueState, String> {
     IndexStore::new(repo_root).task_queue()
+}
+
+pub fn set_queue_paused(repo_root: &Path, paused: bool) -> Result<TaskQueueState, String> {
+    IndexStore::new(repo_root).with_index_mut(|index| {
+        index.task_queue.paused = paused;
+        Ok(index.task_queue.clone())
+    })
+}
+
+pub fn cancel_pending_entries(repo_root: &Path) -> Result<QueueCancelPendingResult, String> {
+    let finished_at = now_rfc3339()?;
+    IndexStore::new(repo_root).with_index_mut(|index| {
+        let mut cancelled = QueueCancelPendingResult::default();
+        let mut entries = Vec::new();
+
+        if let Some(active_batch) = index.task_queue.active_batch.as_mut() {
+            entries.append(&mut active_batch.entries);
+        }
+        for batch in &mut index.task_queue.pending_batches {
+            entries.append(&mut batch.entries);
+        }
+
+        index
+            .task_queue
+            .pending_batches
+            .retain(|batch| !batch.entries.is_empty());
+        if index
+            .task_queue
+            .active_batch
+            .as_ref()
+            .is_some_and(|batch| batch.running.is_none() && batch.entries.is_empty())
+        {
+            index.task_queue.active_batch = None;
+        }
+
+        for entry in entries {
+            cancel_entry(index, &entry, &finished_at)?;
+            cancelled.record_cancelled(entry.task_type);
+        }
+
+        Ok(cancelled)
+    })
+}
+
+fn cancel_entry(
+    index: &mut IndexFile,
+    entry: &QueueEntry,
+    finished_at: &str,
+) -> Result<(), String> {
+    let job = index
+        .jobs
+        .iter_mut()
+        .find(|job| job.job_id == entry.job_id)
+        .ok_or_else(|| format!("job not found in index: {}", entry.job_id))?;
+
+    match entry.task_type {
+        TaskType::Ffmpeg => job.mark_failed(
+            finished_at.to_string(),
+            QUEUE_CANCELLED_BY_USER_MESSAGE.to_string(),
+        )?,
+        _ => job.fail_task(
+            entry.task_type,
+            finished_at.to_string(),
+            QUEUE_CANCELLED_BY_USER_MESSAGE.to_string(),
+        )?,
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -206,10 +305,14 @@ mod tests {
 
         let mut state = DispatchState::default();
         for expected_job_id in ["job-1", "job-2", "job-3"] {
-            let work =
-                reserve_next_entry(&repo_root, &mut state, "2026-01-01T00:00:10Z".to_string())
-                    .expect("reserve work")
-                    .expect("queued work");
+            let work = reserve_next_entry(
+                &repo_root,
+                &mut state,
+                "2026-01-01T00:00:10Z".to_string(),
+                false,
+            )
+            .expect("reserve work")
+            .expect("queued work");
             assert_eq!(work.entry.category, QueueCategory::Ffmpeg);
             assert_eq!(work.entry.job_id, expected_job_id);
             store
@@ -221,10 +324,14 @@ mod tests {
             state.record_execution(work.entry.category);
         }
 
-        let rotated =
-            reserve_next_entry(&repo_root, &mut state, "2026-01-01T00:00:11Z".to_string())
-                .expect("reserve rotated work")
-                .expect("rotated work");
+        let rotated = reserve_next_entry(
+            &repo_root,
+            &mut state,
+            "2026-01-01T00:00:11Z".to_string(),
+            false,
+        )
+        .expect("reserve rotated work")
+        .expect("rotated work");
         assert_eq!(rotated.entry.category, QueueCategory::Stt);
         assert_eq!(rotated.entry.job_id, "job-5");
 
@@ -386,9 +493,14 @@ mod tests {
             .expect("seed queue");
 
         let mut state = DispatchState::default();
-        let work = reserve_next_entry(&repo_root, &mut state, "2026-01-01T00:00:10Z".to_string())
-            .expect("reserve")
-            .expect("work item");
+        let work = reserve_next_entry(
+            &repo_root,
+            &mut state,
+            "2026-01-01T00:00:10Z".to_string(),
+            false,
+        )
+        .expect("reserve")
+        .expect("work item");
         assert_eq!(work.entry.category, QueueCategory::Stt);
         assert_eq!(work.entry.job_id, "job-stt");
     }
@@ -657,9 +769,212 @@ mod tests {
             .expect("seed blocked queue");
 
         let mut state = DispatchState::default();
-        let work = reserve_next_entry(&repo_root, &mut state, "2026-01-01T00:00:10Z".to_string())
-            .expect("reserve");
+        let work = reserve_next_entry(
+            &repo_root,
+            &mut state,
+            "2026-01-01T00:00:10Z".to_string(),
+            false,
+        )
+        .expect("reserve");
         assert!(work.is_none());
+    }
+
+    #[test]
+    fn reserve_next_entry_returns_none_while_paused_then_resumes_same_order() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+
+        for job_id in ["job-1", "job-2"] {
+            store
+                .insert_job(JobRecord::new(
+                    job_id.to_string(),
+                    "2026-01-01T00:00:00Z".to_string(),
+                    PathBuf::from(format!("/tmp/{job_id}.wav")),
+                    store.job_dir(job_id),
+                ))
+                .expect("insert job");
+        }
+
+        store
+            .with_index_mut(|index| {
+                index.task_queue.paused = true;
+                index.task_queue.active_batch = Some(ActiveQueueBatch {
+                    category: QueueCategory::Ffmpeg,
+                    running: None,
+                    entries: vec![
+                        build_ffmpeg_entry(
+                            "job-1",
+                            Path::new("/tmp/job-1.wav"),
+                            "2026-01-01T00:00:01Z".to_string(),
+                        ),
+                        build_ffmpeg_entry(
+                            "job-2",
+                            Path::new("/tmp/job-2.wav"),
+                            "2026-01-01T00:00:02Z".to_string(),
+                        ),
+                    ],
+                });
+                Ok(())
+            })
+            .expect("seed queue");
+
+        let mut state = DispatchState::default();
+        let paused = reserve_next_entry(
+            &repo_root,
+            &mut state,
+            "2026-01-01T00:00:03Z".to_string(),
+            true,
+        )
+        .expect("pause check");
+        assert!(paused.is_none());
+        assert!(
+            queue_snapshot(&repo_root)
+                .expect("snapshot")
+                .active_batch
+                .as_ref()
+                .and_then(|batch| batch.running.as_ref())
+                .is_none()
+        );
+
+        set_queue_paused(&repo_root, false).expect("resume queue");
+
+        let resumed = reserve_next_entry(
+            &repo_root,
+            &mut state,
+            "2026-01-01T00:00:04Z".to_string(),
+            true,
+        )
+        .expect("resume reserve")
+        .expect("work item");
+        assert_eq!(resumed.entry.job_id, "job-1");
+        assert_eq!(resumed.entry.category, QueueCategory::Ffmpeg);
+
+        let job = store.find_job("job-1").expect("find job").expect("job");
+        assert_eq!(job.status, crate::index::JobStatus::Running);
+    }
+
+    #[test]
+    fn cancel_pending_entries_marks_waiting_tasks_failed_and_keeps_running_entry() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+
+        let mut running_job = JobRecord::new(
+            "job-running".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/job-running.wav"),
+            store.job_dir("job-running"),
+        );
+        running_job
+            .mark_ffmpeg_running("2026-01-01T00:00:01Z".to_string())
+            .expect("mark running");
+        store.insert_job(running_job).expect("insert running job");
+
+        let queued_ffmpeg = JobRecord::new(
+            "job-queued".to_string(),
+            "2026-01-01T00:00:02Z".to_string(),
+            PathBuf::from("/tmp/job-queued.wav"),
+            store.job_dir("job-queued"),
+        );
+        store
+            .insert_job(queued_ffmpeg)
+            .expect("insert queued ffmpeg");
+
+        let mut summary_job = test_job(
+            "job-summary",
+            "2026-01-01T00:00:03Z",
+            "sources/job-summary/source.wav",
+            "hash-job-summary",
+            "job-summary.wav",
+        );
+        mark_job_completed_with_audio(
+            &store,
+            &mut summary_job,
+            "2026-01-01T00:00:04Z",
+            &["mono_mix.wav"],
+        )
+        .expect("mark summary completed");
+        summary_job.enqueue_task(TaskType::Summary, "2026-01-01T00:00:05Z".to_string());
+        store.insert_job(summary_job).expect("insert summary job");
+
+        store
+            .with_index_mut(|index| {
+                index.task_queue.active_batch = Some(ActiveQueueBatch {
+                    category: QueueCategory::Ffmpeg,
+                    running: Some(build_ffmpeg_entry(
+                        "job-running",
+                        Path::new("/tmp/job-running.wav"),
+                        "2026-01-01T00:00:01Z".to_string(),
+                    )),
+                    entries: vec![build_ffmpeg_entry(
+                        "job-queued",
+                        Path::new("/tmp/job-queued.wav"),
+                        "2026-01-01T00:00:02Z".to_string(),
+                    )],
+                });
+                index.task_queue.pending_batches = vec![QueueBatch {
+                    category: QueueCategory::Llm,
+                    entries: vec![build_summary_entry(
+                        "job-summary",
+                        false,
+                        "2026-01-01T00:00:05Z".to_string(),
+                    )],
+                }];
+                Ok(())
+            })
+            .expect("seed cancel queue");
+
+        let cancelled = cancel_pending_entries(&repo_root).expect("cancel pending");
+        assert_eq!(cancelled.total_cancelled, 2);
+        assert_eq!(cancelled.ffmpeg_cancelled, 1);
+        assert_eq!(cancelled.summary_cancelled, 1);
+
+        let snapshot = queue_snapshot(&repo_root).expect("snapshot");
+        assert_eq!(
+            snapshot
+                .active_batch
+                .as_ref()
+                .and_then(|batch| batch.running.as_ref())
+                .map(|entry| entry.job_id.as_str()),
+            Some("job-running")
+        );
+        assert!(
+            snapshot
+                .active_batch
+                .as_ref()
+                .is_some_and(|batch| batch.entries.is_empty())
+        );
+        assert!(snapshot.pending_batches.is_empty());
+
+        let queued_job = store
+            .find_job("job-queued")
+            .expect("find queued job")
+            .expect("queued job");
+        assert_eq!(queued_job.status, crate::index::JobStatus::Failed);
+        assert_eq!(
+            queued_job.error_message.as_deref(),
+            Some(QUEUE_CANCELLED_BY_USER_MESSAGE)
+        );
+
+        let summary_job = store
+            .find_job("job-summary")
+            .expect("find summary job")
+            .expect("summary job");
+        assert_eq!(
+            summary_job.task(TaskType::Summary).map(|task| task.status),
+            Some(TaskStatus::Failed)
+        );
+        assert_eq!(
+            summary_job
+                .task(TaskType::Summary)
+                .and_then(|task| task.last_error.as_deref()),
+            Some(QUEUE_CANCELLED_BY_USER_MESSAGE)
+        );
+
+        let running_job = store
+            .find_job("job-running")
+            .expect("find running job")
+            .expect("running job");
+        assert_eq!(running_job.status, crate::index::JobStatus::Running);
     }
 
     fn temp_workspace() -> PathBuf {

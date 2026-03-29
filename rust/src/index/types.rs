@@ -157,6 +157,8 @@ pub enum QueuePayload {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TaskQueueState {
     #[serde(default)]
+    pub paused: bool,
+    #[serde(default)]
     pub active_batch: Option<ActiveQueueBatch>,
     #[serde(default)]
     pub pending_batches: Vec<QueueBatch>,
@@ -167,6 +169,7 @@ pub struct TaskQueueState {
 impl Default for TaskQueueState {
     fn default() -> Self {
         Self {
+            paused: false,
             active_batch: None,
             pending_batches: Vec::new(),
             burst_limit: default_queue_burst_limit(),
@@ -730,7 +733,11 @@ mod tests {
         for value in ["", "0", "abc"] {
             unsafe { std::env::set_var(QUEUE_BURST_LIMIT_ENV_VAR, value) };
             assert_eq!(effective_queue_burst_limit(), 100, "value {value:?}");
-            assert_eq!(TaskQueueState::default().burst_limit, 100, "value {value:?}");
+            assert_eq!(
+                TaskQueueState::default().burst_limit,
+                100,
+                "value {value:?}"
+            );
         }
     }
 }

@@ -66,6 +66,7 @@
             <div class="button-row">
               <button class="primary-button" id="upload-submit-button" type="submit">업로드</button>
               <button class="ghost-button" id="batch-process-button" type="button">일괄처리 시작</button>
+              <button class="warning-button" id="queue-cancel-button" type="button">일괄 취소</button>
             </div>
           </form>
         </section>
@@ -183,11 +184,14 @@
             <div>
               <p class="panel-kicker">Queue</p>
               <h2>카테고리별 작업 큐</h2>
-              <p class="panel-caption">
+              <p class="panel-caption" id="queue-caption">
                 전역 큐의 남은 작업을 칸반보드로 보고, 현재 실행 중인 카테고리를 열 단위로 확인합니다.
               </p>
             </div>
-            <button class="ghost-button" id="queue-refresh-button" type="button">큐 새로고침</button>
+            <div class="panel-actions">
+              <button class="ghost-button" id="queue-pause-button" type="button">일시정지</button>
+              <button class="ghost-button" id="queue-refresh-button" type="button">큐 새로고침</button>
+            </div>
           </div>
           <div class="notice" id="queue-message" aria-live="polite"></div>
           <div class="queue-board" id="queue-board"></div>

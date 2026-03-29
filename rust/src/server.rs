@@ -36,6 +36,7 @@ use std::path::PathBuf;
 use types::AppState;
 
 pub const SERVER_BIND: &str = "127.0.0.1:38080";
+pub(crate) const QUEUE_START_PAUSED_ENV_VAR: &str = "RECORDROUTE_QUEUE_START_PAUSED";
 
 pub(crate) fn router_with_repo_root(repo_root: PathBuf) -> Router {
     router_with_repo_root_and_upload_limits(repo_root, upload::DEFAULT_UPLOAD_LIMITS)
@@ -68,6 +69,11 @@ pub(crate) fn router_with_repo_root_and_upload_limits(
         .route("/jobs/upload", jobs_upload_route(upload_limits))
         .route("/jobs/batch-process", post(jobs::post_jobs_batch_process))
         .route("/queue", get(queue_routes::get_queue))
+        .route("/queue/pause", post(queue_routes::post_queue_pause))
+        .route(
+            "/queue/cancel-pending",
+            post(queue_routes::post_queue_cancel_pending),
+        )
         .route(
             "/dictionary/keywords",
             get(dictionary::get_stt_dictionary_keywords)

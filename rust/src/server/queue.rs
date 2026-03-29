@@ -10,10 +10,17 @@ pub(crate) struct QueueDispatcher {
 
 impl QueueDispatcher {
     pub(crate) fn start(repo_root: PathBuf) -> Self {
+        let start_paused = queue_start_paused_from_env();
+        if start_paused && let Err(error) = app::set_queue_paused(&repo_root, true) {
+            eprintln!("{error}");
+        }
+
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || run_dispatcher(repo_root, rx));
         let dispatcher = Self { tx };
-        dispatcher.wake();
+        if !start_paused {
+            dispatcher.wake();
+        }
         dispatcher
     }
 
@@ -45,5 +52,15 @@ fn run_dispatcher(repo_root: PathBuf, rx: mpsc::Receiver<()>) {
             break;
         }
         while rx.try_recv().is_ok() {}
+    }
+}
+
+fn queue_start_paused_from_env() -> bool {
+    match std::env::var(super::QUEUE_START_PAUSED_ENV_VAR) {
+        Ok(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => false,
     }
 }

@@ -53,6 +53,8 @@ const state = {
   loading: {
     upload: false,
     batchProcess: false,
+    queuePause: false,
+    queueCancel: false,
     stt: false,
     summary: false,
     embedding: false,
@@ -92,6 +94,7 @@ function captureElements() {
   elements.embeddingStatus = document.getElementById("embedding-status");
   elements.embeddingMetadata = document.getElementById("embedding-metadata");
   elements.filesView = document.getElementById("files-view");
+  elements.queueCaption = document.getElementById("queue-caption");
   elements.queueBoard = document.getElementById("queue-board");
   elements.dictionaryForm = document.getElementById("dictionary-form");
   elements.dictionaryInput = document.getElementById("dictionary-input");
@@ -107,12 +110,14 @@ function captureElements() {
   elements.uploadInput = document.getElementById("upload-input");
   elements.uploadSubmitButton = document.getElementById("upload-submit-button");
   elements.batchProcessButton = document.getElementById("batch-process-button");
+  elements.queueCancelButton = document.getElementById("queue-cancel-button");
   elements.uploadQueue = document.getElementById("upload-queue");
   elements.sttForm = document.getElementById("stt-form");
   elements.sttSubmitButton = document.getElementById("stt-submit-button");
   elements.summarySubmitButton = document.getElementById("summary-submit-button");
   elements.summaryForceCheckbox = document.getElementById("summary-force-checkbox");
   elements.embeddingSubmitButton = document.getElementById("embedding-submit-button");
+  elements.queuePauseButton = document.getElementById("queue-pause-button");
   elements.queueRefreshButton = document.getElementById("queue-refresh-button");
   elements.dictionarySubmitButton = document.getElementById("dictionary-submit-button");
   elements.searchForm = document.getElementById("search-form");
@@ -140,6 +145,7 @@ function bindEvents() {
   });
   elements.uploadForm.addEventListener("submit", onUploadSubmit);
   elements.batchProcessButton.addEventListener("click", onBatchProcessSubmit);
+  elements.queueCancelButton.addEventListener("click", onQueueCancelPending);
   elements.uploadInput.addEventListener("change", onUploadInputChange);
   elements.uploadDropzone.addEventListener("dragenter", onUploadDragEnter);
   elements.uploadDropzone.addEventListener("dragover", onUploadDragOver);
@@ -148,6 +154,7 @@ function bindEvents() {
   elements.sttSubmitButton.addEventListener("click", onSttSubmit);
   elements.summarySubmitButton.addEventListener("click", onSummarySubmit);
   elements.embeddingSubmitButton.addEventListener("click", onEmbeddingSubmit);
+  elements.queuePauseButton.addEventListener("click", onQueuePauseToggle);
   elements.queueRefreshButton.addEventListener("click", () => {
     refreshQueue({ showMessage: true });
   });
@@ -508,6 +515,70 @@ async function onBatchProcessSubmit() {
     setMessage("upload", error.message, "error");
   } finally {
     setLoading("batchProcess", false);
+  }
+}
+
+async function onQueuePauseToggle() {
+  const nextPaused = !state.queueStatus?.paused;
+  setLoading("queuePause", true);
+  renderQueueControls();
+  try {
+    const { data } = await fetchJson("/queue/pause", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paused: nextPaused }),
+    });
+    state.queueStatus = data;
+    state.queueLoaded = true;
+    renderQueueBoard();
+    syncQueuePoller();
+    setMessage(
+      "queue",
+      nextPaused
+        ? "큐를 일시정지했습니다. 현재 진행 중인 작업만 끝나고 다음 작업은 대기합니다."
+        : "큐를 재개했습니다. 다음 작업부터 순서대로 이어집니다.",
+      "info"
+    );
+  } catch (error) {
+    setMessage("queue", error.message, "error");
+  } finally {
+    setLoading("queuePause", false);
+    renderQueueControls();
+  }
+}
+
+async function onQueueCancelPending() {
+  const queuedCount = countQueuedEntries(state.queueStatus);
+  if (queuedCount === 0) {
+    setMessage("upload", "취소할 대기 작업이 없습니다.", "info");
+    return;
+  }
+  if (!window.confirm(`현재 대기 중인 작업 ${queuedCount}건을 취소하시겠습니까?`)) {
+    return;
+  }
+
+  setLoading("queueCancel", true);
+  try {
+    const { data } = await fetchJson("/queue/cancel-pending", {
+      method: "POST",
+    });
+    const message = [
+      `대기 작업 ${data?.total_cancelled ?? 0}건 취소`,
+      `ffmpeg ${data?.ffmpeg_cancelled ?? 0}건`,
+      `stt ${data?.stt_cancelled ?? 0}건`,
+      `summary ${data?.summary_cancelled ?? 0}건`,
+      `embedding ${data?.embedding_cancelled ?? 0}건`,
+    ].join(" · ");
+    setMessage("upload", message, "info");
+    await Promise.all([
+      refreshJobs(),
+      refreshQueue(),
+      state.selectedJobId ? refreshSelectedJob(state.selectedJobId) : Promise.resolve(),
+    ]);
+  } catch (error) {
+    setMessage("upload", error.message, "error");
+  } finally {
+    setLoading("queueCancel", false);
   }
 }
 
@@ -1260,8 +1331,33 @@ function renderQueueBoard() {
     return;
   }
 
+  renderQueueControls();
   const columns = buildQueueColumns();
   elements.queueBoard.innerHTML = columns.map(renderQueueColumn).join("");
+}
+
+function renderQueueControls() {
+  const paused = Boolean(state.queueStatus?.paused);
+  const hasRunningEntry = Boolean(state.queueStatus?.active_batch?.running);
+
+  if (elements.queueCaption) {
+    elements.queueCaption.textContent = paused
+      ? hasRunningEntry
+        ? "전역 큐가 일시정지되었습니다. 현재 진행 중인 작업만 끝나고 다음 작업은 대기합니다."
+        : "전역 큐가 일시정지되었습니다. 재개 전까지 새 작업과 남은 작업은 모두 대기합니다."
+      : "전역 큐의 남은 작업을 칸반보드로 보고, 현재 실행 중인 카테고리를 열 단위로 확인합니다.";
+  }
+
+  if (elements.queuePauseButton) {
+    elements.queuePauseButton.textContent = state.loading.queuePause
+      ? paused
+        ? "재개 중..."
+        : "일시정지 중..."
+      : paused
+        ? "재개"
+        : "일시정지";
+    elements.queuePauseButton.dataset.active = paused ? "true" : "false";
+  }
 }
 
 function buildQueueColumns() {
@@ -1388,9 +1484,11 @@ function updateActionStates() {
 
   elements.uploadSubmitButton.disabled = state.loading.upload;
   elements.batchProcessButton.disabled = state.loading.batchProcess;
+  elements.queueCancelButton.disabled = state.loading.queueCancel || !state.queueLoaded;
   elements.systemRefreshButton.disabled = false;
   elements.jobsRefreshButton.disabled = false;
   elements.selectedJobRefreshButton.disabled = !hasJob;
+  elements.queuePauseButton.disabled = state.loading.queuePause || !state.queueLoaded;
   elements.queueRefreshButton.disabled = false;
   elements.dictionaryRefreshButton.disabled = state.loading.dictionary;
   elements.dictionarySubmitButton.disabled = state.loading.dictionary;
@@ -1420,11 +1518,12 @@ function syncSelectedJobPoller() {
 }
 
 function syncQueuePoller() {
+  const queuePaused = Boolean(state.queueStatus?.paused);
   const hasActiveBatch = Boolean(state.queueStatus?.active_batch);
   const hasPendingBatch = Array.isArray(state.queueStatus?.pending_batches)
     ? state.queueStatus.pending_batches.length > 0
     : false;
-  if (hasActiveBatch || hasPendingBatch) {
+  if (queuePaused || hasActiveBatch || hasPendingBatch) {
     startPoller("queue", () => refreshQueue());
   } else {
     stopPoller("queue");
@@ -1616,6 +1715,22 @@ function formatTaskTypeLabel(taskType) {
     default:
       return taskType || "task";
   }
+}
+
+function countQueuedEntries(queueStatus) {
+  if (!queueStatus) {
+    return 0;
+  }
+
+  const activeCount = Array.isArray(queueStatus.active_batch?.entries)
+    ? queueStatus.active_batch.entries.length
+    : 0;
+  const pendingCount = Array.isArray(queueStatus.pending_batches)
+    ? queueStatus.pending_batches.reduce((total, batch) => {
+        return total + (Array.isArray(batch?.entries) ? batch.entries.length : 0);
+      }, 0)
+    : 0;
+  return activeCount + pendingCount;
 }
 
 function escapeHtml(value) {

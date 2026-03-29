@@ -25,8 +25,22 @@ pub fn recover_interrupted_active_entry(repo_root: &Path) -> Result<(), String> 
 }
 
 pub fn dispatch_one(repo_root: &Path, state: &mut DispatchState) -> Result<bool, String> {
+    dispatch_one_internal(repo_root, state, true)
+}
+
+fn dispatch_one_without_pause(repo_root: &Path, state: &mut DispatchState) -> Result<bool, String> {
+    dispatch_one_internal(repo_root, state, false)
+}
+
+fn dispatch_one_internal(
+    repo_root: &Path,
+    state: &mut DispatchState,
+    honor_pause: bool,
+) -> Result<bool, String> {
     let started_at = now_rfc3339()?;
-    let Some(work) = super::scheduler::reserve_next_entry(repo_root, state, started_at)? else {
+    let Some(work) =
+        super::scheduler::reserve_next_entry(repo_root, state, started_at, honor_pause)?
+    else {
         return Ok(false);
     };
 
@@ -64,7 +78,7 @@ pub fn dispatch_until_task_terminal(
 
         match task.status {
             TaskStatus::Queued | TaskStatus::Running => {
-                if !dispatch_one(repo_root, &mut state)? {
+                if !dispatch_one_without_pause(repo_root, &mut state)? {
                     return Err(format!(
                         "queue stalled before {} task completed for job {job_id}",
                         task_type.as_str()

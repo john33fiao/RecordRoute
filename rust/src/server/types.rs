@@ -55,6 +55,11 @@ pub(crate) struct DictionaryKeywordRequest {
     pub keyword: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct QueuePauseRequest {
+    pub paused: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct DictionaryKeywordListResponse {
     pub user_keywords: Vec<String>,
@@ -215,9 +220,19 @@ pub(crate) struct QueueBatchResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct QueueStatusResponse {
+    pub paused: bool,
     pub burst_limit: u32,
     pub active_batch: Option<QueueBatchResponse>,
     pub pending_batches: Vec<QueueBatchResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct QueueCancelPendingResponse {
+    pub total_cancelled: usize,
+    pub ffmpeg_cancelled: usize,
+    pub stt_cancelled: usize,
+    pub summary_cancelled: usize,
+    pub embedding_cancelled: usize,
 }
 
 impl From<DictionaryKeywords> for DictionaryKeywordListResponse {

@@ -139,6 +139,13 @@ pre {
   gap: 12px;
 }
 
+.panel-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .panel-head + .notice,
 .subpanel-head + .inline-status {
   margin-top: 14px;
@@ -168,7 +175,8 @@ pre {
 }
 
 .ghost-button,
-.primary-button {
+.primary-button,
+.warning-button {
   border: 0;
   border-radius: 999px;
   padding: 10px 14px;
@@ -187,16 +195,29 @@ pre {
   font-weight: 700;
 }
 
+.warning-button {
+  background: rgba(179, 58, 58, 0.12);
+  color: var(--error);
+  font-weight: 700;
+}
+
 .ghost-button:hover,
-.primary-button:hover {
+.primary-button:hover,
+.warning-button:hover {
   transform: translateY(-1px);
 }
 
 .ghost-button:disabled,
-.primary-button:disabled {
+.primary-button:disabled,
+.warning-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
+}
+
+.ghost-button[data-active="true"] {
+  background: rgba(14, 109, 98, 0.14);
+  color: var(--accent-strong);
 }
 
 .upload-form,

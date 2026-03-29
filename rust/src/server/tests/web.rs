@@ -34,6 +34,8 @@ async fn get_root_serves_html_shell_with_expected_sections() {
     assert!(html.contains("id=\"dictionary-form\""));
     assert!(html.contains("id=\"dictionary-list\""));
     assert!(html.contains("id=\"dictionary-refresh-button\""));
+    assert!(html.contains("id=\"queue-pause-button\""));
+    assert!(html.contains("id=\"queue-cancel-button\""));
     assert!(html.contains(
         "사용자가 직접 등록한 키워드만 STT 실행 시 Whisper 초기 프롬프트에 자동 주입됩니다."
     ));
@@ -67,12 +69,17 @@ async fn get_app_js_serves_script_asset() {
     assert!(js.contains("const state ="));
     assert!(js.contains("async function refreshJobs"));
     assert!(js.contains("async function refreshQueue"));
+    assert!(js.contains("async function onQueuePauseToggle"));
+    assert!(js.contains("async function onQueueCancelPending"));
     assert!(js.contains("async function refreshDictionary"));
     assert!(js.contains("dictionary-refresh-button"));
     assert!(js.contains("pendingDictionaryRefreshJobId"));
+    assert!(js.contains("queue-pause-button"));
+    assert!(js.contains("queue-cancel-button"));
     assert!(js.contains("const QUEUE_COLLAPSE_THRESHOLD = 10;"));
     assert!(js.contains("function onQueueBoardClick"));
     assert!(js.contains("function renderQueueBoard"));
+    assert!(js.contains("function renderQueueControls"));
     assert!(js.contains("data-queue-toggle"));
     assert!(js.contains("function renderDictionary"));
     assert!(js.contains("function renderUserDictionaryChip"));
@@ -107,6 +114,8 @@ async fn get_app_css_serves_stylesheet_asset() {
     assert!(css.contains(".panel"));
     assert!(css.contains(".jobs-list"));
     assert!(css.contains(".queue-board"));
+    assert!(css.contains(".panel-actions"));
+    assert!(css.contains(".warning-button"));
     assert!(css.contains("grid-template-rows: auto minmax(0, 1fr);"));
     assert!(css.contains(".queue-column-toggle"));
     assert!(css.contains(".dictionary-form"));

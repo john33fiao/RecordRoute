@@ -269,6 +269,6 @@ pub fn now_rfc3339() -> Result<String, String> {
 #[cfg(test)]
 mod tests;
 pub use queue::{
-    DispatchState, QueueTicket, dispatch_one, queue_snapshot, recover_interrupted_active_entry,
-    submit_batch_pipeline_jobs,
+    DispatchState, QueueCancelPendingResult, QueueTicket, cancel_pending_entries, dispatch_one,
+    queue_snapshot, recover_interrupted_active_entry, set_queue_paused, submit_batch_pipeline_jobs,
 };

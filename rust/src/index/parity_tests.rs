@@ -130,6 +130,7 @@ fn backend_parity_round_trips_index_metadata() {
             });
 
         let stored_queue = TaskQueueState {
+            paused: false,
             active_batch: Some(ActiveQueueBatch {
                 category: QueueCategory::Stt,
                 running: Some(QueueEntry {

@@ -1,7 +1,5 @@
 use super::QueueTicket;
-use crate::index::{
-    IndexFile, QueueBatch, QueueCategory, QueueEntry, QueuePayload, TaskType,
-};
+use crate::index::{IndexFile, QueueBatch, QueueCategory, QueueEntry, QueuePayload, TaskType};
 use crate::whisper::{normalize_keywords, normalize_language, transcription_language_from_env};
 use std::path::{Path, PathBuf};
 

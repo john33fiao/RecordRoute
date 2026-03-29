@@ -89,6 +89,7 @@ fn spawn_server(
     let shared_log = Arc::new(Mutex::new(log));
     let mut child = Command::new(server_exe)
         .env(runtime_root::RUNTIME_ROOT_ENV_VAR, runtime_root)
+        .env(crate::server::QUEUE_START_PAUSED_ENV_VAR, "1")
         .current_dir(runtime_root)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

@@ -8,10 +8,15 @@ pub(super) fn reserve_next_entry(
     repo_root: &Path,
     state: &mut DispatchState,
     started_at: String,
+    honor_pause: bool,
 ) -> Result<Option<QueueWorkItem>, String> {
     IndexStore::new(repo_root).with_index_mut(|index| {
         let mut scanned_batches = 0usize;
         loop {
+            if honor_pause && index.task_queue.paused {
+                return Ok(None);
+            }
+
             promote_pending_batch(index);
 
             let Some(active_category) = index
