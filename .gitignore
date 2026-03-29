@@ -19,6 +19,7 @@ db/
 
 # Frontend build artifacts
 frontend/node_modules/
+frontend/build/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
 # Local llama.cpp model assets

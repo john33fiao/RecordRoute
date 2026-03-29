@@ -20,6 +20,35 @@ pub(super) fn temp_workspace() -> PathBuf {
     path
 }
 
+pub(super) fn seed_frontend_build(repo_root: &Path) {
+    let assets_dir = repo_root.join("frontend/build/assets");
+    fs::create_dir_all(&assets_dir).expect("frontend build assets");
+
+    fs::write(
+        repo_root.join("frontend/build/index.html"),
+        r#"<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>RecordRoute New</title>
+    <link rel="stylesheet" href="/new/assets/app.css" />
+  </head>
+  <body>
+    <div id="root">new frontend</div>
+    <script type="module" src="/new/assets/app.js"></script>
+  </body>
+</html>
+"#,
+    )
+    .expect("frontend index");
+    fs::write(
+        assets_dir.join("app.js"),
+        "console.log('new frontend asset');\n",
+    )
+    .expect("frontend app js");
+    fs::write(assets_dir.join("app.css"), "body { color: #111827; }\n").expect("frontend app css");
+}
+
 pub(super) fn build_script_path(repo_root: &Path, tool: &str) -> PathBuf {
     crate::ffmpeg::build_script_path(repo_root, tool)
 }

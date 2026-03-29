@@ -1,11 +1,17 @@
 use super::super::router_with_repo_root;
-use super::support::{get_request, temp_workspace};
+use super::support::{get_request, seed_frontend_build, temp_workspace};
+use crate::test_support::{EnvVarGuard, env_lock};
 use axum::http::StatusCode;
 use http_body_util::BodyExt;
 use tower::util::ServiceExt;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn get_root_serves_html_shell_with_expected_sections() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _env_guard = EnvVarGuard::capture(crate::server::QUEUE_START_PAUSED_ENV_VAR);
+    unsafe { std::env::set_var(crate::server::QUEUE_START_PAUSED_ENV_VAR, "1") };
     let app = router_with_repo_root(temp_workspace());
     let response = app.oneshot(get_request("/")).await.expect("root response");
 
@@ -43,6 +49,11 @@ async fn get_root_serves_html_shell_with_expected_sections() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn get_app_js_serves_script_asset() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _env_guard = EnvVarGuard::capture(crate::server::QUEUE_START_PAUSED_ENV_VAR);
+    unsafe { std::env::set_var(crate::server::QUEUE_START_PAUSED_ENV_VAR, "1") };
     let app = router_with_repo_root(temp_workspace());
     let response = app
         .oneshot(get_request("/app.js"))
@@ -88,6 +99,11 @@ async fn get_app_js_serves_script_asset() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn get_app_css_serves_stylesheet_asset() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _env_guard = EnvVarGuard::capture(crate::server::QUEUE_START_PAUSED_ENV_VAR);
+    unsafe { std::env::set_var(crate::server::QUEUE_START_PAUSED_ENV_VAR, "1") };
     let app = router_with_repo_root(temp_workspace());
     let response = app
         .oneshot(get_request("/app.css"))
@@ -122,4 +138,76 @@ async fn get_app_css_serves_stylesheet_asset() {
     assert!(css.contains(".dictionary-chip"));
     assert!(css.contains(".dictionary-group"));
     assert!(css.contains(".dictionary-promote-button"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_new_root_serves_built_frontend_index() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _env_guard = EnvVarGuard::capture(crate::server::QUEUE_START_PAUSED_ENV_VAR);
+    unsafe { std::env::set_var(crate::server::QUEUE_START_PAUSED_ENV_VAR, "1") };
+    let repo_root = temp_workspace();
+    seed_frontend_build(&repo_root);
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(get_request("/new"))
+        .await
+        .expect("new root response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("text/html; charset=utf-8")
+    );
+
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("collect html body")
+        .to_bytes();
+    let html = String::from_utf8(body.to_vec()).expect("utf-8 html");
+
+    assert!(html.contains("id=\"root\""));
+    assert!(html.contains("/new/assets/app.js"));
+    assert!(html.contains("/new/assets/app.css"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_new_assets_serves_built_frontend_asset() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _env_guard = EnvVarGuard::capture(crate::server::QUEUE_START_PAUSED_ENV_VAR);
+    unsafe { std::env::set_var(crate::server::QUEUE_START_PAUSED_ENV_VAR, "1") };
+    let repo_root = temp_workspace();
+    seed_frontend_build(&repo_root);
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(get_request("/new/assets/app.js"))
+        .await
+        .expect("new asset response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("text/javascript; charset=utf-8")
+    );
+
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("collect js body")
+        .to_bytes();
+    let js = String::from_utf8(body.to_vec()).expect("utf-8 js");
+
+    assert!(js.contains("new frontend asset"));
 }
