@@ -57,5 +57,9 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
+    proxy: {
+      '/models': 'http://127.0.0.1:38080',
+      '/system': 'http://127.0.0.1:38080',
+    },
   },
 });
