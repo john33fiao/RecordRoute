@@ -213,7 +213,11 @@ async function onUploadSubmit(event) {
     if (failedCount > 0) {
       summaryParts.push(`${failedCount}개 업로드 실패`);
     }
-    setMessage("upload", summaryParts.join(" / ") || "업로드 요청이 접수되었습니다.", failedCount > 0 ? "info" : "success");
+    const queueMessage =
+      successCount > 0
+        ? `${summaryParts.join(" / ")} · 각 파일이 ffmpeg 큐에 등록되었습니다.`
+        : "업로드 요청이 접수되었습니다.";
+    setMessage("upload", queueMessage, failedCount > 0 ? "info" : "success");
 
     elements.uploadForm.reset();
     state.uploadQueue = [];
@@ -1346,7 +1350,7 @@ function renderQueueControls() {
       ? hasRunningEntry
         ? "전역 큐가 일시정지되었습니다. 현재 진행 중인 작업만 끝나고 다음 작업은 대기합니다."
         : "전역 큐가 일시정지되었습니다. 재개 전까지 새 작업과 남은 작업은 모두 대기합니다."
-      : "전역 큐의 남은 작업을 칸반보드로 보고, 현재 실행 중인 카테고리를 열 단위로 확인합니다.";
+      : "전역 큐의 남은 작업과 일괄처리로 미리 등록된 후속 단계를 칸반보드에서 확인합니다.";
   }
 
   if (elements.queuePauseButton) {

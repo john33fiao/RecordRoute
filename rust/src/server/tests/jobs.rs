@@ -35,9 +35,9 @@ async fn post_jobs_batch_process_enqueues_unfinished_pipeline_tasks() {
     let body: BatchQueueSubmissionResponse = read_json(response).await;
     assert_eq!(body.total_jobs, 1);
     assert_eq!(body.ffmpeg_queued, 1);
-    assert_eq!(body.stt_queued, 0);
-    assert_eq!(body.summary_queued, 0);
-    assert_eq!(body.embedding_queued, 0);
+    assert_eq!(body.stt_queued, 1);
+    assert_eq!(body.summary_queued, 1);
+    assert_eq!(body.embedding_queued, 1);
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn post_jobs_returns_accepted_then_job_transitions_to_completed() {
@@ -98,6 +98,8 @@ async fn post_jobs_returns_accepted_then_job_transitions_to_completed() {
     let completed = wait_for_job_completion(&app, &submitted.job_id).await;
 
     assert_eq!(completed.status, JobStatus::Completed);
+    assert_eq!(completed.tasks.len(), 1);
+    assert_eq!(completed.tasks[0].task_type, TaskType::Ffmpeg);
     assert_eq!(completed.probe.channels, Some(2));
     let store = IndexStore::new(&repo_root);
     let job_dir = store.job_dir(&completed.job_id);
@@ -159,6 +161,8 @@ async fn post_jobs_upload_accepts_file_and_stores_content_hashed_path() {
     fs::remove_file(&gate).expect("remove gate");
     let completed = wait_for_job_completion(&app, &submitted.job_id).await;
     assert_eq!(completed.status, JobStatus::Completed);
+    assert_eq!(completed.tasks.len(), 1);
+    assert_eq!(completed.tasks[0].task_type, TaskType::Ffmpeg);
 }
 
 #[tokio::test(flavor = "multi_thread")]

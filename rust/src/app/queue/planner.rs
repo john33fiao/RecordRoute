@@ -37,14 +37,13 @@ pub fn submit_batch_pipeline_jobs(repo_root: &Path) -> Result<BatchQueueSubmissi
                 index.jobs[job_index].mark_ffmpeg_queued(queued_at.clone());
                 enqueue_entry(index, entry);
                 summary.ffmpeg_queued = summary.ffmpeg_queued.saturating_add(1);
-                continue;
             }
 
-            if job.status != JobStatus::Completed {
-                continue;
-            }
-
-            let audio_files = artifacts::supported_audio_files(&job_dir)?;
+            let audio_files = if job_dir.is_dir() {
+                artifacts::supported_audio_files(&job_dir)?
+            } else {
+                Vec::new()
+            };
             if should_enqueue_batch_stt(
                 &store,
                 index,
@@ -67,15 +66,13 @@ pub fn submit_batch_pipeline_jobs(repo_root: &Path) -> Result<BatchQueueSubmissi
                 );
                 enqueue_entry(index, entry);
                 summary.stt_queued = summary.stt_queued.saturating_add(1);
-                continue;
             }
 
-            if should_enqueue_batch_summary(&store, index, &job, &audio_files)? {
+            if should_enqueue_batch_summary(&store, index, &job)? {
                 let entry = build_summary_entry(&job.job_id, false, queued_at.clone());
                 index.jobs[job_index].enqueue_task(TaskType::Summary, queued_at.clone());
                 enqueue_entry(index, entry);
                 summary.summary_queued = summary.summary_queued.saturating_add(1);
-                continue;
             }
 
             if should_enqueue_batch_embedding(&store, repo_root, index, &job)? {
@@ -107,20 +104,27 @@ fn should_enqueue_batch_stt(
     language: &str,
     keywords: &[String],
 ) -> Result<bool, String> {
-    if audio_files.is_empty() {
+    if audio_files.is_empty() && job.status == JobStatus::Completed {
         return Ok(false);
     }
 
-    let default_entry =
-        build_stt_entry_with_options(&job.job_id, audio_files, language, keywords, String::new());
-    let default_request_fingerprint = default_entry.payload.request_fingerprint();
-    let transcripts_reusable = all_transcripts_exist(store, &job.job_id, audio_files)?
-        && job
-            .task(TaskType::Stt)
-            .and_then(|task| task.request_fingerprint.as_ref())
-            == default_request_fingerprint.as_ref();
-    if transcripts_reusable {
-        return Ok(false);
+    if !audio_files.is_empty() {
+        let default_entry = build_stt_entry_with_options(
+            &job.job_id,
+            audio_files,
+            language,
+            keywords,
+            String::new(),
+        );
+        let default_request_fingerprint = default_entry.payload.request_fingerprint();
+        let transcripts_reusable = all_transcripts_exist(store, &job.job_id, audio_files)?
+            && job
+                .task(TaskType::Stt)
+                .and_then(|task| task.request_fingerprint.as_ref())
+                == default_request_fingerprint.as_ref();
+        if transcripts_reusable {
+            return Ok(false);
+        }
     }
 
     Ok(match job.task(TaskType::Stt).map(|task| task.status) {
@@ -134,12 +138,7 @@ fn should_enqueue_batch_summary(
     store: &IndexStore,
     index: &IndexFile,
     job: &JobRecord,
-    audio_files: &[PathBuf],
 ) -> Result<bool, String> {
-    if audio_files.is_empty() || !all_transcripts_exist(store, &job.job_id, audio_files)? {
-        return Ok(false);
-    }
-
     if store.get_summary(&job.job_id)?.is_some() {
         return Ok(false);
     }
@@ -157,18 +156,9 @@ fn should_enqueue_batch_embedding(
     index: &IndexFile,
     job: &JobRecord,
 ) -> Result<bool, String> {
-    if matches!(
-        job.task(TaskType::Summary).map(|task| task.status),
-        Some(TaskStatus::Queued | TaskStatus::Running)
-    ) {
-        return Ok(false);
-    }
-
-    if store.get_summary(&job.job_id)?.is_none() {
-        return Ok(false);
-    }
-
-    if !embedding_stage::is_embedding_stale(repo_root, job)? {
+    if store.get_summary(&job.job_id)?.is_some()
+        && !embedding_stage::is_embedding_stale(repo_root, job)?
+    {
         return Ok(false);
     }
 

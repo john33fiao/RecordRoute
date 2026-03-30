@@ -43,6 +43,7 @@ async fn get_root_serves_html_shell_with_expected_sections() {
     assert!(html.contains("id=\"queue-pause-button\""));
     assert!(html.contains("id=\"queue-cancel-button\""));
     assert!(html.contains(".qta,audio/*"));
+    assert!(html.contains("업로드는 ffmpeg 큐에만 등록"));
     assert!(html.contains(
         "사용자가 직접 등록한 키워드만 STT 실행 시 Whisper 초기 프롬프트에 자동 주입됩니다."
     ));
@@ -89,6 +90,8 @@ async fn get_app_js_serves_script_asset() {
     assert!(js.contains("queue-pause-button"));
     assert!(js.contains("queue-cancel-button"));
     assert!(js.contains("const QUEUE_COLLAPSE_THRESHOLD = 10;"));
+    assert!(js.contains("각 파일이 ffmpeg 큐에 등록되었습니다."));
+    assert!(js.contains("일괄처리로 미리 등록된 후속 단계"));
     assert!(js.contains("function onQueueBoardClick"));
     assert!(js.contains("function renderQueueBoard"));
     assert!(js.contains("function renderQueueControls"));

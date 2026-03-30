@@ -1,6 +1,6 @@
 use super::{
     FfmpegJobDisposition, FfmpegJobSubmission, RunSummary, WAIT_FOR_RUNNING_JOB_POLL_INTERVAL,
-    build_run_id, now_rfc3339, queue, stages, submit_stt_job,
+    artifacts, build_run_id, now_rfc3339, queue,
 };
 use crate::audio_store::{AudioStore, ImportedSource};
 use crate::error::{AppError, AppResult, dependency_unavailable_or_internal};
@@ -10,7 +10,7 @@ use crate::ffmpeg::{
 };
 use crate::index::{
     AudioArtifactRecord, IndexStore, JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus,
-    SourceKind,
+    QueuePayload, SourceKind, TaskType,
 };
 use std::fs;
 use std::path::Path;
@@ -179,12 +179,7 @@ pub fn execute_ffmpeg_job(
             record_audio_outputs(&index_store, job_id, &planned_outputs)?;
             job.mark_completed(now_rfc3339()?, build_job_outputs(&planned_outputs))?;
             index_store.update_job(job_id, |_| job.clone())?;
-            let _ = stages::submit_followup_task(
-                repo_root,
-                job_id,
-                crate::index::TaskType::Stt,
-                || submit_stt_job(repo_root, job_id, None, Vec::new()),
-            );
+            hydrate_queued_stt_entry(&index_store, job_id)?;
             Ok(job)
         }
         Err(error) => {
@@ -216,6 +211,58 @@ fn wait_for_ffmpeg_job_completion(repo_root: &Path, job_id: &str) -> Result<JobR
             }
         }
     }
+}
+
+fn hydrate_queued_stt_entry(index_store: &IndexStore, job_id: &str) -> Result<(), String> {
+    let normalized_audio_files = artifacts::supported_audio_files(&index_store.job_dir(job_id))?
+        .into_iter()
+        .map(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    if normalized_audio_files.is_empty() {
+        return Ok(());
+    }
+
+    index_store.with_index_mut(|index| {
+        let mut request_fingerprint = None;
+        let updated = queue::update_queued_entry(index, job_id, TaskType::Stt, |entry| {
+            let QueuePayload::Stt {
+                audio_files,
+                language,
+                keywords,
+            } = &mut entry.payload
+            else {
+                return;
+            };
+
+            if !audio_files.is_empty() {
+                return;
+            }
+
+            *audio_files = normalized_audio_files.clone();
+            request_fingerprint = QueuePayload::Stt {
+                audio_files: audio_files.clone(),
+                language: language.clone(),
+                keywords: keywords.clone(),
+            }
+            .request_fingerprint();
+        });
+        if !updated {
+            return Ok(());
+        }
+
+        let job = index
+            .jobs
+            .iter_mut()
+            .find(|job| job.job_id == job_id)
+            .ok_or_else(|| format!("job not found in index: {job_id}"))?;
+        job.set_task_request_fingerprint(TaskType::Stt, request_fingerprint);
+        Ok(())
+    })
 }
 
 fn build_job_outputs(outputs: &ConversionOutputs) -> JobOutputs {

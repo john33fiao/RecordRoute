@@ -94,6 +94,9 @@ fn run_stt_processes_audio_files_in_selected_job_dir() {
     assert!(whisper_log.contains("ko"));
     assert!(whisper_log.contains("channel_01.wav"));
     assert!(whisper_log.contains("mono_mix.wav"));
+
+    let persisted_job = store.find_job("job-1").expect("find job").expect("job");
+    assert!(persisted_job.task(TaskType::Summary).is_none());
 }
 
 #[test]

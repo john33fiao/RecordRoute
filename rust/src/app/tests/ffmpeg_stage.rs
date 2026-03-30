@@ -1,7 +1,8 @@
 use super::super::*;
 use super::support::*;
+use crate::app::ffmpeg_stage::execute_ffmpeg_job;
 use crate::ffmpeg::Toolchain as FfmpegToolchain;
-use crate::index::IndexStore;
+use crate::index::{IndexStore, QueuePayload, TaskType};
 use crate::test_support::test_job;
 use std::fs;
 #[test]
@@ -39,8 +40,82 @@ fn end_to_end_flow_uses_fake_toolchain() {
     assert_eq!(index.jobs[0].status, crate::index::JobStatus::Completed);
     assert_eq!(index.jobs[0].probe.channels, Some(2));
     assert_eq!(index.jobs[0].outputs.split_mono_wavs.len(), 2);
+    assert!(index.jobs[0].task(TaskType::Stt).is_none());
 }
 
+#[test]
+fn execute_ffmpeg_job_hydrates_prequeued_stt_entry_audio_files() {
+    let repo_root = temp_workspace();
+    let scripts_dir = repo_root.join("scripts");
+    let build_bin = repo_root
+        .join(".build/ffmpeg")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("install/bin");
+    let input = repo_root.join("fixture.wav");
+    let ffmpeg_log = repo_root.join("ffmpeg-batch.log");
+    fs::create_dir_all(&scripts_dir).expect("scripts dir");
+    fs::create_dir_all(&build_bin).expect("toolchain dir");
+    write_build_script(&build_script_path(&repo_root, "ffmpeg"));
+    write_fake_ffprobe(&fake_command_path(&build_bin, "ffprobe"), 2, Some("stereo"));
+    write_fake_ffmpeg(&fake_command_path(&build_bin, "ffmpeg"), &ffmpeg_log);
+    write_test_wav(&input, 2);
+
+    let submission = submit_ffmpeg_job(&repo_root, &input).expect("submit ffmpeg");
+    let batch = submit_batch_pipeline_jobs(&repo_root).expect("batch submit");
+    assert_eq!(batch.stt_queued, 1);
+
+    execute_ffmpeg_job(
+        &repo_root,
+        &submission.job.job_id,
+        std::path::Path::new(&submission.job.source_ref),
+    )
+    .expect("execute ffmpeg");
+
+    let store = IndexStore::new(&repo_root);
+    let queued = store
+        .with_index_read(|index| {
+            Ok(super::super::queue::find_task_entry(
+                index,
+                &submission.job.job_id,
+                TaskType::Stt,
+            ))
+        })
+        .expect("read queue")
+        .expect("queued stt entry");
+    match queued.payload {
+        QueuePayload::Stt { audio_files, .. } => {
+            assert_eq!(
+                audio_files,
+                vec![
+                    "channel_01.wav".to_string(),
+                    "channel_02.wav".to_string(),
+                    "mono_mix.wav".to_string(),
+                ]
+            );
+        }
+        other => panic!("expected stt payload, got {other:?}"),
+    }
+
+    let job = store
+        .find_job(&submission.job.job_id)
+        .expect("find job")
+        .expect("job");
+    assert_eq!(
+        job.task(TaskType::Stt)
+            .and_then(|task| task.request_fingerprint.as_ref()),
+        QueuePayload::Stt {
+            audio_files: vec![
+                "channel_01.wav".to_string(),
+                "channel_02.wav".to_string(),
+                "mono_mix.wav".to_string(),
+            ],
+            language: "ko".to_string(),
+            keywords: Vec::new(),
+        }
+        .request_fingerprint()
+        .as_ref()
+    );
+}
 #[test]
 fn failure_marks_job_failed_and_cleans_partial_outputs() {
     let repo_root = temp_workspace();

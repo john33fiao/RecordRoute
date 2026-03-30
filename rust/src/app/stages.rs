@@ -1,4 +1,4 @@
-use super::{QueueTicket, StageJobDisposition, StageJobSubmission, now_rfc3339, queue};
+use super::{QueueTicket, StageJobDisposition, StageJobSubmission, queue};
 use crate::index::{IndexStore, JobRecord, QueueEntry, TaskStatus, TaskType};
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -151,42 +151,6 @@ pub(crate) fn wait_for_task_completion(
                     format!("{} task failed for job {job_id}", task_type.as_str())
                 }));
             }
-        }
-    }
-}
-
-pub(crate) fn record_followup_submission_failure(
-    repo_root: &Path,
-    job_id: &str,
-    task_type: TaskType,
-    error: String,
-) -> Result<(), String> {
-    let finished_at = now_rfc3339()?;
-    IndexStore::new(repo_root).update_job(job_id, |job| {
-        let mut updated = job.clone();
-        if updated.task(task_type).is_none() {
-            updated.enqueue_task(task_type, finished_at.clone());
-        }
-        let _ = updated.fail_task(task_type, finished_at.clone(), error.clone());
-        updated
-    })
-}
-
-pub(crate) fn submit_followup_task<T, E>(
-    repo_root: &Path,
-    job_id: &str,
-    task_type: TaskType,
-    submit: impl FnOnce() -> Result<T, E>,
-) -> Option<T>
-where
-    E: ToString,
-{
-    match submit() {
-        Ok(value) => Some(value),
-        Err(error) => {
-            let _ =
-                record_followup_submission_failure(repo_root, job_id, task_type, error.to_string());
-            None
         }
     }
 }
