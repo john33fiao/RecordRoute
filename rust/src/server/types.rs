@@ -1,6 +1,6 @@
 use crate::app;
 use crate::index::{
-    DictionaryKeywords, JobOutputs, JobProbe, JobRecord, JobStatus, ModelKind,
+    DictionaryKeywords, JobOutputs, JobProbe, JobRecord, JobResetSelection, JobStatus, ModelKind,
     ModelPreparationRecord, QueueCategory, SourceKind, TaskRecord, TaskType,
 };
 use serde::{Deserialize, Serialize};
@@ -38,6 +38,20 @@ pub(crate) struct JobsQuery {
 pub(crate) struct SummaryRequest {
     #[serde(default)]
     pub force_regenerate: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct JobResetRequest {
+    #[serde(default)]
+    pub all: bool,
+    #[serde(default)]
+    pub ffmpeg: bool,
+    #[serde(default)]
+    pub stt: bool,
+    #[serde(default)]
+    pub summary: bool,
+    #[serde(default)]
+    pub embedding: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -96,6 +110,14 @@ pub(crate) struct JobStatusResponse {
     pub job_status: JobStatus,
     pub tasks: Vec<TaskRecord>,
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct JobResetResponse {
+    pub job_id: String,
+    pub message: String,
+    pub deleted: JobResetSelection,
+    pub job: JobRecord,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -250,6 +272,18 @@ impl From<DictionaryKeywords> for DictionaryKeywordListResponse {
     }
 }
 
+impl From<JobResetRequest> for JobResetSelection {
+    fn from(value: JobResetRequest) -> Self {
+        Self {
+            all: value.all,
+            ffmpeg: value.ffmpeg,
+            stt: value.stt,
+            summary: value.summary,
+            embedding: value.embedding,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct JobSubmissionResponse {
     pub job_id: String,
@@ -336,6 +370,15 @@ pub(crate) fn build_job_submission_response(
         error_message: super::errors::sanitize_optional_dependency_message(
             job.error_message.clone(),
         ),
+    }
+}
+
+pub(crate) fn build_job_reset_response(result: app::JobResetResult) -> JobResetResponse {
+    JobResetResponse {
+        job_id: result.job.job_id.clone(),
+        message: "job stages reset".to_string(),
+        deleted: result.deleted,
+        job: super::errors::sanitize_job(result.job),
     }
 }
 

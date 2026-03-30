@@ -4,7 +4,7 @@ use super::backend::{
     to_json,
 };
 use super::types::{
-    AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile,
+    AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile, JobResetSelection,
     SummaryEmbeddingVectorRecord, SummaryRecord, TaskRecord, TranscriptRecord,
 };
 use postgres::{Client, NoTls};
@@ -447,6 +447,22 @@ impl MetadataBackend for PostgresMetadataStore {
         tx.commit()
             .map_err(|error| format!("failed to commit postgres embedding transaction: {error}"))
     }
+
+    fn write_index_with_job_reset(
+        &self,
+        index: &IndexFile,
+        job_id: &str,
+        selection: JobResetSelection,
+    ) -> Result<(), String> {
+        let mut client = self.connect()?;
+        let mut tx = client
+            .transaction()
+            .map_err(|error| format!("failed to start postgres transaction: {error}"))?;
+        write_index_transaction(&mut tx, index)?;
+        delete_job_reset_transaction(&mut tx, job_id, selection)?;
+        tx.commit()
+            .map_err(|error| format!("failed to commit postgres job reset transaction: {error}"))
+    }
 }
 
 fn write_index_transaction(
@@ -578,6 +594,41 @@ fn upsert_summary_transaction(
             record.job_id
         )
     })?;
+    Ok(())
+}
+
+fn delete_job_reset_transaction(
+    tx: &mut postgres::Transaction<'_>,
+    job_id: &str,
+    selection: JobResetSelection,
+) -> Result<(), String> {
+    if selection.ffmpeg {
+        tx.execute("DELETE FROM audio_artifacts WHERE job_id = $1", &[&job_id])
+            .map_err(|error| {
+                format!("failed to delete postgres audio artifacts for job {job_id}: {error}")
+            })?;
+    }
+    if selection.stt {
+        tx.execute("DELETE FROM transcripts WHERE job_id = $1", &[&job_id])
+            .map_err(|error| {
+                format!("failed to delete postgres transcripts for job {job_id}: {error}")
+            })?;
+    }
+    if selection.summary {
+        tx.execute("DELETE FROM summaries WHERE job_id = $1", &[&job_id])
+            .map_err(|error| {
+                format!("failed to delete postgres summary for job {job_id}: {error}")
+            })?;
+    }
+    if selection.embedding {
+        tx.execute(
+            "DELETE FROM summary_embeddings WHERE job_id = $1",
+            &[&job_id],
+        )
+        .map_err(|error| {
+            format!("failed to delete postgres embedding for job {job_id}: {error}")
+        })?;
+    }
     Ok(())
 }
 

@@ -87,7 +87,10 @@
               <p class="panel-kicker">Jobs</p>
               <h2>작업 목록</h2>
             </div>
-            <button class="ghost-button" id="jobs-refresh-button" type="button">목록 새로고침</button>
+            <div class="panel-actions">
+              <button class="warning-button" id="jobs-delete-button" type="button">작업 삭제</button>
+              <button class="ghost-button" id="jobs-refresh-button" type="button">목록 새로고침</button>
+            </div>
           </div>
           <div class="notice" id="jobs-message" aria-live="polite"></div>
           <ul class="jobs-list" id="jobs-list"></ul>
@@ -236,6 +239,52 @@
           <div class="dictionary-list" id="dictionary-list"></div>
         </section>
       </main>
+    </div>
+
+    <div class="modal-shell" id="job-reset-modal" hidden>
+      <div class="modal-backdrop" data-job-reset-close></div>
+      <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="job-reset-title">
+        <div class="modal-head">
+          <div>
+            <p class="panel-kicker">Reset Job</p>
+            <h2 id="job-reset-title">작업 삭제</h2>
+          </div>
+          <button class="ghost-button modal-close" id="job-reset-close-button" type="button" data-job-reset-close>닫기</button>
+        </div>
+        <p class="modal-copy" id="job-reset-copy">
+          삭제 후에도 source와 job 자체는 유지됩니다. 체크한 단계만 지워 재작업 가능한 상태로 되돌립니다.
+        </p>
+        <div class="notice" id="job-reset-message" aria-live="polite"></div>
+        <form class="stack" id="job-reset-form">
+          <label class="choice">
+            <input type="checkbox" id="job-reset-all-checkbox" data-job-reset-checkbox="all" />
+            <span>전체</span>
+          </label>
+          <div class="checkbox-grid checkbox-grid-compact">
+            <label>
+              <input type="checkbox" id="job-reset-ffmpeg-checkbox" data-job-reset-checkbox="ffmpeg" />
+              <span>오디오 분리</span>
+            </label>
+            <label>
+              <input type="checkbox" id="job-reset-stt-checkbox" data-job-reset-checkbox="stt" />
+              <span>전사</span>
+            </label>
+            <label>
+              <input type="checkbox" id="job-reset-summary-checkbox" data-job-reset-checkbox="summary" />
+              <span>요약</span>
+            </label>
+            <label>
+              <input type="checkbox" id="job-reset-embedding-checkbox" data-job-reset-checkbox="embedding" />
+              <span>임베딩</span>
+            </label>
+          </div>
+          <p class="modal-hint" id="job-reset-hint"></p>
+          <div class="button-row">
+            <button class="warning-button" id="job-reset-confirm-button" type="submit">확인</button>
+            <button class="ghost-button" id="job-reset-cancel-button" type="button" data-job-reset-close>취소</button>
+          </div>
+        </form>
+      </section>
     </div>
 
     <script src="/app.js" defer></script>

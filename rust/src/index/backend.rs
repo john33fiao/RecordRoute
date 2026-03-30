@@ -1,6 +1,7 @@
 use super::types::{
     AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile, JobRecord,
-    SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord, SummaryRecord, TranscriptRecord,
+    JobResetSelection, SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord, SummaryRecord,
+    TranscriptRecord,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -54,6 +55,12 @@ pub(crate) trait MetadataBackend {
         index: &IndexFile,
         job_id: &str,
         record: &SummaryEmbeddingVectorRecord,
+    ) -> Result<(), String>;
+    fn write_index_with_job_reset(
+        &self,
+        index: &IndexFile,
+        job_id: &str,
+        selection: JobResetSelection,
     ) -> Result<(), String>;
 }
 

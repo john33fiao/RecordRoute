@@ -35,6 +35,10 @@ body {
   line-height: 1.5;
 }
 
+body.is-modal-open {
+  overflow: hidden;
+}
+
 button,
 input {
   font: inherit;
@@ -231,6 +235,58 @@ pre {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.modal-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(16, 28, 34, 0.42);
+  backdrop-filter: blur(3px);
+}
+
+.modal-dialog {
+  position: relative;
+  width: min(520px, calc(100vw - 32px));
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--surface-strong);
+  box-shadow: 0 28px 64px rgba(16, 28, 34, 0.24);
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.modal-head h2 {
+  margin: 0;
+}
+
+.modal-close {
+  padding-inline: 12px;
+}
+
+.modal-copy,
+.modal-hint {
+  margin: 14px 0 0;
+  color: var(--muted);
+}
+
+.modal-hint {
+  min-height: 24px;
+  font-size: 0.92rem;
 }
 
 .compact-select {
@@ -540,6 +596,10 @@ pre {
   display: grid;
   gap: 8px;
   padding-left: 28px;
+}
+
+.checkbox-grid-compact {
+  padding-left: 34px;
 }
 
 .checkbox-grid label {

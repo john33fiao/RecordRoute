@@ -648,6 +648,48 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /jobs/{job_id}/reset:
+    post:
+      tags: [jobs]
+      summary: Reset selected pipeline artifacts for a job
+      description: |
+        기존 job/source는 유지한 채 선택한 단계의 산출물만 삭제합니다.
+        서버는 전역 queue가 비어 있고 어떤 job에도 queued/running task가 없을 때만 reset을 허용합니다.
+      operationId: postJobReset
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobResetRequest'
+      responses:
+        '200':
+          description: Selected stages were reset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResetResponse'
+        '400':
+          description: No stages selected or queue is not idle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /jobs/{job_id}/stt:
     post:
       tags: [stt]
@@ -1089,6 +1131,31 @@ components:
           type: string
           description: Audio file path on server-local filesystem
 
+    JobResetSelection:
+      type: object
+      properties:
+        all:
+          type: boolean
+          default: false
+        ffmpeg:
+          type: boolean
+          default: false
+        stt:
+          type: boolean
+          default: false
+        summary:
+          type: boolean
+          default: false
+        embedding:
+          type: boolean
+          default: false
+
+    JobResetRequest:
+      allOf:
+        - $ref: '#/components/schemas/JobResetSelection'
+      description: |
+        `all=true`이면 ffmpeg/stt/summary/embedding을 모두 reset 대상으로 정규화합니다.
+
     BatchProcessTarget:
       type: string
       enum: [all, ffmpeg, stt, summary, embedding]
@@ -1203,6 +1270,19 @@ components:
           oneOf:
             - type: string
             - type: 'null'
+
+    JobResetResponse:
+      type: object
+      required: [job_id, message, deleted, job]
+      properties:
+        job_id:
+          type: string
+        message:
+          type: string
+        deleted:
+          $ref: '#/components/schemas/JobResetSelection'
+        job:
+          $ref: '#/components/schemas/JobRecord'
 
     SystemStatusResponse:
       type: object

@@ -1,8 +1,8 @@
 use super::super::router_with_repo_root;
 use super::super::router_with_repo_root_and_upload_limits;
 use super::super::types::{
-    BatchQueueSubmissionResponse, ErrorResponse, JobListResponse, JobStatusResponse,
-    JobSubmissionResponse,
+    BatchQueueSubmissionResponse, ErrorResponse, JobListResponse, JobResetResponse,
+    JobStatusResponse, JobSubmissionResponse,
 };
 use super::support::*;
 use crate::index::{IndexStore, JobRecord, JobStatus, TaskType};
@@ -126,6 +126,143 @@ async fn post_jobs_batch_process_rejects_invalid_target() {
     let body: ErrorResponse = read_json(response).await;
     assert_eq!(body.message, "invalid request body");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_job_reset_returns_400_when_no_stage_selected() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let mut job = test_job(
+        "job-reset-empty",
+        "2026-01-01T00:00:00Z",
+        "sources/job-reset-empty/source.wav",
+        "hash-job-reset-empty",
+        "job-reset-empty.wav",
+    );
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(post_json_request(
+            "/jobs/job-reset-empty/reset",
+            &serde_json::json!({}),
+        ))
+        .await
+        .expect("reset response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: ErrorResponse = read_json(response).await;
+    assert_eq!(
+        body.message,
+        "at least one stage must be selected for reset"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_job_reset_returns_400_when_any_job_is_queued_or_running() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let mut completed_job = test_job(
+        "job-reset-target",
+        "2026-01-01T00:00:00Z",
+        "sources/job-reset-target/source.wav",
+        "hash-job-reset-target",
+        "job-reset-target.wav",
+    );
+    mark_job_completed_with_audio(
+        &store,
+        &mut completed_job,
+        "2026-01-01T00:00:01Z",
+        &["mono_mix.wav"],
+    )
+    .expect("mark completed");
+    store
+        .insert_job(completed_job)
+        .expect("insert completed job");
+
+    let inflight_job = test_job(
+        "job-reset-inflight",
+        "2026-01-01T00:00:00Z",
+        "sources/job-reset-inflight/source.wav",
+        "hash-job-reset-inflight",
+        "job-reset-inflight.wav",
+    );
+    store.insert_job(inflight_job).expect("insert inflight job");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(post_json_request(
+            "/jobs/job-reset-target/reset",
+            &serde_json::json!({ "ffmpeg": true }),
+        ))
+        .await
+        .expect("reset response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: ErrorResponse = read_json(response).await;
+    assert_eq!(
+        body.message,
+        "job reset requires an empty queue and no queued/running tasks"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_job_reset_returns_404_for_missing_job() {
+    let repo_root = temp_workspace();
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(post_json_request(
+            "/jobs/missing/reset",
+            &serde_json::json!({ "summary": true }),
+        ))
+        .await
+        .expect("reset response");
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body: ErrorResponse = read_json(response).await;
+    assert!(body.message.contains("job not found: missing"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_job_reset_returns_updated_job_and_deleted_flags() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let mut job = test_job(
+        "job-reset-success",
+        "2026-01-01T00:00:00Z",
+        "sources/job-reset-success/source.wav",
+        "hash-job-reset-success",
+        "job-reset-success.wav",
+    );
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+
+    let app = router_with_repo_root(repo_root.clone());
+    let response = app
+        .oneshot(post_json_request(
+            "/jobs/job-reset-success/reset",
+            &serde_json::json!({ "ffmpeg": true }),
+        ))
+        .await
+        .expect("reset response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: JobResetResponse = read_json(response).await;
+    assert_eq!(body.job_id, "job-reset-success");
+    assert_eq!(body.message, "job stages reset");
+    assert!(body.deleted.ffmpeg);
+    assert!(!body.deleted.summary);
+    assert_eq!(body.job.status, JobStatus::Failed);
+    assert!(
+        IndexStore::new(&repo_root)
+            .list_audio_artifacts("job-reset-success")
+            .expect("list artifacts")
+            .is_empty()
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn post_jobs_returns_accepted_then_job_transitions_to_completed() {
     let _guard = env_lock()

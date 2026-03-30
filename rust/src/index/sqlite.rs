@@ -4,8 +4,8 @@ use super::backend::{
     to_json,
 };
 use super::types::{
-    AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile, ModelKind,
-    SummaryEmbeddingVectorRecord, SummaryRecord, TaskRecord, TranscriptRecord,
+    AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile, JobResetSelection,
+    ModelKind, SummaryEmbeddingVectorRecord, SummaryRecord, TaskRecord, TranscriptRecord,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use std::fs;
@@ -504,6 +504,22 @@ impl MetadataBackend for SqliteMetadataStore {
         tx.commit()
             .map_err(|error| format!("failed to commit sqlite embedding transaction: {error}"))
     }
+
+    fn write_index_with_job_reset(
+        &self,
+        index: &IndexFile,
+        job_id: &str,
+        selection: JobResetSelection,
+    ) -> Result<(), String> {
+        let mut connection = self.open()?;
+        let tx = connection
+            .transaction()
+            .map_err(|error| format!("failed to start sqlite transaction: {error}"))?;
+        write_index_transaction(&tx, index)?;
+        delete_job_reset_transaction(&tx, job_id, selection)?;
+        tx.commit()
+            .map_err(|error| format!("failed to commit sqlite job reset transaction: {error}"))
+    }
 }
 
 fn write_index_transaction(
@@ -652,6 +668,42 @@ fn upsert_auto_keywords_transaction(
         .map_err(|error| {
             format!("failed to upsert sqlite auto dictionary keyword {keyword}: {error}")
         })?;
+    }
+    Ok(())
+}
+
+fn delete_job_reset_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    job_id: &str,
+    selection: JobResetSelection,
+) -> Result<(), String> {
+    if selection.ffmpeg {
+        tx.execute(
+            "DELETE FROM audio_artifacts WHERE job_id = ?",
+            params![job_id],
+        )
+        .map_err(|error| {
+            format!("failed to delete sqlite audio artifacts for job {job_id}: {error}")
+        })?;
+    }
+    if selection.stt {
+        tx.execute("DELETE FROM transcripts WHERE job_id = ?", params![job_id])
+            .map_err(|error| {
+                format!("failed to delete sqlite transcripts for job {job_id}: {error}")
+            })?;
+    }
+    if selection.summary {
+        tx.execute("DELETE FROM summaries WHERE job_id = ?", params![job_id])
+            .map_err(|error| {
+                format!("failed to delete sqlite summary for job {job_id}: {error}")
+            })?;
+    }
+    if selection.embedding {
+        tx.execute(
+            "DELETE FROM summary_embeddings WHERE job_id = ?",
+            params![job_id],
+        )
+        .map_err(|error| format!("failed to delete sqlite embedding for job {job_id}: {error}"))?;
     }
     Ok(())
 }

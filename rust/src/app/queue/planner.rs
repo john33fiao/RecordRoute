@@ -4,6 +4,7 @@ use super::{
     embedding_stage, enqueue_entry, find_ticket, now_rfc3339, summary_stage,
 };
 use crate::app::BatchProcessTarget;
+use crate::app::RESET_BY_USER_MESSAGE;
 use crate::app::dictionary;
 use crate::index::{JobStatus, TaskStatus};
 use crate::whisper::transcription_language_from_env;
@@ -83,7 +84,7 @@ pub fn submit_batch_pipeline_jobs(
                         summary.summary_queued = summary.summary_queued.saturating_add(1);
                     }
 
-                    if should_enqueue_batch_embedding(&store, repo_root, index, &job)? {
+                    if should_enqueue_batch_embedding(&store, repo_root, index, &job, false)? {
                         let entry = build_embedding_entry(&job.job_id, queued_at.clone());
                         index.jobs[job_index].enqueue_task(TaskType::Embedding, queued_at.clone());
                         enqueue_entry(index, entry);
@@ -140,9 +141,7 @@ pub fn submit_batch_pipeline_jobs(
                     }
                 }
                 BatchProcessTarget::Embedding => {
-                    if store.get_summary(&job.job_id)?.is_some()
-                        && should_enqueue_batch_embedding(&store, repo_root, index, &job)?
-                    {
+                    if should_enqueue_batch_embedding(&store, repo_root, index, &job, true)? {
                         let entry = build_embedding_entry(&job.job_id, queued_at.clone());
                         index.jobs[job_index].enqueue_task(TaskType::Embedding, queued_at.clone());
                         enqueue_entry(index, entry);
@@ -178,6 +177,10 @@ fn should_enqueue_batch_stt(
     keywords: &[String],
 ) -> Result<bool, String> {
     if audio_files.is_empty() && job.status == JobStatus::Completed {
+        return Ok(false);
+    }
+
+    if audio_files.is_empty() && store.count_transcripts(&job.job_id)? > 0 {
         return Ok(false);
     }
 
@@ -228,9 +231,24 @@ fn should_enqueue_batch_embedding(
     repo_root: &Path,
     index: &IndexFile,
     job: &JobRecord,
+    require_summary_ready: bool,
 ) -> Result<bool, String> {
-    if store.get_summary(&job.job_id)?.is_some()
-        && !embedding_stage::is_embedding_stale(repo_root, job)?
+    let summary_exists = store.get_summary(&job.job_id)?.is_some();
+    if require_summary_ready && !summary_exists {
+        return Ok(false);
+    }
+
+    let embedding_present =
+        job.summary_embedding.is_some() && store.get_summary_embedding(&job.job_id)?.is_some();
+    let reset_requested = job
+        .task(TaskType::Embedding)
+        .and_then(|task| task.last_error.as_deref())
+        == Some(RESET_BY_USER_MESSAGE);
+    if summary_exists && embedding_present && !reset_requested {
+        return Ok(false);
+    }
+
+    if summary_exists && embedding_present && !embedding_stage::is_embedding_stale(repo_root, job)?
     {
         return Ok(false);
     }

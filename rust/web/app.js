@@ -53,6 +53,10 @@ const state = {
   queueStatus: null,
   queueLoaded: false,
   queueExpanded: emptyQueueExpandedState(),
+  jobResetModal: {
+    open: false,
+    selection: emptyJobResetSelection(),
+  },
   dictionaryKeywords: emptyDictionaryKeywords(),
   dictionaryLoaded: false,
   pendingDictionaryRefreshJobId: null,
@@ -64,6 +68,7 @@ const state = {
     batchProcess: false,
     queuePause: false,
     queueCancel: false,
+    jobReset: false,
     stt: false,
     summary: false,
     embedding: false,
@@ -78,6 +83,79 @@ const elements = {};
 
 function emptyQueueExpandedState() {
   return Object.fromEntries(QUEUE_COLUMNS.map((column) => [column.key, false]));
+}
+
+function emptyJobResetSelection() {
+  return {
+    all: false,
+    ffmpeg: false,
+    stt: false,
+    summary: false,
+    embedding: false,
+  };
+}
+
+function normalizeJobResetSelection(selection) {
+  const normalized = {
+    ...emptyJobResetSelection(),
+    ...(selection || {}),
+  };
+  normalized.ffmpeg = Boolean(normalized.ffmpeg);
+  normalized.stt = Boolean(normalized.stt);
+  normalized.summary = Boolean(normalized.summary);
+  normalized.embedding = Boolean(normalized.embedding);
+  normalized.all =
+    Boolean(normalized.all) ||
+    (normalized.ffmpeg && normalized.stt && normalized.summary && normalized.embedding);
+
+  if (normalized.all) {
+    return {
+      all: true,
+      ffmpeg: true,
+      stt: true,
+      summary: true,
+      embedding: true,
+    };
+  }
+
+  return normalized;
+}
+
+function jobResetSelectionHasAny(selection) {
+  const normalized = normalizeJobResetSelection(selection);
+  return normalized.ffmpeg || normalized.stt || normalized.summary || normalized.embedding;
+}
+
+function hasQueuedOrRunningTasks() {
+  const jobs = [...state.jobs];
+  if (
+    state.selectedJob &&
+    !jobs.some((job) => job.job_id === state.selectedJob.job_id)
+  ) {
+    jobs.push(state.selectedJob);
+  }
+
+  return jobs.some((job) =>
+    Array.isArray(job?.tasks) &&
+    job.tasks.some((task) => task.status === "queued" || task.status === "running")
+  );
+}
+
+function queueIsIdleForReset() {
+  if (!state.queueLoaded) {
+    return false;
+  }
+
+  const hasActiveBatch = Boolean(state.queueStatus?.active_batch);
+  const hasPendingBatch = Array.isArray(state.queueStatus?.pending_batches)
+    ? state.queueStatus.pending_batches.length > 0
+    : false;
+
+  return !hasActiveBatch && !hasPendingBatch && !hasQueuedOrRunningTasks();
+}
+
+function canResetSelectedJob() {
+  return Boolean(state.selectedJobId) && queueIsIdleForReset() && !state.loading.jobReset;
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -112,6 +190,7 @@ function captureElements() {
   elements.searchResults = document.getElementById("search-results");
 
   elements.systemRefreshButton = document.getElementById("system-refresh-button");
+  elements.jobsDeleteButton = document.getElementById("jobs-delete-button");
   elements.jobsRefreshButton = document.getElementById("jobs-refresh-button");
   elements.selectedJobRefreshButton = document.getElementById("selected-job-refresh-button");
   elements.uploadForm = document.getElementById("upload-form");
@@ -135,12 +214,26 @@ function captureElements() {
   elements.searchLimitInput = document.getElementById("search-limit-input");
   elements.searchMinScoreInput = document.getElementById("search-min-score-input");
   elements.searchSubmitButton = document.getElementById("search-submit-button");
+  elements.jobResetModal = document.getElementById("job-reset-modal");
+  elements.jobResetTitle = document.getElementById("job-reset-title");
+  elements.jobResetCopy = document.getElementById("job-reset-copy");
+  elements.jobResetHint = document.getElementById("job-reset-hint");
+  elements.jobResetForm = document.getElementById("job-reset-form");
+  elements.jobResetConfirmButton = document.getElementById("job-reset-confirm-button");
+  elements.jobResetCloseButton = document.getElementById("job-reset-close-button");
+  elements.jobResetCancelButton = document.getElementById("job-reset-cancel-button");
+  elements.jobResetAllCheckbox = document.getElementById("job-reset-all-checkbox");
+  elements.jobResetFfmpegCheckbox = document.getElementById("job-reset-ffmpeg-checkbox");
+  elements.jobResetSttCheckbox = document.getElementById("job-reset-stt-checkbox");
+  elements.jobResetSummaryCheckbox = document.getElementById("job-reset-summary-checkbox");
+  elements.jobResetEmbeddingCheckbox = document.getElementById("job-reset-embedding-checkbox");
 }
 
 function bindEvents() {
   elements.systemRefreshButton.addEventListener("click", () => {
     refreshSystemAndModels({ showMessage: true });
   });
+  elements.jobsDeleteButton.addEventListener("click", openJobResetModal);
   elements.jobsRefreshButton.addEventListener("click", () => {
     Promise.all([refreshJobs({ showMessage: true }), refreshQueue()]).catch((error) => {
       console.error(error);
@@ -178,10 +271,109 @@ function bindEvents() {
   elements.dictionaryList.addEventListener("click", onDictionaryListClick);
   elements.searchForm.addEventListener("submit", onSearchSubmit);
   elements.transcriptsView.addEventListener("click", onTranscriptToggleClick);
+  elements.jobResetForm.addEventListener("submit", onJobResetSubmit);
+  elements.jobResetModal.querySelectorAll("[data-job-reset-close]").forEach((button) => {
+    button.addEventListener("click", closeJobResetModal);
+  });
+  [
+    elements.jobResetAllCheckbox,
+    elements.jobResetFfmpegCheckbox,
+    elements.jobResetSttCheckbox,
+    elements.jobResetSummaryCheckbox,
+    elements.jobResetEmbeddingCheckbox,
+  ].forEach((checkbox) => {
+    checkbox.addEventListener("change", onJobResetCheckboxChange);
+  });
+  document.addEventListener("keydown", onDocumentKeydown);
 }
 
 async function bootstrap() {
   await Promise.all([refreshSystemAndModels(), refreshJobs(), refreshQueue(), refreshDictionary()]);
+}
+
+function openJobResetModal() {
+  if (!canResetSelectedJob()) {
+    return;
+  }
+  state.jobResetModal.open = true;
+  state.jobResetModal.selection = emptyJobResetSelection();
+  setMessage("job-reset", "", "info");
+  renderJobResetModal();
+}
+
+function closeJobResetModal() {
+  state.jobResetModal.open = false;
+  state.jobResetModal.selection = emptyJobResetSelection();
+  setMessage("job-reset", "", "info");
+  renderJobResetModal();
+}
+
+function onJobResetCheckboxChange(event) {
+  const checkbox = event.target;
+  const key = checkbox?.dataset?.jobResetCheckbox;
+  if (!key) {
+    return;
+  }
+
+  if (key === "all") {
+    const checked = Boolean(checkbox.checked);
+    state.jobResetModal.selection = {
+      all: checked,
+      ffmpeg: checked,
+      stt: checked,
+      summary: checked,
+      embedding: checked,
+    };
+    renderJobResetModal();
+    return;
+  }
+
+  state.jobResetModal.selection = {
+    ...state.jobResetModal.selection,
+    [key]: Boolean(checkbox.checked),
+  };
+  const { ffmpeg, stt, summary, embedding } = state.jobResetModal.selection;
+  state.jobResetModal.selection.all = ffmpeg && stt && summary && embedding;
+  renderJobResetModal();
+}
+
+async function onJobResetSubmit(event) {
+  event.preventDefault();
+  if (!state.selectedJobId) {
+    setMessage("job-reset", "선택된 Job이 없습니다.", "error");
+    return;
+  }
+
+  const payload = normalizeJobResetSelection(state.jobResetModal.selection);
+  if (!jobResetSelectionHasAny(payload)) {
+    setMessage("job-reset", "삭제할 단계를 최소 1개 선택해 주세요.", "error");
+    renderJobResetModal();
+    return;
+  }
+
+  setLoading("jobReset", true);
+  try {
+    const { data } = await fetchJson(`/jobs/${encodeURIComponent(state.selectedJobId)}/reset`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    closeJobResetModal();
+    setMessage("jobs", data?.message || "선택한 작업 내역을 삭제했습니다.", "success");
+    await Promise.all([refreshJobs(), refreshQueue()]);
+    await refreshSelectedJob(state.selectedJobId, { showMessage: true });
+  } catch (error) {
+    setMessage("job-reset", error.message, "error");
+    renderJobResetModal();
+  } finally {
+    setLoading("jobReset", false);
+  }
+}
+
+function onDocumentKeydown(event) {
+  if (event.key === "Escape" && state.jobResetModal.open) {
+    closeJobResetModal();
+  }
 }
 
 async function onUploadSubmit(event) {
@@ -792,6 +984,8 @@ async function refreshJobs({ showMessage = false } = {}) {
     }
   } catch (error) {
     setMessage("jobs", error.message, "error");
+  } finally {
+    updateActionStates();
   }
 }
 
@@ -827,6 +1021,8 @@ async function refreshQueue({ showMessage = false } = {}) {
   } catch (error) {
     renderQueueBoard();
     setMessage("queue", error.message, "error");
+  } finally {
+    updateActionStates();
   }
 }
 
@@ -955,6 +1151,7 @@ function renderAll() {
   renderUploadQueue();
   renderSystem();
   renderJobs();
+  renderJobResetModal();
   renderSelectedJob();
   renderQueueBoard();
   renderDictionary();
@@ -1086,6 +1283,45 @@ function renderJobs() {
       refreshSelectedJob(button.dataset.jobId, { showMessage: true });
     });
   });
+}
+
+function renderJobResetModal() {
+  const isOpen = state.jobResetModal.open;
+  const selection = normalizeJobResetSelection(state.jobResetModal.selection);
+  const selectedJob = state.jobs.find((job) => job.job_id === state.selectedJobId) || state.selectedJob;
+
+  elements.jobResetModal.hidden = !isOpen;
+  document.body.classList.toggle("is-modal-open", isOpen);
+
+  if (selectedJob) {
+    elements.jobResetTitle.textContent = `작업 삭제 · ${selectedJob.source_file_name || selectedJob.job_id}`;
+    elements.jobResetCopy.textContent =
+      "삭제 후에도 source와 job 자체는 유지됩니다. 체크한 단계만 지워 재작업 가능한 상태로 되돌립니다.";
+  } else {
+    elements.jobResetTitle.textContent = "작업 삭제";
+    elements.jobResetCopy.textContent =
+      "삭제 후에도 source와 job 자체는 유지됩니다. 체크한 단계만 지워 재작업 가능한 상태로 되돌립니다.";
+  }
+
+  elements.jobResetAllCheckbox.checked = selection.all;
+  elements.jobResetFfmpegCheckbox.checked = selection.ffmpeg;
+  elements.jobResetSttCheckbox.checked = selection.stt;
+  elements.jobResetSummaryCheckbox.checked = selection.summary;
+  elements.jobResetEmbeddingCheckbox.checked = selection.embedding;
+
+  const resetAllowed = canResetSelectedJob();
+  if (!state.queueLoaded) {
+    elements.jobResetHint.textContent = "큐 상태를 불러온 뒤에 작업 삭제를 사용할 수 있습니다.";
+  } else if (!queueIsIdleForReset()) {
+    elements.jobResetHint.textContent =
+      "진행 중이거나 대기 중인 작업이 있으면 작업 삭제를 사용할 수 없습니다.";
+  } else {
+    elements.jobResetHint.textContent =
+      "삭제 가능 상태입니다. 하나 이상 체크하면 확인 버튼이 활성화됩니다.";
+  }
+  elements.jobResetHint.dataset.tone = resetAllowed ? "success" : "info";
+  elements.jobResetConfirmButton.disabled =
+    !resetAllowed || !jobResetSelectionHasAny(selection) || state.loading.jobReset;
 }
 
 function renderSelectedJob() {
@@ -1557,6 +1793,7 @@ function updateActionStates() {
   elements.queueCancelButton.disabled = state.loading.queueCancel || !state.queueLoaded;
   elements.systemRefreshButton.disabled = false;
   elements.jobsRefreshButton.disabled = false;
+  elements.jobsDeleteButton.disabled = !canResetSelectedJob();
   elements.selectedJobRefreshButton.disabled = !hasJob;
   elements.queuePauseButton.disabled = state.loading.queuePause || !state.queueLoaded;
   elements.queueRefreshButton.disabled = false;
@@ -1566,6 +1803,10 @@ function updateActionStates() {
   elements.summarySubmitButton.disabled = !hasJob || state.loading.summary || runningTask;
   elements.embeddingSubmitButton.disabled = !hasJob || state.loading.embedding || runningTask;
   elements.searchSubmitButton.disabled = state.loading.search;
+
+  if (state.jobResetModal.open) {
+    renderJobResetModal();
+  }
 }
 
 function syncModelPoller() {

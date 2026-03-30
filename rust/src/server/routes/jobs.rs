@@ -1,7 +1,8 @@
 use super::app_api;
 use super::types::{
-    AppState, BatchProcessRequest, CreateJobRequest, JobListResponse, JobStatusResponse,
-    build_batch_queue_submission_response, build_job_submission_response,
+    AppState, BatchProcessRequest, CreateJobRequest, JobListResponse, JobResetRequest,
+    JobStatusResponse, build_batch_queue_submission_response, build_job_reset_response,
+    build_job_submission_response,
 };
 use super::{error_response, run_blocking, run_blocking_app};
 use crate::app::FfmpegJobSubmission;
@@ -198,6 +199,32 @@ pub(crate) async fn get_job(
             "job not found: {job_id}"
         ))),
         Err(error) => error_response(crate::error::AppError::internal(error)),
+    }
+}
+
+pub(crate) async fn post_job_reset(
+    State(state): State<AppState>,
+    AxumPath(job_id): AxumPath<String>,
+    payload: Result<Json<JobResetRequest>, JsonRejection>,
+) -> Response {
+    let request = match payload {
+        Ok(Json(request)) => request,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(state.invalid_request_body.clone()),
+            )
+                .into_response();
+        }
+    };
+
+    let repo_root = state.repo_root.clone();
+    let reset_job_id = job_id.clone();
+    match run_blocking_app(move || app_api::reset_job(&repo_root, &reset_job_id, request.into()))
+        .await
+    {
+        Ok(result) => Json(build_job_reset_response(result)).into_response(),
+        Err(error) => error_response(error),
     }
 }
 

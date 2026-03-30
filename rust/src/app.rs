@@ -13,6 +13,8 @@ mod ffmpeg_stage;
 mod models;
 #[path = "app/queue.rs"]
 mod queue;
+#[path = "app/reset.rs"]
+mod reset;
 #[path = "app/stages.rs"]
 mod stages;
 #[path = "app/stt_stage.rs"]
@@ -231,6 +233,7 @@ pub use models::{
     execute_model_preparation_api, submit_llama_umbrella_preparation_api,
     submit_model_preparation_api,
 };
+pub(crate) use reset::{JobResetResult, RESET_BY_USER_MESSAGE, reset_job};
 pub use stt_stage::{run_stt_with_repo_root, submit_stt_job};
 pub use summary_stage::{run_summary_with_repo_root, submit_summary_job};
 

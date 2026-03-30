@@ -14,10 +14,10 @@ pub use store::IndexStore;
 pub(crate) use types::QUEUE_BURST_LIMIT_ENV_VAR;
 pub use types::{
     ActiveQueueBatch, AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile,
-    JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus, ModelKind, ModelPreparationRecord,
-    ModelPreparationStatus, QueueBatch, QueueCategory, QueueEntry, QueuePayload, SourceKind,
-    SplitStrategy, SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord, SummaryRecord,
-    TaskQueueState, TaskRecord, TaskStatus, TaskType, TranscriptRecord,
+    JobOutputs, JobProbe, JobRecord, JobResetSelection, JobSplitOutput, JobStatus, ModelKind,
+    ModelPreparationRecord, ModelPreparationStatus, QueueBatch, QueueCategory, QueueEntry,
+    QueuePayload, SourceKind, SplitStrategy, SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord,
+    SummaryRecord, TaskQueueState, TaskRecord, TaskStatus, TaskType, TranscriptRecord,
 };
 
 #[cfg(test)]

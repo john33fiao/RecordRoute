@@ -595,6 +595,120 @@ fn backend_parity_commit_summary_embedding_success_updates_metadata_and_vector()
     });
 }
 
+#[test]
+fn backend_parity_reset_job_stages_deletes_requested_rows_only() {
+    run_backend_matrix("job-reset", |case, repo_root, store| {
+        let summary_text = "reset summary body";
+        let mut job = test_job(
+            "job-reset",
+            "2026-01-01T00:00:00Z",
+            "sources/job-reset/source.wav",
+            "hash-reset",
+            "input.wav",
+        );
+        mark_job_completed_with_audio(store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+            .unwrap_or_else(|error| panic!("{} seed completed job: {error}", case.name()));
+        job.enqueue_task(TaskType::Stt, "2026-01-01T00:00:02Z".to_string());
+        job.complete_task(TaskType::Stt, "2026-01-01T00:00:03Z".to_string())
+            .unwrap_or_else(|error| panic!("{} complete stt: {error}", case.name()));
+        job.enqueue_task(TaskType::Summary, "2026-01-01T00:00:04Z".to_string());
+        job.complete_task(TaskType::Summary, "2026-01-01T00:00:05Z".to_string())
+            .unwrap_or_else(|error| panic!("{} complete summary: {error}", case.name()));
+        job.enqueue_task(TaskType::Embedding, "2026-01-01T00:00:06Z".to_string());
+        store
+            .insert_job(job)
+            .unwrap_or_else(|error| panic!("{} insert reset job: {error}", case.name()));
+        seed_transcripts(store, "job-reset", &[("mono_mix", "안녕하세요")])
+            .unwrap_or_else(|error| panic!("{} seed transcripts: {error}", case.name()));
+        seed_summary_with_one_line(store, "job-reset", summary_text, Some("한줄"))
+            .unwrap_or_else(|error| panic!("{} seed summary: {error}", case.name()));
+
+        let embedding = SummaryEmbeddingVectorRecord {
+            metadata: SummaryEmbeddingRecord {
+                model_id: crate::llama::embedding_model_id(repo_root),
+                text_sha256: summary_text_sha256(summary_text),
+                dimension: 2,
+                normalized: true,
+                created_at: "2026-01-01T00:00:07Z".to_string(),
+            },
+            vector: vec![0.1, 0.2],
+        };
+        store
+            .commit_summary_embedding_success(
+                "job-reset",
+                "2026-01-01T00:00:08Z".to_string(),
+                &embedding,
+            )
+            .unwrap_or_else(|error| panic!("{} commit embedding: {error}", case.name()));
+
+        let updated = store
+            .reset_job_stages(
+                "job-reset",
+                JobResetSelection {
+                    ffmpeg: true,
+                    summary: true,
+                    ..JobResetSelection::default()
+                },
+                "2026-01-01T00:00:09Z".to_string(),
+                "reset by user",
+            )
+            .unwrap_or_else(|error| panic!("{} reset job stages: {error}", case.name()));
+
+        assert_eq!(updated.status, JobStatus::Failed, "{} job should fail", case.name());
+        assert!(
+            updated.outputs.merged_mono_wav.is_none() && updated.outputs.split_mono_wavs.is_empty(),
+            "{} ffmpeg outputs should clear",
+            case.name()
+        );
+        assert_eq!(
+            updated.task(TaskType::Summary).map(|task| task.status),
+            Some(TaskStatus::Failed),
+            "{} summary task should fail",
+            case.name()
+        );
+        assert_eq!(
+            updated
+                .task(TaskType::Summary)
+                .and_then(|task| task.last_error.as_deref()),
+            Some("reset by user"),
+            "{} summary task should keep reset reason",
+            case.name()
+        );
+        assert!(
+            store
+                .list_audio_artifacts("job-reset")
+                .unwrap_or_else(|error| panic!("{} list audio artifacts: {error}", case.name()))
+                .is_empty(),
+            "{} ffmpeg rows should be deleted",
+            case.name()
+        );
+        assert_eq!(
+            store
+                .count_transcripts("job-reset")
+                .unwrap_or_else(|error| panic!("{} count transcripts: {error}", case.name())),
+            1,
+            "{} transcripts should remain",
+            case.name()
+        );
+        assert!(
+            store
+                .get_summary("job-reset")
+                .unwrap_or_else(|error| panic!("{} get summary: {error}", case.name()))
+                .is_none(),
+            "{} summary row should be deleted",
+            case.name()
+        );
+        assert_eq!(
+            store
+                .get_summary_embedding("job-reset")
+                .unwrap_or_else(|error| panic!("{} get embedding: {error}", case.name())),
+            Some(embedding.clone()),
+            "{} embedding row should remain",
+            case.name()
+        );
+    });
+}
+
 fn run_backend_matrix(test_name: &str, mut run: impl FnMut(&BackendCase, &Path, &IndexStore)) {
     let _guard = env_lock()
         .lock()
@@ -688,6 +802,14 @@ fn temp_workspace(test_name: &str, backend_name: &str) -> PathBuf {
 fn sorted_strings(mut values: Vec<String>) -> Vec<String> {
     values.sort();
     values
+}
+
+fn summary_text_sha256(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(text.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 fn seed_legacy_auto_demo_keywords(case: &BackendCase, repo_root: &Path) -> Result<(), String> {
