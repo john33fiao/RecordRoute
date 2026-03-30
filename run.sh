@@ -4,7 +4,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 PACKAGE_DIR="${SCRIPT_DIR}/package"
 LAUNCHER_PATH="${SCRIPT_DIR}/package/RecordRoute"
-FRONTEND_DIR="${SCRIPT_DIR}/frontend"
 
 if [[ ! -x "${LAUNCHER_PATH}" ]]; then
   printf 'RecordRoute package launcher is missing. Run ./setup.sh first.\n' >&2
@@ -107,39 +106,11 @@ consider_output_file() {
   fi
 }
 
-consider_output_tree() {
-  local dir="$1"
-  local found=0
-  local path
-
-  if [[ ! -d "${dir}" ]]; then
-    missing_output_path="${dir}"
-    return 1
-  fi
-
-  while IFS= read -r -d '' path; do
-    found=1
-    if ! consider_output_file "${path}"; then
-      return 1
-    fi
-  done < <(find "${dir}" -type f -print0)
-
-  if (( found == 0 )); then
-    missing_output_path="${dir}"
-    return 1
-  fi
-
-  return 0
-}
-
 target_dir="$(platform_target_dir)"
 input_files=(
   "${SCRIPT_DIR}/rust/Cargo.toml"
   "${SCRIPT_DIR}/rust/Cargo.lock"
   "${SCRIPT_DIR}/setup.sh"
-  "${SCRIPT_DIR}/frontend/package.json"
-  "${SCRIPT_DIR}/frontend/index.html"
-  "${SCRIPT_DIR}/frontend/vite.config.ts"
   "${SCRIPT_DIR}/scripts/build_ffmpeg.sh"
   "${SCRIPT_DIR}/scripts/build_whisper.sh"
   "${SCRIPT_DIR}/scripts/build_llama.sh"
@@ -163,16 +134,12 @@ for path in "${input_files[@]}"; do
   consider_input_file "${path}"
 done
 consider_input_tree "${SCRIPT_DIR}/rust/src"
-consider_input_tree "${SCRIPT_DIR}/frontend/src"
 
 for path in "${output_files[@]}"; do
   if ! consider_output_file "${path}"; then
     break
   fi
 done
-if [[ -z "${missing_output_path}" ]]; then
-  consider_output_tree "${PACKAGE_DIR}/frontend/build" || true
-fi
 
 if [[ -n "${missing_output_path}" ]]; then
   printf 'RecordRoute package runtime is incomplete.\n' >&2
@@ -189,71 +156,4 @@ if [[ -n "${latest_input_path}" ]] && (( latest_input_mtime > oldest_output_mtim
   exit 1
 fi
 
-should_start_frontend_dev=0
-if [[ -f "${FRONTEND_DIR}/package.json" ]]; then
-  if command -v npm >/dev/null 2>&1; then
-    should_start_frontend_dev=1
-  else
-    printf 'npm is unavailable. Starting backend only.\n' >&2
-  fi
-fi
-
-if (( should_start_frontend_dev == 0 )); then
-  exec "${LAUNCHER_PATH}"
-fi
-
-terminate_process() {
-  local pid="$1"
-
-  if [[ -z "${pid}" ]]; then
-    return 0
-  fi
-  if ! kill -0 "${pid}" >/dev/null 2>&1; then
-    return 0
-  fi
-
-  kill "${pid}" >/dev/null 2>&1 || true
-  wait "${pid}" >/dev/null 2>&1 || true
-}
-
-cleanup_done=0
-launcher_pid=""
-frontend_pid=""
-
-cleanup_children() {
-  if (( cleanup_done != 0 )); then
-    return 0
-  fi
-  cleanup_done=1
-
-  terminate_process "${frontend_pid}"
-  terminate_process "${launcher_pid}"
-}
-
-trap cleanup_children EXIT INT TERM
-
-"${LAUNCHER_PATH}" &
-launcher_pid="$!"
-
-(
-  cd "${FRONTEND_DIR}"
-  exec npm run dev
-) &
-frontend_pid="$!"
-
-status=0
-while true; do
-  if ! kill -0 "${launcher_pid}" >/dev/null 2>&1; then
-    wait "${launcher_pid}" || status=$?
-    break
-  fi
-  if ! kill -0 "${frontend_pid}" >/dev/null 2>&1; then
-    wait "${frontend_pid}" || status=$?
-    break
-  fi
-  sleep 1
-done
-
-cleanup_children
-trap - EXIT INT TERM
-exit "${status}"
+exec "${LAUNCHER_PATH}"

@@ -16,12 +16,6 @@ __pycache__/
 # Runtime artifacts
 db/
 .build/
-
-# Frontend build artifacts
-frontend/node_modules/
-frontend/build/
-frontend/dist/
-frontend/tsconfig.tsbuildinfo
 # Local llama.cpp model assets
 models/
 models/whisper/

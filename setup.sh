@@ -3,7 +3,6 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 rust_manifest="${script_dir}/rust/Cargo.toml"
-frontend_dir="${script_dir}/frontend"
 package_dir="${script_dir}/package"
 staging_dir="${script_dir}/.package-staging"
 next_dir="${script_dir}/.package-next"
@@ -64,18 +63,9 @@ touch_packaged_outputs() {
       touch "${path}"
     fi
   done
-
-  if [[ -d "${package_dir}/frontend/build" ]]; then
-    while IFS= read -r -d '' path; do
-      touch "${path}"
-    done < <(find "${package_dir}/frontend/build" -type f -print0)
-  fi
 }
 
 ensure_bundled_sources
-
-ensure_file_exists "${frontend_dir}/package.json" "frontend package manifest"
-(cd "${frontend_dir}" && npm install --no-package-lock && npm run build)
 
 bash "${script_dir}/scripts/build_ffmpeg.sh"
 bash "${script_dir}/scripts/build_whisper.sh"
@@ -101,7 +91,6 @@ ensure_file_exists "${script_dir}/.build/ffmpeg/${target_dir}/install/bin/ffprob
 ensure_file_exists "${script_dir}/.build/whisper/${target_dir}/bin/whisper-cli" "whisper-cli binary"
 ensure_file_exists "${script_dir}/.build/llama/${target_dir}/bin/llama-cli" "llama-cli binary"
 ensure_file_exists "${script_dir}/.build/llama/${target_dir}/bin/llama-embedding" "llama-embedding binary"
-ensure_file_exists "${frontend_dir}/build/index.html" "frontend build index"
 
 cargo build --manifest-path "${rust_manifest}" --release --bin recordroute --bin recordroute_server --bin recordroute_rust
 
@@ -111,7 +100,6 @@ mkdir -p "${staging_dir}"
 cp "${script_dir}/rust/target/release/recordroute" "${staging_dir}/RecordRoute"
 cp "${script_dir}/rust/target/release/recordroute_server" "${staging_dir}/RecordRouteServer"
 copy_if_exists "${script_dir}/.build" "${staging_dir}/.build"
-copy_if_exists "${frontend_dir}/build" "${staging_dir}/frontend/build"
 copy_if_exists "${script_dir}/models" "${staging_dir}/models"
 touch "${staging_dir}/.recordroute-runtime-root"
 

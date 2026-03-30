@@ -3,7 +3,6 @@ setlocal EnableExtensions
 
 for %%I in ("%~dp0.") do set "repo_root=%%~fI"
 set "rust_manifest=%repo_root%\rust\Cargo.toml"
-set "frontend_dir=%repo_root%\frontend"
 set "package_dir=%repo_root%\package"
 set "staging_dir=%repo_root%\.package-staging"
 set "next_dir=%repo_root%\.package-next"
@@ -13,25 +12,6 @@ if errorlevel 1 exit /b 1
 set "target_dir=windows-%platform_arch%"
 
 call :ensure_bundled_sources
-if errorlevel 1 exit /b 1
-
-call :require_file "%frontend_dir%\package.json" "frontend package manifest"
-if errorlevel 1 exit /b 1
-
-pushd "%frontend_dir%"
-call npm install --no-package-lock
-if errorlevel 1 (
-  popd
-  exit /b 1
-)
-call npm run build
-if errorlevel 1 (
-  popd
-  exit /b 1
-)
-popd
-
-call :require_file "%frontend_dir%\build\index.html" "frontend build index"
 if errorlevel 1 exit /b 1
 
 call "%repo_root%\scripts\build_ffmpeg.bat"
@@ -62,7 +42,6 @@ mkdir "%staging_dir%"
 copy /Y "%repo_root%\rust\target\release\recordroute.exe" "%staging_dir%\RecordRoute.exe" >nul
 copy /Y "%repo_root%\rust\target\release\recordroute_server.exe" "%staging_dir%\RecordRouteServer.exe" >nul
 if exist "%repo_root%\.build" xcopy "%repo_root%\.build" "%staging_dir%\.build" /E /I /Y >nul
-if exist "%frontend_dir%\build" xcopy "%frontend_dir%\build" "%staging_dir%\frontend\build" /E /I /Y >nul
 if exist "%repo_root%\models" xcopy "%repo_root%\models" "%staging_dir%\models" /E /I /Y >nul
 > "%staging_dir%\.recordroute-runtime-root" echo.
 
@@ -134,7 +113,7 @@ set "touch_root=%~1"
 set "touch_target=%~2"
 set "RECORDROUTE_TOUCH_ROOT=%touch_root%"
 set "RECORDROUTE_TOUCH_TARGET=%touch_target%"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$root = [System.Environment]::GetEnvironmentVariable('RECORDROUTE_TOUCH_ROOT'); $target = [System.Environment]::GetEnvironmentVariable('RECORDROUTE_TOUCH_TARGET'); if (-not $root -or -not $target) { exit 1 }; $paths = @([System.IO.Path]::Combine($root, 'RecordRoute.exe'), [System.IO.Path]::Combine($root, 'RecordRouteServer.exe'), [System.IO.Path]::Combine($root, '.build', 'ffmpeg', $target, 'install', 'bin', 'ffmpeg.exe'), [System.IO.Path]::Combine($root, '.build', 'ffmpeg', $target, 'install', 'bin', 'ffprobe.exe'), [System.IO.Path]::Combine($root, '.build', 'whisper', $target, 'bin', 'whisper-cli.exe'), [System.IO.Path]::Combine($root, '.build', 'llama', $target, 'bin', 'llama-cli.exe'), [System.IO.Path]::Combine($root, '.build', 'llama', $target, 'bin', 'llama-embedding.exe')); foreach ($path in $paths) { if (Test-Path -LiteralPath $path -PathType Leaf) { (Get-Item -LiteralPath $path).LastWriteTime = Get-Date } }; $frontendRoot = [System.IO.Path]::Combine($root, 'frontend', 'build'); if (Test-Path -LiteralPath $frontendRoot -PathType Container) { Get-ChildItem -LiteralPath $frontendRoot -File -Recurse | ForEach-Object { $_.LastWriteTime = Get-Date } }" >nul
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$root = [System.Environment]::GetEnvironmentVariable('RECORDROUTE_TOUCH_ROOT'); $target = [System.Environment]::GetEnvironmentVariable('RECORDROUTE_TOUCH_TARGET'); if (-not $root -or -not $target) { exit 1 }; $paths = @([System.IO.Path]::Combine($root, 'RecordRoute.exe'), [System.IO.Path]::Combine($root, 'RecordRouteServer.exe'), [System.IO.Path]::Combine($root, '.build', 'ffmpeg', $target, 'install', 'bin', 'ffmpeg.exe'), [System.IO.Path]::Combine($root, '.build', 'ffmpeg', $target, 'install', 'bin', 'ffprobe.exe'), [System.IO.Path]::Combine($root, '.build', 'whisper', $target, 'bin', 'whisper-cli.exe'), [System.IO.Path]::Combine($root, '.build', 'llama', $target, 'bin', 'llama-cli.exe'), [System.IO.Path]::Combine($root, '.build', 'llama', $target, 'bin', 'llama-embedding.exe')); foreach ($path in $paths) { if (Test-Path -LiteralPath $path -PathType Leaf) { (Get-Item -LiteralPath $path).LastWriteTime = Get-Date } }" >nul
 set "RECORDROUTE_TOUCH_ROOT="
 set "RECORDROUTE_TOUCH_TARGET="
 if errorlevel 1 exit /b 1

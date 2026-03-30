@@ -108,41 +108,12 @@ function Update-OldestOutput {
     }
 }
 
-function Update-OldestOutputTree {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Directory
-    )
-
-    if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {
-        [Console]::Error.WriteLine('RecordRoute package runtime is incomplete.')
-        [Console]::Error.WriteLine(("Missing packaged artifact: {0}" -f (Get-RelativePath -Path $Directory)))
-        [Console]::Error.WriteLine('Run setup.bat and rerun run.bat.')
-        exit 1
-    }
-
-    $files = @(Get-ChildItem -LiteralPath $Directory -File -Recurse)
-    if ($files.Count -eq 0) {
-        [Console]::Error.WriteLine('RecordRoute package runtime is incomplete.')
-        [Console]::Error.WriteLine(("Missing packaged artifact: {0}" -f (Get-RelativePath -Path $Directory)))
-        [Console]::Error.WriteLine('Run setup.bat and rerun run.bat.')
-        exit 1
-    }
-
-    foreach ($file in $files) {
-        Update-OldestOutput -Path $file.FullName
-    }
-}
-
 $targetDir = "windows-$(Get-PlatformArch)"
 
 $inputFiles = @(
     [System.IO.Path]::Combine($repoRoot, 'rust', 'Cargo.toml'),
     [System.IO.Path]::Combine($repoRoot, 'rust', 'Cargo.lock'),
     [System.IO.Path]::Combine($repoRoot, 'setup.bat'),
-    [System.IO.Path]::Combine($repoRoot, 'frontend', 'package.json'),
-    [System.IO.Path]::Combine($repoRoot, 'frontend', 'index.html'),
-    [System.IO.Path]::Combine($repoRoot, 'frontend', 'vite.config.ts'),
     [System.IO.Path]::Combine($repoRoot, 'scripts', 'build_ffmpeg.bat'),
     [System.IO.Path]::Combine($repoRoot, 'scripts', 'build_whisper.bat'),
     [System.IO.Path]::Combine($repoRoot, 'scripts', 'build_llama.bat'),
@@ -168,13 +139,11 @@ foreach ($path in $inputFiles) {
     Update-LatestInput -Path $path
 }
 Update-LatestInputTree -Directory ([System.IO.Path]::Combine($repoRoot, 'rust', 'src'))
-Update-LatestInputTree -Directory ([System.IO.Path]::Combine($repoRoot, 'frontend', 'src'))
 
 $script:oldestOutput = $null
 foreach ($path in $outputFiles) {
     Update-OldestOutput -Path $path
 }
-Update-OldestOutputTree -Directory ([System.IO.Path]::Combine($repoRoot, 'package', 'frontend', 'build'))
 
 if ($script:latestInput -and $script:oldestOutput -and $script:latestInput.Timestamp -gt $script:oldestOutput.Timestamp) {
     [Console]::Error.WriteLine('RecordRoute package is stale. Repo inputs are newer than the packaged runtime.')
