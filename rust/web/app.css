@@ -245,6 +245,7 @@ a {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 14px;
+  align-items: start;
 }
 
 .jobs-shell {
@@ -556,14 +557,9 @@ a {
   min-height: 46px;
 }
 
-.jobs-sidebar,
-.selected-job-card {
-  min-height: 100%;
-}
-
 #jobs-panel .section-heading {
-  flex-direction: column;
-  align-items: stretch;
+  display: grid;
+  gap: 14px;
 }
 
 #jobs-panel .section-actions {
@@ -687,12 +683,30 @@ a {
 .selected-job-card {
   display: grid;
   gap: 18px;
+  align-content: start;
+  align-self: start;
+}
+
+.selected-job-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+}
+
+.selected-job-copy {
+  min-width: 0;
+}
+
+#selected-job-message:empty {
+  display: none;
 }
 
 .job-stage-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+  align-content: start;
 }
 
 .task-card {
@@ -725,6 +739,11 @@ a {
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
   gap: 14px;
   align-items: start;
+  align-content: start;
+}
+
+.job-detail-grid > .subsurface {
+  align-self: start;
 }
 
 .transcript-panel {
@@ -1278,6 +1297,10 @@ a {
 
   .jobs-layout {
     gap: 12px;
+  }
+
+  .selected-job-heading {
+    grid-template-columns: 1fr;
   }
 
   .job-stage-strip {
