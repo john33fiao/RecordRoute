@@ -124,8 +124,8 @@ ffmpeg 결과 오디오는 오디오 루트 아래 job별 디렉터리에 저장
 예시:
 
 - `audio/jobs/<job_id>/mono_mix.wav`
-- `audio/jobs/<job_id>/channel_01.wav`
-- `audio/jobs/<job_id>/channel_02.wav`
+- `audio/jobs/<job_id>/channel_01.wav` (multi-channel input only)
+- `audio/jobs/<job_id>/channel_02.wav` (multi-channel input only)
 
 메타DB에는 실제 절대 경로 대신 logical file name과 storage key를 기록한다.
 
@@ -138,6 +138,8 @@ ffmpeg 결과 오디오는 오디오 루트 아래 job별 디렉터리에 저장
 3. 같은 hash의 queued/running job이 있으면 `Deduplicated`
 4. 아니면 새 job을 만들고 `ffmpeg` queue에 넣는다.
 5. 실행 시 source를 cache로 materialize하고 `ffprobe`, `ffmpeg`를 실행한다.
+   - 입력이 1채널이면 `mono_mix.wav`만 만든다.
+   - 입력이 2채널 이상이면 채널별 mono wav와 `mono_mix.wav`를 함께 만든다.
 6. 결과 오디오는 오디오 루트에 남고, 메타DB에 `audio_artifacts`와 job 상태를 기록한다.
 
 ### 6.2 stt

@@ -16,8 +16,8 @@ pub use types::{
     ActiveQueueBatch, AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile,
     JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus, ModelKind, ModelPreparationRecord,
     ModelPreparationStatus, QueueBatch, QueueCategory, QueueEntry, QueuePayload, SourceKind,
-    SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord, SummaryRecord, TaskQueueState,
-    TaskRecord, TaskStatus, TaskType, TranscriptRecord,
+    SplitStrategy, SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord, SummaryRecord,
+    TaskQueueState, TaskRecord, TaskStatus, TaskType, TranscriptRecord,
 };
 
 #[cfg(test)]
@@ -248,6 +248,36 @@ mod tests {
             .expect("valid job should be found");
 
         assert_eq!(found.job_id, "job-1");
+    }
+
+    #[test]
+    fn finds_reusable_completed_mono_only_job_by_source_hash() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let mut mono_job = test_job(
+            "job-mono",
+            "2026-01-01T00:00:00Z",
+            "sources/shared/source.wav",
+            "shared-hash",
+            "input.wav",
+        );
+        mark_job_completed_with_audio(
+            &store,
+            &mut mono_job,
+            "2026-01-01T00:00:01Z",
+            &["mono_mix.wav"],
+        )
+        .expect("mark mono completed");
+        store.insert_job(mono_job).expect("insert mono job");
+
+        let found = store
+            .find_reusable_completed_job_by_source_hash("shared-hash")
+            .expect("lookup should succeed")
+            .expect("mono job should be found");
+
+        assert_eq!(found.job_id, "job-mono");
+        assert_eq!(found.split_strategy, SplitStrategy::MergedMonoOnly);
+        assert!(found.outputs.split_mono_wavs.is_empty());
     }
 
     #[test]

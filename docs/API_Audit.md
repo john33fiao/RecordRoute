@@ -81,12 +81,13 @@ ffprobe
 
 ### 3.3 ffmpeg 요청
 
-`ffprobe` 결과를 바탕으로 Rust가 `filter_complex`를 구성한 뒤 `ffmpeg`를 한 번 실행한다.
+`ffprobe` 결과를 바탕으로 Rust가 mono 입력이면 direct mono output을, multi-channel 입력이면
+`filter_complex`를 구성한 뒤 `ffmpeg`를 한 번 실행한다.
 
 출력 목표:
 
-- 채널별 mono wav
-- merged mono wav
+- 1채널 입력: merged mono wav (`mono_mix.wav`)만 생성
+- 2채널 이상 입력: 채널별 mono wav + merged mono wav
 
 호출 개요:
 
@@ -97,6 +98,10 @@ ffmpeg
   -y
   -i <input>
   -vn -sn -dn
+  # mono input
+  -map 0:a:0 ... mono_mix.wav
+
+  # multi-channel input
   -filter_complex <generated_filter>
   -map [split01] ... channel_01.wav
   -map [split02] ... channel_02.wav

@@ -646,6 +646,15 @@ async fn get_jobs_completed_returns_only_completed_jobs() {
     assert_eq!(body.jobs.len(), 1);
     assert_eq!(body.jobs[0].job_id, "job-completed");
     assert_eq!(body.jobs[0].status, JobStatus::Completed);
+    assert_eq!(
+        body.jobs[0].split_strategy,
+        crate::index::SplitStrategy::MergedMonoOnly
+    );
+    assert_eq!(
+        body.jobs[0].outputs.merged_mono_wav.as_deref(),
+        Some("mono_mix.wav")
+    );
+    assert!(body.jobs[0].outputs.split_mono_wavs.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

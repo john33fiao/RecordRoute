@@ -368,7 +368,7 @@ impl IndexStore {
         let Some(merged) = job.outputs.merged_mono_wav.as_deref() else {
             return Ok(false);
         };
-        if job.outputs.split_mono_wavs.is_empty() {
+        if job.split_strategy.expects_split_outputs() && job.outputs.split_mono_wavs.is_empty() {
             return Ok(false);
         }
         let artifacts = self.list_audio_artifacts(&job.job_id)?;
@@ -378,6 +378,9 @@ impl IndexStore {
             .is_some_and(|artifact| self.source_path(&artifact.storage_key).is_file());
         if !merged_ok {
             return Ok(false);
+        }
+        if !job.split_strategy.expects_split_outputs() {
+            return Ok(true);
         }
         Ok(job.outputs.split_mono_wavs.iter().all(|output| {
             artifacts

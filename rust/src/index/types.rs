@@ -320,6 +320,21 @@ pub struct TaskRecord {
 #[serde(rename_all = "snake_case")]
 pub enum SplitStrategy {
     PerChannelPlusMergedMono,
+    MergedMonoOnly,
+}
+
+impl SplitStrategy {
+    pub fn from_channels(channels: u32) -> Self {
+        if channels == 1 {
+            Self::MergedMonoOnly
+        } else {
+            Self::PerChannelPlusMergedMono
+        }
+    }
+
+    pub fn expects_split_outputs(&self) -> bool {
+        matches!(self, Self::PerChannelPlusMergedMono)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

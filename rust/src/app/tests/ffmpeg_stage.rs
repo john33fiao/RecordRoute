@@ -2,7 +2,7 @@ use super::super::*;
 use super::support::*;
 use crate::app::ffmpeg_stage::execute_ffmpeg_job;
 use crate::ffmpeg::Toolchain as FfmpegToolchain;
-use crate::index::{IndexStore, QueuePayload, TaskType};
+use crate::index::{IndexStore, QueuePayload, SplitStrategy, TaskType};
 use crate::test_support::test_job;
 use std::fs;
 #[test]
@@ -41,6 +41,71 @@ fn end_to_end_flow_uses_fake_toolchain() {
     assert_eq!(index.jobs[0].probe.channels, Some(2));
     assert_eq!(index.jobs[0].outputs.split_mono_wavs.len(), 2);
     assert!(index.jobs[0].task(TaskType::Stt).is_none());
+}
+
+#[test]
+fn mono_input_generates_only_merged_output_and_hydrates_stt_queue() {
+    let repo_root = temp_workspace();
+    let scripts_dir = repo_root.join("scripts");
+    let build_bin = repo_root
+        .join(".build/ffmpeg")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("install/bin");
+    let input = repo_root.join("fixture.wav");
+    let ffmpeg_log = repo_root.join("ffmpeg-mono.log");
+    fs::create_dir_all(&scripts_dir).expect("scripts dir");
+    fs::create_dir_all(&build_bin).expect("toolchain dir");
+    write_build_script(&build_script_path(&repo_root, "ffmpeg"));
+    write_fake_ffprobe(&fake_command_path(&build_bin, "ffprobe"), 1, Some("mono"));
+    write_fake_ffmpeg(&fake_command_path(&build_bin, "ffmpeg"), &ffmpeg_log);
+    write_test_wav(&input, 1);
+
+    let submission = submit_ffmpeg_job(&repo_root, &input).expect("submit ffmpeg");
+    let batch =
+        submit_batch_pipeline_jobs(&repo_root, BatchProcessTarget::All).expect("batch submit");
+    assert_eq!(batch.stt_queued, 1);
+
+    execute_ffmpeg_job(
+        &repo_root,
+        &submission.job.job_id,
+        std::path::Path::new(&submission.job.source_ref),
+    )
+    .expect("execute ffmpeg");
+
+    let store = IndexStore::new(&repo_root);
+    let job = store
+        .find_job(&submission.job.job_id)
+        .expect("find job")
+        .expect("job");
+    assert_eq!(job.probe.channels, Some(1));
+    assert_eq!(job.split_strategy, SplitStrategy::MergedMonoOnly);
+    assert_eq!(job.outputs.merged_mono_wav.as_deref(), Some("mono_mix.wav"));
+    assert!(job.outputs.split_mono_wavs.is_empty());
+
+    let job_dir = store.job_dir(&submission.job.job_id);
+    assert!(job_dir.join("mono_mix.wav").exists());
+    assert!(!job_dir.join("channel_01.wav").exists());
+
+    let queued = store
+        .with_index_read(|index| {
+            Ok(super::super::queue::find_task_entry(
+                index,
+                &submission.job.job_id,
+                TaskType::Stt,
+            ))
+        })
+        .expect("read queue")
+        .expect("queued stt entry");
+    match queued.payload {
+        QueuePayload::Stt { audio_files, .. } => {
+            assert_eq!(audio_files, vec!["mono_mix.wav".to_string()]);
+        }
+        other => panic!("expected stt payload, got {other:?}"),
+    }
+
+    let log = fs::read_to_string(ffmpeg_log).expect("ffmpeg log");
+    assert!(!log.contains("-filter_complex"));
+    assert!(log.contains("mono_mix.wav"));
 }
 
 #[test]
@@ -201,6 +266,54 @@ fn reuses_completed_outputs_for_same_input() {
     assert_eq!(read_run_count(&ffmpeg_count), 1);
 
     let store = IndexStore::new(&repo_root);
+    assert_eq!(store.list_jobs().expect("list jobs").len(), 1);
+}
+
+#[test]
+fn reuses_completed_mono_only_outputs_for_same_input() {
+    let repo_root = temp_workspace();
+    let scripts_dir = repo_root.join("scripts");
+    let build_bin = repo_root
+        .join(".build/ffmpeg")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("install/bin");
+    let input = repo_root.join("fixture.wav");
+    let ffmpeg_log = repo_root.join("ffmpeg-mono-args.log");
+    let ffmpeg_count = repo_root.join("ffmpeg-mono-count.txt");
+    fs::create_dir_all(&scripts_dir).expect("scripts dir");
+    fs::create_dir_all(&build_bin).expect("toolchain dir");
+    write_build_script(&build_script_path(&repo_root, "ffmpeg"));
+    write_fake_ffprobe(&fake_command_path(&build_bin, "ffprobe"), 1, Some("mono"));
+    write_counting_ffmpeg(
+        &fake_command_path(&build_bin, "ffmpeg"),
+        &ffmpeg_log,
+        &ffmpeg_count,
+    );
+    write_test_wav(&input, 1);
+
+    let first = run_with_repo_root(&repo_root, &input).expect("first run should succeed");
+
+    fs::remove_file(fake_command_path(&build_bin, "ffmpeg")).expect("remove ffmpeg");
+    fs::remove_file(fake_command_path(&build_bin, "ffprobe")).expect("remove ffprobe");
+
+    let second = run_with_repo_root(&repo_root, &input).expect("second run should reuse");
+
+    assert_eq!(first.job_id, second.job_id);
+    assert_eq!(first.job_dir, second.job_dir);
+    assert_eq!(
+        first.outputs.merged_mono_wav,
+        second.outputs.merged_mono_wav
+    );
+    assert!(first.outputs.split_mono_wavs.is_empty());
+    assert!(second.outputs.split_mono_wavs.is_empty());
+    assert_eq!(read_run_count(&ffmpeg_count), 1);
+
+    let store = IndexStore::new(&repo_root);
+    let job = store
+        .find_job(&first.job_id)
+        .expect("find job")
+        .expect("job");
+    assert_eq!(job.split_strategy, SplitStrategy::MergedMonoOnly);
     assert_eq!(store.list_jobs().expect("list jobs").len(), 1);
 }
 

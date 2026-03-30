@@ -31,7 +31,7 @@ pub fn main_launcher() -> Result<(), String> {
 pub(crate) mod test_support {
     use crate::index::{
         AudioArtifactRecord, IndexStore, JobOutputs, JobRecord, JobSplitOutput, SourceKind,
-        SummaryRecord, TranscriptRecord,
+        SplitStrategy, SummaryRecord, TranscriptRecord,
     };
     use std::ffi::OsString;
     use std::fs;
@@ -90,6 +90,12 @@ pub(crate) mod test_support {
         audio_file_names: &[&str],
     ) -> Result<(), String> {
         let outputs = seed_audio_artifacts(store, &job.job_id, audio_file_names)?;
+        job.split_strategy =
+            if outputs.split_mono_wavs.is_empty() && outputs.merged_mono_wav.is_some() {
+                SplitStrategy::MergedMonoOnly
+            } else {
+                SplitStrategy::PerChannelPlusMergedMono
+            };
         job.mark_completed(finished_at.to_string(), outputs)
     }
 

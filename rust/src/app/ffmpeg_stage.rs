@@ -10,7 +10,7 @@ use crate::ffmpeg::{
 };
 use crate::index::{
     AudioArtifactRecord, IndexStore, JobOutputs, JobProbe, JobRecord, JobSplitOutput, JobStatus,
-    QueuePayload, SourceKind, TaskType,
+    QueuePayload, SourceKind, SplitStrategy, TaskType,
 };
 use std::fs;
 use std::path::Path;
@@ -170,9 +170,14 @@ pub fn execute_ffmpeg_job(
         channels: Some(probe.channels),
         channel_layout: probe.channel_layout.clone(),
     };
+    job.split_strategy = SplitStrategy::from_channels(probe.channels);
     index_store.update_job(job_id, |_| job.clone())?;
 
-    let planned_outputs = ConversionOutputs::new(&job_dir, probe.channels);
+    let planned_outputs = if job.split_strategy.expects_split_outputs() {
+        ConversionOutputs::new(&job_dir, probe.channels)
+    } else {
+        ConversionOutputs::merged_mono_only(&job_dir)
+    };
 
     match run_conversion(&toolchain, &input_path, probe.channels, &planned_outputs) {
         Ok(()) => {
@@ -335,7 +340,7 @@ fn run_summary_from_completed_job(repo_root: &Path, job: JobRecord) -> Result<Ru
             job.job_id
         )
     })?;
-    if job.outputs.split_mono_wavs.is_empty() {
+    if job.split_strategy.expects_split_outputs() && job.outputs.split_mono_wavs.is_empty() {
         return Err(format!(
             "reusable completed job is missing split output paths: {}",
             job.job_id

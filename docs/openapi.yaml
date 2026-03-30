@@ -1630,10 +1630,12 @@ components:
       required: [merged_mono_wav, split_mono_wavs]
       properties:
         merged_mono_wav:
+          description: Canonical mono output file name for the job.
           oneOf:
             - type: string
             - type: 'null'
         split_mono_wavs:
+          description: Per-channel mono outputs. Empty for mono-source jobs with split_strategy=merged_mono_only.
           type: array
           items:
             $ref: '#/components/schemas/JobSplitOutput'
@@ -1758,4 +1760,4 @@ components:
 
     SplitStrategy:
       type: string
-      enum: [per_channel_plus_merged_mono]
+      enum: [per_channel_plus_merged_mono, merged_mono_only]
