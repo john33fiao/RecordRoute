@@ -23,6 +23,7 @@ mod summary_stage;
 use crate::ffmpeg::ConversionOutputs;
 use crate::index::{JobRecord, ModelKind, ModelPreparationRecord};
 use crate::runtime_root;
+use std::fs;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
@@ -248,9 +249,124 @@ pub(crate) fn load_repo_env(repo_root: &Path) -> Result<(), String> {
         return Ok(());
     }
 
-    dotenvy::from_path(&env_path)
+    load_dotenv_path(&env_path)
         .map_err(|error| format!("failed to load {}: {error}", env_path.display()))?;
     Ok(())
+}
+
+fn load_dotenv_path(env_path: &Path) -> dotenvy::Result<()> {
+    let contents = fs::read_to_string(env_path).map_err(dotenvy::Error::Io)?;
+    let entries = match collect_dotenv_entries(dotenvy::from_read_iter(contents.as_bytes())) {
+        Ok(entries) => entries,
+        Err(error @ dotenvy::Error::LineParse(_, _)) => {
+            let Some(normalized) = normalize_windows_path_env_contents(&contents) else {
+                return Err(error);
+            };
+            match collect_dotenv_entries(dotenvy::from_read_iter(normalized.as_bytes())) {
+                Ok(entries) => entries,
+                Err(_) => return Err(error),
+            }
+        }
+        Err(error) => return Err(error),
+    };
+    apply_dotenv_entries(entries);
+    Ok(())
+}
+
+fn collect_dotenv_entries<R: std::io::Read>(
+    iter: dotenvy::Iter<R>,
+) -> dotenvy::Result<Vec<(String, String)>> {
+    iter.collect()
+}
+
+fn apply_dotenv_entries(entries: Vec<(String, String)>) {
+    for (key, value) in entries {
+        if std::env::var_os(&key).is_none() {
+            unsafe { std::env::set_var(key, value) };
+        }
+    }
+}
+
+fn normalize_windows_path_env_contents(contents: &str) -> Option<String> {
+    let mut changed = false;
+    let mut normalized = String::with_capacity(contents.len());
+
+    for segment in contents.split_inclusive('\n') {
+        let (line, newline) = if let Some(stripped) = segment.strip_suffix("\r\n") {
+            (stripped, "\r\n")
+        } else if let Some(stripped) = segment.strip_suffix('\n') {
+            (stripped, "\n")
+        } else {
+            (segment, "")
+        };
+        let normalized_line = normalize_windows_path_env_line(line);
+        if normalized_line != line {
+            changed = true;
+        }
+        normalized.push_str(&normalized_line);
+        normalized.push_str(newline);
+    }
+
+    changed.then_some(normalized)
+}
+
+fn normalize_windows_path_env_line(line: &str) -> String {
+    let trimmed_start = line.trim_start_matches(|ch: char| ch == ' ' || ch == '\t');
+    if trimmed_start.is_empty() || trimmed_start.starts_with('#') {
+        return line.to_string();
+    }
+
+    let Some((lhs, rhs)) = line.split_once('=') else {
+        return line.to_string();
+    };
+    let value_start = rhs
+        .find(|ch: char| ch != ' ' && ch != '\t')
+        .unwrap_or(rhs.len());
+    let value_end = rhs
+        .rfind(|ch: char| ch != ' ' && ch != '\t')
+        .map(|index| index + 1)
+        .unwrap_or(value_start);
+    let value = &rhs[value_start..value_end];
+    let Some(normalized_value) = normalize_windows_path_env_value(value) else {
+        return line.to_string();
+    };
+
+    format!(
+        "{lhs}={}{normalized_value}{}",
+        &rhs[..value_start],
+        &rhs[value_end..]
+    )
+}
+
+fn normalize_windows_path_env_value(value: &str) -> Option<String> {
+    if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
+        let inner = &value[1..value.len() - 1];
+        return normalize_windows_path_literal(inner).map(|path| format!("'{path}'"));
+    }
+    if value.len() >= 2 && value.starts_with('\'') && value.ends_with('\'') {
+        return None;
+    }
+
+    normalize_windows_path_literal(value).map(|path| format!("'{path}'"))
+}
+
+fn normalize_windows_path_literal(value: &str) -> Option<&str> {
+    if !is_windows_absolute_path(value) {
+        return None;
+    }
+    if value
+        .chars()
+        .any(|ch| matches!(ch, '\'' | '#' | '\r' | '\n' | '$'))
+    {
+        return None;
+    }
+
+    Some(value)
+}
+
+fn is_windows_absolute_path(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'\\'
 }
 
 pub(crate) fn build_run_id() -> Result<String, String> {

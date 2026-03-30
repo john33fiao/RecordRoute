@@ -297,3 +297,56 @@ fn load_repo_env_reads_only_dot_env() {
         std::env::remove_var("RECORDROUTE_TEST_DOTENV_IGNORED");
     }
 }
+
+#[test]
+fn load_repo_env_accepts_double_quoted_windows_paths() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let repo_root = temp_workspace();
+    let _env_guard = crate::test_support::EnvVarGuard::capture("RECORDROUTE_TEST_WINDOWS_PATH");
+
+    unsafe {
+        std::env::remove_var("RECORDROUTE_TEST_WINDOWS_PATH");
+    }
+
+    fs::write(
+        repo_root.join(".env"),
+        "RECORDROUTE_TEST_WINDOWS_PATH=\"G:\\내 드라이브\\RecordRouteRustDB\\index.sqlite3\"\n",
+    )
+    .expect("env");
+
+    load_repo_env(&repo_root).expect("dotenv load");
+
+    assert_eq!(
+        std::env::var("RECORDROUTE_TEST_WINDOWS_PATH").expect("loaded"),
+        "G:\\내 드라이브\\RecordRouteRustDB\\index.sqlite3"
+    );
+}
+
+#[test]
+fn load_repo_env_accepts_unquoted_windows_paths() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let repo_root = temp_workspace();
+    let _env_guard =
+        crate::test_support::EnvVarGuard::capture("RECORDROUTE_TEST_WINDOWS_MODEL_PATH");
+
+    unsafe {
+        std::env::remove_var("RECORDROUTE_TEST_WINDOWS_MODEL_PATH");
+    }
+
+    fs::write(
+        repo_root.join(".env"),
+        "RECORDROUTE_TEST_WINDOWS_MODEL_PATH=G:\\RecordRouteRustDB\\models\\whisper\\ggml-base.bin\n",
+    )
+    .expect("env");
+
+    load_repo_env(&repo_root).expect("dotenv load");
+
+    assert_eq!(
+        std::env::var("RECORDROUTE_TEST_WINDOWS_MODEL_PATH").expect("loaded"),
+        "G:\\RecordRouteRustDB\\models\\whisper\\ggml-base.bin"
+    );
+}

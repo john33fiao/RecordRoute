@@ -82,10 +82,10 @@ if exist "%package_dir%\logs" (
   xcopy "%package_dir%\logs" "%next_dir%\logs" /E /I /Y >nul
 )
 
-if exist "%package_dir%\.env" (
-  copy /Y "%package_dir%\.env" "%next_dir%\.env" >nul
-) else if exist "%repo_root%\.env" (
+if exist "%repo_root%\.env" (
   copy /Y "%repo_root%\.env" "%next_dir%\.env" >nul
+) else if exist "%package_dir%\.env" (
+  copy /Y "%package_dir%\.env" "%next_dir%\.env" >nul
 ) else if exist "%repo_root%\.env.example" (
   copy /Y "%repo_root%\.env.example" "%next_dir%\.env" >nul
 )
