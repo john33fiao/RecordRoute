@@ -4,7 +4,8 @@ Claude 작업 가이드입니다.
 
 - **기준 문서:** 루트 `AGENTS.md`
 - **아키텍처 기준:** `docs/architecture.md`
-- **API 계약 기준:** `docs/openapi.yaml`
+- **API 계약 기준:** `docs/API_Doc.md`
+- **OpenAPI 상세 명세:** `docs/openapi.yaml`
 
 ## 최소 운영 규칙
 1. 공통 정책/규칙 변경은 반드시 `AGENTS.md`를 먼저 수정합니다.

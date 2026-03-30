@@ -35,7 +35,10 @@ const BATCH_PROCESS_TARGETS = [
   { value: "embedding", label: "임베딩" },
 ];
 
+const TAB_KEYS = ["upload", "jobs", "search", "queue", "dictionary"];
+
 const state = {
+  activeTab: "upload",
   jobs: [],
   selectedJobId: null,
   selectedJob: null,
@@ -56,6 +59,9 @@ const state = {
   jobResetModal: {
     open: false,
     selection: emptyJobResetSelection(),
+  },
+  settingsModal: {
+    open: false,
   },
   dictionaryKeywords: emptyDictionaryKeywords(),
   dictionaryLoaded: false,
@@ -161,16 +167,27 @@ function canResetSelectedJob() {
 document.addEventListener("DOMContentLoaded", () => {
   captureElements();
   bindEvents();
+  state.activeTab = resolveTabFromHash();
+  if (!window.location.hash) {
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#upload`);
+  }
   renderAll();
   bootstrap();
 });
 
 function captureElements() {
+  elements.tabButtons = Array.from(document.querySelectorAll("[data-tab]"));
+  elements.tabPanels = Array.from(document.querySelectorAll("[data-tab-panel]"));
+  elements.settingsOpenButton = document.getElementById("settings-open-button");
+  elements.settingsModal = document.getElementById("settings-modal");
+  elements.settingsCloseButton = document.getElementById("settings-close-button");
   elements.globalCaption = document.getElementById("global-caption");
+  elements.systemServerStatus = document.getElementById("system-server-status");
   elements.systemGrid = document.getElementById("system-grid");
   elements.modelGrid = document.getElementById("model-grid");
   elements.jobsList = document.getElementById("jobs-list");
   elements.selectedJobTitle = document.getElementById("selected-job-title");
+  elements.selectedJobMeta = document.getElementById("selected-job-meta");
   elements.jobOverview = document.getElementById("job-overview");
   elements.jobTasks = document.getElementById("job-tasks");
   elements.sttAudioOptions = document.getElementById("stt-audio-options");
@@ -230,8 +247,14 @@ function captureElements() {
 }
 
 function bindEvents() {
+  elements.settingsOpenButton.addEventListener("click", openSettingsModal);
   elements.systemRefreshButton.addEventListener("click", () => {
     refreshSystemAndModels({ showMessage: true });
+  });
+  elements.tabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveTab(button.dataset.tab);
+    });
   });
   elements.jobsDeleteButton.addEventListener("click", openJobResetModal);
   elements.jobsRefreshButton.addEventListener("click", () => {
@@ -275,6 +298,9 @@ function bindEvents() {
   elements.jobResetModal.querySelectorAll("[data-job-reset-close]").forEach((button) => {
     button.addEventListener("click", closeJobResetModal);
   });
+  elements.settingsModal.querySelectorAll("[data-settings-close]").forEach((button) => {
+    button.addEventListener("click", closeSettingsModal);
+  });
   [
     elements.jobResetAllCheckbox,
     elements.jobResetFfmpegCheckbox,
@@ -284,6 +310,7 @@ function bindEvents() {
   ].forEach((checkbox) => {
     checkbox.addEventListener("change", onJobResetCheckboxChange);
   });
+  window.addEventListener("hashchange", onHashChange);
   document.addEventListener("keydown", onDocumentKeydown);
 }
 
@@ -291,10 +318,82 @@ async function bootstrap() {
   await Promise.all([refreshSystemAndModels(), refreshJobs(), refreshQueue(), refreshDictionary()]);
 }
 
+function resolveTabFromHash(hash = window.location.hash) {
+  const value = String(hash || "")
+    .replace(/^#/, "")
+    .trim()
+    .toLowerCase();
+  return TAB_KEYS.includes(value) ? value : "upload";
+}
+
+function onHashChange() {
+  const nextTab = resolveTabFromHash();
+  if (nextTab === state.activeTab) {
+    return;
+  }
+  state.activeTab = nextTab;
+  renderTabs();
+  syncSelectedJobPoller();
+}
+
+function setActiveTab(tab) {
+  if (!TAB_KEYS.includes(tab)) {
+    return;
+  }
+
+  state.activeTab = tab;
+  renderTabs();
+  syncSelectedJobPoller();
+
+  const nextHash = `#${tab}`;
+  if (window.location.hash !== nextHash) {
+    window.location.hash = tab;
+  }
+
+  if (tab === "jobs" && state.selectedJobId) {
+    refreshSelectedJob(state.selectedJobId).catch((error) => {
+      console.error(error);
+    });
+  }
+}
+
+function renderTabs() {
+  elements.tabButtons.forEach((button) => {
+    const selected = button.dataset.tab === state.activeTab;
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
+
+  elements.tabPanels.forEach((panel) => {
+    panel.hidden = panel.dataset.tabPanel !== state.activeTab;
+  });
+}
+
+function syncModalBodyState() {
+  document.body.classList.toggle(
+    "is-modal-open",
+    Boolean(state.jobResetModal.open || state.settingsModal.open)
+  );
+}
+
+function openSettingsModal() {
+  state.settingsModal.open = true;
+  renderSettingsModal();
+  refreshSystemAndModels().catch((error) => {
+    console.error(error);
+  });
+}
+
+function closeSettingsModal() {
+  state.settingsModal.open = false;
+  renderSettingsModal();
+}
+
 function openJobResetModal() {
   if (!canResetSelectedJob()) {
     return;
   }
+  closeSettingsModal();
   state.jobResetModal.open = true;
   state.jobResetModal.selection = emptyJobResetSelection();
   setMessage("job-reset", "", "info");
@@ -371,8 +470,17 @@ async function onJobResetSubmit(event) {
 }
 
 function onDocumentKeydown(event) {
-  if (event.key === "Escape" && state.jobResetModal.open) {
+  if (event.key !== "Escape") {
+    return;
+  }
+
+  if (state.jobResetModal.open) {
     closeJobResetModal();
+    return;
+  }
+
+  if (state.settingsModal.open) {
+    closeSettingsModal();
   }
 }
 
@@ -521,7 +629,11 @@ function applyUploadSelection(fileList, { source }) {
   const transfer = new DataTransfer();
   accepted.forEach((file) => transfer.items.add(file));
   elements.uploadInput.files = transfer.files;
-  state.uploadQueue = accepted.map((file) => ({ name: file.name, size: file.size }));
+  state.uploadQueue = accepted.map((file) => ({
+    name: file.name,
+    size: file.size,
+    status: "selected",
+  }));
   renderUploadQueue();
 
   if (accepted.length === 0) {
@@ -572,8 +684,11 @@ function renderUploadQueue() {
         .map(
           (file) => `
             <li>
-              <span>${escapeHtml(file.name)}</span>
-              <code>${formatBytes(file.size)}</code>
+              <div>
+                <span>${escapeHtml(file.name)}</span>
+                <code>${formatBytes(file.size)}</code>
+              </div>
+              ${statusBadge("completed", file.status || "selected")}
             </li>
           `
         )
@@ -1148,6 +1263,8 @@ async function prepareModel(kind) {
 }
 
 function renderAll() {
+  renderTabs();
+  renderSettingsModal();
   renderUploadQueue();
   renderSystem();
   renderJobs();
@@ -1162,6 +1279,8 @@ function renderAll() {
 function renderSystem() {
   const system = state.systemStatus;
   if (!system) {
+    elements.systemServerStatus.textContent = "Checking";
+    elements.systemServerStatus.dataset.status = "idle";
     elements.systemGrid.innerHTML = '<p class="muted">시스템 상태를 불러오는 중입니다.</p>';
     elements.modelGrid.innerHTML = "";
     return;
@@ -1243,6 +1362,12 @@ function renderSystem() {
   });
 
   const errorCount = Array.isArray(system.errors) ? system.errors.length : 0;
+  const systemReady =
+    errorCount === 0 &&
+    tiles.every(([, ready]) => Boolean(ready));
+
+  elements.systemServerStatus.textContent = systemReady ? "Ready" : "Needs setup";
+  elements.systemServerStatus.dataset.status = systemReady ? "completed" : "failed";
   elements.globalCaption.textContent =
     errorCount > 0
       ? "환경 준비가 필요합니다. setup을 다시 실행하세요."
@@ -1285,13 +1410,19 @@ function renderJobs() {
   });
 }
 
+function renderSettingsModal() {
+  elements.settingsModal.hidden = !state.settingsModal.open;
+  syncModelPoller();
+  syncModalBodyState();
+}
+
 function renderJobResetModal() {
   const isOpen = state.jobResetModal.open;
   const selection = normalizeJobResetSelection(state.jobResetModal.selection);
   const selectedJob = state.jobs.find((job) => job.job_id === state.selectedJobId) || state.selectedJob;
 
   elements.jobResetModal.hidden = !isOpen;
-  document.body.classList.toggle("is-modal-open", isOpen);
+  syncModalBodyState();
 
   if (selectedJob) {
     elements.jobResetTitle.textContent = `작업 삭제 · ${selectedJob.source_file_name || selectedJob.job_id}`;
@@ -1329,6 +1460,7 @@ function renderSelectedJob() {
   updateActionStates();
   if (!job) {
     elements.selectedJobTitle.textContent = "선택된 Job 없음";
+    elements.selectedJobMeta.textContent = "job id, timestamps, hash, task badges";
     elements.jobOverview.innerHTML = '<dt>상태</dt><dd class="muted">왼쪽 목록에서 Job을 선택하세요.</dd>';
     elements.jobTasks.innerHTML = "";
     elements.sttAudioOptions.innerHTML = "";
@@ -1345,6 +1477,13 @@ function renderSelectedJob() {
   elements.selectedJobTitle.textContent = `${job.source_file_name} · ${
     state.summaryOneLine || job.job_id
   }`;
+  elements.selectedJobMeta.textContent = [
+    job.job_id,
+    formatDate(job.started_at),
+    job.probe?.duration_seconds ? `${job.probe.duration_seconds}s` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   elements.jobOverview.innerHTML = [
     ["job_id", job.job_id],
     ["status", job.status],
@@ -1502,35 +1641,40 @@ function renderSearchResults() {
   }
 
   elements.searchResults.innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th>Score</th>
-          <th>Source</th>
-          <th>Summary</th>
-          <th>Excerpt</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${state.searchResults
-          .map(
-            (row) => `
-              <tr data-search-job-id="${row.job_id}">
-                <td>${escapeHtml(Number(row.score).toFixed(4))}</td>
-                <td>${escapeHtml(row.source_file_name)}</td>
-                <td>${escapeHtml(row.summary_file_name)}</td>
-                <td>${escapeHtml(row.summary_excerpt)}</td>
-              </tr>
-            `
-          )
-          .join("")}
-      </tbody>
-    </table>
+    <div class="results-list">
+      ${state.searchResults
+        .map(
+          (row) => `
+            <article class="result-card">
+              <div class="result-card-head">
+                <div class="result-card-copy">
+                  <p class="result-card-meta">${escapeHtml(row.job_id)}</p>
+                  <p class="result-card-title">${escapeHtml(row.source_file_name)}</p>
+                  <p>${escapeHtml(row.summary_file_name)}</p>
+                </div>
+                ${statusBadge("running", `score ${Number(row.score).toFixed(2)}`)}
+              </div>
+              <p class="result-card-meta">${escapeHtml(row.summary_excerpt)}</p>
+              <div class="result-card-action">
+                <button
+                  class="ghost-button"
+                  data-search-job-id="${escapeAttribute(row.job_id)}"
+                  type="button"
+                >
+                  View
+                </button>
+              </div>
+            </article>
+          `
+        )
+        .join("")}
+    </div>
   `;
 
-  elements.searchResults.querySelectorAll("[data-search-job-id]").forEach((row) => {
-    row.addEventListener("click", () => {
-      refreshSelectedJob(row.dataset.searchJobId, { showMessage: true });
+  elements.searchResults.querySelectorAll("[data-search-job-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveTab("jobs");
+      refreshSelectedJob(button.dataset.searchJobId, { showMessage: true });
     });
   });
 }
@@ -1787,6 +1931,7 @@ function updateActionStates() {
   const hasJob = Boolean(state.selectedJobId);
   const runningTask = state.selectedJob?.tasks?.some((task) => task.status === "running");
 
+  elements.settingsOpenButton.disabled = false;
   elements.uploadSubmitButton.disabled = state.loading.upload;
   elements.batchProcessTargetSelect.disabled = state.loading.batchProcess;
   elements.batchProcessButton.disabled = state.loading.batchProcess;
@@ -1821,7 +1966,7 @@ function syncModelPoller() {
 
 function syncSelectedJobPoller() {
   const runningTask = state.selectedJob?.tasks?.some((task) => task.status === "running");
-  if (state.selectedJobId && runningTask) {
+  if (state.selectedJobId && runningTask && state.activeTab === "jobs") {
     startPoller("selected-job", () => refreshSelectedJob(state.selectedJobId));
   } else {
     stopPoller("selected-job");
