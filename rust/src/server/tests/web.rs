@@ -52,8 +52,8 @@ async fn get_root_serves_html_shell_with_expected_sections() {
     assert!(html.contains("id=\"queue-pause-button\""));
     assert!(html.contains("id=\"queue-cancel-button\""));
     assert!(html.contains(".qta,audio/*"));
-    assert!(html.contains("Audio pipeline management · FFmpeg → STT → Summary → Embedding"));
-    assert!(html.contains("현재 기능을 유지한 채 user/auto keyword 관리 경험을 reference tone으로 재정렬합니다."));
+    assert!(html.contains("성을 회의록으로, STT·요약·임베딩·RAG 질의 지원까지 일원화."));
+    assert!(html.contains("오디오-텍스트 변환 정확도를 높이기 위해, 주로 사용되는 키워드를 관리할 수 있습니다."));
 }
 
 #[tokio::test(flavor = "multi_thread")]

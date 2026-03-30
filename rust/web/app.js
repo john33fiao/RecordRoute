@@ -3,6 +3,7 @@ const UPLOAD_FILE_MAX_BYTES = 512 * 1024 * 1024;
 const UPLOAD_FILE_MAX_LABEL = "512MB";
 const TRANSCRIPT_PREVIEW_LINES = 10;
 const QUEUE_COLLAPSE_THRESHOLD = 10;
+const JOBS_COLLAPSE_THRESHOLD = 10;
 const AUDIO_FILE_EXTENSIONS = [
   ".wav",
   ".mp3",
@@ -56,6 +57,7 @@ const state = {
   queueStatus: null,
   queueLoaded: false,
   queueExpanded: emptyQueueExpandedState(),
+  jobsCollapsed: true,
   jobResetModal: {
     open: false,
     selection: emptyJobResetSelection(),
@@ -186,6 +188,7 @@ function captureElements() {
   elements.systemGrid = document.getElementById("system-grid");
   elements.modelGrid = document.getElementById("model-grid");
   elements.jobsList = document.getElementById("jobs-list");
+  elements.jobsCollapseToggle = document.getElementById("jobs-collapse-toggle");
   elements.selectedJobTitle = document.getElementById("selected-job-title");
   elements.selectedJobMeta = document.getElementById("selected-job-meta");
   elements.jobOverview = document.getElementById("job-overview");
@@ -257,6 +260,7 @@ function bindEvents() {
     });
   });
   elements.jobsDeleteButton.addEventListener("click", openJobResetModal);
+  elements.jobsCollapseToggle.addEventListener("click", onJobsCollapseToggle);
   elements.jobsRefreshButton.addEventListener("click", () => {
     Promise.all([refreshJobs({ showMessage: true }), refreshQueue()]).catch((error) => {
       console.error(error);
@@ -316,6 +320,15 @@ function bindEvents() {
 
 async function bootstrap() {
   await Promise.all([refreshSystemAndModels(), refreshJobs(), refreshQueue(), refreshDictionary()]);
+}
+
+function onJobsCollapseToggle() {
+  if (state.jobs.length <= JOBS_COLLAPSE_THRESHOLD) {
+    return;
+  }
+
+  state.jobsCollapsed = !state.jobsCollapsed;
+  renderJobs();
 }
 
 function resolveTabFromHash(hash = window.location.hash) {
@@ -1377,10 +1390,30 @@ function renderSystem() {
 function renderJobs() {
   if (!state.jobs.length) {
     elements.jobsList.innerHTML = '<li class="muted">아직 생성된 Job이 없습니다.</li>';
+    elements.jobsCollapseToggle.hidden = true;
+    elements.jobsCollapseToggle.setAttribute("aria-expanded", "false");
     return;
   }
 
-  elements.jobsList.innerHTML = state.jobs
+  const isCollapsible = state.jobs.length > JOBS_COLLAPSE_THRESHOLD;
+  const selectedIndex = state.jobs.findIndex((job) => job.job_id === state.selectedJobId);
+  let visibleJobs =
+    isCollapsible && state.jobsCollapsed ? state.jobs.slice(0, JOBS_COLLAPSE_THRESHOLD) : state.jobs;
+
+  if (isCollapsible && state.jobsCollapsed && selectedIndex >= JOBS_COLLAPSE_THRESHOLD) {
+    visibleJobs = [
+      ...state.jobs.slice(0, JOBS_COLLAPSE_THRESHOLD - 1),
+      state.jobs[selectedIndex],
+    ];
+  }
+
+  const hiddenCount = Math.max(state.jobs.length - visibleJobs.length, 0);
+
+  elements.jobsCollapseToggle.hidden = !isCollapsible;
+  elements.jobsCollapseToggle.setAttribute("aria-expanded", String(!state.jobsCollapsed));
+  elements.jobsCollapseToggle.textContent = state.jobsCollapsed ? `펼치기 (+${hiddenCount})` : "접기";
+
+  elements.jobsList.innerHTML = visibleJobs
     .map((job) => {
       const selectedClass = job.job_id === state.selectedJobId ? "is-selected" : "";
       const taskBadges = Array.isArray(job.tasks)
@@ -1402,6 +1435,13 @@ function renderJobs() {
       `;
     })
     .join("");
+
+  if (state.jobsCollapsed && hiddenCount > 0) {
+    elements.jobsList.insertAdjacentHTML(
+      "beforeend",
+      `<li class="jobs-list-summary muted">나머지 ${hiddenCount}개 Job은 펼치기 후 확인할 수 있습니다.</li>`
+    );
+  }
 
   elements.jobsList.querySelectorAll("[data-job-id]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1636,7 +1676,7 @@ function renderFiles() {
 function renderSearchResults() {
   if (!state.searchResults.length) {
     elements.searchResults.innerHTML =
-      '<p class="muted">검색 결과가 없으면 여기에 similarity search 결과가 표시됩니다.</p>';
+      '<p class="muted">검색 결과가 없으면 여기에 유사도 검색 결과가 표시됩니다.</p>';
     return;
   }
 
@@ -1700,7 +1740,7 @@ function renderDictionary() {
       })}
       ${renderDictionaryGroup({
         title: "자동 생성 키워드",
-        description: "LLM이 확인한 후보 키워드입니다. + 버튼으로 사용자 키워드로 옮길 수 있습니다.",
+        description: "텍스트 요약 과정에서 발견한 후보 키워드입니다. + 버튼으로 사용자 키워드로 옮길 수 있습니다.",
         emptyMessage: "자동 생성된 키워드가 없습니다.",
         items: state.dictionaryKeywords.autoKeywords,
         renderChip: renderAutoDictionaryChip,

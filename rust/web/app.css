@@ -247,6 +247,25 @@ a {
   gap: 14px;
 }
 
+.jobs-shell {
+  display: grid;
+  gap: 18px;
+}
+
+.jobs-shell > .notice {
+  margin-top: 0;
+}
+
+#upload-message {
+  min-height: 0;
+  margin-top: 0;
+}
+
+#upload-message:not(:empty) {
+  min-height: 1.3rem;
+  margin-bottom: 14px;
+}
+
 .section-card,
 .subsurface,
 .settings-summary-card,
@@ -512,15 +531,43 @@ a {
 }
 
 .batch-controls {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
   align-items: end;
-  gap: 18px;
-  flex-wrap: wrap;
+  gap: 18px 24px;
+}
+
+.batch-controls .compact-field {
+  min-width: 0;
+  max-width: 260px;
+}
+
+.batch-controls .select-shell {
+  width: 100%;
+}
+
+.batch-controls .button-row {
+  align-self: end;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.batch-controls .button-row > * {
+  min-height: 46px;
 }
 
 .jobs-sidebar,
 .selected-job-card {
   min-height: 100%;
+}
+
+#jobs-panel .section-heading {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+#jobs-panel .section-actions {
+  justify-content: flex-start;
 }
 
 .jobs-list {
@@ -529,6 +576,11 @@ a {
   gap: 12px;
   margin: 18px 0 0;
   padding: 0;
+}
+
+.jobs-list-summary {
+  padding: 2px 4px 0;
+  font-size: 0.88rem;
 }
 
 .job-item {
@@ -949,6 +1001,17 @@ a {
   margin-top: 16px;
 }
 
+.dictionary-form .field {
+  min-width: 0;
+}
+
+.dictionary-form button {
+  align-self: end;
+  height: 44px;
+  min-height: 44px;
+  padding-inline: 18px;
+}
+
 .dictionary-list {
   margin-top: 22px;
 }
@@ -1229,6 +1292,14 @@ a {
   .button-row,
   .section-actions {
     width: 100%;
+  }
+
+  .batch-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-controls .compact-field {
+    max-width: none;
   }
 
   .button-row > *,
