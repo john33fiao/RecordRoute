@@ -61,6 +61,7 @@ export default defineConfig({
       '/dictionary': 'http://127.0.0.1:38080',
       '/jobs': 'http://127.0.0.1:38080',
       '/models': 'http://127.0.0.1:38080',
+      '/summary': 'http://127.0.0.1:38080',
       '/system': 'http://127.0.0.1:38080',
     },
   },
