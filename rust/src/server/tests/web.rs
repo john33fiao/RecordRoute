@@ -42,6 +42,7 @@ async fn get_root_serves_html_shell_with_expected_sections() {
     assert!(html.contains("id=\"dictionary-refresh-button\""));
     assert!(html.contains("id=\"queue-pause-button\""));
     assert!(html.contains("id=\"queue-cancel-button\""));
+    assert!(html.contains(".qta,audio/*"));
     assert!(html.contains(
         "사용자가 직접 등록한 키워드만 STT 실행 시 Whisper 초기 프롬프트에 자동 주입됩니다."
     ));
@@ -95,6 +96,7 @@ async fn get_app_js_serves_script_asset() {
     assert!(js.contains("function renderDictionary"));
     assert!(js.contains("function renderUserDictionaryChip"));
     assert!(js.contains("data-dictionary-action=\"promote-auto\""));
+    assert!(js.contains("\".qta\""));
 }
 
 #[tokio::test(flavor = "multi_thread")]

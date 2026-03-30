@@ -17,6 +17,7 @@ const AUDIO_FILE_EXTENSIONS = [
   ".webm",
   ".mp4",
   ".m4b",
+  ".qta",
 ];
 
 const QUEUE_COLUMNS = [
