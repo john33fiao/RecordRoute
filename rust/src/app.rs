@@ -23,6 +23,7 @@ mod summary_stage;
 use crate::ffmpeg::ConversionOutputs;
 use crate::index::{JobRecord, ModelKind, ModelPreparationRecord};
 use crate::runtime_root;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
@@ -192,6 +193,17 @@ pub struct BatchQueueSubmission {
     pub stt_queued: usize,
     pub summary_queued: usize,
     pub embedding_queued: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BatchProcessTarget {
+    #[default]
+    All,
+    Ffmpeg,
+    Stt,
+    Summary,
+    Embedding,
 }
 
 pub use cli::main_cli;

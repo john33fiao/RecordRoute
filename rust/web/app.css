@@ -233,6 +233,28 @@ pre {
   flex-wrap: wrap;
 }
 
+.compact-select {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.compact-select span {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.compact-select select {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid rgba(36, 54, 61, 0.18);
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--ink);
+}
+
 .search-form {
   grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(0, 0.6fr)) auto;
   align-items: end;

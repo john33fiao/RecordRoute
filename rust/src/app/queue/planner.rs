@@ -1,13 +1,17 @@
 use super::{
     BatchQueueSubmission, IndexFile, IndexStore, JobRecord, Path, PathBuf, TaskType, artifacts,
     build_embedding_entry, build_ffmpeg_entry, build_stt_entry_with_options, build_summary_entry,
-    embedding_stage, enqueue_entry, find_ticket, now_rfc3339,
+    embedding_stage, enqueue_entry, find_ticket, now_rfc3339, summary_stage,
 };
+use crate::app::BatchProcessTarget;
 use crate::app::dictionary;
 use crate::index::{JobStatus, TaskStatus};
 use crate::whisper::transcription_language_from_env;
 
-pub fn submit_batch_pipeline_jobs(repo_root: &Path) -> Result<BatchQueueSubmission, String> {
+pub fn submit_batch_pipeline_jobs(
+    repo_root: &Path,
+    target: BatchProcessTarget,
+) -> Result<BatchQueueSubmission, String> {
     let queued_at = now_rfc3339()?;
     let store = IndexStore::new(repo_root);
     let default_language = transcription_language_from_env();
@@ -30,61 +34,130 @@ pub fn submit_batch_pipeline_jobs(repo_root: &Path) -> Result<BatchQueueSubmissi
             };
             let job = index.jobs[job_index].clone();
             let job_dir = store.job_dir(&job.job_id);
-
-            if should_enqueue_batch_ffmpeg(index, &job) {
-                let entry =
-                    build_ffmpeg_entry(&job.job_id, Path::new(&job.source_ref), queued_at.clone());
-                index.jobs[job_index].mark_ffmpeg_queued(queued_at.clone());
-                enqueue_entry(index, entry);
-                summary.ffmpeg_queued = summary.ffmpeg_queued.saturating_add(1);
-            }
-
             let audio_files = if job_dir.is_dir() {
                 artifacts::supported_audio_files(&job_dir)?
             } else {
                 Vec::new()
             };
-            if should_enqueue_batch_stt(
-                &store,
-                index,
-                &job,
-                &audio_files,
-                &default_language,
-                &default_keywords,
-            )? {
-                let entry = build_stt_entry_with_options(
-                    &job.job_id,
-                    &audio_files,
-                    &default_language,
-                    &default_keywords,
-                    queued_at.clone(),
-                );
-                index.jobs[job_index].enqueue_task(TaskType::Stt, queued_at.clone());
-                index.jobs[job_index].set_task_request_fingerprint(
-                    TaskType::Stt,
-                    entry.payload.request_fingerprint(),
-                );
-                enqueue_entry(index, entry);
-                summary.stt_queued = summary.stt_queued.saturating_add(1);
-            }
+            match target {
+                BatchProcessTarget::All => {
+                    if should_enqueue_batch_ffmpeg(index, &job) {
+                        let entry = build_ffmpeg_entry(
+                            &job.job_id,
+                            Path::new(&job.source_ref),
+                            queued_at.clone(),
+                        );
+                        index.jobs[job_index].mark_ffmpeg_queued(queued_at.clone());
+                        enqueue_entry(index, entry);
+                        summary.ffmpeg_queued = summary.ffmpeg_queued.saturating_add(1);
+                    }
 
-            if should_enqueue_batch_summary(&store, index, &job)? {
-                let entry = build_summary_entry(&job.job_id, false, queued_at.clone());
-                index.jobs[job_index].enqueue_task(TaskType::Summary, queued_at.clone());
-                enqueue_entry(index, entry);
-                summary.summary_queued = summary.summary_queued.saturating_add(1);
-            }
+                    if should_enqueue_batch_stt(
+                        &store,
+                        index,
+                        &job,
+                        &audio_files,
+                        &default_language,
+                        &default_keywords,
+                    )? {
+                        let entry = build_stt_entry_with_options(
+                            &job.job_id,
+                            &audio_files,
+                            &default_language,
+                            &default_keywords,
+                            queued_at.clone(),
+                        );
+                        index.jobs[job_index].enqueue_task(TaskType::Stt, queued_at.clone());
+                        index.jobs[job_index].set_task_request_fingerprint(
+                            TaskType::Stt,
+                            entry.payload.request_fingerprint(),
+                        );
+                        enqueue_entry(index, entry);
+                        summary.stt_queued = summary.stt_queued.saturating_add(1);
+                    }
 
-            if should_enqueue_batch_embedding(&store, repo_root, index, &job)? {
-                let entry = build_embedding_entry(&job.job_id, queued_at.clone());
-                index.jobs[job_index].enqueue_task(TaskType::Embedding, queued_at.clone());
-                enqueue_entry(index, entry);
-                summary.embedding_queued = summary.embedding_queued.saturating_add(1);
+                    if should_enqueue_batch_summary(&store, index, &job)? {
+                        let entry = build_summary_entry(&job.job_id, false, queued_at.clone());
+                        index.jobs[job_index].enqueue_task(TaskType::Summary, queued_at.clone());
+                        enqueue_entry(index, entry);
+                        summary.summary_queued = summary.summary_queued.saturating_add(1);
+                    }
+
+                    if should_enqueue_batch_embedding(&store, repo_root, index, &job)? {
+                        let entry = build_embedding_entry(&job.job_id, queued_at.clone());
+                        index.jobs[job_index].enqueue_task(TaskType::Embedding, queued_at.clone());
+                        enqueue_entry(index, entry);
+                        summary.embedding_queued = summary.embedding_queued.saturating_add(1);
+                    }
+                }
+                BatchProcessTarget::Ffmpeg => {
+                    if should_enqueue_batch_ffmpeg(index, &job) {
+                        let entry = build_ffmpeg_entry(
+                            &job.job_id,
+                            Path::new(&job.source_ref),
+                            queued_at.clone(),
+                        );
+                        index.jobs[job_index].mark_ffmpeg_queued(queued_at.clone());
+                        enqueue_entry(index, entry);
+                        summary.ffmpeg_queued = summary.ffmpeg_queued.saturating_add(1);
+                    }
+                }
+                BatchProcessTarget::Stt => {
+                    if stt_prerequisites_ready(&job, &audio_files)
+                        && should_enqueue_batch_stt(
+                            &store,
+                            index,
+                            &job,
+                            &audio_files,
+                            &default_language,
+                            &default_keywords,
+                        )?
+                    {
+                        let entry = build_stt_entry_with_options(
+                            &job.job_id,
+                            &audio_files,
+                            &default_language,
+                            &default_keywords,
+                            queued_at.clone(),
+                        );
+                        index.jobs[job_index].enqueue_task(TaskType::Stt, queued_at.clone());
+                        index.jobs[job_index].set_task_request_fingerprint(
+                            TaskType::Stt,
+                            entry.payload.request_fingerprint(),
+                        );
+                        enqueue_entry(index, entry);
+                        summary.stt_queued = summary.stt_queued.saturating_add(1);
+                    }
+                }
+                BatchProcessTarget::Summary => {
+                    if summary_stage::summary_prerequisites_ready(&store, &job.job_id, &job_dir)?
+                        && should_enqueue_batch_summary(&store, index, &job)?
+                    {
+                        let entry = build_summary_entry(&job.job_id, false, queued_at.clone());
+                        index.jobs[job_index].enqueue_task(TaskType::Summary, queued_at.clone());
+                        enqueue_entry(index, entry);
+                        summary.summary_queued = summary.summary_queued.saturating_add(1);
+                    }
+                }
+                BatchProcessTarget::Embedding => {
+                    if store.get_summary(&job.job_id)?.is_some()
+                        && should_enqueue_batch_embedding(&store, repo_root, index, &job)?
+                    {
+                        let entry = build_embedding_entry(&job.job_id, queued_at.clone());
+                        index.jobs[job_index].enqueue_task(TaskType::Embedding, queued_at.clone());
+                        enqueue_entry(index, entry);
+                        summary.embedding_queued = summary.embedding_queued.saturating_add(1);
+                    }
+                }
             }
         }
 
         Ok(summary)
     })
+}
+
+fn stt_prerequisites_ready(job: &JobRecord, audio_files: &[PathBuf]) -> bool {
+    job.status == JobStatus::Completed && !audio_files.is_empty()
 }
 
 fn should_enqueue_batch_ffmpeg(index: &IndexFile, job: &JobRecord) -> bool {

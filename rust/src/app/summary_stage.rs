@@ -574,7 +574,7 @@ fn upgrade_queued_summary_request(
     })
 }
 
-fn summary_prerequisites_ready(
+pub(crate) fn summary_prerequisites_ready(
     index_store: &IndexStore,
     job_id: &str,
     job_dir: &Path,

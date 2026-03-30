@@ -1,3 +1,5 @@
+#[cfg(test)]
+use super::BatchProcessTarget;
 use super::{
     BatchQueueSubmission, artifacts, embedding_stage, ffmpeg_stage, now_rfc3339, stt_stage,
     summary_stage,
@@ -548,7 +550,8 @@ mod tests {
         );
         store.insert_job(queued).expect("insert queued");
 
-        let result = submit_batch_pipeline_jobs(&repo_root).expect("batch submit");
+        let result =
+            submit_batch_pipeline_jobs(&repo_root, BatchProcessTarget::All).expect("batch submit");
         assert_eq!(result.total_jobs, 2);
         assert_eq!(result.ffmpeg_queued, 1);
         assert_eq!(result.stt_queued, 1);
@@ -581,7 +584,8 @@ mod tests {
             .expect("ffmpeg complete");
         store.insert_job(job).expect("insert job");
 
-        let result = submit_batch_pipeline_jobs(&repo_root).expect("batch submit");
+        let result =
+            submit_batch_pipeline_jobs(&repo_root, BatchProcessTarget::All).expect("batch submit");
 
         assert_eq!(result.stt_queued, 1);
 
@@ -640,7 +644,8 @@ mod tests {
                 .map(|batch| batch.entries.len())
                 .sum::<usize>();
 
-        let result = submit_batch_pipeline_jobs(&repo_root).expect("batch submit");
+        let result =
+            submit_batch_pipeline_jobs(&repo_root, BatchProcessTarget::All).expect("batch submit");
 
         assert_eq!(result.total_jobs, 1);
         assert_eq!(result.ffmpeg_queued, 0);
@@ -699,7 +704,8 @@ mod tests {
         job.enqueue_task(TaskType::Stt, "2026-01-01T00:00:01Z".to_string());
         store.insert_job(job).expect("insert job");
 
-        let result = submit_batch_pipeline_jobs(&repo_root).expect("batch submit");
+        let result =
+            submit_batch_pipeline_jobs(&repo_root, BatchProcessTarget::All).expect("batch submit");
         assert_eq!(result.total_jobs, 1);
         assert_eq!(result.ffmpeg_queued, 0);
         assert_eq!(result.stt_queued, 1);
@@ -712,6 +718,112 @@ mod tests {
             })
             .expect("read index");
         assert!(queued_stt_ticket.is_some());
+    }
+
+    #[test]
+    fn submit_batch_pipeline_jobs_target_stt_requires_completed_ffmpeg_outputs() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let job = JobRecord::new(
+            "job-stt-prereq".to_string(),
+            "2026-01-01T00:00:00Z".to_string(),
+            PathBuf::from("/tmp/job-stt-prereq.wav"),
+            store.job_dir("job-stt-prereq"),
+        );
+        store.insert_job(job).expect("insert job");
+
+        let result =
+            submit_batch_pipeline_jobs(&repo_root, BatchProcessTarget::Stt).expect("batch submit");
+
+        assert_eq!(result.total_jobs, 1);
+        assert_eq!(result.ffmpeg_queued, 0);
+        assert_eq!(result.stt_queued, 0);
+        assert_eq!(result.summary_queued, 0);
+        assert_eq!(result.embedding_queued, 0);
+    }
+
+    #[test]
+    fn submit_batch_pipeline_jobs_target_stt_only_enqueues_completed_jobs() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+
+        for index in 0..5 {
+            let job_id = format!("job-stt-ready-{index}");
+            let mut job = test_job(
+                &job_id,
+                "2026-01-01T00:00:00Z",
+                &format!("sources/{job_id}/source.wav"),
+                &format!("hash-{job_id}"),
+                &format!("{job_id}.wav"),
+            );
+            mark_job_completed_with_audio(
+                &store,
+                &mut job,
+                "2026-01-01T00:00:01Z",
+                &["mono_mix.wav"],
+            )
+            .expect("mark ffmpeg completed");
+            store.insert_job(job).expect("insert job");
+        }
+
+        let result =
+            submit_batch_pipeline_jobs(&repo_root, BatchProcessTarget::Stt).expect("batch submit");
+
+        assert_eq!(result.total_jobs, 5);
+        assert_eq!(result.ffmpeg_queued, 0);
+        assert_eq!(result.stt_queued, 5);
+        assert_eq!(result.summary_queued, 0);
+        assert_eq!(result.embedding_queued, 0);
+    }
+
+    #[test]
+    fn submit_batch_pipeline_jobs_target_summary_skips_jobs_without_transcripts() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let mut job = test_job(
+            "job-summary-prereq",
+            "2026-01-01T00:00:00Z",
+            "sources/job-summary-prereq/source.wav",
+            "hash-job-summary-prereq",
+            "job-summary-prereq.wav",
+        );
+        mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+            .expect("mark ffmpeg completed");
+        store.insert_job(job).expect("insert job");
+
+        let result = submit_batch_pipeline_jobs(&repo_root, BatchProcessTarget::Summary)
+            .expect("batch submit");
+
+        assert_eq!(result.total_jobs, 1);
+        assert_eq!(result.ffmpeg_queued, 0);
+        assert_eq!(result.stt_queued, 0);
+        assert_eq!(result.summary_queued, 0);
+        assert_eq!(result.embedding_queued, 0);
+    }
+
+    #[test]
+    fn submit_batch_pipeline_jobs_target_embedding_requires_summary() {
+        let repo_root = temp_workspace();
+        let store = IndexStore::new(&repo_root);
+        let mut job = test_job(
+            "job-embedding-prereq",
+            "2026-01-01T00:00:00Z",
+            "sources/job-embedding-prereq/source.wav",
+            "hash-job-embedding-prereq",
+            "job-embedding-prereq.wav",
+        );
+        mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+            .expect("mark ffmpeg completed");
+        store.insert_job(job).expect("insert job");
+
+        let result = submit_batch_pipeline_jobs(&repo_root, BatchProcessTarget::Embedding)
+            .expect("batch submit");
+
+        assert_eq!(result.total_jobs, 1);
+        assert_eq!(result.ffmpeg_queued, 0);
+        assert_eq!(result.stt_queued, 0);
+        assert_eq!(result.summary_queued, 0);
+        assert_eq!(result.embedding_queued, 0);
     }
 
     #[test]

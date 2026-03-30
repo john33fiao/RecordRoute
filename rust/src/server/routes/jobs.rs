@@ -1,12 +1,13 @@
 use super::app_api;
 use super::types::{
-    AppState, CreateJobRequest, JobListResponse, JobStatusResponse,
+    AppState, BatchProcessRequest, CreateJobRequest, JobListResponse, JobStatusResponse,
     build_batch_queue_submission_response, build_job_submission_response,
 };
 use super::{error_response, run_blocking, run_blocking_app};
 use crate::app::FfmpegJobSubmission;
 use crate::index::IndexStore;
 use axum::Json;
+use axum::body::Bytes;
 use axum::extract::Multipart;
 use axum::extract::Path as AxumPath;
 use axum::extract::Query;
@@ -95,10 +96,19 @@ pub(crate) async fn post_jobs_upload(
     build_job_submission_http_response(submission)
 }
 
-pub(crate) async fn post_jobs_batch_process(State(state): State<AppState>) -> Response {
+pub(crate) async fn post_jobs_batch_process(
+    State(state): State<AppState>,
+    body: Bytes,
+) -> Response {
+    let target = match parse_batch_process_target(&state, &body) {
+        Ok(target) => target,
+        Err(response) => return response,
+    };
     let repo_root = state.repo_root.clone();
     let submission =
-        match run_blocking_app(move || app_api::submit_batch_pipeline_jobs(&repo_root)).await {
+        match run_blocking_app(move || app_api::submit_batch_pipeline_jobs(&repo_root, target))
+            .await
+        {
             Ok(submission) => submission,
             Err(error) => return error_response(error),
         };
@@ -116,6 +126,25 @@ pub(crate) async fn post_jobs_batch_process(State(state): State<AppState>) -> Re
         Json(build_batch_queue_submission_response(&submission)),
     )
         .into_response()
+}
+
+fn parse_batch_process_target(
+    state: &AppState,
+    body: &Bytes,
+) -> Result<crate::app::BatchProcessTarget, Response> {
+    if body.iter().all(|byte| byte.is_ascii_whitespace()) {
+        return Ok(crate::app::BatchProcessTarget::All);
+    }
+
+    serde_json::from_slice::<BatchProcessRequest>(body)
+        .map(|request| request.target)
+        .map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(state.invalid_request_body.clone()),
+            )
+                .into_response()
+        })
 }
 
 pub(crate) async fn get_jobs_with_query(

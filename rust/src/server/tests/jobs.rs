@@ -39,6 +39,93 @@ async fn post_jobs_batch_process_enqueues_unfinished_pipeline_tasks() {
     assert_eq!(body.summary_queued, 1);
     assert_eq!(body.embedding_queued, 1);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_jobs_batch_process_target_stt_only_enqueues_completed_ffmpeg_jobs() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+
+    for index in 0..5 {
+        let job_id = format!("job-batch-stt-{index}");
+        let mut job = test_job(
+            &job_id,
+            "2026-01-01T00:00:00Z",
+            &format!("sources/{job_id}/source.wav"),
+            &format!("hash-{job_id}"),
+            &format!("{job_id}.wav"),
+        );
+        mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+            .expect("mark ffmpeg completed");
+        store.insert_job(job).expect("insert job");
+    }
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .clone()
+        .oneshot(post_json_request(
+            "/jobs/batch-process",
+            &serde_json::json!({ "target": "stt" }),
+        ))
+        .await
+        .expect("batch process response");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body: BatchQueueSubmissionResponse = read_json(response).await;
+    assert_eq!(body.total_jobs, 5);
+    assert_eq!(body.ffmpeg_queued, 0);
+    assert_eq!(body.stt_queued, 5);
+    assert_eq!(body.summary_queued, 0);
+    assert_eq!(body.embedding_queued, 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_jobs_batch_process_target_summary_returns_zero_when_prerequisites_missing() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let mut job = test_job(
+        "job-batch-summary-prereq",
+        "2026-01-01T00:00:00Z",
+        "sources/job-batch-summary-prereq/source.wav",
+        "hash-job-batch-summary-prereq",
+        "job-batch-summary-prereq.wav",
+    );
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark ffmpeg completed");
+    store.insert_job(job).expect("insert job");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .clone()
+        .oneshot(post_json_request(
+            "/jobs/batch-process",
+            &serde_json::json!({ "target": "summary" }),
+        ))
+        .await
+        .expect("batch process response");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body: BatchQueueSubmissionResponse = read_json(response).await;
+    assert_eq!(body.total_jobs, 1);
+    assert_eq!(body.ffmpeg_queued, 0);
+    assert_eq!(body.stt_queued, 0);
+    assert_eq!(body.summary_queued, 0);
+    assert_eq!(body.embedding_queued, 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_jobs_batch_process_rejects_invalid_target() {
+    let repo_root = temp_workspace();
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(post_json_request(
+            "/jobs/batch-process",
+            &serde_json::json!({ "target": "invalid" }),
+        ))
+        .await
+        .expect("batch process response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: ErrorResponse = read_json(response).await;
+    assert_eq!(body.message, "invalid request body");
+}
 #[tokio::test(flavor = "multi_thread")]
 async fn post_jobs_returns_accepted_then_job_transitions_to_completed() {
     let _guard = env_lock()

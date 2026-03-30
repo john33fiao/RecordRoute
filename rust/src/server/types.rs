@@ -41,6 +41,12 @@ pub(crate) struct SummaryRequest {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub(crate) struct BatchProcessRequest {
+    #[serde(default)]
+    pub target: app::BatchProcessTarget,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct SttRequest {
     #[serde(default)]
     pub audio_files: Vec<String>,

@@ -1,6 +1,6 @@
 use crate::app::{
-    self, BatchQueueSubmission, FfmpegJobSubmission, ModelPrepareSubmission, ModelStatusSnapshot,
-    QueueCancelPendingResult, StageJobSubmission, SummarySearchResult,
+    self, BatchProcessTarget, BatchQueueSubmission, FfmpegJobSubmission, ModelPrepareSubmission,
+    ModelStatusSnapshot, QueueCancelPendingResult, StageJobSubmission, SummarySearchResult,
 };
 use crate::audio_store::ImportedSource;
 use crate::error::{AppError, AppResult};
@@ -42,8 +42,11 @@ pub(crate) fn submit_summary_embedding_job(
     app::submit_summary_embedding_job(repo_root, job_id)
 }
 
-pub(crate) fn submit_batch_pipeline_jobs(repo_root: &Path) -> AppResult<BatchQueueSubmission> {
-    app::submit_batch_pipeline_jobs(repo_root).map_err(AppError::internal)
+pub(crate) fn submit_batch_pipeline_jobs(
+    repo_root: &Path,
+    target: BatchProcessTarget,
+) -> AppResult<BatchQueueSubmission> {
+    app::submit_batch_pipeline_jobs(repo_root, target).map_err(AppError::internal)
 }
 
 pub(crate) fn set_queue_paused(

@@ -61,7 +61,8 @@ fn execute_ffmpeg_job_hydrates_prequeued_stt_entry_audio_files() {
     write_test_wav(&input, 2);
 
     let submission = submit_ffmpeg_job(&repo_root, &input).expect("submit ffmpeg");
-    let batch = submit_batch_pipeline_jobs(&repo_root).expect("batch submit");
+    let batch =
+        submit_batch_pipeline_jobs(&repo_root, BatchProcessTarget::All).expect("batch submit");
     assert_eq!(batch.stt_queued, 1);
 
     execute_ffmpeg_job(

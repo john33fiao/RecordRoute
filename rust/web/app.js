@@ -27,6 +27,14 @@ const QUEUE_COLUMNS = [
   { key: "embed", label: "EMBED", description: "임베딩" },
 ];
 
+const BATCH_PROCESS_TARGETS = [
+  { value: "all", label: "전체 작업" },
+  { value: "ffmpeg", label: "오디오 분리" },
+  { value: "stt", label: "전사" },
+  { value: "summary", label: "요약" },
+  { value: "embedding", label: "임베딩" },
+];
+
 const state = {
   jobs: [],
   selectedJobId: null,
@@ -110,6 +118,7 @@ function captureElements() {
   elements.uploadDropzone = document.getElementById("upload-dropzone");
   elements.uploadInput = document.getElementById("upload-input");
   elements.uploadSubmitButton = document.getElementById("upload-submit-button");
+  elements.batchProcessTargetSelect = document.getElementById("batch-process-target");
   elements.batchProcessButton = document.getElementById("batch-process-button");
   elements.queueCancelButton = document.getElementById("queue-cancel-button");
   elements.uploadQueue = document.getElementById("upload-queue");
@@ -498,20 +507,75 @@ async function onSearchSubmit(event) {
   }
 }
 
+function resolveBatchProcessTarget() {
+  return elements.batchProcessTargetSelect?.value || "all";
+}
+
+function resolveBatchProcessQueuedCount(target, submission) {
+  switch (target) {
+    case "ffmpeg":
+      return submission?.ffmpeg_queued ?? 0;
+    case "stt":
+      return submission?.stt_queued ?? 0;
+    case "summary":
+      return submission?.summary_queued ?? 0;
+    case "embedding":
+      return submission?.embedding_queued ?? 0;
+    default:
+      return (submission?.ffmpeg_queued ?? 0)
+        + (submission?.stt_queued ?? 0)
+        + (submission?.summary_queued ?? 0)
+        + (submission?.embedding_queued ?? 0);
+  }
+}
+
+function resolveBatchProcessTargetLabel(target) {
+  return BATCH_PROCESS_TARGETS.find((option) => option.value === target)?.label || "선택한 카테고리";
+}
+
+function buildBatchProcessMessage(target, submission) {
+  if (target === "all") {
+    return {
+      tone: "success",
+      text: [
+        `일괄처리 큐 등록 완료`,
+        `ffmpeg ${submission?.ffmpeg_queued ?? 0}건`,
+        `stt ${submission?.stt_queued ?? 0}건`,
+        `llm ${submission?.summary_queued ?? 0}건`,
+        `embed ${submission?.embedding_queued ?? 0}건`,
+      ].join(" · "),
+    };
+  }
+
+  const label = resolveBatchProcessTargetLabel(target);
+  const queuedCount = resolveBatchProcessQueuedCount(target, submission);
+  if (queuedCount > 0) {
+    return {
+      tone: "success",
+      text: `${label} 일괄처리 큐 등록 완료 · ${queuedCount}건`,
+    };
+  }
+
+  return {
+    tone: "info",
+    text:
+      target === "ffmpeg"
+        ? `${label} 대상으로 큐에 추가할 작업이 없습니다.`
+        : `${label} 대상으로 큐에 추가할 작업이 없습니다. 선행 단계가 완료된 작업만 선택 처리됩니다.`,
+  };
+}
+
 async function onBatchProcessSubmit() {
+  const target = resolveBatchProcessTarget();
   setLoading("batchProcess", true);
   try {
     const { data } = await fetchJson("/jobs/batch-process", {
       method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target }),
     });
-    const message = [
-      `일괄처리 큐 등록 완료`,
-      `ffmpeg ${data?.ffmpeg_queued ?? 0}건`,
-      `stt ${data?.stt_queued ?? 0}건`,
-      `llm ${data?.summary_queued ?? 0}건`,
-      `embed ${data?.embedding_queued ?? 0}건`,
-    ].join(" · ");
-    setMessage("upload", message, "success");
+    const message = buildBatchProcessMessage(target, data);
+    setMessage("upload", message.text, message.tone);
     await Promise.all([refreshJobs({ showMessage: true }), refreshQueue()]);
     if (state.selectedJobId) {
       await refreshSelectedJob(state.selectedJobId);
@@ -1488,6 +1552,7 @@ function updateActionStates() {
   const runningTask = state.selectedJob?.tasks?.some((task) => task.status === "running");
 
   elements.uploadSubmitButton.disabled = state.loading.upload;
+  elements.batchProcessTargetSelect.disabled = state.loading.batchProcess;
   elements.batchProcessButton.disabled = state.loading.batchProcess;
   elements.queueCancelButton.disabled = state.loading.queueCancel || !state.queueLoaded;
   elements.systemRefreshButton.disabled = false;

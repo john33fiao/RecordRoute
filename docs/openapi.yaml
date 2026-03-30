@@ -544,6 +544,37 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /jobs/batch-process:
+    post:
+      tags: [jobs]
+      summary: Batch queue jobs for the full pipeline or a single stage
+      operationId: postJobsBatchProcess
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchProcessRequest'
+      responses:
+        '202':
+          description: Batch queue submission accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchQueueSubmissionResponse'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /jobs/completed:
     get:
       tags: [jobs]
@@ -1058,6 +1089,17 @@ components:
           type: string
           description: Audio file path on server-local filesystem
 
+    BatchProcessTarget:
+      type: string
+      enum: [all, ffmpeg, stt, summary, embedding]
+
+    BatchProcessRequest:
+      type: object
+      properties:
+        target:
+          $ref: '#/components/schemas/BatchProcessTarget'
+      description: Optional batch target. Omit or use `all` to preserve the current full-pipeline batch behavior.
+
     SummaryRequest:
       type: object
       properties:
@@ -1473,6 +1515,26 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/JobRecord'
+
+    BatchQueueSubmissionResponse:
+      type: object
+      required: [total_jobs, ffmpeg_queued, stt_queued, summary_queued, embedding_queued]
+      properties:
+        total_jobs:
+          type: integer
+          minimum: 0
+        ffmpeg_queued:
+          type: integer
+          minimum: 0
+        stt_queued:
+          type: integer
+          minimum: 0
+        summary_queued:
+          type: integer
+          minimum: 0
+        embedding_queued:
+          type: integer
+          minimum: 0
 
     JobRecord:
       type: object
