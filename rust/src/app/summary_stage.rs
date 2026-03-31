@@ -1,6 +1,6 @@
 use super::{
     StageJobDisposition, StageJobSubmission, SummaryRunSummary, artifacts, ensure_model_prepared,
-    now_rfc3339, queue, read_line, stages, submit_summary_embedding_job,
+    now_rfc3339, queue, read_line, stages,
 };
 use crate::audio_store::AudioStore;
 use crate::error::{AppError, AppResult};
@@ -203,12 +203,6 @@ pub fn execute_summary_job(
                     &auto_keywords,
                 )?,
             };
-            let _ = stages::submit_followup_task(
-                repo_root,
-                &completed.job_id,
-                TaskType::Embedding,
-                || submit_summary_embedding_job(repo_root, &completed.job_id),
-            );
             Ok(completed)
         }
         Err(error) => {
@@ -580,7 +574,7 @@ fn upgrade_queued_summary_request(
     })
 }
 
-fn summary_prerequisites_ready(
+pub(crate) fn summary_prerequisites_ready(
     index_store: &IndexStore,
     job_id: &str,
     job_dir: &Path,

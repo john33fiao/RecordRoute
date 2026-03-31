@@ -11,7 +11,7 @@ call :detect_arch
 if errorlevel 1 exit /b 1
 set "target_dir=windows-%platform_arch%"
 
-git -C "%repo_root%" submodule update --init --recursive
+call :ensure_bundled_sources
 if errorlevel 1 exit /b 1
 
 call "%repo_root%\scripts\build_ffmpeg.bat"
@@ -21,15 +21,15 @@ if errorlevel 1 exit /b 1
 call "%repo_root%\scripts\build_llama.bat"
 if errorlevel 1 exit /b 1
 
-call :require_artifact "%repo_root%\.build\ffmpeg\%target_dir%\install\bin\ffmpeg.exe" "ffmpeg binary"
+call :require_file "%repo_root%\.build\ffmpeg\%target_dir%\install\bin\ffmpeg.exe" "ffmpeg binary"
 if errorlevel 1 exit /b 1
-call :require_artifact "%repo_root%\.build\ffmpeg\%target_dir%\install\bin\ffprobe.exe" "ffprobe binary"
+call :require_file "%repo_root%\.build\ffmpeg\%target_dir%\install\bin\ffprobe.exe" "ffprobe binary"
 if errorlevel 1 exit /b 1
-call :require_artifact "%repo_root%\.build\whisper\%target_dir%\bin\whisper-cli.exe" "whisper-cli binary"
+call :require_file "%repo_root%\.build\whisper\%target_dir%\bin\whisper-cli.exe" "whisper-cli binary"
 if errorlevel 1 exit /b 1
-call :require_artifact "%repo_root%\.build\llama\%target_dir%\bin\llama-cli.exe" "llama-cli binary"
+call :require_file "%repo_root%\.build\llama\%target_dir%\bin\llama-cli.exe" "llama-cli binary"
 if errorlevel 1 exit /b 1
-call :require_artifact "%repo_root%\.build\llama\%target_dir%\bin\llama-embedding.exe" "llama-embedding binary"
+call :require_file "%repo_root%\.build\llama\%target_dir%\bin\llama-embedding.exe" "llama-embedding binary"
 if errorlevel 1 exit /b 1
 
 cargo build --manifest-path "%rust_manifest%" --release --bin recordroute --bin recordroute_server --bin recordroute_rust
@@ -61,10 +61,10 @@ if exist "%package_dir%\logs" (
   xcopy "%package_dir%\logs" "%next_dir%\logs" /E /I /Y >nul
 )
 
-if exist "%package_dir%\.env" (
-  copy /Y "%package_dir%\.env" "%next_dir%\.env" >nul
-) else if exist "%repo_root%\.env" (
+if exist "%repo_root%\.env" (
   copy /Y "%repo_root%\.env" "%next_dir%\.env" >nul
+) else if exist "%package_dir%\.env" (
+  copy /Y "%package_dir%\.env" "%next_dir%\.env" >nul
 ) else if exist "%repo_root%\.env.example" (
   copy /Y "%repo_root%\.env.example" "%next_dir%\.env" >nul
 )
@@ -96,30 +96,25 @@ if /I "%machine%"=="ARM64" set "platform_arch=aarch64"
 if not defined platform_arch set "platform_arch=%machine%"
 exit /b 0
 
-:require_artifact
-set "pattern=%~1"
-set "label=%~2"
-if exist "%pattern%" exit /b 0
->&2 echo missing %label% ^(pattern: %pattern%^)
+:ensure_bundled_sources
+if exist "%repo_root%\modules\ffmpeg" if exist "%repo_root%\modules\whisper.cpp" if exist "%repo_root%\modules\llama.cpp" exit /b 0
+git -C "%repo_root%" submodule update --init --recursive
+exit /b %errorlevel%
+
+:require_file
+set "required_path=%~1"
+set "required_label=%~2"
+if exist "%required_path%" exit /b 0
+>&2 echo missing %required_label%: %required_path%
 exit /b 1
 
 :touch_packaged_outputs
 set "touch_root=%~1"
 set "touch_target=%~2"
-for %%F in (
-  "%touch_root%\RecordRoute.exe"
-  "%touch_root%\RecordRouteServer.exe"
-  "%touch_root%\.build\ffmpeg\%touch_target%\install\bin\ffmpeg.exe"
-  "%touch_root%\.build\ffmpeg\%touch_target%\install\bin\ffprobe.exe"
-  "%touch_root%\.build\whisper\%touch_target%\bin\whisper-cli.exe"
-  "%touch_root%\.build\llama\%touch_target%\bin\llama-cli.exe"
-  "%touch_root%\.build\llama\%touch_target%\bin\llama-embedding.exe"
-) do (
-  if exist "%%~fF" (
-    set "RECORDROUTE_TOUCH_PATH=%%~fF"
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$path = [System.Environment]::GetEnvironmentVariable('RECORDROUTE_TOUCH_PATH'); if (-not $path) { exit 1 }; (Get-Item -LiteralPath $path).LastWriteTime = Get-Date" >nul
-    set "RECORDROUTE_TOUCH_PATH="
-  )
-  if errorlevel 1 exit /b 1
-)
+set "RECORDROUTE_TOUCH_ROOT=%touch_root%"
+set "RECORDROUTE_TOUCH_TARGET=%touch_target%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$root = [System.Environment]::GetEnvironmentVariable('RECORDROUTE_TOUCH_ROOT'); $target = [System.Environment]::GetEnvironmentVariable('RECORDROUTE_TOUCH_TARGET'); if (-not $root -or -not $target) { exit 1 }; $paths = @([System.IO.Path]::Combine($root, 'RecordRoute.exe'), [System.IO.Path]::Combine($root, 'RecordRouteServer.exe'), [System.IO.Path]::Combine($root, '.build', 'ffmpeg', $target, 'install', 'bin', 'ffmpeg.exe'), [System.IO.Path]::Combine($root, '.build', 'ffmpeg', $target, 'install', 'bin', 'ffprobe.exe'), [System.IO.Path]::Combine($root, '.build', 'whisper', $target, 'bin', 'whisper-cli.exe'), [System.IO.Path]::Combine($root, '.build', 'llama', $target, 'bin', 'llama-cli.exe'), [System.IO.Path]::Combine($root, '.build', 'llama', $target, 'bin', 'llama-embedding.exe')); foreach ($path in $paths) { if (Test-Path -LiteralPath $path -PathType Leaf) { (Get-Item -LiteralPath $path).LastWriteTime = Get-Date } }" >nul
+set "RECORDROUTE_TOUCH_ROOT="
+set "RECORDROUTE_TOUCH_TARGET="
+if errorlevel 1 exit /b 1
 exit /b 0

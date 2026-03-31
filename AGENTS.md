@@ -19,7 +19,8 @@
 - Whisper 래퍼: `rust/src/whisper.rs`
 - Llama(요약/임베딩) 래퍼: `rust/src/llama.rs`
 - 아키텍처 문서(최신 기준): `docs/architecture.md`
-- OpenAPI 명세: `docs/openapi.yaml`
+- API 기준 문서(에이전트 1차 기준): `docs/API_Doc.md`
+- OpenAPI 상세 명세(와이어 스키마/파생): `docs/openapi.yaml`
 - 과거 API TODO 기록: `docs/deprecated/API_TODO.md`
 
 ## 3) 실행/개발 기본 명령
@@ -42,9 +43,9 @@
   - `./setup.sh`
 
 ## 4) 작업 모델 이해
-- Job 상태(`JobStatus`): `running`, `completed`, `failed`
+- Job 상태(`JobStatus`): `queued`, `running`, `completed`, `failed`
 - Task 타입(`TaskType`): `ffmpeg`, `stt`, `summary`, `embedding`
-- Task 상태(`TaskStatus`): `running`, `completed`, `failed`
+- Task 상태(`TaskStatus`): `queued`, `running`, `completed`, `failed`
 - 제출 결과 disposition:
   - `Submitted`: 실제 실행 필요
   - `Reused`: 기존 산출물 재사용
@@ -72,6 +73,7 @@
   - 아니면 Hugging Face repo 문자열로 해석
 
 ## 7) API 작업 시 체크포인트
+- 세부 계약과 응답 필드는 `docs/API_Doc.md`를 먼저 확인하고, wire schema가 필요할 때 `docs/openapi.yaml`을 확인하세요.
 - 상태/모델 계열:
   - `/server/ping`
   - `/system/status`, `/models/status`

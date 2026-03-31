@@ -2,9 +2,9 @@ use super::backend::MetadataBackend;
 use super::postgres::PostgresMetadataStore;
 use super::sqlite::SqliteMetadataStore;
 use super::types::{
-    AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile, JobRecord,
-    JobStatus, ModelKind, ModelPreparationRecord, ModelPreparations, SummaryEmbeddingVectorRecord,
-    SummaryRecord, TaskQueueState, TaskType, TranscriptRecord,
+    AudioArtifactRecord, DictionaryKeywordSource, DictionaryKeywords, IndexFile, JobProbe,
+    JobRecord, JobResetSelection, JobStatus, ModelKind, ModelPreparationRecord, ModelPreparations,
+    SummaryEmbeddingVectorRecord, SummaryRecord, TaskQueueState, TaskType, TranscriptRecord,
 };
 use crate::audio_store::AudioStore;
 use crate::storage::{MetadataDriver, StorageConfig};
@@ -333,6 +333,32 @@ impl IndexStore {
         Ok(updated)
     }
 
+    pub fn reset_job_stages(
+        &self,
+        job_id: &str,
+        selection: JobResetSelection,
+        finished_at: String,
+        reset_message: &str,
+    ) -> Result<JobRecord, String> {
+        self.ensure_db_dir()?;
+        let selection = selection.normalized();
+        let mut index = self.read_index()?;
+        let updated = {
+            let job = index
+                .jobs
+                .iter_mut()
+                .find(|job| job.job_id == job_id)
+                .ok_or_else(|| format!("job not found in index: {job_id}"))?;
+            apply_job_reset(job, selection, finished_at, reset_message);
+            job.clone()
+        };
+        let mut normalized = index.clone();
+        normalized.task_queue.normalize_burst_limit();
+        self.backend()?
+            .write_index_with_job_reset(&normalized, job_id, selection)?;
+        Ok(updated)
+    }
+
     pub fn with_index_mut<T>(
         &self,
         mutate: impl FnOnce(&mut IndexFile) -> Result<T, String>,
@@ -368,7 +394,7 @@ impl IndexStore {
         let Some(merged) = job.outputs.merged_mono_wav.as_deref() else {
             return Ok(false);
         };
-        if job.outputs.split_mono_wavs.is_empty() {
+        if job.split_strategy.expects_split_outputs() && job.outputs.split_mono_wavs.is_empty() {
             return Ok(false);
         }
         let artifacts = self.list_audio_artifacts(&job.job_id)?;
@@ -378,6 +404,9 @@ impl IndexStore {
             .is_some_and(|artifact| self.source_path(&artifact.storage_key).is_file());
         if !merged_ok {
             return Ok(false);
+        }
+        if !job.split_strategy.expects_split_outputs() {
+            return Ok(true);
         }
         Ok(job.outputs.split_mono_wavs.iter().all(|output| {
             artifacts
@@ -403,5 +432,52 @@ impl IndexStore {
         self.audio_store
             .as_ref()
             .ok_or_else(|| "audio store is not initialized".to_string())
+    }
+}
+
+fn apply_job_reset(
+    job: &mut JobRecord,
+    selection: JobResetSelection,
+    finished_at: String,
+    reset_message: &str,
+) {
+    if selection.ffmpeg {
+        let reason = reset_message.to_string();
+        let _ = job.mark_failed(finished_at.clone(), reason);
+        job.outputs = Default::default();
+        job.probe = JobProbe::default();
+    }
+
+    if selection.stt {
+        mark_task_reset(job, TaskType::Stt, &finished_at, reset_message);
+        job.set_task_request_fingerprint(TaskType::Stt, None);
+    }
+
+    if selection.summary {
+        mark_task_reset(job, TaskType::Summary, &finished_at, reset_message);
+    }
+
+    if selection.embedding {
+        mark_task_reset(job, TaskType::Embedding, &finished_at, reset_message);
+        job.summary_embedding = None;
+    }
+}
+
+fn mark_task_reset(
+    job: &mut JobRecord,
+    task_type: TaskType,
+    finished_at: &str,
+    reset_message: &str,
+) {
+    let Some(task) = job
+        .tasks
+        .iter_mut()
+        .find(|task| task.task_type == task_type)
+    else {
+        return;
+    };
+    task.mark_failed(finished_at.to_string(), reset_message.to_string());
+    if task_type == TaskType::Stt {
+        task.request_fingerprint = None;
     }
 }

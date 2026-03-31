@@ -92,6 +92,7 @@ pub(crate) fn router_with_repo_root_and_upload_limits(
             delete(dictionary::delete_stt_dictionary_keyword),
         )
         .route("/jobs/{job_id}", get(jobs::get_job))
+        .route("/jobs/{job_id}/reset", post(jobs::post_job_reset))
         .route("/jobs/{job_id}/status", get(jobs::get_job_status))
         .route(
             "/jobs/{job_id}/stt",

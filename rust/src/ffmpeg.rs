@@ -63,6 +63,13 @@ impl ConversionOutputs {
         }
     }
 
+    pub fn merged_mono_only(job_dir: &Path) -> Self {
+        Self {
+            merged_mono_wav: job_dir.join("mono_mix.wav"),
+            split_mono_wavs: Vec::new(),
+        }
+    }
+
     pub fn cleanup_partial_files(&self) {
         for split in &self.split_mono_wavs {
             let _ = fs::remove_file(&split.path);
@@ -147,33 +154,48 @@ pub fn run_conversion(
         .arg(input)
         .arg("-vn")
         .arg("-sn")
-        .arg("-dn")
-        .arg("-filter_complex")
-        .arg(build_filter_complex(channels));
+        .arg("-dn");
 
-    for split in &outputs.split_mono_wavs {
+    if channels == 1 && outputs.split_mono_wavs.is_empty() {
         command
             .arg("-map")
-            .arg(format!("[split{:02}]", split.channel_index))
+            .arg("0:a:0")
             .arg("-c:a")
             .arg("pcm_s16le")
             .arg("-ar")
             .arg("16000")
             .arg("-ac")
             .arg("1")
-            .arg(&split.path);
-    }
+            .arg(&outputs.merged_mono_wav);
+    } else {
+        command
+            .arg("-filter_complex")
+            .arg(build_filter_complex(channels));
 
-    command
-        .arg("-map")
-        .arg("[mix]")
-        .arg("-c:a")
-        .arg("pcm_s16le")
-        .arg("-ar")
-        .arg("16000")
-        .arg("-ac")
-        .arg("1")
-        .arg(&outputs.merged_mono_wav);
+        for split in &outputs.split_mono_wavs {
+            command
+                .arg("-map")
+                .arg(format!("[split{:02}]", split.channel_index))
+                .arg("-c:a")
+                .arg("pcm_s16le")
+                .arg("-ar")
+                .arg("16000")
+                .arg("-ac")
+                .arg("1")
+                .arg(&split.path);
+        }
+
+        command
+            .arg("-map")
+            .arg("[mix]")
+            .arg("-c:a")
+            .arg("pcm_s16le")
+            .arg("-ar")
+            .arg("16000")
+            .arg("-ac")
+            .arg("1")
+            .arg(&outputs.merged_mono_wav);
+    }
 
     let output = command.output().map_err(|error| {
         format!(

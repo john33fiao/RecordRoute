@@ -32,6 +32,7 @@ copy_if_exists() {
   local src="$1"
   local dst="$2"
   if [[ -e "${src}" ]]; then
+    mkdir -p "$(dirname "${dst}")"
     cp -a "${src}" "${dst}"
   fi
 }
@@ -112,10 +113,10 @@ for preserve in db models logs; do
   fi
 done
 
-if [[ -f "${package_dir}/.env" ]]; then
-  cp -a "${package_dir}/.env" "${next_dir}/.env"
-elif [[ -f "${script_dir}/.env" ]]; then
+if [[ -f "${script_dir}/.env" ]]; then
   cp -a "${script_dir}/.env" "${next_dir}/.env"
+elif [[ -f "${package_dir}/.env" ]]; then
+  cp -a "${package_dir}/.env" "${next_dir}/.env"
 elif [[ -f "${script_dir}/.env.example" ]]; then
   cp -a "${script_dir}/.env.example" "${next_dir}/.env"
 fi

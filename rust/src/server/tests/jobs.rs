@@ -1,8 +1,8 @@
 use super::super::router_with_repo_root;
 use super::super::router_with_repo_root_and_upload_limits;
 use super::super::types::{
-    BatchQueueSubmissionResponse, ErrorResponse, JobListResponse, JobStatusResponse,
-    JobSubmissionResponse,
+    BatchQueueSubmissionResponse, ErrorResponse, JobListResponse, JobResetResponse,
+    JobStatusResponse, JobSubmissionResponse,
 };
 use super::support::*;
 use crate::index::{IndexStore, JobRecord, JobStatus, TaskType};
@@ -35,10 +35,234 @@ async fn post_jobs_batch_process_enqueues_unfinished_pipeline_tasks() {
     let body: BatchQueueSubmissionResponse = read_json(response).await;
     assert_eq!(body.total_jobs, 1);
     assert_eq!(body.ffmpeg_queued, 1);
+    assert_eq!(body.stt_queued, 1);
+    assert_eq!(body.summary_queued, 1);
+    assert_eq!(body.embedding_queued, 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_jobs_batch_process_target_stt_only_enqueues_completed_ffmpeg_jobs() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+
+    for index in 0..5 {
+        let job_id = format!("job-batch-stt-{index}");
+        let mut job = test_job(
+            &job_id,
+            "2026-01-01T00:00:00Z",
+            &format!("sources/{job_id}/source.wav"),
+            &format!("hash-{job_id}"),
+            &format!("{job_id}.wav"),
+        );
+        mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+            .expect("mark ffmpeg completed");
+        store.insert_job(job).expect("insert job");
+    }
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .clone()
+        .oneshot(post_json_request(
+            "/jobs/batch-process",
+            &serde_json::json!({ "target": "stt" }),
+        ))
+        .await
+        .expect("batch process response");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body: BatchQueueSubmissionResponse = read_json(response).await;
+    assert_eq!(body.total_jobs, 5);
+    assert_eq!(body.ffmpeg_queued, 0);
+    assert_eq!(body.stt_queued, 5);
+    assert_eq!(body.summary_queued, 0);
+    assert_eq!(body.embedding_queued, 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_jobs_batch_process_target_summary_returns_zero_when_prerequisites_missing() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let mut job = test_job(
+        "job-batch-summary-prereq",
+        "2026-01-01T00:00:00Z",
+        "sources/job-batch-summary-prereq/source.wav",
+        "hash-job-batch-summary-prereq",
+        "job-batch-summary-prereq.wav",
+    );
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark ffmpeg completed");
+    store.insert_job(job).expect("insert job");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .clone()
+        .oneshot(post_json_request(
+            "/jobs/batch-process",
+            &serde_json::json!({ "target": "summary" }),
+        ))
+        .await
+        .expect("batch process response");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body: BatchQueueSubmissionResponse = read_json(response).await;
+    assert_eq!(body.total_jobs, 1);
+    assert_eq!(body.ffmpeg_queued, 0);
     assert_eq!(body.stt_queued, 0);
     assert_eq!(body.summary_queued, 0);
     assert_eq!(body.embedding_queued, 0);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_jobs_batch_process_rejects_invalid_target() {
+    let repo_root = temp_workspace();
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(post_json_request(
+            "/jobs/batch-process",
+            &serde_json::json!({ "target": "invalid" }),
+        ))
+        .await
+        .expect("batch process response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: ErrorResponse = read_json(response).await;
+    assert_eq!(body.message, "invalid request body");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_job_reset_returns_400_when_no_stage_selected() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let mut job = test_job(
+        "job-reset-empty",
+        "2026-01-01T00:00:00Z",
+        "sources/job-reset-empty/source.wav",
+        "hash-job-reset-empty",
+        "job-reset-empty.wav",
+    );
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(post_json_request(
+            "/jobs/job-reset-empty/reset",
+            &serde_json::json!({}),
+        ))
+        .await
+        .expect("reset response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: ErrorResponse = read_json(response).await;
+    assert_eq!(
+        body.message,
+        "at least one stage must be selected for reset"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_job_reset_returns_400_when_any_job_is_queued_or_running() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let mut completed_job = test_job(
+        "job-reset-target",
+        "2026-01-01T00:00:00Z",
+        "sources/job-reset-target/source.wav",
+        "hash-job-reset-target",
+        "job-reset-target.wav",
+    );
+    mark_job_completed_with_audio(
+        &store,
+        &mut completed_job,
+        "2026-01-01T00:00:01Z",
+        &["mono_mix.wav"],
+    )
+    .expect("mark completed");
+    store
+        .insert_job(completed_job)
+        .expect("insert completed job");
+
+    let inflight_job = test_job(
+        "job-reset-inflight",
+        "2026-01-01T00:00:00Z",
+        "sources/job-reset-inflight/source.wav",
+        "hash-job-reset-inflight",
+        "job-reset-inflight.wav",
+    );
+    store.insert_job(inflight_job).expect("insert inflight job");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(post_json_request(
+            "/jobs/job-reset-target/reset",
+            &serde_json::json!({ "ffmpeg": true }),
+        ))
+        .await
+        .expect("reset response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: ErrorResponse = read_json(response).await;
+    assert_eq!(
+        body.message,
+        "job reset requires an empty queue and no queued/running tasks"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_job_reset_returns_404_for_missing_job() {
+    let repo_root = temp_workspace();
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(post_json_request(
+            "/jobs/missing/reset",
+            &serde_json::json!({ "summary": true }),
+        ))
+        .await
+        .expect("reset response");
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body: ErrorResponse = read_json(response).await;
+    assert!(body.message.contains("job not found: missing"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_job_reset_returns_updated_job_and_deleted_flags() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let mut job = test_job(
+        "job-reset-success",
+        "2026-01-01T00:00:00Z",
+        "sources/job-reset-success/source.wav",
+        "hash-job-reset-success",
+        "job-reset-success.wav",
+    );
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+
+    let app = router_with_repo_root(repo_root.clone());
+    let response = app
+        .oneshot(post_json_request(
+            "/jobs/job-reset-success/reset",
+            &serde_json::json!({ "ffmpeg": true }),
+        ))
+        .await
+        .expect("reset response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: JobResetResponse = read_json(response).await;
+    assert_eq!(body.job_id, "job-reset-success");
+    assert_eq!(body.message, "job stages reset");
+    assert!(body.deleted.ffmpeg);
+    assert!(!body.deleted.summary);
+    assert_eq!(body.job.status, JobStatus::Failed);
+    assert!(
+        IndexStore::new(&repo_root)
+            .list_audio_artifacts("job-reset-success")
+            .expect("list artifacts")
+            .is_empty()
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn post_jobs_returns_accepted_then_job_transitions_to_completed() {
     let _guard = env_lock()
@@ -98,6 +322,8 @@ async fn post_jobs_returns_accepted_then_job_transitions_to_completed() {
     let completed = wait_for_job_completion(&app, &submitted.job_id).await;
 
     assert_eq!(completed.status, JobStatus::Completed);
+    assert_eq!(completed.tasks.len(), 1);
+    assert_eq!(completed.tasks[0].task_type, TaskType::Ffmpeg);
     assert_eq!(completed.probe.channels, Some(2));
     let store = IndexStore::new(&repo_root);
     let job_dir = store.job_dir(&completed.job_id);
@@ -159,6 +385,8 @@ async fn post_jobs_upload_accepts_file_and_stores_content_hashed_path() {
     fs::remove_file(&gate).expect("remove gate");
     let completed = wait_for_job_completion(&app, &submitted.job_id).await;
     assert_eq!(completed.status, JobStatus::Completed);
+    assert_eq!(completed.tasks.len(), 1);
+    assert_eq!(completed.tasks[0].task_type, TaskType::Ffmpeg);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -555,6 +783,15 @@ async fn get_jobs_completed_returns_only_completed_jobs() {
     assert_eq!(body.jobs.len(), 1);
     assert_eq!(body.jobs[0].job_id, "job-completed");
     assert_eq!(body.jobs[0].status, JobStatus::Completed);
+    assert_eq!(
+        body.jobs[0].split_strategy,
+        crate::index::SplitStrategy::MergedMonoOnly
+    );
+    assert_eq!(
+        body.jobs[0].outputs.merged_mono_wav.as_deref(),
+        Some("mono_mix.wav")
+    );
+    assert!(body.jobs[0].outputs.split_mono_wavs.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

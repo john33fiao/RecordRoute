@@ -16,6 +16,20 @@ pub struct IndexFile {
     pub jobs: Vec<JobRecord>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct JobResetSelection {
+    #[serde(default)]
+    pub all: bool,
+    #[serde(default)]
+    pub ffmpeg: bool,
+    #[serde(default)]
+    pub stt: bool,
+    #[serde(default)]
+    pub summary: bool,
+    #[serde(default)]
+    pub embedding: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct JobRecord {
     pub job_id: String,
@@ -320,6 +334,21 @@ pub struct TaskRecord {
 #[serde(rename_all = "snake_case")]
 pub enum SplitStrategy {
     PerChannelPlusMergedMono,
+    MergedMonoOnly,
+}
+
+impl SplitStrategy {
+    pub fn from_channels(channels: u32) -> Self {
+        if channels == 1 {
+            Self::MergedMonoOnly
+        } else {
+            Self::PerChannelPlusMergedMono
+        }
+    }
+
+    pub fn expects_split_outputs(&self) -> bool {
+        matches!(self, Self::PerChannelPlusMergedMono)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -350,6 +379,26 @@ impl IndexFile {
             task_queue: TaskQueueState::default(),
             jobs: Vec::new(),
         }
+    }
+}
+
+impl JobResetSelection {
+    pub fn normalized(self) -> Self {
+        if self.all {
+            Self {
+                all: true,
+                ffmpeg: true,
+                stt: true,
+                summary: true,
+                embedding: true,
+            }
+        } else {
+            Self { all: false, ..self }
+        }
+    }
+
+    pub fn any_selected(self) -> bool {
+        self.ffmpeg || self.stt || self.summary || self.embedding
     }
 }
 

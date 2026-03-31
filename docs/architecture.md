@@ -124,8 +124,8 @@ ffmpeg 결과 오디오는 오디오 루트 아래 job별 디렉터리에 저장
 예시:
 
 - `audio/jobs/<job_id>/mono_mix.wav`
-- `audio/jobs/<job_id>/channel_01.wav`
-- `audio/jobs/<job_id>/channel_02.wav`
+- `audio/jobs/<job_id>/channel_01.wav` (multi-channel input only)
+- `audio/jobs/<job_id>/channel_02.wav` (multi-channel input only)
 
 메타DB에는 실제 절대 경로 대신 logical file name과 storage key를 기록한다.
 
@@ -138,6 +138,8 @@ ffmpeg 결과 오디오는 오디오 루트 아래 job별 디렉터리에 저장
 3. 같은 hash의 queued/running job이 있으면 `Deduplicated`
 4. 아니면 새 job을 만들고 `ffmpeg` queue에 넣는다.
 5. 실행 시 source를 cache로 materialize하고 `ffprobe`, `ffmpeg`를 실행한다.
+   - 입력이 1채널이면 `mono_mix.wav`만 만든다.
+   - 입력이 2채널 이상이면 채널별 mono wav와 `mono_mix.wav`를 함께 만든다.
 6. 결과 오디오는 오디오 루트에 남고, 메타DB에 `audio_artifacts`와 job 상태를 기록한다.
 
 ### 6.2 stt
@@ -169,6 +171,15 @@ ffmpeg 결과 오디오는 오디오 루트 아래 job별 디렉터리에 저장
 
 검색은 현재 DB 내부 벡터 인덱스가 아니라 Rust 쪽 cosine similarity 계산으로 수행한다.
 
+### 6.5 stage reset
+
+1. `POST /jobs/{job_id}/reset`은 기존 job/source를 유지한 채 선택한 stage 산출물만 삭제한다.
+2. `all`은 `ffmpeg/stt/summary/embedding` 전체를 선택하는 마스터 플래그다.
+3. reset은 전역 queue가 비어 있고 어떤 job에도 `queued`/`running` task가 없을 때만 허용된다.
+4. ffmpeg reset은 `audio/jobs/<job_id>` 산출물과 `audio_artifacts`를 제거하고, stt/summary reset은 spool 디렉터리와 DB row를 지운다.
+5. reset된 task/job 상태는 새 enum 없이 기존 `failed` + `reset by user`로 기록한다.
+6. 삭제하지 않은 downstream 산출물은 그대로 유지하며, summary와 어긋난 stale embedding은 검색 결과에서 제외한다.
+
 ## 7. 큐와 상태 전이
 
 큐 category는 다음 네 가지다.
@@ -196,6 +207,7 @@ Job/Task 상태는 항상 메타DB와 함께 갱신된다.
 - `/jobs/by-source`는 제거되었다.
 - Job 응답에는 `source_ref`, `source_kind`, `source_content_sha256`가 포함된다.
 - `job_dir`, `source_path`는 API에서 제거되었다.
+- `POST /jobs/{job_id}/reset`은 stage별 산출물 삭제와 재작업 reset을 수행한다.
 - `/jobs/{job_id}/files`는 logical artifact 목록을 반환한다.
 - `/jobs/{job_id}/files/{*file_name}`는 저장 위치를 숨기고 오디오/DB 텍스트를 합성해서 반환한다.
 
@@ -215,3 +227,4 @@ Job/Task 상태는 항상 메타DB와 함께 갱신된다.
 - logical artifact 목록
 
 `job_dir` 같은 내부 저장 경로는 더 이상 UI에 표시하지 않는다.
+JOBS 패널 헤더에는 `작업 삭제` 버튼이 있으며, 모달에서 `전체`, `오디오 분리`, `전사`, `요약`, `임베딩` 체크박스를 선택해 정확히 해당 stage만 reset할 수 있다.

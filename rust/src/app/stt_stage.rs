@@ -1,6 +1,6 @@
 use super::{
     StageJobDisposition, StageJobSubmission, SttRunSummary, SttTranscriptOutput, artifacts,
-    dictionary, ensure_model_prepared, now_rfc3339, queue, read_line, stages, submit_summary_job,
+    dictionary, ensure_model_prepared, now_rfc3339, queue, read_line, stages,
 };
 use crate::audio_store::AudioStore;
 use crate::error::{AppError, AppResult};
@@ -180,17 +180,7 @@ pub fn execute_stt_job(
     })();
 
     match result {
-        Ok(()) => {
-            let completed =
-                stages::finalize_task_success(repo_root, job, TaskType::Stt, now_rfc3339()?)?;
-            let _ = stages::submit_followup_task(
-                repo_root,
-                &completed.job_id,
-                TaskType::Summary,
-                || submit_summary_job(repo_root, &completed.job_id, false),
-            );
-            Ok(completed)
-        }
+        Ok(()) => stages::finalize_task_success(repo_root, job, TaskType::Stt, now_rfc3339()?),
         Err(error) => {
             stages::finalize_task_failure(
                 repo_root,

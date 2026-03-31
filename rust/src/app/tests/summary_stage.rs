@@ -129,6 +129,8 @@ fn run_summary_processes_transcript_files_in_selected_job_dir() {
         persisted_summary.one_line_summary.as_deref(),
         Some("synthetic one-line summary")
     );
+    let persisted_job = store.find_job("job-1").expect("find job").expect("job");
+    assert!(persisted_job.task(TaskType::Embedding).is_none());
     let stored_keywords = store
         .list_stt_dictionary_keywords()
         .expect("stored auto keywords");
@@ -158,9 +160,7 @@ fn run_summary_processes_transcript_files_in_selected_job_dir() {
     assert!(llama_log.contains("ggml-org/gemma-3-4b-it-GGUF"));
     assert!(llama_log.contains("HF_TOKEN=summary-token"));
 
-    let embedding_log = fs::read_to_string(embedding_log).expect("embedding log");
-    assert!(embedding_log.contains("-hf"));
-    assert!(embedding_log.contains("Qwen/Qwen3-Embedding-4B-GGUF"));
+    assert!(!embedding_log.exists());
 }
 
 #[test]
@@ -351,8 +351,7 @@ fn run_summary_uses_local_model_path_when_file_exists() {
     assert!(llama_log.contains(model_path.to_string_lossy().as_ref()));
     assert!(!llama_log.contains("-hf"));
 
-    let embedding_log = fs::read_to_string(embedding_log).expect("embedding log");
-    assert!(embedding_log.contains("-hf"));
+    assert!(!embedding_log.exists());
 }
 
 #[test]
@@ -454,6 +453,8 @@ fn force_regenerate_rebuilds_summary_and_one_line_summary_together() {
         persisted_summary.one_line_summary.as_deref(),
         Some("synthetic one-line summary")
     );
+    let persisted_job = store.find_job("job-1").expect("find job").expect("job");
+    assert!(persisted_job.task(TaskType::Embedding).is_none());
 }
 
 #[test]

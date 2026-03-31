@@ -8,226 +8,521 @@
   </head>
   <body>
     <div class="page-shell">
-      <header class="page-header">
-        <div class="header-copy">
-          <p class="eyebrow">RecordRoute</p>
-          <h1>Web Console</h1>
-          <p class="header-summary">
-            업로드부터 STT, 요약, embedding, 검색, 파일 다운로드까지 현재 서버 기능을 한
-            화면에서 다룹니다.
-          </p>
+      <header class="surface shell-card app-shell">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">
+            <span></span>
+          </div>
+          <div class="brand-copy">
+            <h1>RecordRoute Web Console</h1>
+            <p>성을 회의록으로, STT·요약·임베딩·RAG 질의 지원까지 일원화.</p>
+          </div>
         </div>
-        <div class="header-meta">
-          <p class="meta-label">Server</p>
-          <p class="meta-value">127.0.0.1:38080</p>
-          <p class="meta-caption" id="global-caption">
-            Same-origin static shell on top of the existing axum API.
-          </p>
-        </div>
+        <button class="ghost-button shell-button" id="settings-open-button" type="button">
+          Settings
+        </button>
       </header>
 
-      <main class="layout">
-        <section class="panel" id="system-panel">
-          <div class="panel-head">
-            <div>
-              <p class="panel-kicker">System / Models</p>
-              <h2>런타임과 모델 준비 상태</h2>
-            </div>
-            <button class="ghost-button" id="system-refresh-button" type="button">새로고침</button>
-          </div>
-          <div class="notice" id="system-message" aria-live="polite"></div>
-          <div class="system-grid" id="system-grid"></div>
-          <div class="model-grid" id="model-grid"></div>
-        </section>
+      <nav class="surface tab-shell" aria-label="Primary">
+        <button class="tab-button" data-tab="upload" type="button" aria-selected="true">
+          Upload
+        </button>
+        <button class="tab-button" data-tab="jobs" type="button" aria-selected="false">Jobs</button>
+        <button class="tab-button" data-tab="search" type="button" aria-selected="false">
+          Search
+        </button>
+        <button class="tab-button" data-tab="queue" type="button" aria-selected="false">Queue</button>
+        <button class="tab-button" data-tab="dictionary" type="button" aria-selected="false">
+          Dictionary
+        </button>
+      </nav>
 
-        <section class="panel" id="upload-panel">
-          <div class="panel-head">
-            <div>
-              <p class="panel-kicker">Upload</p>
-              <h2>오디오 업로드로 새 Job 생성</h2>
-            </div>
-          </div>
+      <main class="tab-panels">
+        <section class="tab-panel" data-tab-panel="upload" id="upload-tab-panel">
           <div class="notice" id="upload-message" aria-live="polite"></div>
-          <form class="upload-form" id="upload-form">
-            <div class="field">
-              <span>Audio File</span>
-              <label class="upload-dropzone" id="upload-dropzone">
-                <input id="upload-input" name="file" type="file" accept=".wav,.mp3,.flac,.ogg,.m4a,.aac,.opus,audio/*" multiple required />
-                <strong>파일을 여기로 드래그 앤 드롭</strong>
-                <p>또는 클릭해서 여러 파일 선택 (오디오만 대기열 추가)</p>
-              </label>
-            </div>
-            <div class="field">
-              <span>Upload Queue</span>
-              <div class="upload-queue" id="upload-queue">
-                <p class="muted">대기열이 비어 있습니다.</p>
+          <div class="upload-grid">
+            <section class="surface section-card" id="upload-panel">
+              <div class="section-heading">
+                <div>
+                  <p class="section-kicker">Upload</p>
+                  <h2>Upload Audio File</h2>
+                  <p class="section-copy">음성 파일을 업로드하여 텍스트 변환, 요약, 임베딩 작업을 순차적으로 진행할 수 있습니다.</p>
+                </div>
               </div>
-            </div>
-            <div class="button-row">
-              <button class="primary-button" id="upload-submit-button" type="submit">업로드</button>
-              <button class="ghost-button" id="batch-process-button" type="button">일괄처리 시작</button>
-              <button class="warning-button" id="queue-cancel-button" type="button">일괄 취소</button>
-            </div>
-          </form>
-        </section>
-
-        <section class="panel" id="jobs-panel">
-          <div class="panel-head">
-            <div>
-              <p class="panel-kicker">Jobs</p>
-              <h2>작업 목록</h2>
-            </div>
-            <button class="ghost-button" id="jobs-refresh-button" type="button">목록 새로고침</button>
-          </div>
-          <div class="notice" id="jobs-message" aria-live="polite"></div>
-          <ul class="jobs-list" id="jobs-list"></ul>
-        </section>
-
-        <section class="panel panel-wide" id="selected-job-panel">
-          <div class="panel-head">
-            <div>
-              <p class="panel-kicker">Selected Job</p>
-              <h2 id="selected-job-title">선택된 Job 없음</h2>
-            </div>
-            <button class="ghost-button" id="selected-job-refresh-button" type="button">상세 새로고침</button>
-          </div>
-          <div class="notice" id="selected-job-message" aria-live="polite"></div>
-
-          <div class="subgrid">
-            <section class="subpanel">
-              <h3>개요</h3>
-              <dl class="kv-list" id="job-overview"></dl>
-              <div class="task-list" id="job-tasks"></div>
-            </section>
-
-            <section class="subpanel">
-              <div class="subpanel-head">
-                <h3>STT</h3>
-                <button class="primary-button" id="stt-submit-button" type="button">STT 실행</button>
-              </div>
-              <div class="inline-status" id="stt-status"></div>
-              <form class="stack" id="stt-form">
-                <label class="choice">
-                  <input type="radio" name="stt-mode" value="all" checked />
-                  <span>전체 audio 파일</span>
+              <form class="upload-form" id="upload-form">
+                <label class="upload-dropzone" id="upload-dropzone">
+                  <input
+                    id="upload-input"
+                    name="file"
+                    type="file"
+                    accept=".wav,.mp3,.flac,.ogg,.m4a,.aac,.opus,.qta,audio/*"
+                    multiple
+                    required
+                  />
+                  <strong>파일을 여기로 드래그 앤 드롭</strong>
+                  <p>또는 클릭해서 여러 파일 선택</p>
+                  <span>지원 형식: wav, mp3, flac, ogg, m4a, aac, opus, qta</span>
                 </label>
-                <label class="choice">
-                  <input type="radio" name="stt-mode" value="mono" />
-                  <span><code>mono_mix.wav</code>만</span>
-                </label>
-                <label class="choice">
-                  <input type="radio" name="stt-mode" value="selected" />
-                  <span>선택한 audio만</span>
-                </label>
-                <div class="checkbox-grid" id="stt-audio-options"></div>
               </form>
-              <div class="content-view" id="transcripts-view"></div>
             </section>
 
-            <section class="subpanel">
-              <div class="subpanel-head">
-                <h3>Summary</h3>
-                <button class="primary-button" id="summary-submit-button" type="button">요약 실행</button>
+            <section class="surface section-card" id="upload-queue-panel">
+              <div class="section-heading">
+                <div>
+                  <p class="section-kicker">Upload Queue</p>
+                  <h2>Upload Queue</h2>
+                  <p class="section-copy">업도드중인 파일 상태를 확인할 수 있습니다.</p>
+                </div>
               </div>
-              <label class="choice compact">
-                <input type="checkbox" id="summary-force-checkbox" />
-                <span>기존 결과가 있어도 강제 재생성</span>
+              <div class="upload-queue" id="upload-queue"></div>
+            </section>
+
+            <section class="surface section-card batch-card" id="batch-panel">
+              <div class="section-heading">
+                <div>
+                  <p class="section-kicker">Batch Process Controls</p>
+                  <h2>Batch Process Controls</h2>
+                  <p class="section-copy">전체 작업을 한꺼번  시작/종료할 수 있습니다.</p>
+                </div>
+              </div>
+              <div class="batch-controls-stack">
+                <div class="batch-controls">
+                  <label class="field compact-field" for="batch-process-target">
+                    <span>일괄처리 대상</span>
+                    <div class="select-shell">
+                      <select id="batch-process-target" name="batch-process-target">
+                        <option value="all" selected>전체 작업</option>
+                        <option value="ffmpeg">오디오 분리</option>
+                        <option value="stt">전사</option>
+                        <option value="summary">요약</option>
+                        <option value="embedding">임베딩</option>
+                      </select>
+                    </div>
+                  </label>
+                  <div class="button-row button-row-compact">
+                    <button
+                      class="primary-button"
+                      id="upload-submit-button"
+                      type="submit"
+                      form="upload-form"
+                    >
+                      업로드
+                    </button>
+                    <button class="ghost-button" id="batch-process-button" type="button">
+                      일괄처리 시작
+                    </button>
+                    <button class="danger-button" id="queue-cancel-button" type="button">
+                      일괄 취소
+                    </button>
+                  </div>
+                </div>
+                <div class="batch-controls batch-controls-danger">
+                  <label class="field compact-field" for="batch-delete-target">
+                    <span>일괄삭제 대상</span>
+                    <div class="select-shell">
+                      <select id="batch-delete-target" name="batch-delete-target">
+                        <option value="stt" selected>전사</option>
+                        <option value="summary">요약</option>
+                        <option value="embedding">임베딩</option>
+                      </select>
+                    </div>
+                  </label>
+                  <div class="button-row button-row-compact">
+                    <button class="danger-button" id="batch-delete-button" type="button">
+                      일괄 삭제
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="jobs" id="jobs-tab-panel" hidden>
+          <section class="surface section-card jobs-shell" id="jobs-shell">
+            <div class="notice" id="jobs-message" aria-live="polite"></div>
+            <div class="jobs-layout">
+              <section class="subsurface jobs-rail" id="jobs-panel">
+                <div class="jobs-rail-head">
+                  <div class="jobs-rail-copy">
+                    <p class="section-kicker">Jobs</p>
+                    <h2>Jobs</h2>
+                    <p class="jobs-rail-count" id="jobs-total-count">0 total jobs</p>
+                  </div>
+                  <div class="section-actions">
+                    <button class="ghost-button" id="jobs-refresh-button" type="button">목록 새로고침</button>
+                    <button class="ghost-button" id="jobs-collapse-toggle" type="button" hidden aria-hidden="true" tabindex="-1"></button>
+                  </div>
+                </div>
+                <div class="jobs-rail-body">
+                  <ul class="jobs-list" id="jobs-list"></ul>
+                </div>
+              </section>
+
+              <section class="jobs-detail-column" id="selected-job-panel">
+                <div class="notice" id="selected-job-message" aria-live="polite"></div>
+
+                <section class="subsurface selected-job-card selected-job-hero" id="selected-job-hero">
+                  <div class="selected-job-heading">
+                    <div class="selected-job-copy">
+                      <p class="section-kicker">Selected Job</p>
+                      <h2 id="selected-job-title">선택된 Job 없음</h2>
+                      <p class="selected-job-summary" id="selected-job-summary">
+                        왼쪽 목록에서 Job을 선택하면 selected job summary와 stage 상태가 여기에 표시됩니다.
+                      </p>
+                      <p class="selected-job-meta" id="selected-job-meta">job id, timestamps, source metadata</p>
+                    </div>
+                    <div class="selected-job-actions">
+                      <div class="selected-job-status" id="selected-job-status"></div>
+                      <div class="selected-job-action-row">
+                        <button class="danger-button danger-button-subtle" id="jobs-delete-button" type="button">
+                          작업 삭제
+                        </button>
+                        <button class="ghost-button" id="selected-job-refresh-button" type="button">
+                          상세 새로고침
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <div class="job-stage-strip" id="job-tasks"></div>
+
+                <div class="job-detail-grid">
+                  <div class="job-primary-column">
+                    <section class="subsurface transcript-panel" id="stt-panel">
+                      <div class="subsurface-head">
+                        <div>
+                          <p class="section-kicker">STT Transcript</p>
+                          <h3>STT Transcript</h3>
+                          <p class="subsurface-copy">audio subset 선택, 진행 상태, preview transcript</p>
+                        </div>
+                        <button class="primary-button" id="stt-submit-button" type="button">STT 실행</button>
+                      </div>
+                      <div class="inline-status" id="stt-status"></div>
+                      <form class="stt-form" id="stt-form">
+                        <div class="segmented-control">
+                          <label class="segmented-option">
+                            <input type="radio" name="stt-mode" value="all" checked />
+                            <span>전체</span>
+                          </label>
+                          <label class="segmented-option">
+                            <input type="radio" name="stt-mode" value="mono" />
+                            <span><code>mono_mix.wav</code>만</span>
+                          </label>
+                          <label class="segmented-option">
+                            <input type="radio" name="stt-mode" value="selected" />
+                            <span>선택한 audio만</span>
+                          </label>
+                        </div>
+                        <div class="stt-audio-selector" id="stt-audio-selector" hidden>
+                          <p class="field-hint">선택한 logical audio file만 전사 대상으로 보냅니다.</p>
+                          <div class="jobs-chip-grid" id="stt-audio-options"></div>
+                        </div>
+                      </form>
+                      <div class="content-view preview-box" id="transcripts-view"></div>
+                    </section>
+
+                    <section class="subsurface summary-panel" id="summary-panel">
+                      <div class="subsurface-head">
+                        <div>
+                          <p class="section-kicker">Summary</p>
+                          <h3>Summary</h3>
+                          <p class="subsurface-copy">강제 재생성과 summary preview</p>
+                        </div>
+                        <button class="primary-button" id="summary-submit-button" type="button">요약 실행</button>
+                      </div>
+                      <label class="choice choice-inline summary-choice">
+                        <input type="checkbox" id="summary-force-checkbox" />
+                        <span>기존 결과가 있어도 강제 재생성</span>
+                      </label>
+                      <div class="inline-status" id="summary-status"></div>
+                      <div class="content-view preview-box" id="summary-text-view"></div>
+                    </section>
+                  </div>
+
+                  <div class="job-secondary-column">
+                    <section class="subsurface" id="job-overview-panel">
+                      <div class="subsurface-head">
+                        <div>
+                          <p class="section-kicker">Overview</p>
+                          <h3>Overview</h3>
+                          <p class="subsurface-copy">job metadata and current source context</p>
+                        </div>
+                      </div>
+                      <dl class="kv-list kv-list-compact" id="job-overview"></dl>
+                    </section>
+
+                    <section class="subsurface embedding-panel" id="embedding-panel">
+                      <div class="subsurface-head">
+                        <div>
+                          <p class="section-kicker">Embedding</p>
+                          <h3>Embedding</h3>
+                          <p class="subsurface-copy">summary 검색용 metadata와 상태</p>
+                        </div>
+                        <button class="ghost-button" id="embedding-submit-button" type="button">
+                          Embedding 생성
+                        </button>
+                      </div>
+                      <div class="inline-status" id="embedding-status"></div>
+                      <dl class="kv-list kv-list-compact" id="embedding-metadata"></dl>
+                    </section>
+
+                    <section class="subsurface files-panel" id="files-panel">
+                      <div class="subsurface-head">
+                        <div>
+                          <p class="section-kicker">Files</p>
+                          <h3>Files</h3>
+                          <p class="subsurface-copy">logical artifacts and downloads</p>
+                        </div>
+                      </div>
+                      <div class="file-list" id="files-view"></div>
+                    </section>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </section>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="search" id="search-tab-panel" hidden>
+          <section class="surface section-card" id="search-panel">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Search</p>
+                <h2>Semantic Search</h2>
+                <p class="section-copy">텍스트 변환 및 임베딩 작업이 완료된 오디오파일을 대상으로, 키워드 유사도 중심 검색이 가능합니다.</p>
+              </div>
+            </div>
+            <div class="notice" id="search-message" aria-live="polite"></div>
+            <form class="search-form" id="search-form">
+              <label class="field field-wide">
+                <span>Query</span>
+                <input
+                  id="search-query-input"
+                  name="query"
+                  type="text"
+                  placeholder="찾고 싶은 회의 내용 또는 핵심 문장을 입력"
+                  required
+                />
               </label>
-              <div class="inline-status" id="summary-status"></div>
-              <pre class="content-view text-view" id="summary-text-view"></pre>
-            </section>
+              <label class="field">
+                <span>Limit</span>
+                <input id="search-limit-input" name="limit" type="number" min="1" max="50" value="10" />
+              </label>
+              <label class="field">
+                <span>Min Score</span>
+                <input
+                  id="search-min-score-input"
+                  name="min_score"
+                  type="number"
+                  min="-1"
+                  max="1"
+                  step="0.01"
+                  placeholder="optional"
+                />
+              </label>
+              <button class="primary-button" id="search-submit-button" type="submit">검색</button>
+            </form>
+            <div class="results-table" id="search-results"></div>
+          </section>
+        </section>
 
-            <section class="subpanel">
-              <div class="subpanel-head">
-                <h3>Embedding</h3>
-                <button class="primary-button" id="embedding-submit-button" type="button">Embedding 생성</button>
+        <section class="tab-panel" data-tab-panel="queue" id="queue-tab-panel" hidden>
+          <section class="surface section-card" id="queue-panel">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Queue</p>
+                <h2>Processing Queue</h2>
+                <p class="section-copy" id="queue-caption">
+                  전역 큐의 남은 작업과 일괄처리로 미리 등록된 후속 단계를 칸반보드에서 확인합니다.
+                </p>
               </div>
-              <div class="inline-status" id="embedding-status"></div>
-              <dl class="kv-list" id="embedding-metadata"></dl>
-            </section>
-
-            <section class="subpanel">
-              <h3>Files</h3>
-              <div class="file-list" id="files-view"></div>
-            </section>
-          </div>
+              <div class="section-actions">
+                <button class="ghost-button" id="queue-pause-button" type="button">일시정지</button>
+                <button class="ghost-button" id="queue-refresh-button" type="button">큐 새로고침</button>
+              </div>
+            </div>
+            <div class="notice" id="queue-message" aria-live="polite"></div>
+            <div class="queue-board" id="queue-board"></div>
+          </section>
         </section>
 
-        <section class="panel panel-wide" id="search-panel">
-          <div class="panel-head">
-            <div>
-              <p class="panel-kicker">Search</p>
-              <h2>Summary Similarity Search</h2>
+        <section class="tab-panel" data-tab-panel="dictionary" id="dictionary-tab-panel" hidden>
+          <section class="surface section-card" id="dictionary-panel">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Dictionary</p>
+                <h2>Custom Dictionary</h2>
+                <p class="section-copy">
+                  오디오-텍스트 변환 정확도를 높이기 위해, 주로 사용되는 키워드를 관리할 수 있습니다.
+                  사용자가 직접 키워드를 추가하거나, 요약 작업 완료 후 추천된 키워드를 가져와서 사용할 수 있습니다.
+                </p>
+              </div>
+              <button class="ghost-button" id="dictionary-refresh-button" type="button">
+                키워드 새로고침
+              </button>
             </div>
-          </div>
-          <div class="notice" id="search-message" aria-live="polite"></div>
-          <form class="search-form" id="search-form">
-            <label class="field field-wide">
-              <span>Query</span>
-              <input id="search-query-input" name="query" type="text" placeholder="찾고 싶은 회의 내용 또는 핵심 문장을 입력" required />
-            </label>
-            <label class="field">
-              <span>Limit</span>
-              <input id="search-limit-input" name="limit" type="number" min="1" max="50" value="10" />
-            </label>
-            <label class="field">
-              <span>Min Score</span>
-              <input id="search-min-score-input" name="min_score" type="number" min="-1" max="1" step="0.01" placeholder="optional" />
-            </label>
-            <button class="primary-button" id="search-submit-button" type="submit">검색</button>
-          </form>
-          <div class="results-table" id="search-results"></div>
-        </section>
-
-        <section class="panel panel-wide" id="queue-panel">
-          <div class="panel-head">
-            <div>
-              <p class="panel-kicker">Queue</p>
-              <h2>카테고리별 작업 큐</h2>
-              <p class="panel-caption" id="queue-caption">
-                전역 큐의 남은 작업을 칸반보드로 보고, 현재 실행 중인 카테고리를 열 단위로 확인합니다.
-              </p>
-            </div>
-            <div class="panel-actions">
-              <button class="ghost-button" id="queue-pause-button" type="button">일시정지</button>
-              <button class="ghost-button" id="queue-refresh-button" type="button">큐 새로고침</button>
-            </div>
-          </div>
-          <div class="notice" id="queue-message" aria-live="polite"></div>
-          <div class="queue-board" id="queue-board"></div>
-        </section>
-
-        <section class="panel panel-wide" id="dictionary-panel">
-          <div class="panel-head dictionary-head">
-            <div>
-              <p class="panel-kicker">Dictionary</p>
-              <h2>주요 키워드</h2>
-              <p class="panel-caption">
-                사용자가 직접 등록한 키워드만 STT 실행 시 Whisper 초기 프롬프트에 자동 주입됩니다.
-                자동 생성 키워드는 후보 목록으로만 관리됩니다.
-              </p>
-            </div>
-            <button class="ghost-button" id="dictionary-refresh-button" type="button">키워드 새로고침</button>
-          </div>
-          <div class="notice" id="dictionary-message" aria-live="polite"></div>
-          <form class="dictionary-form" id="dictionary-form">
-            <label class="field field-wide">
-              <span>Keyword</span>
-              <input
-                id="dictionary-input"
-                name="keyword"
-                type="text"
-                placeholder="예: RecordRoute, Dooray, 김현수"
-                autocomplete="off"
-              />
-            </label>
-            <button class="primary-button" id="dictionary-submit-button" type="submit">확인</button>
-          </form>
-          <div class="dictionary-list" id="dictionary-list"></div>
+            <div class="notice" id="dictionary-message" aria-live="polite"></div>
+            <form class="dictionary-form" id="dictionary-form">
+              <label class="field field-wide">
+                <span>Keyword</span>
+                <input
+                  id="dictionary-input"
+                  name="keyword"
+                  type="text"
+                  placeholder="예: RecordRoute, Dooray, 김현수"
+                  autocomplete="off"
+                />
+              </label>
+              <button class="primary-button" id="dictionary-submit-button" type="submit">확인</button>
+            </form>
+            <div class="dictionary-list" id="dictionary-list"></div>
+          </section>
         </section>
       </main>
     </div>
 
+    <div class="modal-shell" id="settings-modal" hidden>
+      <div class="modal-backdrop" data-settings-close></div>
+      <section class="modal-dialog modal-dialog-large" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="modal-head">
+          <div>
+            <p class="section-kicker">System Settings</p>
+            <h2 id="settings-title">System Settings</h2>
+            <p class="modal-copy">server summary + runtime readiness + model preparation</p>
+          </div>
+          <div class="section-actions">
+            <button class="ghost-button" id="system-refresh-button" type="button">Refresh</button>
+            <button class="ghost-button modal-close" id="settings-close-button" type="button" data-settings-close>
+              닫기
+            </button>
+          </div>
+        </div>
+        <div class="notice" id="system-message" aria-live="polite"></div>
+
+        <div class="settings-stack">
+          <section class="settings-summary-card">
+            <div class="settings-summary-copy">
+              <p class="section-kicker">Server Status</p>
+              <h3>127.0.0.1:38080</h3>
+              <p class="modal-copy" id="global-caption">
+                Same-origin static shell on top of the existing axum API.
+              </p>
+            </div>
+            <span class="badge" id="system-server-status" data-status="idle">Checking</span>
+          </section>
+
+          <section class="settings-section">
+            <div class="settings-section-head">
+              <div>
+                <p class="section-kicker">Runtime Readiness</p>
+                <h3>Runtime Readiness</h3>
+              </div>
+            </div>
+            <div class="system-grid" id="system-grid"></div>
+          </section>
+
+          <section class="settings-section">
+            <div class="settings-section-head">
+              <div>
+                <p class="section-kicker">Model Preparation</p>
+                <h3>Model Preparation</h3>
+              </div>
+            </div>
+            <div class="model-grid" id="model-grid"></div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-shell" id="job-reset-modal" hidden>
+      <div class="modal-backdrop" data-job-reset-close></div>
+      <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="job-reset-title">
+        <div class="modal-head">
+          <div>
+            <p class="section-kicker">Reset Job</p>
+            <h2 id="job-reset-title">작업 삭제</h2>
+          </div>
+          <button class="ghost-button modal-close" id="job-reset-close-button" type="button" data-job-reset-close>
+            닫기
+          </button>
+        </div>
+        <p class="modal-copy" id="job-reset-copy">
+          삭제 후에도 source와 job 자체는 유지됩니다. 체크한 단계만 지워 재작업 가능한 상태로 되돌립니다.
+        </p>
+        <div class="notice" id="job-reset-message" aria-live="polite"></div>
+        <form class="stack" id="job-reset-form">
+          <label class="choice">
+            <input type="checkbox" id="job-reset-all-checkbox" data-job-reset-checkbox="all" />
+            <span>전체</span>
+          </label>
+          <div class="checkbox-grid checkbox-grid-compact">
+            <label>
+              <input type="checkbox" id="job-reset-ffmpeg-checkbox" data-job-reset-checkbox="ffmpeg" />
+              <span>오디오 분리</span>
+            </label>
+            <label>
+              <input type="checkbox" id="job-reset-stt-checkbox" data-job-reset-checkbox="stt" />
+              <span>전사</span>
+            </label>
+            <label>
+              <input type="checkbox" id="job-reset-summary-checkbox" data-job-reset-checkbox="summary" />
+              <span>요약</span>
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                id="job-reset-embedding-checkbox"
+                data-job-reset-checkbox="embedding"
+              />
+              <span>임베딩</span>
+            </label>
+          </div>
+          <p class="modal-hint" id="job-reset-hint"></p>
+          <div class="button-row">
+            <button class="danger-button" id="job-reset-confirm-button" type="submit">확인</button>
+            <button class="ghost-button" id="job-reset-cancel-button" type="button" data-job-reset-close>
+              취소
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div class="modal-shell" id="batch-delete-modal" hidden>
+      <div class="modal-backdrop" data-batch-delete-close></div>
+      <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="batch-delete-title">
+        <div class="modal-head">
+          <div>
+            <p class="section-kicker">Batch Delete</p>
+            <h2 id="batch-delete-title">일괄 삭제</h2>
+          </div>
+          <button
+            class="ghost-button modal-close"
+            id="batch-delete-close-button"
+            type="button"
+            data-batch-delete-close
+          >
+            닫기
+          </button>
+        </div>
+        <p class="modal-copy" id="batch-delete-copy">
+          완료된 Job 중 선택 단계 산출물이 있는 대상만 찾아, source와 job 자체는 유지한 채 해당 단계 결과만 삭제합니다.
+        </p>
+        <div class="notice" id="batch-delete-message" aria-live="polite"></div>
+        <form class="stack" id="batch-delete-form">
+          <div class="kv-list kv-list-compact" id="batch-delete-summary"></div>
+          <p class="modal-hint" id="batch-delete-hint"></p>
+          <div class="button-row">
+            <button class="danger-button" id="batch-delete-confirm-button" type="submit">확인</button>
+            <button class="ghost-button" id="batch-delete-cancel-button" type="button" data-batch-delete-close>
+              취소
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
     <script src="/app.js" defer></script>
   </body>
 </html>

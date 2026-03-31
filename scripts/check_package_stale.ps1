@@ -35,15 +35,80 @@ function Get-TrackedTimestampUtc {
     return (Get-Item -LiteralPath $resolvedPath).LastWriteTimeUtc
 }
 
-$arch = ($env:PROCESSOR_ARCHITECTURE ?? '').ToUpperInvariant()
-switch ($arch) {
-    'AMD64' { $arch = 'x86_64' }
-    'X64' { $arch = 'x86_64' }
-    'ARM64' { $arch = 'aarch64' }
-    default { $arch = $arch.ToLowerInvariant() }
+function Get-PlatformArch {
+    $arch = [System.Environment]::GetEnvironmentVariable('PROCESSOR_ARCHITEW6432')
+    if ([string]::IsNullOrWhiteSpace($arch)) {
+        $arch = [System.Environment]::GetEnvironmentVariable('PROCESSOR_ARCHITECTURE')
+    }
+    if ($null -eq $arch) {
+        $arch = ''
+    }
+
+    switch ($arch.ToUpperInvariant()) {
+        'AMD64' { return 'x86_64' }
+        'X64' { return 'x86_64' }
+        'ARM64' { return 'aarch64' }
+        default { return $arch.ToLowerInvariant() }
+    }
 }
 
-$targetDir = "windows-$arch"
+function Update-LatestInput {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return
+    }
+
+    $timestamp = Get-TrackedTimestampUtc -Path $Path
+    if (-not $script:latestInput -or $timestamp -gt $script:latestInput.Timestamp) {
+        $script:latestInput = [pscustomobject]@{
+            Path = $Path
+            Timestamp = $timestamp
+        }
+    }
+}
+
+function Update-LatestInputTree {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Directory
+    )
+
+    if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {
+        return
+    }
+
+    Get-ChildItem -LiteralPath $Directory -File -Recurse | ForEach-Object {
+        Update-LatestInput -Path $_.FullName
+    }
+}
+
+function Update-OldestOutput {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        [Console]::Error.WriteLine('RecordRoute package runtime is incomplete.')
+        [Console]::Error.WriteLine(("Missing packaged artifact: {0}" -f (Get-RelativePath -Path $Path)))
+        [Console]::Error.WriteLine('Run setup.bat and rerun run.bat.')
+        exit 1
+    }
+
+    $timestamp = Get-TrackedTimestampUtc -Path $Path
+    if (-not $script:oldestOutput -or $timestamp -lt $script:oldestOutput.Timestamp) {
+        $script:oldestOutput = [pscustomobject]@{
+            Path = $Path
+            Timestamp = $timestamp
+        }
+    }
+}
+
+$targetDir = "windows-$(Get-PlatformArch)"
 
 $inputFiles = @(
     [System.IO.Path]::Combine($repoRoot, 'rust', 'Cargo.toml'),
@@ -69,54 +134,21 @@ $outputFiles = @(
     [System.IO.Path]::Combine($repoRoot, 'package', '.build', 'llama', $targetDir, 'bin', 'llama-embedding.exe')
 )
 
-$latestInput = $null
+$script:latestInput = $null
 foreach ($path in $inputFiles) {
-    if (Test-Path -LiteralPath $path -PathType Leaf) {
-        $timestamp = Get-TrackedTimestampUtc -Path $path
-        if (-not $latestInput -or $timestamp -gt $latestInput.Timestamp) {
-            $latestInput = [pscustomobject]@{
-                Path = $path
-                Timestamp = $timestamp
-            }
-        }
-    }
+    Update-LatestInput -Path $path
 }
+Update-LatestInputTree -Directory ([System.IO.Path]::Combine($repoRoot, 'rust', 'src'))
 
-$rustSrc = [System.IO.Path]::Combine($repoRoot, 'rust', 'src')
-if (Test-Path -LiteralPath $rustSrc -PathType Container) {
-    Get-ChildItem -LiteralPath $rustSrc -File -Recurse | ForEach-Object {
-        $timestamp = Get-TrackedTimestampUtc -Path $_.FullName
-        if (-not $latestInput -or $timestamp -gt $latestInput.Timestamp) {
-            $latestInput = [pscustomobject]@{
-                Path = $_.FullName
-                Timestamp = $timestamp
-            }
-        }
-    }
-}
-
-$oldestOutput = $null
+$script:oldestOutput = $null
 foreach ($path in $outputFiles) {
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        [Console]::Error.WriteLine('RecordRoute package runtime is incomplete.')
-        [Console]::Error.WriteLine(("Missing packaged artifact: {0}" -f (Get-RelativePath -Path $path)))
-        [Console]::Error.WriteLine('Run setup.bat and rerun run.bat.')
-        exit 1
-    }
-
-    $timestamp = Get-TrackedTimestampUtc -Path $path
-    if (-not $oldestOutput -or $timestamp -lt $oldestOutput.Timestamp) {
-        $oldestOutput = [pscustomobject]@{
-            Path = $path
-            Timestamp = $timestamp
-        }
-    }
+    Update-OldestOutput -Path $path
 }
 
-if ($latestInput -and $oldestOutput -and $latestInput.Timestamp -gt $oldestOutput.Timestamp) {
+if ($script:latestInput -and $script:oldestOutput -and $script:latestInput.Timestamp -gt $script:oldestOutput.Timestamp) {
     [Console]::Error.WriteLine('RecordRoute package is stale. Repo inputs are newer than the packaged runtime.')
-    [Console]::Error.WriteLine(("Latest changed input: {0}" -f (Get-RelativePath -Path $latestInput.Path)))
-    [Console]::Error.WriteLine(("Oldest packaged artifact: {0}" -f (Get-RelativePath -Path $oldestOutput.Path)))
+    [Console]::Error.WriteLine(("Latest changed input: {0}" -f (Get-RelativePath -Path $script:latestInput.Path)))
+    [Console]::Error.WriteLine(("Oldest packaged artifact: {0}" -f (Get-RelativePath -Path $script:oldestOutput.Path)))
     [Console]::Error.WriteLine('Run setup.bat and rerun run.bat.')
     exit 1
 }

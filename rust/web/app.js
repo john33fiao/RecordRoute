@@ -1,7 +1,6 @@
 const POLL_INTERVAL_MS = 2000;
 const UPLOAD_FILE_MAX_BYTES = 512 * 1024 * 1024;
 const UPLOAD_FILE_MAX_LABEL = "512MB";
-const TRANSCRIPT_PREVIEW_LINES = 10;
 const QUEUE_COLLAPSE_THRESHOLD = 10;
 const AUDIO_FILE_EXTENSIONS = [
   ".wav",
@@ -17,6 +16,7 @@ const AUDIO_FILE_EXTENSIONS = [
   ".webm",
   ".mp4",
   ".m4b",
+  ".qta",
 ];
 
 const QUEUE_COLUMNS = [
@@ -26,7 +26,24 @@ const QUEUE_COLUMNS = [
   { key: "embed", label: "EMBED", description: "임베딩" },
 ];
 
+const BATCH_PROCESS_TARGETS = [
+  { value: "all", label: "전체 작업" },
+  { value: "ffmpeg", label: "오디오 분리" },
+  { value: "stt", label: "전사" },
+  { value: "summary", label: "요약" },
+  { value: "embedding", label: "임베딩" },
+];
+
+const BATCH_DELETE_TARGETS = [
+  { value: "stt", label: "전사" },
+  { value: "summary", label: "요약" },
+  { value: "embedding", label: "임베딩" },
+];
+
+const TAB_KEYS = ["upload", "jobs", "search", "queue", "dictionary"];
+
 const state = {
+  activeTab: "upload",
   jobs: [],
   selectedJobId: null,
   selectedJob: null,
@@ -44,6 +61,14 @@ const state = {
   queueStatus: null,
   queueLoaded: false,
   queueExpanded: emptyQueueExpandedState(),
+  jobResetModal: {
+    open: false,
+    selection: emptyJobResetSelection(),
+  },
+  batchDeleteModal: emptyBatchDeleteModalState(),
+  settingsModal: {
+    open: false,
+  },
   dictionaryKeywords: emptyDictionaryKeywords(),
   dictionaryLoaded: false,
   pendingDictionaryRefreshJobId: null,
@@ -53,8 +78,10 @@ const state = {
   loading: {
     upload: false,
     batchProcess: false,
+    batchDelete: false,
     queuePause: false,
     queueCancel: false,
+    jobReset: false,
     stt: false,
     summary: false,
     embedding: false,
@@ -71,21 +98,138 @@ function emptyQueueExpandedState() {
   return Object.fromEntries(QUEUE_COLUMNS.map((column) => [column.key, false]));
 }
 
+function emptyJobResetSelection() {
+  return {
+    all: false,
+    ffmpeg: false,
+    stt: false,
+    summary: false,
+    embedding: false,
+  };
+}
+
+function emptyBatchDeleteModalState() {
+  return {
+    open: false,
+    target: BATCH_DELETE_TARGETS[0].value,
+    eligibleJobs: [],
+    completedCount: 0,
+    submitting: false,
+    progressMessage: "",
+  };
+}
+
+function normalizeJobResetSelection(selection) {
+  const normalized = {
+    ...emptyJobResetSelection(),
+    ...(selection || {}),
+  };
+  normalized.ffmpeg = Boolean(normalized.ffmpeg);
+  normalized.stt = Boolean(normalized.stt);
+  normalized.summary = Boolean(normalized.summary);
+  normalized.embedding = Boolean(normalized.embedding);
+  normalized.all =
+    Boolean(normalized.all) ||
+    (normalized.ffmpeg && normalized.stt && normalized.summary && normalized.embedding);
+
+  if (normalized.all) {
+    return {
+      all: true,
+      ffmpeg: true,
+      stt: true,
+      summary: true,
+      embedding: true,
+    };
+  }
+
+  return normalized;
+}
+
+function jobResetSelectionHasAny(selection) {
+  const normalized = normalizeJobResetSelection(selection);
+  return normalized.ffmpeg || normalized.stt || normalized.summary || normalized.embedding;
+}
+
+function hasQueuedOrRunningTasks() {
+  const jobs = [...state.jobs];
+  if (
+    state.selectedJob &&
+    !jobs.some((job) => job.job_id === state.selectedJob.job_id)
+  ) {
+    jobs.push(state.selectedJob);
+  }
+
+  return jobs.some((job) =>
+    Array.isArray(job?.tasks) &&
+    job.tasks.some((task) => task.status === "queued" || task.status === "running")
+  );
+}
+
+function queueIsIdleForReset() {
+  if (!state.queueLoaded) {
+    return false;
+  }
+
+  const hasActiveBatch = Boolean(state.queueStatus?.active_batch);
+  const hasPendingBatch = Array.isArray(state.queueStatus?.pending_batches)
+    ? state.queueStatus.pending_batches.length > 0
+    : false;
+
+  return !hasActiveBatch && !hasPendingBatch && !hasQueuedOrRunningTasks();
+}
+
+function canResetSelectedJob() {
+  return Boolean(state.selectedJobId) && queueIsIdleForReset() && !state.loading.jobReset;
+}
+
+function canOpenBatchDeleteModal() {
+  return state.queueLoaded && !state.loading.batchDelete;
+}
+
+function findTaskRecord(job, taskType) {
+  return Array.isArray(job?.tasks)
+    ? job.tasks.find((task) => task.task_type === taskType)
+    : null;
+}
+
+function jobEligibleForBatchDelete(job, target) {
+  const task = findTaskRecord(job, target);
+  if (target === "embedding") {
+    return task?.status === "completed" || Boolean(job?.summary_embedding);
+  }
+  return task?.status === "completed";
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   captureElements();
   bindEvents();
+  state.activeTab = resolveTabFromHash();
+  if (!window.location.hash) {
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#upload`);
+  }
   renderAll();
   bootstrap();
 });
 
 function captureElements() {
+  elements.tabButtons = Array.from(document.querySelectorAll("[data-tab]"));
+  elements.tabPanels = Array.from(document.querySelectorAll("[data-tab-panel]"));
+  elements.settingsOpenButton = document.getElementById("settings-open-button");
+  elements.settingsModal = document.getElementById("settings-modal");
+  elements.settingsCloseButton = document.getElementById("settings-close-button");
   elements.globalCaption = document.getElementById("global-caption");
+  elements.systemServerStatus = document.getElementById("system-server-status");
   elements.systemGrid = document.getElementById("system-grid");
   elements.modelGrid = document.getElementById("model-grid");
   elements.jobsList = document.getElementById("jobs-list");
+  elements.jobsTotalCount = document.getElementById("jobs-total-count");
   elements.selectedJobTitle = document.getElementById("selected-job-title");
+  elements.selectedJobSummary = document.getElementById("selected-job-summary");
+  elements.selectedJobMeta = document.getElementById("selected-job-meta");
+  elements.selectedJobStatus = document.getElementById("selected-job-status");
   elements.jobOverview = document.getElementById("job-overview");
   elements.jobTasks = document.getElementById("job-tasks");
+  elements.sttAudioSelector = document.getElementById("stt-audio-selector");
   elements.sttAudioOptions = document.getElementById("stt-audio-options");
   elements.sttStatus = document.getElementById("stt-status");
   elements.transcriptsView = document.getElementById("transcripts-view");
@@ -103,13 +247,17 @@ function captureElements() {
   elements.searchResults = document.getElementById("search-results");
 
   elements.systemRefreshButton = document.getElementById("system-refresh-button");
+  elements.jobsDeleteButton = document.getElementById("jobs-delete-button");
   elements.jobsRefreshButton = document.getElementById("jobs-refresh-button");
   elements.selectedJobRefreshButton = document.getElementById("selected-job-refresh-button");
   elements.uploadForm = document.getElementById("upload-form");
   elements.uploadDropzone = document.getElementById("upload-dropzone");
   elements.uploadInput = document.getElementById("upload-input");
   elements.uploadSubmitButton = document.getElementById("upload-submit-button");
+  elements.batchProcessTargetSelect = document.getElementById("batch-process-target");
   elements.batchProcessButton = document.getElementById("batch-process-button");
+  elements.batchDeleteTargetSelect = document.getElementById("batch-delete-target");
+  elements.batchDeleteButton = document.getElementById("batch-delete-button");
   elements.queueCancelButton = document.getElementById("queue-cancel-button");
   elements.uploadQueue = document.getElementById("upload-queue");
   elements.sttForm = document.getElementById("stt-form");
@@ -125,12 +273,41 @@ function captureElements() {
   elements.searchLimitInput = document.getElementById("search-limit-input");
   elements.searchMinScoreInput = document.getElementById("search-min-score-input");
   elements.searchSubmitButton = document.getElementById("search-submit-button");
+  elements.jobResetModal = document.getElementById("job-reset-modal");
+  elements.jobResetTitle = document.getElementById("job-reset-title");
+  elements.jobResetCopy = document.getElementById("job-reset-copy");
+  elements.jobResetHint = document.getElementById("job-reset-hint");
+  elements.jobResetForm = document.getElementById("job-reset-form");
+  elements.jobResetConfirmButton = document.getElementById("job-reset-confirm-button");
+  elements.jobResetCloseButton = document.getElementById("job-reset-close-button");
+  elements.jobResetCancelButton = document.getElementById("job-reset-cancel-button");
+  elements.jobResetAllCheckbox = document.getElementById("job-reset-all-checkbox");
+  elements.jobResetFfmpegCheckbox = document.getElementById("job-reset-ffmpeg-checkbox");
+  elements.jobResetSttCheckbox = document.getElementById("job-reset-stt-checkbox");
+  elements.jobResetSummaryCheckbox = document.getElementById("job-reset-summary-checkbox");
+  elements.jobResetEmbeddingCheckbox = document.getElementById("job-reset-embedding-checkbox");
+  elements.batchDeleteModal = document.getElementById("batch-delete-modal");
+  elements.batchDeleteTitle = document.getElementById("batch-delete-title");
+  elements.batchDeleteCopy = document.getElementById("batch-delete-copy");
+  elements.batchDeleteSummary = document.getElementById("batch-delete-summary");
+  elements.batchDeleteHint = document.getElementById("batch-delete-hint");
+  elements.batchDeleteForm = document.getElementById("batch-delete-form");
+  elements.batchDeleteConfirmButton = document.getElementById("batch-delete-confirm-button");
+  elements.batchDeleteCloseButton = document.getElementById("batch-delete-close-button");
+  elements.batchDeleteCancelButton = document.getElementById("batch-delete-cancel-button");
 }
 
 function bindEvents() {
+  elements.settingsOpenButton.addEventListener("click", openSettingsModal);
   elements.systemRefreshButton.addEventListener("click", () => {
     refreshSystemAndModels({ showMessage: true });
   });
+  elements.tabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveTab(button.dataset.tab);
+    });
+  });
+  elements.jobsDeleteButton.addEventListener("click", openJobResetModal);
   elements.jobsRefreshButton.addEventListener("click", () => {
     Promise.all([refreshJobs({ showMessage: true }), refreshQueue()]).catch((error) => {
       console.error(error);
@@ -145,6 +322,8 @@ function bindEvents() {
   });
   elements.uploadForm.addEventListener("submit", onUploadSubmit);
   elements.batchProcessButton.addEventListener("click", onBatchProcessSubmit);
+  elements.batchDeleteButton.addEventListener("click", openBatchDeleteModal);
+  elements.batchDeleteTargetSelect.addEventListener("change", onBatchDeleteTargetChange);
   elements.queueCancelButton.addEventListener("click", onQueueCancelPending);
   elements.uploadInput.addEventListener("change", onUploadInputChange);
   elements.uploadDropzone.addEventListener("dragenter", onUploadDragEnter);
@@ -152,6 +331,7 @@ function bindEvents() {
   elements.uploadDropzone.addEventListener("dragleave", onUploadDragLeave);
   elements.uploadDropzone.addEventListener("drop", onUploadDrop);
   elements.sttSubmitButton.addEventListener("click", onSttSubmit);
+  elements.sttForm.addEventListener("change", onSttFormChange);
   elements.summarySubmitButton.addEventListener("click", onSummarySubmit);
   elements.embeddingSubmitButton.addEventListener("click", onEmbeddingSubmit);
   elements.queuePauseButton.addEventListener("click", onQueuePauseToggle);
@@ -167,11 +347,381 @@ function bindEvents() {
   elements.dictionaryForm.addEventListener("submit", onDictionarySubmit);
   elements.dictionaryList.addEventListener("click", onDictionaryListClick);
   elements.searchForm.addEventListener("submit", onSearchSubmit);
-  elements.transcriptsView.addEventListener("click", onTranscriptToggleClick);
+  elements.jobResetForm.addEventListener("submit", onJobResetSubmit);
+  elements.batchDeleteForm.addEventListener("submit", onBatchDeleteSubmit);
+  elements.jobResetModal.querySelectorAll("[data-job-reset-close]").forEach((button) => {
+    button.addEventListener("click", closeJobResetModal);
+  });
+  elements.batchDeleteModal.querySelectorAll("[data-batch-delete-close]").forEach((button) => {
+    button.addEventListener("click", () => closeBatchDeleteModal());
+  });
+  elements.settingsModal.querySelectorAll("[data-settings-close]").forEach((button) => {
+    button.addEventListener("click", closeSettingsModal);
+  });
+  [
+    elements.jobResetAllCheckbox,
+    elements.jobResetFfmpegCheckbox,
+    elements.jobResetSttCheckbox,
+    elements.jobResetSummaryCheckbox,
+    elements.jobResetEmbeddingCheckbox,
+  ].forEach((checkbox) => {
+    checkbox.addEventListener("change", onJobResetCheckboxChange);
+  });
+  window.addEventListener("hashchange", onHashChange);
+  document.addEventListener("keydown", onDocumentKeydown);
 }
 
 async function bootstrap() {
   await Promise.all([refreshSystemAndModels(), refreshJobs(), refreshQueue(), refreshDictionary()]);
+}
+
+function resolveTabFromHash(hash = window.location.hash) {
+  const value = String(hash || "")
+    .replace(/^#/, "")
+    .trim()
+    .toLowerCase();
+  return TAB_KEYS.includes(value) ? value : "upload";
+}
+
+function onHashChange() {
+  const nextTab = resolveTabFromHash();
+  if (nextTab === state.activeTab) {
+    return;
+  }
+  state.activeTab = nextTab;
+  renderTabs();
+  syncSelectedJobPoller();
+}
+
+function setActiveTab(tab) {
+  if (!TAB_KEYS.includes(tab)) {
+    return;
+  }
+
+  state.activeTab = tab;
+  renderTabs();
+  syncSelectedJobPoller();
+
+  const nextHash = `#${tab}`;
+  if (window.location.hash !== nextHash) {
+    window.location.hash = tab;
+  }
+
+  if (tab === "jobs" && state.selectedJobId) {
+    refreshSelectedJob(state.selectedJobId).catch((error) => {
+      console.error(error);
+    });
+  }
+}
+
+function renderTabs() {
+  elements.tabButtons.forEach((button) => {
+    const selected = button.dataset.tab === state.activeTab;
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
+
+  elements.tabPanels.forEach((panel) => {
+    panel.hidden = panel.dataset.tabPanel !== state.activeTab;
+  });
+}
+
+function syncModalBodyState() {
+  document.body.classList.toggle(
+    "is-modal-open",
+    Boolean(state.jobResetModal.open || state.batchDeleteModal.open || state.settingsModal.open)
+  );
+}
+
+function openSettingsModal() {
+  state.settingsModal.open = true;
+  renderSettingsModal();
+  refreshSystemAndModels().catch((error) => {
+    console.error(error);
+  });
+}
+
+function closeSettingsModal() {
+  state.settingsModal.open = false;
+  renderSettingsModal();
+}
+
+function openJobResetModal() {
+  if (!canResetSelectedJob()) {
+    return;
+  }
+  closeSettingsModal();
+  closeBatchDeleteModal({ force: true });
+  state.jobResetModal.open = true;
+  state.jobResetModal.selection = emptyJobResetSelection();
+  setMessage("job-reset", "", "info");
+  renderJobResetModal();
+}
+
+function closeJobResetModal() {
+  state.jobResetModal.open = false;
+  state.jobResetModal.selection = emptyJobResetSelection();
+  setMessage("job-reset", "", "info");
+  renderJobResetModal();
+}
+
+async function onBatchDeleteTargetChange() {
+  state.batchDeleteModal.target = resolveBatchDeleteTarget();
+  if (!state.batchDeleteModal.open) {
+    return;
+  }
+  state.batchDeleteModal.eligibleJobs = [];
+  state.batchDeleteModal.completedCount = 0;
+  state.batchDeleteModal.progressMessage = "";
+  setMessage("batch-delete", "", "info");
+  renderBatchDeleteModal();
+  await loadBatchDeletePreview(state.batchDeleteModal.target);
+}
+
+async function openBatchDeleteModal() {
+  if (!canOpenBatchDeleteModal()) {
+    return;
+  }
+  closeSettingsModal();
+  closeJobResetModal();
+  state.batchDeleteModal = {
+    ...emptyBatchDeleteModalState(),
+    open: true,
+    target: resolveBatchDeleteTarget(),
+  };
+  setMessage("batch-delete", "", "info");
+  renderBatchDeleteModal();
+  await loadBatchDeletePreview(state.batchDeleteModal.target);
+}
+
+function closeBatchDeleteModal({ force = false } = {}) {
+  if (state.batchDeleteModal.submitting && !force) {
+    return;
+  }
+  state.batchDeleteModal = {
+    ...emptyBatchDeleteModalState(),
+    target: resolveBatchDeleteTarget(),
+  };
+  setMessage("batch-delete", "", "info");
+  renderBatchDeleteModal();
+}
+
+function onJobResetCheckboxChange(event) {
+  const checkbox = event.target;
+  const key = checkbox?.dataset?.jobResetCheckbox;
+  if (!key) {
+    return;
+  }
+
+  if (key === "all") {
+    const checked = Boolean(checkbox.checked);
+    state.jobResetModal.selection = {
+      all: checked,
+      ffmpeg: checked,
+      stt: checked,
+      summary: checked,
+      embedding: checked,
+    };
+    renderJobResetModal();
+    return;
+  }
+
+  state.jobResetModal.selection = {
+    ...state.jobResetModal.selection,
+    [key]: Boolean(checkbox.checked),
+  };
+  const { ffmpeg, stt, summary, embedding } = state.jobResetModal.selection;
+  state.jobResetModal.selection.all = ffmpeg && stt && summary && embedding;
+  renderJobResetModal();
+}
+
+async function onJobResetSubmit(event) {
+  event.preventDefault();
+  if (!state.selectedJobId) {
+    setMessage("job-reset", "선택된 Job이 없습니다.", "error");
+    return;
+  }
+
+  const payload = normalizeJobResetSelection(state.jobResetModal.selection);
+  if (!jobResetSelectionHasAny(payload)) {
+    setMessage("job-reset", "삭제할 단계를 최소 1개 선택해 주세요.", "error");
+    renderJobResetModal();
+    return;
+  }
+
+  setLoading("jobReset", true);
+  try {
+    const { data } = await fetchJson(`/jobs/${encodeURIComponent(state.selectedJobId)}/reset`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    closeJobResetModal();
+    setMessage("jobs", data?.message || "선택한 작업 내역을 삭제했습니다.", "success");
+    await Promise.all([refreshJobs(), refreshQueue()]);
+    await refreshSelectedJob(state.selectedJobId, { showMessage: true });
+  } catch (error) {
+    setMessage("job-reset", error.message, "error");
+    renderJobResetModal();
+  } finally {
+    setLoading("jobReset", false);
+  }
+}
+
+function resolveBatchDeleteTarget() {
+  return elements.batchDeleteTargetSelect?.value || BATCH_DELETE_TARGETS[0].value;
+}
+
+function resolveBatchDeleteTargetLabel(target) {
+  return BATCH_DELETE_TARGETS.find((option) => option.value === target)?.label || "선택 단계";
+}
+
+function buildBatchDeletePayload(target) {
+  return { [target]: true };
+}
+
+async function loadBatchDeletePreview(target = resolveBatchDeleteTarget()) {
+  state.batchDeleteModal.target = target;
+  state.batchDeleteModal.progressMessage = "";
+  setLoading("batchDelete", true);
+  try {
+    const { data } = await fetchJson("/jobs/completed");
+    const completedJobs = Array.isArray(data?.jobs) ? data.jobs : [];
+    const eligibleJobs = completedJobs.filter((job) => jobEligibleForBatchDelete(job, target));
+    if (state.batchDeleteModal.target !== target) {
+      return;
+    }
+    state.batchDeleteModal.completedCount = completedJobs.length;
+    state.batchDeleteModal.eligibleJobs = eligibleJobs;
+    setMessage("batch-delete", "", "info");
+  } catch (error) {
+    if (state.batchDeleteModal.target === target) {
+      state.batchDeleteModal.completedCount = 0;
+      state.batchDeleteModal.eligibleJobs = [];
+      setMessage("batch-delete", error.message, "error");
+    }
+  } finally {
+    setLoading("batchDelete", false);
+    renderBatchDeleteModal();
+  }
+}
+
+function buildBatchDeleteResultMessage(label, successCount, failureCount) {
+  if (failureCount === 0) {
+    return {
+      tone: "success",
+      text: `${label} 일괄 삭제 완료 · 성공 ${successCount}건`,
+    };
+  }
+  if (successCount === 0) {
+    return {
+      tone: "error",
+      text: `${label} 일괄 삭제 실패 · 실패 ${failureCount}건`,
+    };
+  }
+  return {
+    tone: "info",
+    text: `${label} 일괄 삭제 부분 완료 · 성공 ${successCount}건 · 실패 ${failureCount}건`,
+  };
+}
+
+async function onBatchDeleteSubmit(event) {
+  event.preventDefault();
+  const target = state.batchDeleteModal.target || resolveBatchDeleteTarget();
+  const label = resolveBatchDeleteTargetLabel(target);
+
+  if (!state.queueLoaded) {
+    setMessage("batch-delete", "큐 상태를 불러온 뒤에 일괄 삭제를 사용할 수 있습니다.", "error");
+    renderBatchDeleteModal();
+    return;
+  }
+
+  if (!queueIsIdleForReset()) {
+    setMessage("batch-delete", "진행 중이거나 대기 중인 작업이 있으면 일괄 삭제를 실행할 수 없습니다.", "error");
+    renderBatchDeleteModal();
+    return;
+  }
+
+  state.batchDeleteModal.submitting = true;
+  state.batchDeleteModal.progressMessage = `${label} 삭제 대상을 다시 확인하는 중입니다.`;
+  setLoading("batchDelete", true);
+  renderBatchDeleteModal();
+
+  try {
+    const { data } = await fetchJson("/jobs/completed");
+    const completedJobs = Array.isArray(data?.jobs) ? data.jobs : [];
+    const eligibleJobs = completedJobs.filter((job) => jobEligibleForBatchDelete(job, target));
+
+    state.batchDeleteModal.completedCount = completedJobs.length;
+    state.batchDeleteModal.eligibleJobs = eligibleJobs;
+
+    if (eligibleJobs.length === 0) {
+      closeBatchDeleteModal({ force: true });
+      setMessage("upload", `${label} 삭제 대상이 없습니다.`, "info");
+      return;
+    }
+
+    let successCount = 0;
+    let failureCount = 0;
+
+    for (let index = 0; index < eligibleJobs.length; index += 1) {
+      const job = eligibleJobs[index];
+      state.batchDeleteModal.progressMessage = `${label} 일괄 삭제 진행 중 · ${index + 1}/${eligibleJobs.length}`;
+      renderBatchDeleteModal();
+
+      try {
+        await fetchJson(`/jobs/${encodeURIComponent(job.job_id)}/reset`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(buildBatchDeletePayload(target)),
+        });
+        successCount += 1;
+      } catch (error) {
+        console.error(error);
+        failureCount += 1;
+      }
+    }
+
+    closeBatchDeleteModal({ force: true });
+    const resultMessage = buildBatchDeleteResultMessage(label, successCount, failureCount);
+    setMessage("upload", resultMessage.text, resultMessage.tone);
+    await Promise.all([
+      refreshJobs(),
+      refreshQueue(),
+      state.selectedJobId ? refreshSelectedJob(state.selectedJobId) : Promise.resolve(),
+    ]);
+  } catch (error) {
+    setMessage("batch-delete", error.message, "error");
+    renderBatchDeleteModal();
+  } finally {
+    state.batchDeleteModal.submitting = false;
+    state.batchDeleteModal.progressMessage = "";
+    setLoading("batchDelete", false);
+  }
+}
+
+function onDocumentKeydown(event) {
+  if (event.key !== "Escape") {
+    return;
+  }
+
+  if (state.batchDeleteModal.open) {
+    closeBatchDeleteModal();
+    return;
+  }
+
+  if (state.jobResetModal.open) {
+    closeJobResetModal();
+    return;
+  }
+
+  if (state.settingsModal.open) {
+    closeSettingsModal();
+  }
+}
+
+async function onSttFormChange() {
+  syncSttAudioSelectorVisibility();
 }
 
 async function onUploadSubmit(event) {
@@ -212,7 +762,11 @@ async function onUploadSubmit(event) {
     if (failedCount > 0) {
       summaryParts.push(`${failedCount}개 업로드 실패`);
     }
-    setMessage("upload", summaryParts.join(" / ") || "업로드 요청이 접수되었습니다.", failedCount > 0 ? "info" : "success");
+    const queueMessage =
+      successCount > 0
+        ? `${summaryParts.join(" / ")} · 각 파일이 ffmpeg 큐에 등록되었습니다.`
+        : "업로드 요청이 접수되었습니다.";
+    setMessage("upload", queueMessage, failedCount > 0 ? "info" : "success");
 
     elements.uploadForm.reset();
     state.uploadQueue = [];
@@ -229,21 +783,6 @@ async function onUploadSubmit(event) {
   }
 }
 
-function onTranscriptToggleClick(event) {
-  const toggle = event.target.closest("[data-transcript-toggle]");
-  if (!toggle) {
-    return;
-  }
-
-  const item = toggle.closest(".transcript-item");
-  if (!item) {
-    return;
-  }
-
-  const expanded = item.classList.toggle("is-expanded");
-  toggle.setAttribute("aria-expanded", String(expanded));
-  toggle.textContent = expanded ? "접기" : `펼치기 (${TRANSCRIPT_PREVIEW_LINES}줄)`;
-}
 
 function onQueueBoardClick(event) {
   const toggle = event.target.closest("[data-queue-toggle]");
@@ -315,7 +854,11 @@ function applyUploadSelection(fileList, { source }) {
   const transfer = new DataTransfer();
   accepted.forEach((file) => transfer.items.add(file));
   elements.uploadInput.files = transfer.files;
-  state.uploadQueue = accepted.map((file) => ({ name: file.name, size: file.size }));
+  state.uploadQueue = accepted.map((file) => ({
+    name: file.name,
+    size: file.size,
+    status: "selected",
+  }));
   renderUploadQueue();
 
   if (accepted.length === 0) {
@@ -366,8 +909,11 @@ function renderUploadQueue() {
         .map(
           (file) => `
             <li>
-              <span>${escapeHtml(file.name)}</span>
-              <code>${formatBytes(file.size)}</code>
+              <div>
+                <span>${escapeHtml(file.name)}</span>
+                <code>${formatBytes(file.size)}</code>
+              </div>
+              ${statusBadge("completed", file.status || "selected")}
             </li>
           `
         )
@@ -493,20 +1039,75 @@ async function onSearchSubmit(event) {
   }
 }
 
+function resolveBatchProcessTarget() {
+  return elements.batchProcessTargetSelect?.value || "all";
+}
+
+function resolveBatchProcessQueuedCount(target, submission) {
+  switch (target) {
+    case "ffmpeg":
+      return submission?.ffmpeg_queued ?? 0;
+    case "stt":
+      return submission?.stt_queued ?? 0;
+    case "summary":
+      return submission?.summary_queued ?? 0;
+    case "embedding":
+      return submission?.embedding_queued ?? 0;
+    default:
+      return (submission?.ffmpeg_queued ?? 0)
+        + (submission?.stt_queued ?? 0)
+        + (submission?.summary_queued ?? 0)
+        + (submission?.embedding_queued ?? 0);
+  }
+}
+
+function resolveBatchProcessTargetLabel(target) {
+  return BATCH_PROCESS_TARGETS.find((option) => option.value === target)?.label || "선택한 카테고리";
+}
+
+function buildBatchProcessMessage(target, submission) {
+  if (target === "all") {
+    return {
+      tone: "success",
+      text: [
+        `일괄처리 큐 등록 완료`,
+        `ffmpeg ${submission?.ffmpeg_queued ?? 0}건`,
+        `stt ${submission?.stt_queued ?? 0}건`,
+        `llm ${submission?.summary_queued ?? 0}건`,
+        `embed ${submission?.embedding_queued ?? 0}건`,
+      ].join(" · "),
+    };
+  }
+
+  const label = resolveBatchProcessTargetLabel(target);
+  const queuedCount = resolveBatchProcessQueuedCount(target, submission);
+  if (queuedCount > 0) {
+    return {
+      tone: "success",
+      text: `${label} 일괄처리 큐 등록 완료 · ${queuedCount}건`,
+    };
+  }
+
+  return {
+    tone: "info",
+    text:
+      target === "ffmpeg"
+        ? `${label} 대상으로 큐에 추가할 작업이 없습니다.`
+        : `${label} 대상으로 큐에 추가할 작업이 없습니다. 선행 단계가 완료된 작업만 선택 처리됩니다.`,
+  };
+}
+
 async function onBatchProcessSubmit() {
+  const target = resolveBatchProcessTarget();
   setLoading("batchProcess", true);
   try {
     const { data } = await fetchJson("/jobs/batch-process", {
       method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target }),
     });
-    const message = [
-      `일괄처리 큐 등록 완료`,
-      `ffmpeg ${data?.ffmpeg_queued ?? 0}건`,
-      `stt ${data?.stt_queued ?? 0}건`,
-      `llm ${data?.summary_queued ?? 0}건`,
-      `embed ${data?.embedding_queued ?? 0}건`,
-    ].join(" · ");
-    setMessage("upload", message, "success");
+    const message = buildBatchProcessMessage(target, data);
+    setMessage("upload", message.text, message.tone);
     await Promise.all([refreshJobs({ showMessage: true }), refreshQueue()]);
     if (state.selectedJobId) {
       await refreshSelectedJob(state.selectedJobId);
@@ -723,6 +1324,8 @@ async function refreshJobs({ showMessage = false } = {}) {
     }
   } catch (error) {
     setMessage("jobs", error.message, "error");
+  } finally {
+    updateActionStates();
   }
 }
 
@@ -758,11 +1361,17 @@ async function refreshQueue({ showMessage = false } = {}) {
   } catch (error) {
     renderQueueBoard();
     setMessage("queue", error.message, "error");
+  } finally {
+    updateActionStates();
   }
 }
 
 async function refreshSelectedJob(jobId, { showMessage = false } = {}) {
+  const selectionChanged = state.selectedJobId !== jobId;
   state.selectedJobId = jobId;
+  if (selectionChanged && elements.sttForm) {
+    elements.sttForm.reset();
+  }
   renderJobs();
 
   const encodedJobId = encodeURIComponent(jobId);
@@ -858,6 +1467,9 @@ function clearSelectedJob() {
   state.summaryText = "";
   state.summaryOneLine = "";
   state.embeddingStatus = null;
+  if (elements.sttForm) {
+    elements.sttForm.reset();
+  }
   stopPoller("selected-job");
   renderSelectedJob();
   renderJobs();
@@ -883,9 +1495,13 @@ async function prepareModel(kind) {
 }
 
 function renderAll() {
+  renderTabs();
+  renderSettingsModal();
   renderUploadQueue();
   renderSystem();
   renderJobs();
+  renderJobResetModal();
+  renderBatchDeleteModal();
   renderSelectedJob();
   renderQueueBoard();
   renderDictionary();
@@ -896,6 +1512,8 @@ function renderAll() {
 function renderSystem() {
   const system = state.systemStatus;
   if (!system) {
+    elements.systemServerStatus.textContent = "Checking";
+    elements.systemServerStatus.dataset.status = "idle";
     elements.systemGrid.innerHTML = '<p class="muted">시스템 상태를 불러오는 중입니다.</p>';
     elements.modelGrid.innerHTML = "";
     return;
@@ -977,6 +1595,12 @@ function renderSystem() {
   });
 
   const errorCount = Array.isArray(system.errors) ? system.errors.length : 0;
+  const systemReady =
+    errorCount === 0 &&
+    tiles.every(([, ready]) => Boolean(ready));
+
+  elements.systemServerStatus.textContent = systemReady ? "Ready" : "Needs setup";
+  elements.systemServerStatus.dataset.status = systemReady ? "completed" : "failed";
   elements.globalCaption.textContent =
     errorCount > 0
       ? "환경 준비가 필요합니다. setup을 다시 실행하세요."
@@ -984,28 +1608,40 @@ function renderSystem() {
 }
 
 function renderJobs() {
+  if (elements.jobsTotalCount) {
+    elements.jobsTotalCount.textContent = `${state.jobs.length} total jobs`;
+  }
+
   if (!state.jobs.length) {
-    elements.jobsList.innerHTML = '<li class="muted">아직 생성된 Job이 없습니다.</li>';
+    elements.jobsList.innerHTML = `
+      <li>
+        <article class="job-empty-state">
+          <p class="job-empty-title">아직 생성된 Job 없음</p>
+          <p class="job-empty-copy">Upload 탭에서 오디오 파일을 등록하면 이 영역에 job navigator가 채워집니다.</p>
+        </article>
+      </li>
+    `;
     return;
   }
 
   elements.jobsList.innerHTML = state.jobs
     .map((job) => {
-      const selectedClass = job.job_id === state.selectedJobId ? "is-selected" : "";
-      const taskBadges = Array.isArray(job.tasks)
-        ? job.tasks
-            .map((task) => statusBadge(task.status, `${task.task_type}:${task.status}`))
-            .join("")
-        : "";
+      const selected = job.job_id === state.selectedJobId;
+      const status = job.status || "idle";
       return `
         <li>
-          <button class="job-item ${selectedClass}" data-job-id="${job.job_id}" type="button">
-            <div class="job-item-head">
-              <p class="job-item-title">${escapeHtml(job.source_file_name || job.job_id)}</p>
-              ${statusBadge(job.status)}
+          <button
+            class="job-item ${selected ? "is-selected" : ""}"
+            data-job-id="${escapeAttribute(job.job_id)}"
+            data-status="${escapeAttribute(status)}"
+            type="button"
+          >
+            <p class="job-item-title">${escapeHtml(job.source_file_name || job.job_id)}</p>
+            <p class="job-item-meta">${escapeHtml(buildJobRailMeta(job))}</p>
+            <div class="job-item-foot">
+              ${statusBadge(status, status)}
+              ${selected ? '<span class="job-item-selected">selected</span>' : ""}
             </div>
-            <p class="job-item-meta">${escapeHtml(job.job_id)} · ${escapeHtml(formatDate(job.started_at))}</p>
-            <div class="badge-row">${taskBadges}</div>
           </button>
         </li>
       `;
@@ -1019,62 +1655,136 @@ function renderJobs() {
   });
 }
 
+function renderSettingsModal() {
+  elements.settingsModal.hidden = !state.settingsModal.open;
+  syncModelPoller();
+  syncModalBodyState();
+}
+
+function renderJobResetModal() {
+  const isOpen = state.jobResetModal.open;
+  const selection = normalizeJobResetSelection(state.jobResetModal.selection);
+  const selectedJob = state.jobs.find((job) => job.job_id === state.selectedJobId) || state.selectedJob;
+
+  elements.jobResetModal.hidden = !isOpen;
+  syncModalBodyState();
+
+  if (selectedJob) {
+    elements.jobResetTitle.textContent = `작업 삭제 · ${selectedJob.source_file_name || selectedJob.job_id}`;
+    elements.jobResetCopy.textContent =
+      "삭제 후에도 source와 job 자체는 유지됩니다. 체크한 단계만 지워 재작업 가능한 상태로 되돌립니다.";
+  } else {
+    elements.jobResetTitle.textContent = "작업 삭제";
+    elements.jobResetCopy.textContent =
+      "삭제 후에도 source와 job 자체는 유지됩니다. 체크한 단계만 지워 재작업 가능한 상태로 되돌립니다.";
+  }
+
+  elements.jobResetAllCheckbox.checked = selection.all;
+  elements.jobResetFfmpegCheckbox.checked = selection.ffmpeg;
+  elements.jobResetSttCheckbox.checked = selection.stt;
+  elements.jobResetSummaryCheckbox.checked = selection.summary;
+  elements.jobResetEmbeddingCheckbox.checked = selection.embedding;
+
+  const resetAllowed = canResetSelectedJob();
+  if (!state.queueLoaded) {
+    elements.jobResetHint.textContent = "큐 상태를 불러온 뒤에 작업 삭제를 사용할 수 있습니다.";
+  } else if (!queueIsIdleForReset()) {
+    elements.jobResetHint.textContent =
+      "진행 중이거나 대기 중인 작업이 있으면 작업 삭제를 사용할 수 없습니다.";
+  } else {
+    elements.jobResetHint.textContent =
+      "삭제 가능 상태입니다. 하나 이상 체크하면 확인 버튼이 활성화됩니다.";
+  }
+  elements.jobResetHint.dataset.tone = resetAllowed ? "success" : "info";
+  elements.jobResetConfirmButton.disabled =
+    !resetAllowed || !jobResetSelectionHasAny(selection) || state.loading.jobReset;
+}
+
+function renderBatchDeleteModal() {
+  const isOpen = state.batchDeleteModal.open;
+  const target = state.batchDeleteModal.target || resolveBatchDeleteTarget();
+  const label = resolveBatchDeleteTargetLabel(target);
+  const completedCount = state.batchDeleteModal.completedCount;
+  const eligibleCount = state.batchDeleteModal.eligibleJobs.length;
+  const queueIdle = queueIsIdleForReset();
+  const loading = state.loading.batchDelete;
+  const submitting = state.batchDeleteModal.submitting;
+
+  elements.batchDeleteModal.hidden = !isOpen;
+  syncModalBodyState();
+
+  elements.batchDeleteTitle.textContent = `${label} 일괄 삭제`;
+  elements.batchDeleteCopy.textContent =
+    `${label} 단계 산출물만 삭제합니다. source와 job 자체는 유지되고, 완료된 Job 중 현재 대상만 순차적으로 reset 합니다.`;
+  elements.batchDeleteSummary.innerHTML = [
+    ["선택 단계", label],
+    ["완료 Job", `${completedCount}건`],
+    ["삭제 대상", `${eligibleCount}건`],
+  ]
+    .map(([term, value]) => `<dt>${escapeHtml(term)}</dt><dd>${escapeHtml(value)}</dd>`)
+    .join("");
+
+  let hintText = "";
+  let hintTone = "info";
+
+  if (submitting && state.batchDeleteModal.progressMessage) {
+    hintText = state.batchDeleteModal.progressMessage;
+  } else if (!state.queueLoaded) {
+    hintText = "큐 상태를 불러온 뒤에 일괄 삭제를 사용할 수 있습니다.";
+  } else if (!queueIdle) {
+    hintText = "진행 중이거나 대기 중인 작업이 있으면 일괄 삭제를 실행할 수 없습니다.";
+  } else if (loading) {
+    hintText = `${label} 삭제 대상을 계산하는 중입니다.`;
+  } else if (completedCount === 0) {
+    hintText = "완료된 Job이 없습니다.";
+  } else if (eligibleCount === 0) {
+    hintText = `완료된 Job 중 ${label} 산출물이 있는 대상이 없습니다.`;
+  } else {
+    hintText = `${label} 산출물 ${eligibleCount}건을 삭제할 수 있습니다. 확인을 누르면 순차적으로 reset을 요청합니다.`;
+    hintTone = "success";
+  }
+
+  elements.batchDeleteHint.textContent = hintText;
+  elements.batchDeleteHint.dataset.tone = hintTone;
+  elements.batchDeleteConfirmButton.disabled =
+    !state.queueLoaded || !queueIdle || loading || eligibleCount === 0;
+  elements.batchDeleteCloseButton.disabled = submitting;
+  elements.batchDeleteCancelButton.disabled = submitting;
+}
+
 function renderSelectedJob() {
   const job = state.selectedJob;
   updateActionStates();
+
   if (!job) {
     elements.selectedJobTitle.textContent = "선택된 Job 없음";
+    elements.selectedJobSummary.textContent =
+      "왼쪽 목록에서 Job을 선택하면 selected job summary와 stage 상태가 여기에 표시됩니다.";
+    elements.selectedJobMeta.textContent = "job id, timestamps, source metadata";
+    elements.selectedJobStatus.innerHTML = statusBadge("idle", "idle");
     elements.jobOverview.innerHTML = '<dt>상태</dt><dd class="muted">왼쪽 목록에서 Job을 선택하세요.</dd>';
-    elements.jobTasks.innerHTML = "";
-    elements.sttAudioOptions.innerHTML = "";
-    elements.sttStatus.textContent = "";
-    elements.summaryStatus.textContent = "";
-    elements.embeddingStatus.textContent = "";
-    elements.transcriptsView.innerHTML = '<p class="muted">전사 결과가 여기에 표시됩니다.</p>';
-    elements.summaryTextView.textContent = "";
-    elements.embeddingMetadata.innerHTML = '<dt>상태</dt><dd class="muted">embedding metadata 없음</dd>';
-    elements.filesView.innerHTML = '<p class="muted">파일 목록이 여기에 표시됩니다.</p>';
+    elements.jobTasks.innerHTML = renderJobStageStrip(null, []);
+    renderSttArea();
+    renderSummaryArea();
+    renderEmbeddingArea();
+    renderFiles();
     return;
   }
 
-  elements.selectedJobTitle.textContent = `${job.source_file_name} · ${
-    state.summaryOneLine || job.job_id
-  }`;
+  const tasks = Array.isArray(state.jobStatus?.tasks) ? state.jobStatus.tasks : job.tasks || [];
+  elements.selectedJobTitle.textContent = resolveSelectedJobTitle(job);
+  elements.selectedJobSummary.textContent = resolveSelectedJobSummary(job);
+  elements.selectedJobMeta.textContent = buildSelectedJobMeta(job);
+  elements.selectedJobStatus.innerHTML = statusBadge(job.status || "idle", job.status || "idle");
   elements.jobOverview.innerHTML = [
-    ["job_id", job.job_id],
-    ["status", job.status],
-    ["started_at", formatDate(job.started_at)],
-    ["finished_at", formatDate(job.finished_at)],
-    ["source_ref", job.source_ref ?? "-"],
+    ["job_id", shortId(job.job_id, 14)],
     ["source_kind", job.source_kind ?? "-"],
-    ["source_content_sha256", job.source_content_sha256 ?? "-"],
-    ["channels", job.probe?.channels ?? "-"],
-    ["channel_layout", job.probe?.channel_layout ?? "-"],
-    ["error", job.error_message ?? "-"],
+    ["channels", job.probe?.channels ? `${job.probe.channels}ch` : "-"],
+    ["channel_layout", job.probe?.channel_layout ?? resolveSplitStrategyLabel(job.split_strategy)],
   ]
     .map(([key, value]) => `<dt>${escapeHtml(String(key))}</dt><dd>${escapeHtml(String(value))}</dd>`)
     .join("");
-
-  const tasks = Array.isArray(state.jobStatus?.tasks) ? state.jobStatus.tasks : job.tasks || [];
-  elements.jobTasks.innerHTML = tasks.length
-    ? tasks
-        .map((task) => {
-          const suffix = task.status === "running" ? '<span class="running-dot" aria-hidden="true"></span>' : "";
-          return `
-            <article class="task-card">
-              <div class="badge-row">
-                ${statusBadge(task.status, task.task_type)}
-                ${suffix}
-              </div>
-              <p>started: ${escapeHtml(formatDate(task.started_at))}</p>
-              <p>finished: ${escapeHtml(formatDate(task.finished_at))}</p>
-              <p>retry: ${escapeHtml(String(task.retry_count ?? 0))}</p>
-              <p>error: ${escapeHtml(task.last_error || "-")}</p>
-            </article>
-          `;
-        })
-        .join("")
-    : '<p class="muted">task 정보가 없습니다.</p>';
+  elements.jobTasks.innerHTML = renderJobStageStrip(job, tasks);
 
   renderSttArea();
   renderSummaryArea();
@@ -1083,29 +1793,19 @@ function renderSelectedJob() {
 }
 
 function renderSttArea() {
+  const job = state.selectedJob;
   const progress = state.sttProgress;
   const task = state.sttStatus?.task;
-  const statusParts = [];
-  if (task?.status) {
-    statusParts.push(`task: ${task.status}`);
-  }
-  if (progress?.phase) {
-    statusParts.push(`phase: ${progress.phase}`);
-  }
-  if (typeof progress?.completed_files === "number" && typeof progress?.total_files === "number") {
-    statusParts.push(`files: ${progress.completed_files}/${progress.total_files}`);
-  }
-  if (typeof progress?.progress_percent === "number") {
-    statusParts.push(`progress: ${progress.progress_percent}%`);
-  }
-  setInlineStatus("stt-status", statusParts.join(" · ") || "STT 미실행", toneForStatus(task?.status));
-
+  const effectiveStatus = task?.status || (state.transcripts.length ? "completed" : "idle");
   const audioFiles = state.jobFiles.filter((file) => isSelectableAudioFile(file));
+
+  setInlineStatus("stt-status", resolveSttInlineStatus(job, task, progress), toneForStatus(effectiveStatus));
+
   elements.sttAudioOptions.innerHTML = audioFiles.length
     ? audioFiles
         .map(
           (file) => `
-            <label>
+            <label class="job-chip-selector">
               <input type="checkbox" value="${escapeAttribute(file)}" />
               <span>${escapeHtml(file)}</span>
             </label>
@@ -1113,59 +1813,60 @@ function renderSttArea() {
         )
         .join("")
     : '<p class="muted">선택 가능한 audio 파일이 없습니다.</p>';
+  syncSttAudioSelectorVisibility();
 
-  elements.transcriptsView.innerHTML = state.transcripts.length
-    ? state.transcripts
-        .map(
-          (item, index) => `
-            <article class="transcript-item" style="--transcript-preview-lines: ${TRANSCRIPT_PREVIEW_LINES};">
-              <div class="transcript-item-head">
-                <h4>${escapeHtml(item.file_name)}</h4>
-                <button
-                  type="button"
-                  class="ghost-button transcript-toggle"
-                  data-transcript-toggle
-                  aria-expanded="false"
-                  aria-controls="transcript-body-${index}"
-                >
-                  펼치기 (${TRANSCRIPT_PREVIEW_LINES}줄)
-                </button>
-              </div>
-              <pre class="text-view transcript-body" id="transcript-body-${index}">${escapeHtml(item.text || "")}</pre>
-            </article>
-          `
-        )
-        .join("")
-    : '<p class="muted">전사 결과가 없으면 이 영역이 비어 있습니다.</p>';
+  const preview = state.transcripts[0];
+  elements.transcriptsView.innerHTML = preview
+    ? `
+        <p class="preview-label">Preview / ${escapeHtml(preview.file_name)}</p>
+        <pre class="text-view preview-body">${escapeHtml(preview.text || "")}</pre>
+      `
+    : `
+        <p class="preview-label">Preview / transcript.txt</p>
+        <p class="muted">${escapeHtml(
+          job
+            ? "전사 결과가 생성되면 preview transcript가 이 영역에 표시됩니다."
+            : "선택된 Job이 없으면 transcript preview가 비어 있습니다."
+        )}</p>
+      `;
 }
 
 function renderSummaryArea() {
+  const job = state.selectedJob;
   const task = state.summaryStatus?.task;
-  const parts = [task?.status ? `task: ${task.status}` : "task: idle"];
-  if (task?.last_error) {
-    parts.push(`error: ${task.last_error}`);
-  }
-  setInlineStatus("summary-status", parts.join(" · "), toneForStatus(task?.status));
-  elements.summaryTextView.textContent =
-    state.summaryText || "요약 결과가 생성되면 여기 표시됩니다.";
+  const effectiveStatus = task?.status || (state.summaryText ? "completed" : "idle");
+  setInlineStatus("summary-status", resolveSummaryInlineStatus(job, task), toneForStatus(effectiveStatus));
+
+  elements.summaryTextView.innerHTML = state.summaryText
+    ? `
+        <p class="preview-label">Preview / result.md</p>
+        <pre class="text-view preview-body">${escapeHtml(state.summaryText)}</pre>
+      `
+    : `
+        <p class="preview-label">Preview / result.md</p>
+        <p class="muted">${escapeHtml(
+          job
+            ? "summary markdown preview는 selected job이 있을 때만 표시됩니다."
+            : "선택된 Job이 없으면 summary preview가 비어 있습니다."
+        )}</p>
+      `;
 }
 
 function renderEmbeddingArea() {
+  const job = state.selectedJob;
   const task = state.embeddingStatus?.task;
   const metadata = state.embeddingStatus?.metadata;
-  const parts = [task?.status ? `task: ${task.status}` : metadata ? "task: completed" : "task: idle"];
-  if (metadata?.dimension) {
-    parts.push(`dimension: ${metadata.dimension}`);
-  }
+  const effectiveStatus = task?.status || (metadata ? "completed" : "idle");
+
   setInlineStatus(
     "embedding-status",
-    parts.join(" · "),
-    toneForStatus(task?.status || (metadata ? "completed" : "idle"))
+    resolveEmbeddingInlineStatus(job, task, metadata),
+    toneForStatus(effectiveStatus)
   );
 
   elements.embeddingMetadata.innerHTML = metadata
     ? [
-        ["model_id", metadata.model_id],
+        ["model", metadata.model_id],
         ["dimension", metadata.dimension],
         ["normalized", metadata.normalized],
         ["created_at", formatDate(metadata.created_at)],
@@ -1184,48 +1885,492 @@ function renderFiles() {
   elements.filesView.innerHTML = state.jobFiles
     .map((file) => {
       const href = `/jobs/${encodeURIComponent(state.selectedJobId)}/files/${encodePath(file)}`;
-      return `<a href="${href}" target="_blank" rel="noreferrer">${escapeHtml(file)}</a>`;
+      return `<a class="file-chip" data-tone="${escapeAttribute(resolveFileTone(file))}" href="${href}" target="_blank" rel="noreferrer">${escapeHtml(file)}</a>`;
     })
     .join("");
+}
+
+function syncSttAudioSelectorVisibility() {
+  if (!elements.sttAudioSelector || !elements.sttForm) {
+    return;
+  }
+  const mode = new FormData(elements.sttForm).get("stt-mode");
+  elements.sttAudioSelector.hidden = mode !== "selected";
+}
+
+function renderJobStageStrip(job, tasks) {
+  const taskMap = new Map((tasks || []).map((task) => [task.task_type, task]));
+  return [
+    renderStageCard(buildFfmpegStage(job, taskMap.get("ffmpeg"))),
+    renderStageCard(buildSttStage(job, taskMap.get("stt"), state.sttProgress)),
+    renderStageCard(buildSummaryStage(job, taskMap.get("summary"))),
+    renderStageCard(buildEmbeddingStage(job, taskMap.get("embedding"), state.embeddingStatus?.metadata)),
+  ].join("");
+}
+
+function renderStageCard(card) {
+  const progressMarkup =
+    typeof card.progress === "number"
+      ? `
+          <div class="stage-progress" aria-hidden="true">
+            <div class="stage-progress-bar" style="width: ${Math.max(0, Math.min(card.progress, 100))}%;"></div>
+          </div>
+        `
+      : "";
+  const sublineClass = card.sublineTone === "error" ? "task-card-error" : "task-card-subtle";
+  return `
+    <article class="task-card" data-status="${escapeAttribute(card.status)}">
+      <div class="task-card-head">
+        <h3>${escapeHtml(card.title)}</h3>
+        ${statusBadge(card.status, card.status)}
+      </div>
+      <div class="task-card-copy">
+        <p>${escapeHtml(card.headline)}</p>
+        ${progressMarkup}
+        <p class="${sublineClass}">${escapeHtml(card.subline)}</p>
+      </div>
+    </article>
+  `;
+}
+
+function buildFfmpegStage(job, task) {
+  if (!job) {
+    return {
+      title: "FFmpeg",
+      status: "idle",
+      headline: "not started",
+      subline: "waiting for selected job",
+    };
+  }
+
+  const outputCount = countOutputFiles(job);
+  const status = task?.status || (outputCount > 0 ? "completed" : "idle");
+  if (status === "completed") {
+    return {
+      title: "FFmpeg",
+      status,
+      headline: "completed",
+      subline: outputCount > 0 ? `split ${outputCount} output files` : "mono mix ready",
+    };
+  }
+  if (status === "running") {
+    return {
+      title: "FFmpeg",
+      status,
+      headline: "running",
+      subline: "audio split in progress",
+    };
+  }
+  if (status === "queued") {
+    return {
+      title: "FFmpeg",
+      status,
+      headline: "queued",
+      subline: "waiting for queue dispatch",
+    };
+  }
+  if (status === "failed") {
+    return {
+      title: "FFmpeg",
+      status,
+      headline: "failed",
+      subline: task?.last_error || job.error_message || "audio split failed",
+      sublineTone: "error",
+    };
+  }
+  return {
+    title: "FFmpeg",
+    status: "idle",
+    headline: "not started",
+    subline: "waiting for selected job",
+  };
+}
+
+function buildSttStage(job, task, progress) {
+  if (!job) {
+    return {
+      title: "STT",
+      status: "idle",
+      headline: "not started",
+      subline: "waiting for selected job",
+    };
+  }
+
+  const hasTranscript = state.transcripts.length > 0;
+  const status = task?.status || (hasTranscript ? "completed" : "idle");
+  if (status === "running") {
+    const completedFiles = typeof progress?.completed_files === "number" ? progress.completed_files : 0;
+    const totalFiles = typeof progress?.total_files === "number" ? progress.total_files : 0;
+    const percent = typeof progress?.progress_percent === "number" ? progress.progress_percent : 0;
+    return {
+      title: "STT",
+      status,
+      headline: `${completedFiles} / ${totalFiles} files · ${percent}%`,
+      subline: "transcript generation in progress",
+      progress: percent,
+    };
+  }
+  if (status === "completed") {
+    const totalLabel = typeof progress?.total_files === "number" && progress.total_files > 0
+      ? `${progress.total_files} / ${progress.total_files} files`
+      : `${Math.max(state.transcripts.length, 1)} transcript files`;
+    return {
+      title: "STT",
+      status,
+      headline: totalLabel,
+      subline: "transcript ready",
+    };
+  }
+  if (status === "queued") {
+    return {
+      title: "STT",
+      status,
+      headline: "queued",
+      subline: countOutputFiles(job) > 0 ? "queued after ffmpeg outputs" : "waiting for ffmpeg completion",
+    };
+  }
+  if (status === "failed") {
+    return {
+      title: "STT",
+      status,
+      headline: "failed",
+      subline: task?.last_error || "transcript generation failed",
+      sublineTone: "error",
+    };
+  }
+  return {
+    title: "STT",
+    status: "idle",
+    headline: "not started",
+    subline: "no transcript yet",
+  };
+}
+
+function buildSummaryStage(job, task) {
+  if (!job) {
+    return {
+      title: "Summary",
+      status: "idle",
+      headline: "not started",
+      subline: "waiting for selected job",
+    };
+  }
+
+  const status = task?.status || (state.summaryText ? "completed" : "idle");
+  if (status === "completed") {
+    return {
+      title: "Summary",
+      status,
+      headline: "completed",
+      subline: state.summaryOneLine ? truncateText(state.summaryOneLine, 72) : "summary document ready",
+    };
+  }
+  if (status === "running") {
+    return {
+      title: "Summary",
+      status,
+      headline: "running",
+      subline: "summary generation in progress",
+    };
+  }
+  if (status === "queued") {
+    return {
+      title: "Summary",
+      status,
+      headline: "queued",
+      subline: "waiting for STT completion",
+    };
+  }
+  if (status === "failed") {
+    return {
+      title: "Summary",
+      status,
+      headline: "failed",
+      subline: task?.last_error ? `last_error: ${task.last_error}` : "summary generation failed",
+      sublineTone: "error",
+    };
+  }
+  return {
+    title: "Summary",
+    status: "idle",
+    headline: "not started",
+    subline: "waiting for transcript",
+  };
+}
+
+function buildEmbeddingStage(job, task, metadata) {
+  if (!job) {
+    return {
+      title: "Embedding",
+      status: "idle",
+      headline: "idle",
+      subline: "waiting for selected job",
+    };
+  }
+
+  const status = task?.status || (metadata ? "completed" : "idle");
+  if (status === "completed") {
+    return {
+      title: "Embedding",
+      status,
+      headline: "completed",
+      subline: metadata ? `${metadata.dimension} dim${metadata.normalized ? " · normalized" : ""}` : "embedding ready",
+    };
+  }
+  if (status === "running") {
+    return {
+      title: "Embedding",
+      status,
+      headline: "running",
+      subline: "embedding generation in progress",
+    };
+  }
+  if (status === "queued") {
+    return {
+      title: "Embedding",
+      status,
+      headline: "queued",
+      subline: "waiting for summary output",
+    };
+  }
+  if (status === "failed") {
+    return {
+      title: "Embedding",
+      status,
+      headline: "failed",
+      subline: task?.last_error || "embedding generation failed",
+      sublineTone: "error",
+    };
+  }
+  return {
+    title: "Embedding",
+    status: "idle",
+    headline: "idle",
+    subline: state.summaryText ? "ready from summary output" : "blocked by summary output",
+  };
+}
+
+function resolveSelectedJobTitle(job) {
+  const summaryTask = state.summaryStatus?.task;
+  if (summaryTask?.status === "failed") {
+    return "Summary regeneration failed";
+  }
+  return humanizeSourceName(job.source_file_name || job.job_id);
+}
+
+function resolveSelectedJobSummary(job) {
+  const summaryTask = state.summaryStatus?.task;
+  const sttTask = state.sttStatus?.task;
+
+  if (summaryTask?.status === "failed") {
+    return "summary stage에서 오류가 발생했습니다. force regenerate를 다시 시도하거나 입력 텍스트를 조정해야 합니다.";
+  }
+  if (summaryTask?.status === "running") {
+    return "summary를 생성 중입니다. 현재 stage 상태와 preview를 함께 확인할 수 있습니다.";
+  }
+  if (summaryTask?.status === "queued") {
+    return "summary가 대기열에 있으며 transcript completion 이후 이어집니다.";
+  }
+  if (sttTask?.status === "running") {
+    return "전사 진행 중입니다. transcript preview와 stage 상태를 확인할 수 있습니다.";
+  }
+  if (state.summaryOneLine) {
+    return state.summaryOneLine;
+  }
+  if (job.error_message) {
+    return job.error_message;
+  }
+  return "선택한 Job의 현재 stage 상태와 주요 산출물을 한 번에 확인할 수 있습니다.";
+}
+
+function buildSelectedJobMeta(job) {
+  return [
+    shortId(job.job_id, 12),
+    formatDate(job.started_at),
+    job.source_kind ? `source=${job.source_kind}` : null,
+    job.source_content_sha256 ? `sha=${shortId(job.source_content_sha256, 8)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function buildJobRailMeta(job) {
+  return [shortId(job.job_id, 10), formatDateCompact(job.started_at)].filter(Boolean).join(" · ");
+}
+
+function resolveSttInlineStatus(job, task, progress) {
+  if (!job) {
+    return "idle · 선택된 transcript가 없습니다";
+  }
+  const status = task?.status || (state.transcripts.length ? "completed" : "idle");
+  if (status === "running") {
+    return `running · ${progress?.completed_files ?? 0} / ${progress?.total_files ?? 0} files · progress ${progress?.progress_percent ?? 0}%`;
+  }
+  if (status === "completed") {
+    return state.transcripts.length > 0
+      ? `completed · ${state.transcripts.length} transcript files ready`
+      : "completed · transcript ready";
+  }
+  if (status === "queued") {
+    return "queued · ffmpeg outputs 준비 후 실행됩니다";
+  }
+  if (status === "failed") {
+    return `failed · ${task?.last_error || "transcript generation failed"}`;
+  }
+  return "idle · 전사 결과가 없습니다";
+}
+
+function resolveSummaryInlineStatus(job, task) {
+  if (!job) {
+    return "idle · summary output이 아직 없습니다";
+  }
+  const status = task?.status || (state.summaryText ? "completed" : "idle");
+  if (status === "completed") {
+    return state.summaryOneLine ? `completed · ${truncateText(state.summaryOneLine, 96)}` : "completed · summary document ready";
+  }
+  if (status === "running") {
+    return "running · summary generation in progress";
+  }
+  if (status === "queued") {
+    return "queued · transcript completion 이후 자동 실행 예정";
+  }
+  if (status === "failed") {
+    return `failed · ${task?.last_error || "summary generation failed"}`;
+  }
+  return "idle · summary output이 아직 없습니다";
+}
+
+function resolveEmbeddingInlineStatus(job, task, metadata) {
+  if (!job) {
+    return "idle · selected job이 없으면 embedding metadata도 비어 있습니다";
+  }
+  const status = task?.status || (metadata ? "completed" : "idle");
+  if (status === "completed") {
+    return metadata
+      ? `completed · ${metadata.dimension} dim${metadata.normalized ? " · normalized" : ""}`
+      : "completed · embedding metadata ready";
+  }
+  if (status === "running") {
+    return "running · embedding generation in progress";
+  }
+  if (status === "queued") {
+    return "queued · summary output 이후 실행됩니다";
+  }
+  if (status === "failed") {
+    return `failed · ${task?.last_error || "embedding generation failed"}`;
+  }
+  return state.summaryText ? "idle · summary output이 생성되면 진행 가능" : "idle · summary output이 아직 없습니다";
+}
+
+function countOutputFiles(job) {
+  let count = 0;
+  if (job?.outputs?.merged_mono_wav) {
+    count += 1;
+  }
+  if (Array.isArray(job?.outputs?.split_mono_wavs)) {
+    count += job.outputs.split_mono_wavs.length;
+  }
+  return count;
+}
+
+function resolveSplitStrategyLabel(strategy) {
+  if (strategy === "merged_mono_only") {
+    return "mono only";
+  }
+  if (strategy === "per_channel_plus_merged_mono") {
+    return "per-channel + mono";
+  }
+  return "-";
+}
+
+function resolveFileTone(file) {
+  if (!file.includes("/") || isSelectableAudioFile(file)) {
+    return "accent";
+  }
+  return "neutral";
+}
+
+function humanizeSourceName(name) {
+  const base = stripFileExtension(name || "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!base) {
+    return name || "-";
+  }
+  return `${base.charAt(0).toUpperCase()}${base.slice(1)}`;
+}
+
+function stripFileExtension(name) {
+  return String(name || "").replace(/\.[^.]+$/, "");
+}
+
+function truncateText(value, limit = 80) {
+  const text = String(value || "").trim();
+  if (text.length <= limit) {
+    return text;
+  }
+  return `${text.slice(0, limit - 1)}…`;
+}
+
+function shortId(value, visible = 8) {
+  const text = String(value || "");
+  if (text.length <= visible) {
+    return text || "-";
+  }
+  return `${text.slice(0, visible)}...`;
+}
+
+function formatDateCompact(value) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleDateString();
 }
 
 function renderSearchResults() {
   if (!state.searchResults.length) {
     elements.searchResults.innerHTML =
-      '<p class="muted">검색 결과가 없으면 여기에 similarity search 결과가 표시됩니다.</p>';
+      '<p class="muted">검색 결과가 없으면 여기에 유사도 검색 결과가 표시됩니다.</p>';
     return;
   }
 
   elements.searchResults.innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th>Score</th>
-          <th>Source</th>
-          <th>Summary</th>
-          <th>Excerpt</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${state.searchResults
-          .map(
-            (row) => `
-              <tr data-search-job-id="${row.job_id}">
-                <td>${escapeHtml(Number(row.score).toFixed(4))}</td>
-                <td>${escapeHtml(row.source_file_name)}</td>
-                <td>${escapeHtml(row.summary_file_name)}</td>
-                <td>${escapeHtml(row.summary_excerpt)}</td>
-              </tr>
-            `
-          )
-          .join("")}
-      </tbody>
-    </table>
+    <div class="results-list">
+      ${state.searchResults
+        .map(
+          (row) => `
+            <article class="result-card">
+              <div class="result-card-head">
+                <div class="result-card-copy">
+                  <p class="result-card-meta">${escapeHtml(row.job_id)}</p>
+                  <p class="result-card-title">${escapeHtml(row.source_file_name)}</p>
+                  <p>${escapeHtml(row.summary_file_name)}</p>
+                </div>
+                ${statusBadge("running", `score ${Number(row.score).toFixed(2)}`)}
+              </div>
+              <p class="result-card-meta">${escapeHtml(row.summary_excerpt)}</p>
+              <div class="result-card-action">
+                <button
+                  class="ghost-button"
+                  data-search-job-id="${escapeAttribute(row.job_id)}"
+                  type="button"
+                >
+                  View
+                </button>
+              </div>
+            </article>
+          `
+        )
+        .join("")}
+    </div>
   `;
 
-  elements.searchResults.querySelectorAll("[data-search-job-id]").forEach((row) => {
-    row.addEventListener("click", () => {
-      refreshSelectedJob(row.dataset.searchJobId, { showMessage: true });
+  elements.searchResults.querySelectorAll("[data-search-job-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveTab("jobs");
+      refreshSelectedJob(button.dataset.searchJobId, { showMessage: true });
     });
   });
 }
@@ -1251,7 +2396,7 @@ function renderDictionary() {
       })}
       ${renderDictionaryGroup({
         title: "자동 생성 키워드",
-        description: "LLM이 확인한 후보 키워드입니다. + 버튼으로 사용자 키워드로 옮길 수 있습니다.",
+        description: "텍스트 요약 과정에서 발견한 후보 키워드입니다. + 버튼으로 사용자 키워드로 옮길 수 있습니다.",
         emptyMessage: "자동 생성된 키워드가 없습니다.",
         items: state.dictionaryKeywords.autoKeywords,
         renderChip: renderAutoDictionaryChip,
@@ -1345,7 +2490,7 @@ function renderQueueControls() {
       ? hasRunningEntry
         ? "전역 큐가 일시정지되었습니다. 현재 진행 중인 작업만 끝나고 다음 작업은 대기합니다."
         : "전역 큐가 일시정지되었습니다. 재개 전까지 새 작업과 남은 작업은 모두 대기합니다."
-      : "전역 큐의 남은 작업을 칸반보드로 보고, 현재 실행 중인 카테고리를 열 단위로 확인합니다.";
+      : "전역 큐의 남은 작업과 일괄처리로 미리 등록된 후속 단계를 칸반보드에서 확인합니다.";
   }
 
   if (elements.queuePauseButton) {
@@ -1482,11 +2627,16 @@ function updateActionStates() {
   const hasJob = Boolean(state.selectedJobId);
   const runningTask = state.selectedJob?.tasks?.some((task) => task.status === "running");
 
+  elements.settingsOpenButton.disabled = false;
   elements.uploadSubmitButton.disabled = state.loading.upload;
+  elements.batchProcessTargetSelect.disabled = state.loading.batchProcess;
   elements.batchProcessButton.disabled = state.loading.batchProcess;
+  elements.batchDeleteTargetSelect.disabled = state.loading.batchDelete;
+  elements.batchDeleteButton.disabled = state.loading.batchDelete || !state.queueLoaded;
   elements.queueCancelButton.disabled = state.loading.queueCancel || !state.queueLoaded;
   elements.systemRefreshButton.disabled = false;
   elements.jobsRefreshButton.disabled = false;
+  elements.jobsDeleteButton.disabled = !canResetSelectedJob();
   elements.selectedJobRefreshButton.disabled = !hasJob;
   elements.queuePauseButton.disabled = state.loading.queuePause || !state.queueLoaded;
   elements.queueRefreshButton.disabled = false;
@@ -1496,6 +2646,13 @@ function updateActionStates() {
   elements.summarySubmitButton.disabled = !hasJob || state.loading.summary || runningTask;
   elements.embeddingSubmitButton.disabled = !hasJob || state.loading.embedding || runningTask;
   elements.searchSubmitButton.disabled = state.loading.search;
+
+  if (state.jobResetModal.open) {
+    renderJobResetModal();
+  }
+  if (state.batchDeleteModal.open) {
+    renderBatchDeleteModal();
+  }
 }
 
 function syncModelPoller() {
@@ -1510,7 +2667,7 @@ function syncModelPoller() {
 
 function syncSelectedJobPoller() {
   const runningTask = state.selectedJob?.tasks?.some((task) => task.status === "running");
-  if (state.selectedJobId && runningTask) {
+  if (state.selectedJobId && runningTask && state.activeTab === "jobs") {
     startPoller("selected-job", () => refreshSelectedJob(state.selectedJobId));
   } else {
     stopPoller("selected-job");

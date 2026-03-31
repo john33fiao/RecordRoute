@@ -180,6 +180,9 @@ pub fn search_summaries(
         let Some(_metadata) = job.summary_embedding.clone() else {
             continue;
         };
+        if is_embedding_stale(repo_root, &job).map_err(AppError::internal)? {
+            continue;
+        }
         let Ok(Some(sidecar)) = IndexStore::new(repo_root).get_summary_embedding(&job.job_id)
         else {
             continue;

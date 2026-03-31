@@ -1,3 +1,4 @@
 {
-    "cmake.sourceDirectory": "C:/workspace/RecordRoute/modules/llama.cpp/pocs"
+    "cmake.sourceDirectory": "C:/workspace/RecordRoute/modules/llama.cpp/pocs",
+    "chatgpt.openOnStartup": true
 }

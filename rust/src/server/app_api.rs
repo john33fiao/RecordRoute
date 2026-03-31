@@ -1,10 +1,11 @@
 use crate::app::{
-    self, BatchQueueSubmission, FfmpegJobSubmission, ModelPrepareSubmission, ModelStatusSnapshot,
-    QueueCancelPendingResult, StageJobSubmission, SummarySearchResult,
+    self, BatchProcessTarget, BatchQueueSubmission, FfmpegJobSubmission, JobResetResult,
+    ModelPrepareSubmission, ModelStatusSnapshot, QueueCancelPendingResult, StageJobSubmission,
+    SummarySearchResult,
 };
 use crate::audio_store::ImportedSource;
 use crate::error::{AppError, AppResult};
-use crate::index::{DictionaryKeywords, ModelKind, ModelPreparationRecord};
+use crate::index::{DictionaryKeywords, JobResetSelection, ModelKind, ModelPreparationRecord};
 use std::path::Path;
 
 pub(crate) fn submit_ffmpeg_job(repo_root: &Path, input: &Path) -> AppResult<FfmpegJobSubmission> {
@@ -42,8 +43,11 @@ pub(crate) fn submit_summary_embedding_job(
     app::submit_summary_embedding_job(repo_root, job_id)
 }
 
-pub(crate) fn submit_batch_pipeline_jobs(repo_root: &Path) -> AppResult<BatchQueueSubmission> {
-    app::submit_batch_pipeline_jobs(repo_root).map_err(AppError::internal)
+pub(crate) fn submit_batch_pipeline_jobs(
+    repo_root: &Path,
+    target: BatchProcessTarget,
+) -> AppResult<BatchQueueSubmission> {
+    app::submit_batch_pipeline_jobs(repo_root, target).map_err(AppError::internal)
 }
 
 pub(crate) fn set_queue_paused(
@@ -57,6 +61,14 @@ pub(crate) fn cancel_pending_queue_entries(
     repo_root: &Path,
 ) -> AppResult<QueueCancelPendingResult> {
     app::cancel_pending_entries(repo_root).map_err(AppError::internal)
+}
+
+pub(crate) fn reset_job(
+    repo_root: &Path,
+    job_id: &str,
+    selection: JobResetSelection,
+) -> AppResult<JobResetResult> {
+    app::reset_job(repo_root, job_id, selection)
 }
 
 pub(crate) fn list_stt_dictionary_keywords(repo_root: &Path) -> AppResult<DictionaryKeywords> {
