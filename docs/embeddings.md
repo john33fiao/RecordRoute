@@ -1,4 +1,4 @@
-# RecordRoute 임베딩과 요약 검색 (2026-03-28 코드 기준)
+# RecordRoute 임베딩과 요약 검색 (2026-03-31 코드 기준)
 
 이 문서는 현재 구현된 summary embedding, backfill, similarity search 동작을 설명한다.
 현행 구현은 파일 sidecar가 아니라 메타DB 저장을 사용한다.
@@ -55,10 +55,12 @@ summary와 embedding은 서로 다른 모델을 쓸 수 있다.
 
 ## 4. 생성 흐름
 
-1. summary task가 성공하면 embedding submit을 best-effort로 연쇄 실행한다.
-2. 현재 summary 본문과 embedding metadata가 일치하면 `Reused`
-3. queued/running task가 있으면 `Deduplicated`
-4. 아니면 새 embedding task를 실행한다.
+1. summary와 embedding은 분리된 stage다.
+2. summary 성공만으로 embedding이 자동 enqueue되지는 않는다.
+3. embedding 트리거는 `POST /jobs/{job_id}/summary/embedding`, `POST /jobs/batch-process`의 `embedding|all`, CLI `embed-summaries`다.
+4. 현재 summary 본문과 embedding metadata가 일치하면 `Reused`
+5. queued/running task가 있으면 `Deduplicated`
+6. 아니면 새 embedding task를 실행한다.
 
 stale 판단 기준:
 
@@ -67,6 +69,11 @@ stale 판단 기준:
 - 현재 summary 본문의 sha256과 `text_sha256` 불일치
 - 현재 embedding 모델 id와 저장된 `model_id` 불일치
 - DB의 metadata/vector 불일치
+
+주의:
+
+- `batch-process all`은 계획 시점에 summary가 이미 있는 job만 embedding 대상으로 잡는다.
+- 같은 요청 안에서 미래 summary 결과를 예측해 embedding까지 예약하지는 않는다.
 
 ## 5. 검색 동작
 
@@ -78,5 +85,7 @@ stale 판단 기준:
 - summary 존재
 - embedding vector 존재
 - 현재 embedding 모델과 `model_id` 일치
+- `is_embedding_stale(...) == false`
 
 후보 점수는 cosine similarity로 계산한다.
+현재 summary와 어긋난 stale embedding은 검색 결과에서 제외된다.

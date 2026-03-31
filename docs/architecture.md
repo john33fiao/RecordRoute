@@ -1,7 +1,8 @@
-# RecordRoute 아키텍처 (2026-03-29 코드 기준)
+# RecordRoute 아키텍처 (2026-03-31 코드 기준)
 
 이 문서는 현재 `rust/src/**` 구현을 기준으로 RecordRoute의 실행 구조와 저장 모델을 요약한다.
 이제 저장소는 `db/index.json`과 `db/<job_id>` 파일 트리가 아니라, 메타데이터 DB와 오디오 전용 경로 저장소로 분리되어 있다.
+패키지 실행 경로는 `RecordRoute` 런처가 `RecordRouteServer`를 소유하는 구조이며, 둘 다 같은 런타임 루트와 `.env`를 공유한다.
 
 ## 1. 런타임 루트
 
@@ -13,9 +14,14 @@
 4. 개발 환경에서는 저장소 루트
 
 이 루트를 기준으로 `db/`, `models/`, `logs/`, `.env`를 읽는다.
+패키지 런처는 이 루트 아래 `logs/server.log`, `logs/server.pid`를 사용하고, 서버 시작 시 `RECORDROUTE_QUEUE_START_PAUSED=1`을 주입해 queue를 paused 상태로 올린다.
 
 ## 2. 주요 모듈
 
+- `rust/src/bin/recordroute.rs`, `rust/src/launcher.rs`
+  - 패키지 런처, 서버 수명주기, 브라우저 오픈, pid/log 관리
+- `rust/src/bin/recordroute_server.rs`
+  - 서버 전용 진입점
 - `rust/src/app.rs`
   - CLI/API 공용 facade와 공용 타입
 - `rust/src/app/ffmpeg_stage.rs`
@@ -40,6 +46,8 @@
   - `.env` 기반 저장소 설정 로드
 - `rust/src/server.rs`, `rust/src/server/routes/*.rs`
   - axum HTTP 서버와 API 라우트
+- `rust/web/*`
+  - 내장 Web Console 자산
 
 ## 3. 저장 모델
 
@@ -54,8 +62,9 @@
 
 ### 3.2 환경 변수
 
-저장소는 `.env`만으로 설정한다.
+저장소와 런타임은 `.env`로 설정한다.
 
+- `RECORDROUTE_RUNTIME_ROOT`
 - `RECORDROUTE_METADATA_DRIVER=sqlite|postgres`
 - `RECORDROUTE_METADATA_SQLITE_PATH`
 - `RECORDROUTE_METADATA_POSTGRES_URL`
@@ -63,6 +72,8 @@
 - `RECORDROUTE_AUDIO_CACHE_ROOT`
 - `RECORDROUTE_AUDIO_SPOOL_ROOT`
 - `RECORDROUTE_QUEUE_BURST_LIMIT` (기본값 `100`)
+- `RECORDROUTE_QUEUE_START_PAUSED` (`1|true|yes|on`이면 dispatcher를 paused 상태로 시작)
+- `RECORDROUTE_WHISPER_LANGUAGE` (기본값 `ko`)
 
 기본값을 그대로 쓰면 메타DB와 오디오 둘 다 `db/` 아래에 놓인다.
 운영에서 외부 분리가 필요하면 메타DB를 PostgreSQL로 바꾸거나 `RECORDROUTE_AUDIO_ROOT`를 SMB 마운트, OneDrive 동기화 폴더 등으로 바꾼다.
@@ -168,6 +179,9 @@ ffmpeg 결과 오디오는 오디오 루트 아래 job별 디렉터리에 저장
 2. 기존 embedding metadata의 `text_sha256`이 summary 본문과 같으면 재사용한다.
 3. stale 하거나 없으면 `embed` queue에 넣는다.
 4. 실행 시 summary 본문으로 embedding을 만들고 벡터를 DB에 저장한다.
+5. summary 성공만으로 embedding이 자동 enqueue되지는 않는다.
+6. embedding 트리거는 `POST /jobs/{job_id}/summary/embedding`, `POST /jobs/batch-process`의 `embedding|all`, CLI `embed-summaries`다.
+7. `batch-process all`은 계획 시점에 summary가 이미 존재하는 job만 embedding 대상으로 잡는다. 같은 요청 안에서 미래 summary 결과를 예측해 embedding까지 예약하지는 않는다.
 
 검색은 현재 DB 내부 벡터 인덱스가 아니라 Rust 쪽 cosine similarity 계산으로 수행한다.
 
@@ -195,6 +209,7 @@ ffmpeg 결과 오디오는 오디오 루트 아래 job별 디렉터리에 저장
 - 같은 category는 batch에 병합
 - 다른 category가 기다리면 `burst_limit`만큼 처리 후 rotate
 - `burst_limit`는 `RECORDROUTE_QUEUE_BURST_LIMIT`로 조정하며, 비어 있거나 잘못된 값이면 `100`을 사용
+- `RECORDROUTE_QUEUE_START_PAUSED`가 켜져 있으면 서버는 queue를 paused 상태로 시작하고, 이후 `/queue/pause`로 재개한다
 - queue 상태도 메타DB에 영속화
 
 Job/Task 상태는 항상 메타DB와 함께 갱신된다.
@@ -203,6 +218,9 @@ Job/Task 상태는 항상 메타DB와 함께 갱신된다.
 
 핵심 변경점:
 
+- `/jobs/upload`는 multipart 업로드를 spool에 기록한 뒤 content-addressed source로 publish한다.
+- `/queue/pause`, `/queue/cancel-pending`으로 dispatcher 제어와 대기 작업 정리가 가능하다.
+- `/dictionary/keywords*`로 user/auto STT keyword를 관리한다.
 - `GET /jobs`는 optional query `source_ref`를 지원한다.
 - `/jobs/by-source`는 제거되었다.
 - Job 응답에는 `source_ref`, `source_kind`, `source_content_sha256`가 포함된다.
@@ -215,6 +233,7 @@ Job/Task 상태는 항상 메타DB와 함께 갱신된다.
 
 웹 UI는 선택한 job에 대해 다음 정보를 보여준다.
 
+- 상단 탭: `upload`, `jobs`, `search`, `queue`, `dictionary`
 - job id
 - status
 - started/finished timestamps
@@ -228,3 +247,4 @@ Job/Task 상태는 항상 메타DB와 함께 갱신된다.
 
 `job_dir` 같은 내부 저장 경로는 더 이상 UI에 표시하지 않는다.
 JOBS 패널 헤더에는 `작업 삭제` 버튼이 있으며, 모달에서 `전체`, `오디오 분리`, `전사`, `요약`, `임베딩` 체크박스를 선택해 정확히 해당 stage만 reset할 수 있다.
+QUEUE 탭에서는 paused/resume과 pending cancel을 제어할 수 있고, DICTIONARY 탭에서는 user/auto keyword를 추가, 승격, 삭제할 수 있다.

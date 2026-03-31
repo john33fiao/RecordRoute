@@ -1,4 +1,4 @@
-# API / Toolchain Audit (2026-03-28 코드 기준)
+# API / Toolchain Audit (2026-03-31 코드 기준)
 
 이 문서는 RecordRoute가 외부 도구와 통신하는 현재 방식을 점검한 결과를 정리한다.
 여기서 "외부 도구"는 `ffmpeg`, `ffprobe`, `whisper-cli`, `llama-cli`, `llama-embedding`을 뜻한다.
@@ -40,7 +40,7 @@ CLI와 HTTP API는 모두 `app/*` 도메인 로직을 공유하며, 서버 핸�
 공통 원칙:
 
 - 서버와 CLI는 모두 `app/*`를 통해서만 stage submit / execute를 호출한다.
-- 외부 도구 호출 세부사항은 `ffmpeg.rs`, `whisper.rs`, `llama.rs`에 모여 있다.
+- 외부 도구 호출 세부사항은 `ffmpeg.rs`, `whisper/*.rs`, `llama/*.rs`에 모여 있다.
 - 장기 작업은 서버에서 `spawn_blocking`으로 백그라운드 처리된다.
 
 ## 3. FFmpeg / ffprobe
@@ -139,11 +139,14 @@ Rust는 `whisper-cli`에 다음 인자를 넘긴다.
 whisper-cli
   -m <model_path>
   -f <input_audio>
-  -l auto
+  -l <language>
   -otxt
   -np
   -of <output_prefix>
+  [--prompt <comma-separated keywords>]
 ```
+
+여기서 `language`는 요청별 입력이 아니라 서버 환경 변수 `RECORDROUTE_WHISPER_LANGUAGE`에서 오며, 기본값은 `ko`다.
 
 출력 규약:
 
@@ -324,7 +327,7 @@ summary / embedding 모델이 Hugging Face repo 문자열로 설정된 경우, R
 2. `whisper-cli`는 transcript 파일 존재만 보며 내용 품질이나 비어 있는지는 검사하지 않는다.
 3. summary 생성은 `llama-cli`의 `stdout` 포맷 변화에 가장 취약하다.
 4. llama Hugging Face 다운로드는 파일 캐시 관찰 기반이라 도구 출력만으로 상태를 설명하기 어렵다.
-5. embedding task 완료와 index metadata 저장이 완전히 한 번의 업데이트로 묶여 있지는 않다.
+5. summary 완료가 embedding 제출로 자동 연쇄되지는 않는다. 검색 최신화가 필요하면 embedding stage를 별도로 제출하거나 backfill해야 한다.
 
 ## 10. 감사 기준 문서
 

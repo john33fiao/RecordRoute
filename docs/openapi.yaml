@@ -567,6 +567,9 @@ paths:
     post:
       tags: [jobs]
       summary: Batch queue jobs for the full pipeline or a single stage
+      description: |
+        현재 시점에 조건을 만족한 task만 큐에 넣습니다.
+        같은 요청 안에서 미래 summary 결과를 예측해 embedding까지 예약하지는 않습니다.
       operationId: postJobsBatchProcess
       requestBody:
         required: false
@@ -944,6 +947,9 @@ paths:
     post:
       tags: [summary]
       summary: Submit summary embedding task for a job
+      description: |
+        embedding은 명시적 stage입니다.
+        summary 완료만으로 자동 제출되지는 않으므로 필요 시 별도로 호출해야 합니다.
       operationId: postSummaryEmbedding
       parameters:
         - $ref: '#/components/parameters/JobId'
@@ -1422,7 +1428,7 @@ components:
           type: string
         text:
           type: string
-          description: Markdown summary body
+          description: Transcript plain text body
 
     SttTranscriptListResponse:
       type: object
@@ -1618,6 +1624,7 @@ components:
     BatchQueueSubmissionResponse:
       type: object
       required: [total_jobs, ffmpeg_queued, stt_queued, summary_queued, embedding_queued]
+      description: Queueing result for the current planning snapshot only
       properties:
         total_jobs:
           type: integer
@@ -1679,7 +1686,7 @@ components:
 
     TaskRecord:
       type: object
-      required: [task_id, task_type, status, queued_at, started_at, finished_at, last_error, retry_count]
+      required: [task_id, task_type, status, queued_at, started_at, finished_at, last_error, retry_count, request_fingerprint]
       properties:
         task_id:
           type: string
@@ -1709,6 +1716,11 @@ components:
         retry_count:
           type: integer
           minimum: 0
+        request_fingerprint:
+          oneOf:
+            - type: string
+            - type: 'null'
+          description: Dedupe fingerprint derived from the queued request payload for this task
 
     JobProbe:
       type: object

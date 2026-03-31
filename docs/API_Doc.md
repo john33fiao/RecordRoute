@@ -1,4 +1,4 @@
-# RecordRoute API 기준 문서
+# RecordRoute API 기준 문서 (2026-03-31 코드 기준)
 
 이 문서는 RecordRoute의 현재 HTTP API를 에이전트가 빠르게 파악하고 작업 기준으로 삼기 위한 문서입니다.
 
@@ -15,6 +15,7 @@
 - 메타데이터 SoT 기본값: `db/index.sqlite3`
 - 오디오 저장 SoT 기본값: `db/audio/`
 - 메타데이터 backend는 SQLite 기본, `StorageConfig`로 PostgreSQL도 지원합니다.
+- 패키지 런처는 서버를 `RECORDROUTE_QUEUE_START_PAUSED=1`로 띄운 뒤 `/queue/pause`로 재개시키는 경로를 사용합니다.
 
 ### 1.2 핵심 상태와 타입
 
@@ -29,7 +30,7 @@
 
 - API에서 task 타입은 `summary`, `embedding`을 쓰지만 queue category는 각각 `llm`, `embed`를 씁니다.
 - `JobRecord`에는 `split_strategy`, `summary_embedding`, `tasks`가 포함됩니다.
-- `TaskRecord`에는 `task_id`, `retry_count`, `last_error`, 시각 필드가 포함됩니다.
+- `TaskRecord`에는 `task_id`, `retry_count`, `last_error`, 시각 필드, dedupe용 `request_fingerprint`가 포함됩니다.
 
 ### 1.3 비동기 제출 의미
 
@@ -106,6 +107,7 @@
   - 요청: `{ "paused": true | false }`
   - 응답: `QueueStatusResponse`
   - `paused=false`로 재개하면 dispatcher를 깨워 대기 작업을 다시 진행시킵니다.
+  - 런처 경로에서는 서버가 처음부터 paused로 올라올 수 있으므로, 초기 복구/검증 뒤 이 엔드포인트로 재개하는 흐름을 염두에 둡니다.
 
 - `POST /queue/cancel-pending`
   - 목적: 현재 실행 중인 작업은 유지하고, pending queue만 비웁니다.
@@ -179,6 +181,7 @@
   - 업로드 최대 크기: `512MB`
   - `200`: 완료 job 재사용
   - `202`: 새 job 접수 또는 실행 중 job dedup
+  - `400`: `file` 필드 누락, 중복 `file` 필드, 빈 파일, malformed multipart
   - `413`: 파일 크기 제한 초과
 
 - `POST /jobs/batch-process`
@@ -188,6 +191,8 @@
     - `target`: `all`, `ffmpeg`, `stt`, `summary`, `embedding`
   - 응답: `BatchQueueSubmissionResponse`
   - 빈 본문 또는 공백 본문은 `target=all`로 해석됩니다.
+  - 이 엔드포인트는 현재 스냅샷에서 조건을 만족한 task만 큐에 넣습니다.
+  - 같은 요청 안에서 미래 summary 결과를 예측해 embedding까지 예약하지는 않습니다.
 
 - `GET /jobs/{job_id}`
   - 목적: 전체 `JobRecord` 조회
@@ -272,6 +277,7 @@
   - 응답: `SummaryEmbeddingResponse`
   - 상태 코드는 항상 `202`
   - summary 산출물이 없으면 `400`
+  - summary 성공이 embedding 제출로 자동 연쇄되지는 않으므로, 검색 최신화가 필요하면 이 엔드포인트나 batch/backfill 경로를 별도로 호출해야 합니다.
 
 - `GET /jobs/{job_id}/summary/embedding`
   - 목적: embedding task 상태와 metadata 조회
@@ -292,6 +298,7 @@
     - `source_file_name`
     - `summary_file_name`
     - `summary_excerpt`
+  - 현재 summary 본문과 어긋난 stale embedding은 결과에서 제외됩니다.
   - embedding toolchain 또는 모델이 준비되지 않았으면 `503`
 
 ### 2.8 Files

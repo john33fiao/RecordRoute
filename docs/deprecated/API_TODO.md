@@ -7,6 +7,7 @@
 
 API를 확인할 때는 아래 문서를 우선한다.
 
+- `docs/API_Doc.md`
 - `docs/openapi.yaml`
 - `docs/architecture.md`
 - `docs/embeddings.md`

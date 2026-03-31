@@ -4,6 +4,7 @@
 
 ## 1) 프로젝트 개요
 - 핵심 애플리케이션은 `rust/` 크레이트(`recordroute_rust`)입니다.
+- 패키지 실행 경로는 런처(`RecordRoute`) -> 서버(`RecordRouteServer`) 구조이며, 런타임 루트와 `.env`를 공유합니다.
 - 파이프라인 단계는 `ffmpeg -> stt -> summary -> embedding` 순서로 확장되었습니다.
 - 상태/결과 저장소 SoT는 메타데이터 DB와 오디오 저장소입니다.
 - 메타데이터 기본 저장소는 `db/index.sqlite3`이며, `StorageConfig`를 통해 PostgreSQL backend도 지원합니다.
@@ -11,21 +12,32 @@
 
 ## 2) 주요 코드 위치
 - 바이너리 엔트리: `rust/src/main.rs`
+- 패키지 런처/프로세스 관리: `rust/src/bin/recordroute.rs`, `rust/src/launcher.rs`
+- 서버 전용 바이너리: `rust/src/bin/recordroute_server.rs`
 - CLI/작업 오케스트레이션: `rust/src/app.rs`, `rust/src/app/cli.rs`
 - HTTP 서버(axum): `rust/src/server.rs`
 - API 라우트: `rust/src/server/routes/*.rs`
+- 런타임 루트 판별: `rust/src/runtime_root.rs`
+- 저장소 설정/오디오 저장: `rust/src/storage.rs`, `rust/src/audio_store.rs`
 - 인덱스/작업 상태 저장: `rust/src/index.rs`, `rust/src/index/types.rs`
 - FFmpeg 래퍼: `rust/src/ffmpeg.rs`
-- Whisper 래퍼: `rust/src/whisper.rs`
-- Llama(요약/임베딩) 래퍼: `rust/src/llama.rs`
+- Whisper 래퍼: `rust/src/whisper/*.rs`
+- Llama(요약/임베딩) 래퍼: `rust/src/llama/*.rs`
+- 웹 UI 자산: `rust/web/*`
 - 아키텍처 문서(최신 기준): `docs/architecture.md`
 - API 기준 문서(에이전트 1차 기준): `docs/API_Doc.md`
 - OpenAPI 상세 명세(와이어 스키마/파생): `docs/openapi.yaml`
+- 임베딩/검색 기준 문서: `docs/embeddings.md`
+- 외부 툴체인 감사 문서: `docs/API_Audit.md`
 - 과거 API TODO 기록: `docs/deprecated/API_TODO.md`
 
 ## 3) 실행/개발 기본 명령
-- 서버 실행(루트):
+- 패키지 런처 실행(루트):
   - `./run.sh`
+- Rust 런처 실행:
+  - `cargo run --manifest-path rust/Cargo.toml --bin recordroute`
+- Rust 서버 전용 실행:
+  - `cargo run --manifest-path rust/Cargo.toml --bin recordroute_server`
 - Rust 실행:
   - `cargo run --manifest-path rust/Cargo.toml -- <mode>`
   - mode:
@@ -64,7 +76,13 @@
 - Job/Task/Model preparation 상태 전이는 인덱스 기록과 함께 원자적으로 다뤄야 합니다.
 
 ## 6) 환경 변수/모델 관련
+- 런타임 루트: `RECORDROUTE_RUNTIME_ROOT`
+- 메타데이터 backend: `RECORDROUTE_METADATA_DRIVER`, `RECORDROUTE_METADATA_SQLITE_PATH`, `RECORDROUTE_METADATA_POSTGRES_URL`
+- 오디오 저장소: `RECORDROUTE_AUDIO_ROOT`, `RECORDROUTE_AUDIO_CACHE_ROOT`, `RECORDROUTE_AUDIO_SPOOL_ROOT`
+- queue 제어: `RECORDROUTE_QUEUE_BURST_LIMIT`, `RECORDROUTE_QUEUE_START_PAUSED`
 - Whisper 모델: `RECORDROUTE_WHISPER_MODEL` (기본: `models/whisper/ggml-base.bin`)
+- Whisper 언어: `RECORDROUTE_WHISPER_LANGUAGE` (기본: `ko`)
+- Whisper 모델 준비 보조: `RECORDROUTE_WHISPER_MODEL_SOURCE_DIR`, `RECORDROUTE_WHISPER_MODEL_URL_TEMPLATE`
 - Llama 요약 모델/레포: `RECORDROUTE_LLAMA_MODEL`
   - 파일 경로면 로컬 모델로 사용
   - 아니면 Hugging Face repo 문자열로 해석
@@ -79,10 +97,15 @@
   - `/system/status`, `/models/status`
   - `/models/{whisper|llama}/prepare`
 - 큐 계열:
-  - `/queue`
+  - `/queue`, `/queue/pause`, `/queue/cancel-pending`
+- dictionary 계열:
+  - `/dictionary/keywords`
+  - `/dictionary/keywords/auto`
+  - `/dictionary/keywords/auto/{keyword}/promote`
+  - `/dictionary/keywords/{keyword}`
 - Job 계열:
   - `/jobs`, `/jobs/completed`, `/jobs/upload`, `/jobs/batch-process`
-  - `/jobs/{job_id}`, `/jobs/{job_id}/status`
+  - `/jobs/{job_id}`, `/jobs/{job_id}/status`, `/jobs/{job_id}/reset`
 - 산출물/태스크 계열:
   - `/jobs/{job_id}/stt`, `/jobs/{job_id}/stt/progress`
   - `/jobs/{job_id}/stt/texts`, `/jobs/{job_id}/stt/texts/{transcript_id}`
@@ -95,5 +118,6 @@
 - 코드 또는 문서 수정을 시작하기 전에는 `.agents/skills/rtd-before/SKILL.md`를 먼저 수행해 범위, DoD, 테스트 전략, 롤백 계획을 점검합니다.
 - 코드 또는 문서 수정이 끝난 후에는 `.agents/skills/rtd-after/SKILL.md`를 수행해 목적 적합성, 회귀, 검증 근거, READY 여부를 점검합니다.
 - 에이전트 전용 추가 문서는 이 파일을 기준 문서로 참조합니다.
+- 아키텍처/운영 설명 변경 시 `docs/architecture.md`, API 계약 변경 시 `docs/API_Doc.md`와 `docs/openapi.yaml`, 임베딩/검색 설명 변경 시 `docs/embeddings.md`를 함께 점검합니다.
 - `CLAUDE.md`, `GEMINI.md`에는 중복 설명을 최소화하고 본 문서 링크/요약만 둡니다.
 - 공통 정책 변경은 우선 `AGENTS.md`에 반영 후, 다른 에이전트 문서는 참조 링크만 갱신하세요.
