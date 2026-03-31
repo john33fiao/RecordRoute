@@ -5,6 +5,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedSource {
@@ -136,11 +137,12 @@ fn copy_replace(source: &Path, destination: &Path) -> Result<(), String> {
     }
 
     let temp_path = destination.with_extension(format!(
-        "{}.tmp",
+        "{}.{}.tmp",
         destination
             .extension()
             .and_then(OsStr::to_str)
-            .unwrap_or("artifact")
+            .unwrap_or("artifact"),
+        Uuid::now_v7()
     ));
     let mut reader = fs::File::open(source)
         .map_err(|error| format!("failed to open {}: {error}", source.display()))?;
@@ -157,13 +159,18 @@ fn copy_replace(source: &Path, destination: &Path) -> Result<(), String> {
         .flush()
         .map_err(|error| format!("failed to flush {}: {error}", temp_path.display()))?;
     drop(writer);
-    fs::rename(&temp_path, destination).map_err(|error| {
-        format!(
+    match fs::rename(&temp_path, destination) {
+        Ok(()) => Ok(()),
+        Err(error) if destination.is_file() => {
+            let _ = fs::remove_file(&temp_path);
+            Ok(())
+        }
+        Err(error) => Err(format!(
             "failed to finalize {} from {}: {error}",
             destination.display(),
             temp_path.display()
-        )
-    })
+        )),
+    }
 }
 
 fn hash_file(path: &Path) -> Result<String, String> {
@@ -181,4 +188,50 @@ fn hash_file(path: &Path) -> Result<String, String> {
         hasher.update(&buffer[..read]);
     }
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AudioStore;
+    use std::fs;
+    use std::sync::Arc;
+    use std::thread;
+    use uuid::Uuid;
+
+    #[test]
+    fn materialize_to_cache_is_safe_under_concurrent_calls() {
+        let repo_root =
+            std::env::temp_dir().join(format!("recordroute-audio-store-{}", Uuid::now_v7()));
+        let source = repo_root.join("db/audio/sources/hash/source.wav");
+        fs::create_dir_all(
+            source
+                .parent()
+                .expect("source path should have a parent directory"),
+        )
+        .expect("create source dir");
+        fs::write(&source, "synthetic audio").expect("write source");
+
+        let store = Arc::new(AudioStore::new(&repo_root).expect("audio store"));
+        store.ensure_dirs().expect("ensure dirs");
+
+        let handles = (0..4)
+            .map(|_| {
+                let store = Arc::clone(&store);
+                thread::spawn(move || {
+                    store
+                        .materialize_to_cache("sources/hash/source.wav")
+                        .expect("materialize to cache")
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let cached_paths = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("join worker"))
+            .collect::<Vec<_>>();
+
+        for cached_path in cached_paths {
+            assert_eq!(fs::read_to_string(&cached_path).expect("read cached"), "synthetic audio");
+        }
+    }
 }

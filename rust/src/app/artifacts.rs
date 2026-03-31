@@ -2,6 +2,8 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::index::{AudioArtifactRecord, IndexStore};
+
 const SUMMARY_FILE_NAME: &str = "result.md";
 
 pub(crate) fn supported_audio_files(job_dir: &Path) -> Result<Vec<PathBuf>, String> {
@@ -30,8 +32,76 @@ pub(crate) fn supported_audio_files(job_dir: &Path) -> Result<Vec<PathBuf>, Stri
     Ok(audio_files)
 }
 
+pub(crate) fn listed_or_discovered_audio_files(
+    index_store: &IndexStore,
+    job_id: &str,
+) -> Result<Vec<PathBuf>, String> {
+    Ok(listed_or_discovered_audio_artifacts(index_store, job_id)?
+        .into_iter()
+        .map(|artifact| index_store.job_dir(job_id).join(artifact.logical_name))
+        .collect())
+}
+
+pub(crate) fn listed_or_discovered_audio_artifacts(
+    index_store: &IndexStore,
+    job_id: &str,
+) -> Result<Vec<AudioArtifactRecord>, String> {
+    let artifacts = index_store.list_audio_artifacts(job_id)?;
+    if !artifacts.is_empty() {
+        return Ok(artifacts);
+    }
+
+    let job_dir = index_store.job_dir(job_id);
+    if !job_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    supported_audio_files(&job_dir)?
+        .into_iter()
+        .map(|path| {
+            let logical_name = audio_logical_name(&path)?;
+            Ok(AudioArtifactRecord {
+                job_id: job_id.to_string(),
+                storage_key: format!("jobs/{job_id}/{logical_name}"),
+                logical_name,
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn resolve_audio_artifacts(
+    index_store: &IndexStore,
+    job_id: &str,
+    audio_files: &[PathBuf],
+) -> Result<Vec<AudioArtifactRecord>, String> {
+    let artifacts = listed_or_discovered_audio_artifacts(index_store, job_id)?;
+    if audio_files.is_empty() {
+        return Ok(artifacts);
+    }
+
+    let mut resolved = Vec::with_capacity(audio_files.len());
+    for audio_file in audio_files {
+        let logical_name = audio_logical_name(audio_file)?;
+        let artifact = artifacts
+            .iter()
+            .find(|artifact| artifact.logical_name == logical_name)
+            .cloned()
+            .ok_or_else(|| format!("audio artifact not found for job {job_id}: {logical_name}"))?;
+        resolved.push(artifact);
+    }
+    Ok(resolved)
+}
+
 pub(crate) fn transcript_output_path(stt_dir: &Path, audio_file: &Path) -> Result<PathBuf, String> {
     Ok(stt_dir.join(transcript_file_name(audio_file)?))
+}
+
+pub(crate) fn audio_logical_name(audio_file: &Path) -> Result<String, String> {
+    audio_file
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_string)
+        .ok_or_else(|| format!("audio file does not have a valid file name: {}", audio_file.display()))
 }
 
 pub(crate) fn transcript_file_name(audio_file: &Path) -> Result<String, String> {

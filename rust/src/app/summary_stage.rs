@@ -42,7 +42,6 @@ pub fn submit_summary_job(
         .find_job(job_id)
         .map_err(AppError::internal)?
         .ok_or_else(|| AppError::not_found(format!("job not found: {job_id}")))?;
-    let job_dir = index_store.job_dir(job_id);
 
     if let Some(submission) = stages::resolve_inflight_stage_submission(
         &index_store,
@@ -95,7 +94,7 @@ pub fn submit_summary_job(
         });
     }
 
-    if !summary_prerequisites_ready(&index_store, job_id, &job_dir).map_err(AppError::internal)? {
+    if !summary_prerequisites_ready(&index_store, job_id).map_err(AppError::internal)? {
         return Err(AppError::bad_request(format!(
             "stt must be completed before summary: {job_id}"
         )));
@@ -277,10 +276,6 @@ fn collect_summary_candidates(index_store: &IndexStore) -> Result<Vec<SummaryCan
 
     for job in index_store.list_jobs()? {
         let job_dir = index_store.job_dir(&job.job_id);
-        if !job_dir.is_dir() {
-            continue;
-        }
-
         let transcript_files = index_store
             .list_transcripts(&job.job_id)?
             .into_iter()
@@ -577,14 +572,13 @@ fn upgrade_queued_summary_request(
 pub(crate) fn summary_prerequisites_ready(
     index_store: &IndexStore,
     job_id: &str,
-    job_dir: &Path,
 ) -> Result<bool, String> {
     let transcript_files = index_store.list_transcripts(job_id)?;
     if transcript_files.is_empty() {
         return Ok(false);
     }
 
-    let audio_files = artifacts::supported_audio_files(job_dir)?;
+    let audio_files = artifacts::listed_or_discovered_audio_files(index_store, job_id)?;
     if audio_files.is_empty() {
         return Ok(true);
     }

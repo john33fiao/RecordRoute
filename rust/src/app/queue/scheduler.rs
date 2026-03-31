@@ -127,8 +127,7 @@ fn is_entry_ready(repo_root: &Path, index: &IndexFile, entry: &QueueEntry) -> bo
 }
 
 fn summary_inputs_ready(store: &IndexStore, job: &JobRecord) -> Result<bool, String> {
-    let job_dir = store.job_dir(&job.job_id);
-    let audio_files = artifacts::supported_audio_files(&job_dir)?;
+    let audio_files = artifacts::listed_or_discovered_audio_files(store, &job.job_id)?;
     if audio_files.is_empty() {
         return Ok(store.count_transcripts(&job.job_id)? > 0);
     }

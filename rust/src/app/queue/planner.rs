@@ -34,12 +34,7 @@ pub fn submit_batch_pipeline_jobs(
                 continue;
             };
             let job = index.jobs[job_index].clone();
-            let job_dir = store.job_dir(&job.job_id);
-            let audio_files = if job_dir.is_dir() {
-                artifacts::supported_audio_files(&job_dir)?
-            } else {
-                Vec::new()
-            };
+            let audio_files = artifacts::listed_or_discovered_audio_files(&store, &job.job_id)?;
             match target {
                 BatchProcessTarget::All => {
                     if should_enqueue_batch_ffmpeg(index, &job) {
@@ -131,7 +126,7 @@ pub fn submit_batch_pipeline_jobs(
                     }
                 }
                 BatchProcessTarget::Summary => {
-                    if summary_stage::summary_prerequisites_ready(&store, &job.job_id, &job_dir)?
+                    if summary_stage::summary_prerequisites_ready(&store, &job.job_id)?
                         && should_enqueue_batch_summary(&store, index, &job)?
                     {
                         let entry = build_summary_entry(&job.job_id, false, queued_at.clone());

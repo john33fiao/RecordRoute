@@ -41,8 +41,8 @@ pub fn submit_stt_job(
         )));
     }
 
-    let job_dir = index_store.job_dir(job_id);
-    let all_audio_files = artifacts::supported_audio_files(&job_dir).map_err(AppError::internal)?;
+    let all_audio_files =
+        artifacts::listed_or_discovered_audio_files(&index_store, job_id).map_err(AppError::internal)?;
     let audio_files = select_subset_audio_files(&all_audio_files, subset_audio_files)
         .map_err(AppError::bad_request)?;
     if audio_files.is_empty() {
@@ -154,15 +154,12 @@ pub fn execute_stt_job(
             )
         })?;
 
-        for audio in audio_files {
-            let absolute_audio = if audio.is_absolute() {
-                audio.clone()
-            } else {
-                index_store.job_dir(job_id).join(audio)
-            };
-            let transcript = artifacts::transcript_output_path(&stt_dir, &absolute_audio)?;
-            run_transcription(&toolchain, &absolute_audio, &transcript, language, keywords)?;
-            let file_name = artifacts::transcript_file_name(&absolute_audio)?;
+        for artifact in artifacts::resolve_audio_artifacts(&index_store, job_id, audio_files)? {
+            let logical_audio = Path::new(&artifact.logical_name);
+            let cached_audio = audio_store.materialize_to_cache(&artifact.storage_key)?;
+            let transcript = artifacts::transcript_output_path(&stt_dir, logical_audio)?;
+            run_transcription(&toolchain, &cached_audio, &transcript, language, keywords)?;
+            let file_name = artifacts::transcript_file_name(logical_audio)?;
             let transcript_id = artifacts::transcript_id_from_file_name(&file_name)?;
             let text = read_transcript(&transcript)?.text;
             index_store.upsert_transcript(&TranscriptRecord {
@@ -243,7 +240,7 @@ fn collect_stt_candidates(index_store: &IndexStore) -> Result<Vec<SttCandidate>,
             continue;
         }
 
-        let audio_files = artifacts::supported_audio_files(&job_dir)?;
+        let audio_files = artifacts::listed_or_discovered_audio_files(index_store, &job.job_id)?;
         if audio_files.is_empty() {
             continue;
         }
