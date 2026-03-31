@@ -123,126 +123,143 @@
           <section class="surface section-card jobs-shell" id="jobs-shell">
             <div class="notice" id="jobs-message" aria-live="polite"></div>
             <div class="jobs-layout">
-              <section class="subsurface jobs-sidebar" id="jobs-panel">
-                <div class="section-heading">
-                  <div>
+              <section class="subsurface jobs-rail" id="jobs-panel">
+                <div class="jobs-rail-head">
+                  <div class="jobs-rail-copy">
                     <p class="section-kicker">Jobs</p>
                     <h2>Jobs</h2>
-                    <p class="section-copy">작업 목록과 현재 상태를 빠르게 훑고 선택합니다.</p>
+                    <p class="jobs-rail-count" id="jobs-total-count">0 total jobs</p>
                   </div>
                   <div class="section-actions">
-                    <button class="danger-button danger-button-subtle" id="jobs-delete-button" type="button">
-                      작업 삭제
-                    </button>
-                    <button class="ghost-button" id="jobs-collapse-toggle" type="button" hidden aria-expanded="false">
-                      펼치기
-                    </button>
-                    <button class="ghost-button" id="jobs-refresh-button" type="button">
-                      목록 새로고침
-                    </button>
+                    <button class="ghost-button" id="jobs-refresh-button" type="button">목록 새로고침</button>
+                    <button class="ghost-button" id="jobs-collapse-toggle" type="button" hidden aria-hidden="true" tabindex="-1"></button>
                   </div>
                 </div>
-                <ul class="jobs-list" id="jobs-list"></ul>
+                <div class="jobs-rail-body">
+                  <ul class="jobs-list" id="jobs-list"></ul>
+                </div>
               </section>
 
-              <section class="subsurface selected-job-card" id="selected-job-panel">
-                <div class="section-heading selected-job-heading">
-                  <div class="selected-job-copy">
-                    <p class="section-kicker">Selected Job</p>
-                    <h2 id="selected-job-title">선택된 Job 없음</h2>
-                    <p class="selected-job-meta" id="selected-job-meta">
-                      job id, timestamps, hash, task badges
-                    </p>
-                  </div>
-                  <button class="ghost-button" id="selected-job-refresh-button" type="button">
-                    상세 새로고침
-                  </button>
-                </div>
+              <section class="jobs-detail-column" id="selected-job-panel">
                 <div class="notice" id="selected-job-message" aria-live="polite"></div>
+
+                <section class="subsurface selected-job-card selected-job-hero" id="selected-job-hero">
+                  <div class="selected-job-heading">
+                    <div class="selected-job-copy">
+                      <p class="section-kicker">Selected Job</p>
+                      <h2 id="selected-job-title">선택된 Job 없음</h2>
+                      <p class="selected-job-summary" id="selected-job-summary">
+                        왼쪽 목록에서 Job을 선택하면 selected job summary와 stage 상태가 여기에 표시됩니다.
+                      </p>
+                      <p class="selected-job-meta" id="selected-job-meta">job id, timestamps, source metadata</p>
+                    </div>
+                    <div class="selected-job-actions">
+                      <div class="selected-job-status" id="selected-job-status"></div>
+                      <div class="selected-job-action-row">
+                        <button class="danger-button danger-button-subtle" id="jobs-delete-button" type="button">
+                          작업 삭제
+                        </button>
+                        <button class="ghost-button" id="selected-job-refresh-button" type="button">
+                          상세 새로고침
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
 
                 <div class="job-stage-strip" id="job-tasks"></div>
 
                 <div class="job-detail-grid">
-                  <section class="subsurface" id="job-overview-panel">
-                    <div class="subsurface-head">
-                      <div>
-                        <p class="section-kicker">Overview</p>
-                        <h3>Overview</h3>
+                  <div class="job-primary-column">
+                    <section class="subsurface transcript-panel" id="stt-panel">
+                      <div class="subsurface-head">
+                        <div>
+                          <p class="section-kicker">STT Transcript</p>
+                          <h3>STT Transcript</h3>
+                          <p class="subsurface-copy">audio subset 선택, 진행 상태, preview transcript</p>
+                        </div>
+                        <button class="primary-button" id="stt-submit-button" type="button">STT 실행</button>
                       </div>
-                    </div>
-                    <dl class="kv-list" id="job-overview"></dl>
-                  </section>
+                      <div class="inline-status" id="stt-status"></div>
+                      <form class="stt-form" id="stt-form">
+                        <div class="segmented-control">
+                          <label class="segmented-option">
+                            <input type="radio" name="stt-mode" value="all" checked />
+                            <span>전체</span>
+                          </label>
+                          <label class="segmented-option">
+                            <input type="radio" name="stt-mode" value="mono" />
+                            <span><code>mono_mix.wav</code>만</span>
+                          </label>
+                          <label class="segmented-option">
+                            <input type="radio" name="stt-mode" value="selected" />
+                            <span>선택한 audio만</span>
+                          </label>
+                        </div>
+                        <div class="stt-audio-selector" id="stt-audio-selector" hidden>
+                          <p class="field-hint">선택한 logical audio file만 전사 대상으로 보냅니다.</p>
+                          <div class="jobs-chip-grid" id="stt-audio-options"></div>
+                        </div>
+                      </form>
+                      <div class="content-view preview-box" id="transcripts-view"></div>
+                    </section>
 
-                  <section class="subsurface transcript-panel" id="stt-panel">
-                    <div class="subsurface-head">
-                      <div>
-                        <p class="section-kicker">STT Transcript</p>
-                        <h3>STT Transcript</h3>
-                        <p class="subsurface-copy">audio subset 선택과 transcript preview</p>
+                    <section class="subsurface summary-panel" id="summary-panel">
+                      <div class="subsurface-head">
+                        <div>
+                          <p class="section-kicker">Summary</p>
+                          <h3>Summary</h3>
+                          <p class="subsurface-copy">강제 재생성과 summary preview</p>
+                        </div>
+                        <button class="primary-button" id="summary-submit-button" type="button">요약 실행</button>
                       </div>
-                      <button class="primary-button" id="stt-submit-button" type="button">STT 실행</button>
-                    </div>
-                    <div class="inline-status" id="stt-status"></div>
-                    <form class="stack" id="stt-form">
-                      <label class="choice">
-                        <input type="radio" name="stt-mode" value="all" checked />
-                        <span>전체 audio 파일</span>
+                      <label class="choice choice-inline summary-choice">
+                        <input type="checkbox" id="summary-force-checkbox" />
+                        <span>기존 결과가 있어도 강제 재생성</span>
                       </label>
-                      <label class="choice">
-                        <input type="radio" name="stt-mode" value="mono" />
-                        <span><code>mono_mix.wav</code>만</span>
-                      </label>
-                      <label class="choice">
-                        <input type="radio" name="stt-mode" value="selected" />
-                        <span>선택한 audio만</span>
-                      </label>
-                      <div class="checkbox-grid" id="stt-audio-options"></div>
-                    </form>
-                    <div class="content-view" id="transcripts-view"></div>
-                  </section>
+                      <div class="inline-status" id="summary-status"></div>
+                      <div class="content-view preview-box" id="summary-text-view"></div>
+                    </section>
+                  </div>
 
-                  <section class="subsurface summary-panel" id="summary-panel">
-                    <div class="subsurface-head">
-                      <div>
-                        <p class="section-kicker">Summary</p>
-                        <h3>Summary</h3>
-                        <p class="subsurface-copy">요약 결과와 regenerate 옵션</p>
+                  <div class="job-secondary-column">
+                    <section class="subsurface" id="job-overview-panel">
+                      <div class="subsurface-head">
+                        <div>
+                          <p class="section-kicker">Overview</p>
+                          <h3>Overview</h3>
+                          <p class="subsurface-copy">job metadata and current source context</p>
+                        </div>
                       </div>
-                      <button class="ghost-button" id="summary-submit-button" type="button">요약 실행</button>
-                    </div>
-                    <label class="choice choice-inline">
-                      <input type="checkbox" id="summary-force-checkbox" />
-                      <span>기존 결과가 있어도 강제 재생성</span>
-                    </label>
-                    <div class="inline-status" id="summary-status"></div>
-                    <pre class="content-view text-view" id="summary-text-view"></pre>
-                  </section>
+                      <dl class="kv-list kv-list-compact" id="job-overview"></dl>
+                    </section>
 
-                  <section class="subsurface embedding-panel" id="embedding-panel">
-                    <div class="subsurface-head">
-                      <div>
-                        <p class="section-kicker">Embedding</p>
-                        <h3>Embedding</h3>
-                        <p class="subsurface-copy">summary 검색용 메타데이터</p>
+                    <section class="subsurface embedding-panel" id="embedding-panel">
+                      <div class="subsurface-head">
+                        <div>
+                          <p class="section-kicker">Embedding</p>
+                          <h3>Embedding</h3>
+                          <p class="subsurface-copy">summary 검색용 metadata와 상태</p>
+                        </div>
+                        <button class="ghost-button" id="embedding-submit-button" type="button">
+                          Embedding 생성
+                        </button>
                       </div>
-                      <button class="ghost-button" id="embedding-submit-button" type="button">
-                        Embedding 생성
-                      </button>
-                    </div>
-                    <div class="inline-status" id="embedding-status"></div>
-                    <dl class="kv-list" id="embedding-metadata"></dl>
-                  </section>
+                      <div class="inline-status" id="embedding-status"></div>
+                      <dl class="kv-list kv-list-compact" id="embedding-metadata"></dl>
+                    </section>
 
-                  <section class="subsurface files-panel" id="files-panel">
-                    <div class="subsurface-head">
-                      <div>
-                        <p class="section-kicker">Files</p>
-                        <h3>Files</h3>
-                        <p class="subsurface-copy">logical artifacts and downloads</p>
+                    <section class="subsurface files-panel" id="files-panel">
+                      <div class="subsurface-head">
+                        <div>
+                          <p class="section-kicker">Files</p>
+                          <h3>Files</h3>
+                          <p class="subsurface-copy">logical artifacts and downloads</p>
+                        </div>
                       </div>
-                    </div>
-                    <div class="file-list" id="files-view"></div>
-                  </section>
+                      <div class="file-list" id="files-view"></div>
+                    </section>
+                  </div>
                 </div>
               </section>
             </div>

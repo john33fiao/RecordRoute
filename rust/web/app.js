@@ -1,9 +1,7 @@
 const POLL_INTERVAL_MS = 2000;
 const UPLOAD_FILE_MAX_BYTES = 512 * 1024 * 1024;
 const UPLOAD_FILE_MAX_LABEL = "512MB";
-const TRANSCRIPT_PREVIEW_LINES = 10;
 const QUEUE_COLLAPSE_THRESHOLD = 10;
-const JOBS_COLLAPSE_THRESHOLD = 10;
 const AUDIO_FILE_EXTENSIONS = [
   ".wav",
   ".mp3",
@@ -57,7 +55,6 @@ const state = {
   queueStatus: null,
   queueLoaded: false,
   queueExpanded: emptyQueueExpandedState(),
-  jobsCollapsed: true,
   jobResetModal: {
     open: false,
     selection: emptyJobResetSelection(),
@@ -188,11 +185,14 @@ function captureElements() {
   elements.systemGrid = document.getElementById("system-grid");
   elements.modelGrid = document.getElementById("model-grid");
   elements.jobsList = document.getElementById("jobs-list");
-  elements.jobsCollapseToggle = document.getElementById("jobs-collapse-toggle");
+  elements.jobsTotalCount = document.getElementById("jobs-total-count");
   elements.selectedJobTitle = document.getElementById("selected-job-title");
+  elements.selectedJobSummary = document.getElementById("selected-job-summary");
   elements.selectedJobMeta = document.getElementById("selected-job-meta");
+  elements.selectedJobStatus = document.getElementById("selected-job-status");
   elements.jobOverview = document.getElementById("job-overview");
   elements.jobTasks = document.getElementById("job-tasks");
+  elements.sttAudioSelector = document.getElementById("stt-audio-selector");
   elements.sttAudioOptions = document.getElementById("stt-audio-options");
   elements.sttStatus = document.getElementById("stt-status");
   elements.transcriptsView = document.getElementById("transcripts-view");
@@ -260,7 +260,6 @@ function bindEvents() {
     });
   });
   elements.jobsDeleteButton.addEventListener("click", openJobResetModal);
-  elements.jobsCollapseToggle.addEventListener("click", onJobsCollapseToggle);
   elements.jobsRefreshButton.addEventListener("click", () => {
     Promise.all([refreshJobs({ showMessage: true }), refreshQueue()]).catch((error) => {
       console.error(error);
@@ -282,6 +281,7 @@ function bindEvents() {
   elements.uploadDropzone.addEventListener("dragleave", onUploadDragLeave);
   elements.uploadDropzone.addEventListener("drop", onUploadDrop);
   elements.sttSubmitButton.addEventListener("click", onSttSubmit);
+  elements.sttForm.addEventListener("change", onSttFormChange);
   elements.summarySubmitButton.addEventListener("click", onSummarySubmit);
   elements.embeddingSubmitButton.addEventListener("click", onEmbeddingSubmit);
   elements.queuePauseButton.addEventListener("click", onQueuePauseToggle);
@@ -297,7 +297,6 @@ function bindEvents() {
   elements.dictionaryForm.addEventListener("submit", onDictionarySubmit);
   elements.dictionaryList.addEventListener("click", onDictionaryListClick);
   elements.searchForm.addEventListener("submit", onSearchSubmit);
-  elements.transcriptsView.addEventListener("click", onTranscriptToggleClick);
   elements.jobResetForm.addEventListener("submit", onJobResetSubmit);
   elements.jobResetModal.querySelectorAll("[data-job-reset-close]").forEach((button) => {
     button.addEventListener("click", closeJobResetModal);
@@ -320,15 +319,6 @@ function bindEvents() {
 
 async function bootstrap() {
   await Promise.all([refreshSystemAndModels(), refreshJobs(), refreshQueue(), refreshDictionary()]);
-}
-
-function onJobsCollapseToggle() {
-  if (state.jobs.length <= JOBS_COLLAPSE_THRESHOLD) {
-    return;
-  }
-
-  state.jobsCollapsed = !state.jobsCollapsed;
-  renderJobs();
 }
 
 function resolveTabFromHash(hash = window.location.hash) {
@@ -497,6 +487,10 @@ function onDocumentKeydown(event) {
   }
 }
 
+async function onSttFormChange() {
+  syncSttAudioSelectorVisibility();
+}
+
 async function onUploadSubmit(event) {
   event.preventDefault();
   const files = Array.from(elements.uploadInput.files || []);
@@ -556,21 +550,6 @@ async function onUploadSubmit(event) {
   }
 }
 
-function onTranscriptToggleClick(event) {
-  const toggle = event.target.closest("[data-transcript-toggle]");
-  if (!toggle) {
-    return;
-  }
-
-  const item = toggle.closest(".transcript-item");
-  if (!item) {
-    return;
-  }
-
-  const expanded = item.classList.toggle("is-expanded");
-  toggle.setAttribute("aria-expanded", String(expanded));
-  toggle.textContent = expanded ? "접기" : `펼치기 (${TRANSCRIPT_PREVIEW_LINES}줄)`;
-}
 
 function onQueueBoardClick(event) {
   const toggle = event.target.closest("[data-queue-toggle]");
@@ -1155,7 +1134,11 @@ async function refreshQueue({ showMessage = false } = {}) {
 }
 
 async function refreshSelectedJob(jobId, { showMessage = false } = {}) {
+  const selectionChanged = state.selectedJobId !== jobId;
   state.selectedJobId = jobId;
+  if (selectionChanged && elements.sttForm) {
+    elements.sttForm.reset();
+  }
   renderJobs();
 
   const encodedJobId = encodeURIComponent(jobId);
@@ -1251,6 +1234,9 @@ function clearSelectedJob() {
   state.summaryText = "";
   state.summaryOneLine = "";
   state.embeddingStatus = null;
+  if (elements.sttForm) {
+    elements.sttForm.reset();
+  }
   stopPoller("selected-job");
   renderSelectedJob();
   renderJobs();
@@ -1388,60 +1374,45 @@ function renderSystem() {
 }
 
 function renderJobs() {
+  if (elements.jobsTotalCount) {
+    elements.jobsTotalCount.textContent = `${state.jobs.length} total jobs`;
+  }
+
   if (!state.jobs.length) {
-    elements.jobsList.innerHTML = '<li class="muted">아직 생성된 Job이 없습니다.</li>';
-    elements.jobsCollapseToggle.hidden = true;
-    elements.jobsCollapseToggle.setAttribute("aria-expanded", "false");
+    elements.jobsList.innerHTML = `
+      <li>
+        <article class="job-empty-state">
+          <p class="job-empty-title">아직 생성된 Job 없음</p>
+          <p class="job-empty-copy">Upload 탭에서 오디오 파일을 등록하면 이 영역에 job navigator가 채워집니다.</p>
+        </article>
+      </li>
+    `;
     return;
   }
 
-  const isCollapsible = state.jobs.length > JOBS_COLLAPSE_THRESHOLD;
-  const selectedIndex = state.jobs.findIndex((job) => job.job_id === state.selectedJobId);
-  let visibleJobs =
-    isCollapsible && state.jobsCollapsed ? state.jobs.slice(0, JOBS_COLLAPSE_THRESHOLD) : state.jobs;
-
-  if (isCollapsible && state.jobsCollapsed && selectedIndex >= JOBS_COLLAPSE_THRESHOLD) {
-    visibleJobs = [
-      ...state.jobs.slice(0, JOBS_COLLAPSE_THRESHOLD - 1),
-      state.jobs[selectedIndex],
-    ];
-  }
-
-  const hiddenCount = Math.max(state.jobs.length - visibleJobs.length, 0);
-
-  elements.jobsCollapseToggle.hidden = !isCollapsible;
-  elements.jobsCollapseToggle.setAttribute("aria-expanded", String(!state.jobsCollapsed));
-  elements.jobsCollapseToggle.textContent = state.jobsCollapsed ? `펼치기 (+${hiddenCount})` : "접기";
-
-  elements.jobsList.innerHTML = visibleJobs
+  elements.jobsList.innerHTML = state.jobs
     .map((job) => {
-      const selectedClass = job.job_id === state.selectedJobId ? "is-selected" : "";
-      const taskBadges = Array.isArray(job.tasks)
-        ? job.tasks
-            .map((task) => statusBadge(task.status, `${task.task_type}:${task.status}`))
-            .join("")
-        : "";
+      const selected = job.job_id === state.selectedJobId;
+      const status = job.status || "idle";
       return `
         <li>
-          <button class="job-item ${selectedClass}" data-job-id="${job.job_id}" type="button">
-            <div class="job-item-head">
-              <p class="job-item-title">${escapeHtml(job.source_file_name || job.job_id)}</p>
-              ${statusBadge(job.status)}
+          <button
+            class="job-item ${selected ? "is-selected" : ""}"
+            data-job-id="${escapeAttribute(job.job_id)}"
+            data-status="${escapeAttribute(status)}"
+            type="button"
+          >
+            <p class="job-item-title">${escapeHtml(job.source_file_name || job.job_id)}</p>
+            <p class="job-item-meta">${escapeHtml(buildJobRailMeta(job))}</p>
+            <div class="job-item-foot">
+              ${statusBadge(status, status)}
+              ${selected ? '<span class="job-item-selected">selected</span>' : ""}
             </div>
-            <p class="job-item-meta">${escapeHtml(job.job_id)} · ${escapeHtml(formatDate(job.started_at))}</p>
-            <div class="badge-row">${taskBadges}</div>
           </button>
         </li>
       `;
     })
     .join("");
-
-  if (state.jobsCollapsed && hiddenCount > 0) {
-    elements.jobsList.insertAdjacentHTML(
-      "beforeend",
-      `<li class="jobs-list-summary muted">나머지 ${hiddenCount}개 Job은 펼치기 후 확인할 수 있습니다.</li>`
-    );
-  }
 
   elements.jobsList.querySelectorAll("[data-job-id]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1498,67 +1469,36 @@ function renderJobResetModal() {
 function renderSelectedJob() {
   const job = state.selectedJob;
   updateActionStates();
+
   if (!job) {
     elements.selectedJobTitle.textContent = "선택된 Job 없음";
-    elements.selectedJobMeta.textContent = "job id, timestamps, hash, task badges";
+    elements.selectedJobSummary.textContent =
+      "왼쪽 목록에서 Job을 선택하면 selected job summary와 stage 상태가 여기에 표시됩니다.";
+    elements.selectedJobMeta.textContent = "job id, timestamps, source metadata";
+    elements.selectedJobStatus.innerHTML = statusBadge("idle", "idle");
     elements.jobOverview.innerHTML = '<dt>상태</dt><dd class="muted">왼쪽 목록에서 Job을 선택하세요.</dd>';
-    elements.jobTasks.innerHTML = "";
-    elements.sttAudioOptions.innerHTML = "";
-    elements.sttStatus.textContent = "";
-    elements.summaryStatus.textContent = "";
-    elements.embeddingStatus.textContent = "";
-    elements.transcriptsView.innerHTML = '<p class="muted">전사 결과가 여기에 표시됩니다.</p>';
-    elements.summaryTextView.textContent = "";
-    elements.embeddingMetadata.innerHTML = '<dt>상태</dt><dd class="muted">embedding metadata 없음</dd>';
-    elements.filesView.innerHTML = '<p class="muted">파일 목록이 여기에 표시됩니다.</p>';
+    elements.jobTasks.innerHTML = renderJobStageStrip(null, []);
+    renderSttArea();
+    renderSummaryArea();
+    renderEmbeddingArea();
+    renderFiles();
     return;
   }
 
-  elements.selectedJobTitle.textContent = `${job.source_file_name} · ${
-    state.summaryOneLine || job.job_id
-  }`;
-  elements.selectedJobMeta.textContent = [
-    job.job_id,
-    formatDate(job.started_at),
-    job.probe?.duration_seconds ? `${job.probe.duration_seconds}s` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const tasks = Array.isArray(state.jobStatus?.tasks) ? state.jobStatus.tasks : job.tasks || [];
+  elements.selectedJobTitle.textContent = resolveSelectedJobTitle(job);
+  elements.selectedJobSummary.textContent = resolveSelectedJobSummary(job);
+  elements.selectedJobMeta.textContent = buildSelectedJobMeta(job);
+  elements.selectedJobStatus.innerHTML = statusBadge(job.status || "idle", job.status || "idle");
   elements.jobOverview.innerHTML = [
-    ["job_id", job.job_id],
-    ["status", job.status],
-    ["started_at", formatDate(job.started_at)],
-    ["finished_at", formatDate(job.finished_at)],
-    ["source_ref", job.source_ref ?? "-"],
+    ["job_id", shortId(job.job_id, 14)],
     ["source_kind", job.source_kind ?? "-"],
-    ["source_content_sha256", job.source_content_sha256 ?? "-"],
-    ["channels", job.probe?.channels ?? "-"],
-    ["channel_layout", job.probe?.channel_layout ?? "-"],
-    ["error", job.error_message ?? "-"],
+    ["channels", job.probe?.channels ? `${job.probe.channels}ch` : "-"],
+    ["channel_layout", job.probe?.channel_layout ?? resolveSplitStrategyLabel(job.split_strategy)],
   ]
     .map(([key, value]) => `<dt>${escapeHtml(String(key))}</dt><dd>${escapeHtml(String(value))}</dd>`)
     .join("");
-
-  const tasks = Array.isArray(state.jobStatus?.tasks) ? state.jobStatus.tasks : job.tasks || [];
-  elements.jobTasks.innerHTML = tasks.length
-    ? tasks
-        .map((task) => {
-          const suffix = task.status === "running" ? '<span class="running-dot" aria-hidden="true"></span>' : "";
-          return `
-            <article class="task-card">
-              <div class="badge-row">
-                ${statusBadge(task.status, task.task_type)}
-                ${suffix}
-              </div>
-              <p>started: ${escapeHtml(formatDate(task.started_at))}</p>
-              <p>finished: ${escapeHtml(formatDate(task.finished_at))}</p>
-              <p>retry: ${escapeHtml(String(task.retry_count ?? 0))}</p>
-              <p>error: ${escapeHtml(task.last_error || "-")}</p>
-            </article>
-          `;
-        })
-        .join("")
-    : '<p class="muted">task 정보가 없습니다.</p>';
+  elements.jobTasks.innerHTML = renderJobStageStrip(job, tasks);
 
   renderSttArea();
   renderSummaryArea();
@@ -1567,29 +1507,19 @@ function renderSelectedJob() {
 }
 
 function renderSttArea() {
+  const job = state.selectedJob;
   const progress = state.sttProgress;
   const task = state.sttStatus?.task;
-  const statusParts = [];
-  if (task?.status) {
-    statusParts.push(`task: ${task.status}`);
-  }
-  if (progress?.phase) {
-    statusParts.push(`phase: ${progress.phase}`);
-  }
-  if (typeof progress?.completed_files === "number" && typeof progress?.total_files === "number") {
-    statusParts.push(`files: ${progress.completed_files}/${progress.total_files}`);
-  }
-  if (typeof progress?.progress_percent === "number") {
-    statusParts.push(`progress: ${progress.progress_percent}%`);
-  }
-  setInlineStatus("stt-status", statusParts.join(" · ") || "STT 미실행", toneForStatus(task?.status));
-
+  const effectiveStatus = task?.status || (state.transcripts.length ? "completed" : "idle");
   const audioFiles = state.jobFiles.filter((file) => isSelectableAudioFile(file));
+
+  setInlineStatus("stt-status", resolveSttInlineStatus(job, task, progress), toneForStatus(effectiveStatus));
+
   elements.sttAudioOptions.innerHTML = audioFiles.length
     ? audioFiles
         .map(
           (file) => `
-            <label>
+            <label class="job-chip-selector">
               <input type="checkbox" value="${escapeAttribute(file)}" />
               <span>${escapeHtml(file)}</span>
             </label>
@@ -1597,59 +1527,60 @@ function renderSttArea() {
         )
         .join("")
     : '<p class="muted">선택 가능한 audio 파일이 없습니다.</p>';
+  syncSttAudioSelectorVisibility();
 
-  elements.transcriptsView.innerHTML = state.transcripts.length
-    ? state.transcripts
-        .map(
-          (item, index) => `
-            <article class="transcript-item" style="--transcript-preview-lines: ${TRANSCRIPT_PREVIEW_LINES};">
-              <div class="transcript-item-head">
-                <h4>${escapeHtml(item.file_name)}</h4>
-                <button
-                  type="button"
-                  class="ghost-button transcript-toggle"
-                  data-transcript-toggle
-                  aria-expanded="false"
-                  aria-controls="transcript-body-${index}"
-                >
-                  펼치기 (${TRANSCRIPT_PREVIEW_LINES}줄)
-                </button>
-              </div>
-              <pre class="text-view transcript-body" id="transcript-body-${index}">${escapeHtml(item.text || "")}</pre>
-            </article>
-          `
-        )
-        .join("")
-    : '<p class="muted">전사 결과가 없으면 이 영역이 비어 있습니다.</p>';
+  const preview = state.transcripts[0];
+  elements.transcriptsView.innerHTML = preview
+    ? `
+        <p class="preview-label">Preview / ${escapeHtml(preview.file_name)}</p>
+        <pre class="text-view preview-body">${escapeHtml(preview.text || "")}</pre>
+      `
+    : `
+        <p class="preview-label">Preview / transcript.txt</p>
+        <p class="muted">${escapeHtml(
+          job
+            ? "전사 결과가 생성되면 preview transcript가 이 영역에 표시됩니다."
+            : "선택된 Job이 없으면 transcript preview가 비어 있습니다."
+        )}</p>
+      `;
 }
 
 function renderSummaryArea() {
+  const job = state.selectedJob;
   const task = state.summaryStatus?.task;
-  const parts = [task?.status ? `task: ${task.status}` : "task: idle"];
-  if (task?.last_error) {
-    parts.push(`error: ${task.last_error}`);
-  }
-  setInlineStatus("summary-status", parts.join(" · "), toneForStatus(task?.status));
-  elements.summaryTextView.textContent =
-    state.summaryText || "요약 결과가 생성되면 여기 표시됩니다.";
+  const effectiveStatus = task?.status || (state.summaryText ? "completed" : "idle");
+  setInlineStatus("summary-status", resolveSummaryInlineStatus(job, task), toneForStatus(effectiveStatus));
+
+  elements.summaryTextView.innerHTML = state.summaryText
+    ? `
+        <p class="preview-label">Preview / result.md</p>
+        <pre class="text-view preview-body">${escapeHtml(state.summaryText)}</pre>
+      `
+    : `
+        <p class="preview-label">Preview / result.md</p>
+        <p class="muted">${escapeHtml(
+          job
+            ? "summary markdown preview는 selected job이 있을 때만 표시됩니다."
+            : "선택된 Job이 없으면 summary preview가 비어 있습니다."
+        )}</p>
+      `;
 }
 
 function renderEmbeddingArea() {
+  const job = state.selectedJob;
   const task = state.embeddingStatus?.task;
   const metadata = state.embeddingStatus?.metadata;
-  const parts = [task?.status ? `task: ${task.status}` : metadata ? "task: completed" : "task: idle"];
-  if (metadata?.dimension) {
-    parts.push(`dimension: ${metadata.dimension}`);
-  }
+  const effectiveStatus = task?.status || (metadata ? "completed" : "idle");
+
   setInlineStatus(
     "embedding-status",
-    parts.join(" · "),
-    toneForStatus(task?.status || (metadata ? "completed" : "idle"))
+    resolveEmbeddingInlineStatus(job, task, metadata),
+    toneForStatus(effectiveStatus)
   );
 
   elements.embeddingMetadata.innerHTML = metadata
     ? [
-        ["model_id", metadata.model_id],
+        ["model", metadata.model_id],
         ["dimension", metadata.dimension],
         ["normalized", metadata.normalized],
         ["created_at", formatDate(metadata.created_at)],
@@ -1668,9 +1599,448 @@ function renderFiles() {
   elements.filesView.innerHTML = state.jobFiles
     .map((file) => {
       const href = `/jobs/${encodeURIComponent(state.selectedJobId)}/files/${encodePath(file)}`;
-      return `<a href="${href}" target="_blank" rel="noreferrer">${escapeHtml(file)}</a>`;
+      return `<a class="file-chip" data-tone="${escapeAttribute(resolveFileTone(file))}" href="${href}" target="_blank" rel="noreferrer">${escapeHtml(file)}</a>`;
     })
     .join("");
+}
+
+function syncSttAudioSelectorVisibility() {
+  if (!elements.sttAudioSelector || !elements.sttForm) {
+    return;
+  }
+  const mode = new FormData(elements.sttForm).get("stt-mode");
+  elements.sttAudioSelector.hidden = mode !== "selected";
+}
+
+function renderJobStageStrip(job, tasks) {
+  const taskMap = new Map((tasks || []).map((task) => [task.task_type, task]));
+  return [
+    renderStageCard(buildFfmpegStage(job, taskMap.get("ffmpeg"))),
+    renderStageCard(buildSttStage(job, taskMap.get("stt"), state.sttProgress)),
+    renderStageCard(buildSummaryStage(job, taskMap.get("summary"))),
+    renderStageCard(buildEmbeddingStage(job, taskMap.get("embedding"), state.embeddingStatus?.metadata)),
+  ].join("");
+}
+
+function renderStageCard(card) {
+  const progressMarkup =
+    typeof card.progress === "number"
+      ? `
+          <div class="stage-progress" aria-hidden="true">
+            <div class="stage-progress-bar" style="width: ${Math.max(0, Math.min(card.progress, 100))}%;"></div>
+          </div>
+        `
+      : "";
+  const sublineClass = card.sublineTone === "error" ? "task-card-error" : "task-card-subtle";
+  return `
+    <article class="task-card" data-status="${escapeAttribute(card.status)}">
+      <div class="task-card-head">
+        <h3>${escapeHtml(card.title)}</h3>
+        ${statusBadge(card.status, card.status)}
+      </div>
+      <div class="task-card-copy">
+        <p>${escapeHtml(card.headline)}</p>
+        ${progressMarkup}
+        <p class="${sublineClass}">${escapeHtml(card.subline)}</p>
+      </div>
+    </article>
+  `;
+}
+
+function buildFfmpegStage(job, task) {
+  if (!job) {
+    return {
+      title: "FFmpeg",
+      status: "idle",
+      headline: "not started",
+      subline: "waiting for selected job",
+    };
+  }
+
+  const outputCount = countOutputFiles(job);
+  const status = task?.status || (outputCount > 0 ? "completed" : "idle");
+  if (status === "completed") {
+    return {
+      title: "FFmpeg",
+      status,
+      headline: "completed",
+      subline: outputCount > 0 ? `split ${outputCount} output files` : "mono mix ready",
+    };
+  }
+  if (status === "running") {
+    return {
+      title: "FFmpeg",
+      status,
+      headline: "running",
+      subline: "audio split in progress",
+    };
+  }
+  if (status === "queued") {
+    return {
+      title: "FFmpeg",
+      status,
+      headline: "queued",
+      subline: "waiting for queue dispatch",
+    };
+  }
+  if (status === "failed") {
+    return {
+      title: "FFmpeg",
+      status,
+      headline: "failed",
+      subline: task?.last_error || job.error_message || "audio split failed",
+      sublineTone: "error",
+    };
+  }
+  return {
+    title: "FFmpeg",
+    status: "idle",
+    headline: "not started",
+    subline: "waiting for selected job",
+  };
+}
+
+function buildSttStage(job, task, progress) {
+  if (!job) {
+    return {
+      title: "STT",
+      status: "idle",
+      headline: "not started",
+      subline: "waiting for selected job",
+    };
+  }
+
+  const hasTranscript = state.transcripts.length > 0;
+  const status = task?.status || (hasTranscript ? "completed" : "idle");
+  if (status === "running") {
+    const completedFiles = typeof progress?.completed_files === "number" ? progress.completed_files : 0;
+    const totalFiles = typeof progress?.total_files === "number" ? progress.total_files : 0;
+    const percent = typeof progress?.progress_percent === "number" ? progress.progress_percent : 0;
+    return {
+      title: "STT",
+      status,
+      headline: `${completedFiles} / ${totalFiles} files · ${percent}%`,
+      subline: "transcript generation in progress",
+      progress: percent,
+    };
+  }
+  if (status === "completed") {
+    const totalLabel = typeof progress?.total_files === "number" && progress.total_files > 0
+      ? `${progress.total_files} / ${progress.total_files} files`
+      : `${Math.max(state.transcripts.length, 1)} transcript files`;
+    return {
+      title: "STT",
+      status,
+      headline: totalLabel,
+      subline: "transcript ready",
+    };
+  }
+  if (status === "queued") {
+    return {
+      title: "STT",
+      status,
+      headline: "queued",
+      subline: countOutputFiles(job) > 0 ? "queued after ffmpeg outputs" : "waiting for ffmpeg completion",
+    };
+  }
+  if (status === "failed") {
+    return {
+      title: "STT",
+      status,
+      headline: "failed",
+      subline: task?.last_error || "transcript generation failed",
+      sublineTone: "error",
+    };
+  }
+  return {
+    title: "STT",
+    status: "idle",
+    headline: "not started",
+    subline: "no transcript yet",
+  };
+}
+
+function buildSummaryStage(job, task) {
+  if (!job) {
+    return {
+      title: "Summary",
+      status: "idle",
+      headline: "not started",
+      subline: "waiting for selected job",
+    };
+  }
+
+  const status = task?.status || (state.summaryText ? "completed" : "idle");
+  if (status === "completed") {
+    return {
+      title: "Summary",
+      status,
+      headline: "completed",
+      subline: state.summaryOneLine ? truncateText(state.summaryOneLine, 72) : "summary document ready",
+    };
+  }
+  if (status === "running") {
+    return {
+      title: "Summary",
+      status,
+      headline: "running",
+      subline: "summary generation in progress",
+    };
+  }
+  if (status === "queued") {
+    return {
+      title: "Summary",
+      status,
+      headline: "queued",
+      subline: "waiting for STT completion",
+    };
+  }
+  if (status === "failed") {
+    return {
+      title: "Summary",
+      status,
+      headline: "failed",
+      subline: task?.last_error ? `last_error: ${task.last_error}` : "summary generation failed",
+      sublineTone: "error",
+    };
+  }
+  return {
+    title: "Summary",
+    status: "idle",
+    headline: "not started",
+    subline: "waiting for transcript",
+  };
+}
+
+function buildEmbeddingStage(job, task, metadata) {
+  if (!job) {
+    return {
+      title: "Embedding",
+      status: "idle",
+      headline: "idle",
+      subline: "waiting for selected job",
+    };
+  }
+
+  const status = task?.status || (metadata ? "completed" : "idle");
+  if (status === "completed") {
+    return {
+      title: "Embedding",
+      status,
+      headline: "completed",
+      subline: metadata ? `${metadata.dimension} dim${metadata.normalized ? " · normalized" : ""}` : "embedding ready",
+    };
+  }
+  if (status === "running") {
+    return {
+      title: "Embedding",
+      status,
+      headline: "running",
+      subline: "embedding generation in progress",
+    };
+  }
+  if (status === "queued") {
+    return {
+      title: "Embedding",
+      status,
+      headline: "queued",
+      subline: "waiting for summary output",
+    };
+  }
+  if (status === "failed") {
+    return {
+      title: "Embedding",
+      status,
+      headline: "failed",
+      subline: task?.last_error || "embedding generation failed",
+      sublineTone: "error",
+    };
+  }
+  return {
+    title: "Embedding",
+    status: "idle",
+    headline: "idle",
+    subline: state.summaryText ? "ready from summary output" : "blocked by summary output",
+  };
+}
+
+function resolveSelectedJobTitle(job) {
+  const summaryTask = state.summaryStatus?.task;
+  if (summaryTask?.status === "failed") {
+    return "Summary regeneration failed";
+  }
+  return humanizeSourceName(job.source_file_name || job.job_id);
+}
+
+function resolveSelectedJobSummary(job) {
+  const summaryTask = state.summaryStatus?.task;
+  const sttTask = state.sttStatus?.task;
+
+  if (summaryTask?.status === "failed") {
+    return "summary stage에서 오류가 발생했습니다. force regenerate를 다시 시도하거나 입력 텍스트를 조정해야 합니다.";
+  }
+  if (summaryTask?.status === "running") {
+    return "summary를 생성 중입니다. 현재 stage 상태와 preview를 함께 확인할 수 있습니다.";
+  }
+  if (summaryTask?.status === "queued") {
+    return "summary가 대기열에 있으며 transcript completion 이후 이어집니다.";
+  }
+  if (sttTask?.status === "running") {
+    return "전사 진행 중입니다. transcript preview와 stage 상태를 확인할 수 있습니다.";
+  }
+  if (state.summaryOneLine) {
+    return state.summaryOneLine;
+  }
+  if (job.error_message) {
+    return job.error_message;
+  }
+  return "선택한 Job의 현재 stage 상태와 주요 산출물을 한 번에 확인할 수 있습니다.";
+}
+
+function buildSelectedJobMeta(job) {
+  return [
+    shortId(job.job_id, 12),
+    formatDate(job.started_at),
+    job.source_kind ? `source=${job.source_kind}` : null,
+    job.source_content_sha256 ? `sha=${shortId(job.source_content_sha256, 8)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function buildJobRailMeta(job) {
+  return [shortId(job.job_id, 10), formatDateCompact(job.started_at)].filter(Boolean).join(" · ");
+}
+
+function resolveSttInlineStatus(job, task, progress) {
+  if (!job) {
+    return "idle · 선택된 transcript가 없습니다";
+  }
+  const status = task?.status || (state.transcripts.length ? "completed" : "idle");
+  if (status === "running") {
+    return `running · ${progress?.completed_files ?? 0} / ${progress?.total_files ?? 0} files · progress ${progress?.progress_percent ?? 0}%`;
+  }
+  if (status === "completed") {
+    return state.transcripts.length > 0
+      ? `completed · ${state.transcripts.length} transcript files ready`
+      : "completed · transcript ready";
+  }
+  if (status === "queued") {
+    return "queued · ffmpeg outputs 준비 후 실행됩니다";
+  }
+  if (status === "failed") {
+    return `failed · ${task?.last_error || "transcript generation failed"}`;
+  }
+  return "idle · 전사 결과가 없습니다";
+}
+
+function resolveSummaryInlineStatus(job, task) {
+  if (!job) {
+    return "idle · summary output이 아직 없습니다";
+  }
+  const status = task?.status || (state.summaryText ? "completed" : "idle");
+  if (status === "completed") {
+    return state.summaryOneLine ? `completed · ${truncateText(state.summaryOneLine, 96)}` : "completed · summary document ready";
+  }
+  if (status === "running") {
+    return "running · summary generation in progress";
+  }
+  if (status === "queued") {
+    return "queued · transcript completion 이후 자동 실행 예정";
+  }
+  if (status === "failed") {
+    return `failed · ${task?.last_error || "summary generation failed"}`;
+  }
+  return "idle · summary output이 아직 없습니다";
+}
+
+function resolveEmbeddingInlineStatus(job, task, metadata) {
+  if (!job) {
+    return "idle · selected job이 없으면 embedding metadata도 비어 있습니다";
+  }
+  const status = task?.status || (metadata ? "completed" : "idle");
+  if (status === "completed") {
+    return metadata
+      ? `completed · ${metadata.dimension} dim${metadata.normalized ? " · normalized" : ""}`
+      : "completed · embedding metadata ready";
+  }
+  if (status === "running") {
+    return "running · embedding generation in progress";
+  }
+  if (status === "queued") {
+    return "queued · summary output 이후 실행됩니다";
+  }
+  if (status === "failed") {
+    return `failed · ${task?.last_error || "embedding generation failed"}`;
+  }
+  return state.summaryText ? "idle · summary output이 생성되면 진행 가능" : "idle · summary output이 아직 없습니다";
+}
+
+function countOutputFiles(job) {
+  let count = 0;
+  if (job?.outputs?.merged_mono_wav) {
+    count += 1;
+  }
+  if (Array.isArray(job?.outputs?.split_mono_wavs)) {
+    count += job.outputs.split_mono_wavs.length;
+  }
+  return count;
+}
+
+function resolveSplitStrategyLabel(strategy) {
+  if (strategy === "merged_mono_only") {
+    return "mono only";
+  }
+  if (strategy === "per_channel_plus_merged_mono") {
+    return "per-channel + mono";
+  }
+  return "-";
+}
+
+function resolveFileTone(file) {
+  if (!file.includes("/") || isSelectableAudioFile(file)) {
+    return "accent";
+  }
+  return "neutral";
+}
+
+function humanizeSourceName(name) {
+  const base = stripFileExtension(name || "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!base) {
+    return name || "-";
+  }
+  return `${base.charAt(0).toUpperCase()}${base.slice(1)}`;
+}
+
+function stripFileExtension(name) {
+  return String(name || "").replace(/\.[^.]+$/, "");
+}
+
+function truncateText(value, limit = 80) {
+  const text = String(value || "").trim();
+  if (text.length <= limit) {
+    return text;
+  }
+  return `${text.slice(0, limit - 1)}…`;
+}
+
+function shortId(value, visible = 8) {
+  const text = String(value || "");
+  if (text.length <= visible) {
+    return text || "-";
+  }
+  return `${text.slice(0, visible)}...`;
+}
+
+function formatDateCompact(value) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleDateString();
 }
 
 function renderSearchResults() {
