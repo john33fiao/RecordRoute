@@ -4,8 +4,8 @@ use super::super::{
 };
 use super::support::*;
 use crate::index::{
-    IndexStore, JobResetSelection, JobStatus, SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord,
-    TaskStatus, TaskType,
+    ActiveQueueBatch, IndexStore, JobResetSelection, JobStatus, QueueCategory,
+    SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord, TaskStatus, TaskType,
 };
 use crate::llama;
 use crate::test_support::{
@@ -253,6 +253,51 @@ fn reset_job_embedding_only_removes_embedding_metadata_and_vector() {
             .task(TaskType::Embedding)
             .and_then(|task| task.last_error.as_deref()),
         Some(RESET_BY_USER_MESSAGE)
+    );
+}
+
+#[test]
+fn reset_job_allows_empty_active_batch_without_entries_or_running() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let job_id = "job-reset-empty-active-batch";
+
+    let mut job = test_job(
+        job_id,
+        "2026-01-01T00:00:00Z",
+        "sources/job-reset-empty-active-batch/source.wav",
+        "hash-job-reset-empty-active-batch",
+        "reset-empty-active-batch.wav",
+    );
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark ffmpeg completed");
+    store.insert_job(job).expect("insert job");
+
+    store
+        .with_index_mut(|index| {
+            index.task_queue.active_batch = Some(ActiveQueueBatch {
+                category: QueueCategory::Embed,
+                running: None,
+                entries: Vec::new(),
+            });
+            Ok(())
+        })
+        .expect("seed empty active batch");
+
+    let result = reset_job(
+        &repo_root,
+        job_id,
+        JobResetSelection {
+            ffmpeg: true,
+            ..JobResetSelection::default()
+        },
+    )
+    .expect("reset with empty active batch");
+
+    assert_eq!(result.job.status, JobStatus::Failed);
+    assert_eq!(
+        result.job.task(TaskType::Ffmpeg).map(|task| task.status),
+        Some(TaskStatus::Failed)
     );
 }
 

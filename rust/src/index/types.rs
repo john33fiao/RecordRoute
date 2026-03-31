@@ -139,6 +139,18 @@ pub struct QueueBatch {
     pub entries: Vec<QueueEntry>,
 }
 
+impl ActiveQueueBatch {
+    pub fn has_work(&self) -> bool {
+        self.running.is_some() || !self.entries.is_empty()
+    }
+}
+
+impl QueueBatch {
+    pub fn has_entries(&self) -> bool {
+        !self.entries.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct QueueEntry {
     pub job_id: String,
@@ -194,6 +206,28 @@ impl Default for TaskQueueState {
 impl TaskQueueState {
     pub(crate) fn normalize_burst_limit(&mut self) {
         self.burst_limit = effective_queue_burst_limit();
+    }
+
+    pub fn has_active_batch_work(&self) -> bool {
+        self.active_batch
+            .as_ref()
+            .is_some_and(ActiveQueueBatch::has_work)
+    }
+
+    pub fn has_pending_entries(&self) -> bool {
+        self.pending_batches.iter().any(QueueBatch::has_entries)
+    }
+
+    pub fn is_idle(&self) -> bool {
+        !self.has_active_batch_work() && !self.has_pending_entries()
+    }
+
+    pub fn normalized(mut self) -> Self {
+        if !self.has_active_batch_work() {
+            self.active_batch = None;
+        }
+        self.pending_batches.retain(QueueBatch::has_entries);
+        self
     }
 }
 

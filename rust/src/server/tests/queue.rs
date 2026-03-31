@@ -101,6 +101,38 @@ async fn get_queue_returns_active_and_pending_batches() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn get_queue_omits_empty_active_batch_without_running_or_entries() {
+    let repo_root = temp_workspace();
+    let app = router_with_repo_root(repo_root.clone());
+
+    IndexStore::new(&repo_root)
+        .with_index_mut(|index| {
+            index.task_queue = TaskQueueState {
+                paused: false,
+                burst_limit: 100,
+                active_batch: Some(ActiveQueueBatch {
+                    category: QueueCategory::Embed,
+                    running: None,
+                    entries: Vec::new(),
+                }),
+                pending_batches: Vec::new(),
+            };
+            Ok(())
+        })
+        .expect("seed empty active batch");
+
+    let response = app
+        .oneshot(get_request("/queue"))
+        .await
+        .expect("queue response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: QueueStatusResponse = read_json(response).await;
+    assert!(body.active_batch.is_none());
+    assert!(body.pending_batches.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn post_queue_pause_resumes_dispatcher_work() {
     let _guard = env_lock()
         .lock()

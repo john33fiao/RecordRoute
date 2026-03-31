@@ -65,14 +65,12 @@ pub fn reset_job(
 }
 
 fn ensure_queue_idle(index: &IndexFile) -> AppResult<()> {
-    let queue_has_entries =
-        index.task_queue.active_batch.is_some() || !index.task_queue.pending_batches.is_empty();
     let task_has_inflight = index.jobs.iter().any(|job| {
         job.tasks
             .iter()
             .any(|task| matches!(task.status, TaskStatus::Queued | TaskStatus::Running))
     });
-    if queue_has_entries || task_has_inflight {
+    if !index.task_queue.is_idle() || task_has_inflight {
         return Err(AppError::bad_request(
             "job reset requires an empty queue and no queued/running tasks",
         ));

@@ -100,13 +100,15 @@ struct QueueWorkItem {
 }
 
 pub fn queue_snapshot(repo_root: &Path) -> Result<TaskQueueState, String> {
-    IndexStore::new(repo_root).task_queue()
+    IndexStore::new(repo_root)
+        .task_queue()
+        .map(TaskQueueState::normalized)
 }
 
 pub fn set_queue_paused(repo_root: &Path, paused: bool) -> Result<TaskQueueState, String> {
     IndexStore::new(repo_root).with_index_mut(|index| {
         index.task_queue.paused = paused;
-        Ok(index.task_queue.clone())
+        Ok(index.task_queue.clone().normalized())
     })
 }
 

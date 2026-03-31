@@ -165,12 +165,24 @@ function hasQueuedOrRunningTasks() {
   );
 }
 
+function queueStatusHasActiveBatchWork(queueStatus) {
+  const activeBatch = queueStatus?.active_batch;
+  if (!activeBatch) {
+    return false;
+  }
+
+  return (
+    Boolean(activeBatch.running)
+    || (Array.isArray(activeBatch.entries) && activeBatch.entries.length > 0)
+  );
+}
+
 function queueIsIdleForReset() {
   if (!state.queueLoaded) {
     return false;
   }
 
-  const hasActiveBatch = Boolean(state.queueStatus?.active_batch);
+  const hasActiveBatch = queueStatusHasActiveBatchWork(state.queueStatus);
   const hasPendingBatch = Array.isArray(state.queueStatus?.pending_batches)
     ? state.queueStatus.pending_batches.length > 0
     : false;
@@ -2712,7 +2724,7 @@ function syncSelectedJobPoller() {
 
 function syncQueuePoller() {
   const queuePaused = Boolean(state.queueStatus?.paused);
-  const hasActiveBatch = Boolean(state.queueStatus?.active_batch);
+  const hasActiveBatch = queueStatusHasActiveBatchWork(state.queueStatus);
   const hasPendingBatch = Array.isArray(state.queueStatus?.pending_batches)
     ? state.queueStatus.pending_batches.length > 0
     : false;
