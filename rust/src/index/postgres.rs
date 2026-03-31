@@ -204,6 +204,25 @@ impl MetadataBackend for PostgresMetadataStore {
         Ok(deleted > 0)
     }
 
+    fn delete_stt_dictionary_keywords_by_source(
+        &self,
+        source: DictionaryKeywordSource,
+    ) -> Result<(), String> {
+        let mut client = self.connect()?;
+        client
+            .execute(
+                "DELETE FROM stt_dictionary_keywords WHERE source = $1",
+                &[&source.as_str()],
+            )
+            .map_err(|error| {
+                format!(
+                    "failed to delete postgres dictionary keywords for source {}: {error}",
+                    source.as_str()
+                )
+            })?;
+        Ok(())
+    }
+
     fn promote_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String> {
         let mut client = self.connect()?;
         let updated = client

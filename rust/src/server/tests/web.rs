@@ -124,6 +124,7 @@ async fn get_app_js_serves_script_asset() {
     assert!(js.contains("function renderDictionary"));
     assert!(js.contains("function renderUserDictionaryChip"));
     assert!(js.contains("data-dictionary-action=\"promote-auto\""));
+    assert!(js.contains("data-dictionary-action=\"delete-auto-all\""));
     assert!(js.contains("\".qta\""));
 }
 
@@ -176,6 +177,7 @@ async fn get_app_css_serves_stylesheet_asset() {
     assert!(css.contains(".dictionary-chip"));
     assert!(css.contains(".dictionary-group"));
     assert!(css.contains(".dictionary-promote-button"));
+    assert!(css.contains(".dictionary-group-head-row"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

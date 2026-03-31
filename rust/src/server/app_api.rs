@@ -100,6 +100,12 @@ pub(crate) fn delete_auto_stt_dictionary_keyword(
     app::delete_auto_stt_dictionary_keyword(repo_root, keyword).map_err(AppError::bad_request)
 }
 
+pub(crate) fn delete_auto_stt_dictionary_keywords(
+    repo_root: &Path,
+) -> AppResult<DictionaryKeywords> {
+    app::delete_auto_stt_dictionary_keywords(repo_root).map_err(AppError::internal)
+}
+
 pub(crate) fn search_summaries(
     repo_root: &Path,
     query: &str,

@@ -290,6 +290,35 @@ fn backend_parity_persists_dictionary_keywords_with_sources() {
 }
 
 #[test]
+fn backend_parity_bulk_deletes_auto_dictionary_keywords_by_source() {
+    run_backend_matrix("dictionary-keywords-bulk-delete", |case, _repo_root, store| {
+        store
+            .upsert_stt_dictionary_keyword("RecordRoute", DictionaryKeywordSource::User)
+            .unwrap_or_else(|error| panic!("{} upsert user keyword: {error}", case.name()));
+        store
+            .upsert_stt_dictionary_keyword("회의록", DictionaryKeywordSource::Auto)
+            .unwrap_or_else(|error| panic!("{} upsert auto keyword: {error}", case.name()));
+        store
+            .upsert_stt_dictionary_keyword("배포", DictionaryKeywordSource::Auto)
+            .unwrap_or_else(|error| panic!("{} upsert auto keyword: {error}", case.name()));
+
+        store
+            .delete_stt_dictionary_keywords_by_source(DictionaryKeywordSource::Auto)
+            .unwrap_or_else(|error| panic!("{} bulk delete auto keywords: {error}", case.name()));
+
+        let persisted = store
+            .list_stt_dictionary_keywords()
+            .unwrap_or_else(|error| panic!("{} list persisted keywords: {error}", case.name()));
+        assert_eq!(persisted.user_keywords, vec!["RecordRoute".to_string()]);
+        assert!(
+            persisted.auto_keywords.is_empty(),
+            "{} auto keywords should be empty after bulk delete",
+            case.name()
+        );
+    });
+}
+
+#[test]
 fn backend_parity_cleans_legacy_auto_demo_keywords_once() {
     run_backend_matrix("dictionary-cleanup", |case, repo_root, _store| {
         seed_legacy_auto_demo_keywords(case, repo_root)

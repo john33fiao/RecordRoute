@@ -239,6 +239,14 @@ impl IndexStore {
             .delete_stt_dictionary_keyword(keyword, source)
     }
 
+    pub fn delete_stt_dictionary_keywords_by_source(
+        &self,
+        source: DictionaryKeywordSource,
+    ) -> Result<(), String> {
+        self.backend()?
+            .delete_stt_dictionary_keywords_by_source(source)
+    }
+
     pub fn promote_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String> {
         self.backend()?.promote_stt_dictionary_keyword(keyword)
     }

@@ -80,6 +80,10 @@ pub(crate) fn router_with_repo_root_and_upload_limits(
                 .post(dictionary::post_stt_dictionary_keyword),
         )
         .route(
+            "/dictionary/keywords/auto",
+            delete(dictionary::delete_auto_stt_dictionary_keywords),
+        )
+        .route(
             "/dictionary/keywords/auto/{keyword}/promote",
             post(dictionary::post_promote_auto_stt_dictionary_keyword),
         )

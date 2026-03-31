@@ -39,6 +39,12 @@ pub fn delete_auto_stt_dictionary_keyword(
         .delete_stt_dictionary_keyword(&keyword, DictionaryKeywordSource::Auto)
 }
 
+pub fn delete_auto_stt_dictionary_keywords(repo_root: &Path) -> Result<DictionaryKeywords, String> {
+    let store = IndexStore::new(repo_root);
+    store.delete_stt_dictionary_keywords_by_source(DictionaryKeywordSource::Auto)?;
+    store.list_stt_dictionary_keywords()
+}
+
 pub(crate) fn resolve_stt_keywords(
     index_store: &IndexStore,
     requested_keywords: &[String],

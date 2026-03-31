@@ -120,6 +120,64 @@ async fn dictionary_keyword_routes_support_auto_promote_and_delete() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn delete_all_auto_dictionary_keywords_returns_updated_keywords() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    store
+        .upsert_stt_dictionary_keyword("RecordRoute", DictionaryKeywordSource::User)
+        .expect("seed user keyword");
+    store
+        .upsert_stt_dictionary_keyword("회의록", DictionaryKeywordSource::Auto)
+        .expect("seed auto keyword");
+    store
+        .upsert_stt_dictionary_keyword("배포", DictionaryKeywordSource::Auto)
+        .expect("seed auto keyword");
+    let app = router_with_repo_root(repo_root);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/dictionary/keywords/auto")
+                .body(Body::empty())
+                .expect("bulk delete auto request"),
+        )
+        .await
+        .expect("bulk delete auto dictionary response");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: DictionaryKeywordListResponse = read_json(response).await;
+    assert_eq!(body.user_keywords, vec!["RecordRoute".to_string()]);
+    assert!(body.auto_keywords.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_all_auto_dictionary_keywords_is_idempotent_when_empty() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    store
+        .upsert_stt_dictionary_keyword("RecordRoute", DictionaryKeywordSource::User)
+        .expect("seed user keyword");
+    let app = router_with_repo_root(repo_root);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/dictionary/keywords/auto")
+                .body(Body::empty())
+                .expect("bulk delete auto request"),
+        )
+        .await
+        .expect("bulk delete auto dictionary response");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: DictionaryKeywordListResponse = read_json(response).await;
+    assert_eq!(body.user_keywords, vec!["RecordRoute".to_string()]);
+    assert!(body.auto_keywords.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn adding_existing_auto_keyword_promotes_it_to_user() {
     let repo_root = temp_workspace();
     let store = IndexStore::new(&repo_root);

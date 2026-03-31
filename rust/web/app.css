@@ -1337,8 +1337,20 @@ a {
   gap: 6px;
 }
 
+.dictionary-group-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .dictionary-group-head h4 {
   margin: 0;
+}
+
+.dictionary-group-button {
+  padding: 7px 12px;
 }
 
 .dictionary-group-head p {

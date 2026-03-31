@@ -122,3 +122,11 @@ pub(crate) async fn delete_auto_stt_dictionary_keyword(
         Err(error) => error_response(error),
     }
 }
+
+pub(crate) async fn delete_auto_stt_dictionary_keywords(State(state): State<AppState>) -> Response {
+    let repo_root = state.repo_root.clone();
+    match run_blocking_app(move || app_api::delete_auto_stt_dictionary_keywords(&repo_root)).await {
+        Ok(keywords) => Json(DictionaryKeywordListResponse::from(keywords)).into_response(),
+        Err(error) => error_response(error),
+    }
+}

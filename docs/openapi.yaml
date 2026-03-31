@@ -382,6 +382,25 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /dictionary/keywords/auto:
+    delete:
+      tags: [dictionary]
+      summary: Delete all auto-generated dictionary keywords
+      operationId: deleteAllAutoDictionaryKeywords
+      responses:
+        '200':
+          description: Updated grouped dictionary keywords after deleting all auto-generated entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryKeywordListResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /dictionary/keywords/auto/{keyword}:
     delete:
       tags: [dictionary]

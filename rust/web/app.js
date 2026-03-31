@@ -1243,18 +1243,21 @@ async function onDictionaryListClick(event) {
     return;
   }
 
-  const keyword = button.dataset.dictionaryKeyword || "";
   const action = button.dataset.dictionaryAction || "";
-  if (!keyword || !action) {
+  if (!action) {
     return;
   }
 
+  const keyword = button.dataset.dictionaryKeyword || "";
   let requestPath = "";
   let requestOptions = {};
   let successMessage = "";
 
   switch (action) {
     case "delete-user":
+      if (!keyword) {
+        return;
+      }
       if (!window.confirm(`${keyword} 키워드를 삭제하시겠습니까?`)) {
         return;
       }
@@ -1263,15 +1266,34 @@ async function onDictionaryListClick(event) {
       successMessage = "키워드를 삭제했습니다.";
       break;
     case "promote-auto":
+      if (!keyword) {
+        return;
+      }
       requestPath = `/dictionary/keywords/auto/${encodeURIComponent(keyword)}/promote`;
       requestOptions = { method: "POST" };
       successMessage = "자동 생성 키워드를 사용자 등록 키워드로 옮겼습니다.";
       break;
     case "delete-auto":
+      if (!keyword) {
+        return;
+      }
       requestPath = `/dictionary/keywords/auto/${encodeURIComponent(keyword)}`;
       requestOptions = { method: "DELETE" };
       successMessage = "자동 생성 키워드를 삭제했습니다.";
       break;
+    case "delete-auto-all": {
+      const autoKeywordCount = state.dictionaryKeywords.autoKeywords.length;
+      if (!autoKeywordCount) {
+        return;
+      }
+      if (!window.confirm(`자동 생성 키워드 ${autoKeywordCount}개를 모두 삭제하시겠습니까?`)) {
+        return;
+      }
+      requestPath = "/dictionary/keywords/auto";
+      requestOptions = { method: "DELETE" };
+      successMessage = "자동 생성 키워드를 모두 삭제했습니다.";
+      break;
+    }
     default:
       return;
   }
@@ -2400,16 +2422,30 @@ function renderDictionary() {
         emptyMessage: "자동 생성된 키워드가 없습니다.",
         items: state.dictionaryKeywords.autoKeywords,
         renderChip: renderAutoDictionaryChip,
+        actionHtml:
+          state.dictionaryKeywords.autoKeywords.length > 0
+            ? `<button
+                type="button"
+                class="danger-button danger-button-subtle dictionary-group-button"
+                data-dictionary-action="delete-auto-all"
+                ${state.loading.dictionary ? "disabled" : ""}
+              >
+                일괄삭제
+              </button>`
+            : "",
       })}
     </div>
   `;
 }
 
-function renderDictionaryGroup({ title, description, emptyMessage, items, renderChip }) {
+function renderDictionaryGroup({ title, description, emptyMessage, items, renderChip, actionHtml = "" }) {
   return `
     <section class="dictionary-group">
       <div class="dictionary-group-head">
-        <h4>${escapeHtml(title)}</h4>
+        <div class="dictionary-group-head-row">
+          <h4>${escapeHtml(title)}</h4>
+          ${actionHtml}
+        </div>
         <p>${escapeHtml(description)}</p>
       </div>
       ${

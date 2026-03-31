@@ -132,6 +132,11 @@
   - 응답: `DictionaryKeywordListResponse`
   - 없으면 `404`
 
+- `DELETE /dictionary/keywords/auto`
+  - 목적: auto keyword 전체 삭제
+  - 응답: `DictionaryKeywordListResponse`
+  - auto keyword가 비어 있어도 `200`으로 현재 목록을 반환합니다.
+
 - `DELETE /dictionary/keywords/auto/{keyword}`
   - 목적: auto keyword 삭제
   - 응답: `DictionaryKeywordListResponse`

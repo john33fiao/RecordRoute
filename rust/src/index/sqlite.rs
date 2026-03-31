@@ -259,6 +259,25 @@ impl MetadataBackend for SqliteMetadataStore {
         Ok(deleted > 0)
     }
 
+    fn delete_stt_dictionary_keywords_by_source(
+        &self,
+        source: DictionaryKeywordSource,
+    ) -> Result<(), String> {
+        let connection = self.open()?;
+        connection
+            .execute(
+                "DELETE FROM stt_dictionary_keywords WHERE source = ?",
+                params![source.as_str()],
+            )
+            .map_err(|error| {
+                format!(
+                    "failed to delete sqlite dictionary keywords for source {}: {error}",
+                    source.as_str()
+                )
+            })?;
+        Ok(())
+    }
+
     fn promote_stt_dictionary_keyword(&self, keyword: &str) -> Result<bool, String> {
         let connection = self.open()?;
         let updated = connection
