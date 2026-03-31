@@ -116,23 +116,31 @@
                     </button>
                   </div>
                 </div>
-                <div class="batch-controls batch-controls-danger">
-                  <label class="field compact-field" for="batch-delete-target">
-                    <span>일괄삭제 대상</span>
-                    <div class="select-shell">
-                      <select id="batch-delete-target" name="batch-delete-target">
-                        <option value="stt" selected>전사</option>
-                        <option value="summary">요약</option>
-                        <option value="embedding">임베딩</option>
-                      </select>
+                <details class="batch-controls-disclosure batch-controls-disclosure-danger">
+                  <summary class="batch-controls-disclosure-toggle">
+                    <span class="batch-controls-disclosure-title">일괄 삭제 영역 펼치기</span>
+                    <span class="batch-controls-disclosure-copy">
+                      실수 방지를 위해 기본적으로 접혀 있습니다.
+                    </span>
+                  </summary>
+                  <div class="batch-controls batch-controls-danger">
+                    <label class="field compact-field" for="batch-delete-target">
+                      <span>일괄삭제 대상</span>
+                      <div class="select-shell">
+                        <select id="batch-delete-target" name="batch-delete-target">
+                          <option value="stt" selected>전사</option>
+                          <option value="summary">요약</option>
+                          <option value="embedding">임베딩</option>
+                        </select>
+                      </div>
+                    </label>
+                    <div class="button-row button-row-compact">
+                      <button class="danger-button" id="batch-delete-button" type="button">
+                        일괄 삭제
+                      </button>
                     </div>
-                  </label>
-                  <div class="button-row button-row-compact">
-                    <button class="danger-button" id="batch-delete-button" type="button">
-                      일괄 삭제
-                    </button>
                   </div>
-                </div>
+                </details>
               </div>
             </section>
           </div>

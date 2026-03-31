@@ -562,9 +562,66 @@ a {
   min-height: 46px;
 }
 
+.batch-controls-disclosure {
+  border: 1px solid rgba(220, 38, 38, 0.16);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+.batch-controls-disclosure-danger {
+  background: rgba(254, 242, 242, 0.56);
+}
+
+.batch-controls-disclosure-toggle {
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  padding: 16px 18px;
+  cursor: pointer;
+}
+
+.batch-controls-disclosure-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.batch-controls-disclosure-toggle:focus-visible {
+  outline: 2px solid rgba(220, 38, 38, 0.24);
+  outline-offset: -2px;
+}
+
+.batch-controls-disclosure-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.batch-controls-disclosure-title::before {
+  content: "▸";
+  color: #b91c1c;
+  transition: transform 140ms ease;
+}
+
+.batch-controls-disclosure[open] .batch-controls-disclosure-title::before {
+  transform: rotate(90deg);
+}
+
+.batch-controls-disclosure-copy {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.batch-controls-disclosure[open] .batch-controls-disclosure-toggle {
+  border-bottom: 1px solid rgba(220, 38, 38, 0.14);
+  background: rgba(255, 255, 255, 0.55);
+}
+
 .batch-controls-danger {
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
+  padding: 18px;
 }
 
 .jobs-rail {
