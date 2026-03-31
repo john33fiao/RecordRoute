@@ -92,6 +92,56 @@ async fn get_stt_texts_returns_transcript_texts_as_json() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn get_stt_texts_prunes_missing_transcript_rows_when_spool_file_was_deleted() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let job_id = "job-stt-prune";
+    let mut job = test_job(
+        job_id,
+        "2026-01-01T00:00:00Z",
+        "sources/job-stt-prune/source.wav",
+        "hash-stt-prune",
+        "stt-prune.wav",
+    );
+    mark_job_completed_with_audio(&store, &mut job, "2026-01-01T00:00:01Z", &["mono_mix.wav"])
+        .expect("mark completed");
+    store.insert_job(job).expect("insert job");
+    seed_transcripts(&store, job_id, &[("mono_mix", "orphan transcript")])
+        .expect("seed transcript");
+    std::fs::remove_file(
+        store
+            .audio_store()
+            .expect("audio store")
+            .spool_root()
+            .join("stt")
+            .join(job_id)
+            .join("mono_mix.txt"),
+    )
+    .expect("remove transcript file");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(get_request("/jobs/job-stt-prune/stt/texts"))
+        .await
+        .expect("stt texts response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: SttTranscriptListResponse = read_json(response).await;
+    assert_eq!(body.job_id, job_id);
+    assert!(body.transcripts.is_empty());
+    assert_eq!(
+        store.count_transcripts(job_id).expect("count transcripts"),
+        0
+    );
+    assert!(
+        store
+            .find_transcript(job_id, "mono_mix")
+            .expect("find transcript")
+            .is_none()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn get_stt_progress_returns_polling_snapshot() {
     let repo_root = temp_workspace();
     let store = IndexStore::new(&repo_root);

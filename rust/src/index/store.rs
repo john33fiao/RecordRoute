@@ -252,7 +252,8 @@ impl IndexStore {
     }
 
     pub fn list_transcripts(&self, job_id: &str) -> Result<Vec<TranscriptRecord>, String> {
-        self.backend()?.list_transcripts(job_id)
+        let transcripts = self.backend()?.list_transcripts(job_id)?;
+        self.prune_missing_transcripts(job_id, transcripts)
     }
 
     pub fn find_transcript(
@@ -260,7 +261,18 @@ impl IndexStore {
         job_id: &str,
         transcript_id: &str,
     ) -> Result<Option<TranscriptRecord>, String> {
-        self.backend()?.get_transcript(job_id, transcript_id)
+        let Some(record) = self.backend()?.get_transcript(job_id, transcript_id)? else {
+            return Ok(None);
+        };
+        if self
+            .transcript_spool_path(job_id, &record.file_name)
+            .is_file()
+        {
+            return Ok(Some(record));
+        }
+
+        let _ = self.backend()?.delete_transcript(job_id, transcript_id)?;
+        Ok(None)
     }
 
     pub fn upsert_transcript(&self, record: &TranscriptRecord) -> Result<(), String> {
@@ -268,7 +280,7 @@ impl IndexStore {
     }
 
     pub fn count_transcripts(&self, job_id: &str) -> Result<usize, String> {
-        self.backend()?.count_transcripts(job_id)
+        Ok(self.list_transcripts(job_id)?.len())
     }
 
     pub fn get_summary(&self, job_id: &str) -> Result<Option<SummaryRecord>, String> {
@@ -414,6 +426,46 @@ impl IndexStore {
                 .find(|artifact| artifact.logical_name == output.path)
                 .is_some_and(|artifact| self.source_path(&artifact.storage_key).is_file())
         }))
+    }
+
+    fn prune_missing_transcripts(
+        &self,
+        job_id: &str,
+        transcripts: Vec<TranscriptRecord>,
+    ) -> Result<Vec<TranscriptRecord>, String> {
+        let mut visible = Vec::with_capacity(transcripts.len());
+        let mut missing_ids = Vec::new();
+
+        for record in transcripts {
+            if self
+                .transcript_spool_path(job_id, &record.file_name)
+                .is_file()
+            {
+                visible.push(record);
+            } else {
+                missing_ids.push(record.transcript_id);
+            }
+        }
+
+        let backend = self.backend()?;
+        for transcript_id in missing_ids {
+            let _ = backend.delete_transcript(job_id, &transcript_id)?;
+        }
+
+        Ok(visible)
+    }
+
+    fn transcript_spool_path(&self, job_id: &str, file_name: &str) -> PathBuf {
+        self.audio_store
+            .as_ref()
+            .map(|store| store.spool_root().join("stt").join(job_id).join(file_name))
+            .unwrap_or_else(|| {
+                self.repo_root
+                    .join("db/audio-spool")
+                    .join("stt")
+                    .join(job_id)
+                    .join(file_name)
+            })
     }
 
     fn backend(&self) -> Result<&dyn MetadataBackend, String> {

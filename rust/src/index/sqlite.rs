@@ -391,16 +391,17 @@ impl MetadataBackend for SqliteMetadataStore {
         Ok(())
     }
 
-    fn count_transcripts(&self, job_id: &str) -> Result<usize, String> {
+    fn delete_transcript(&self, job_id: &str, transcript_id: &str) -> Result<bool, String> {
         let connection = self.open()?;
-        let count = connection
-            .query_row(
-                "SELECT COUNT(*) FROM transcripts WHERE job_id = ?",
-                [job_id],
-                |row| row.get::<_, i64>(0),
+        let deleted = connection
+            .execute(
+                "DELETE FROM transcripts WHERE job_id = ? AND transcript_id = ?",
+                params![job_id, transcript_id],
             )
-            .map_err(|error| format!("failed to count sqlite transcripts: {error}"))?;
-        Ok(count.max(0) as usize)
+            .map_err(|error| {
+                format!("failed to delete sqlite transcript {job_id}/{transcript_id}: {error}")
+            })?;
+        Ok(deleted > 0)
     }
 
     fn get_summary(&self, job_id: &str) -> Result<Option<SummaryRecord>, String> {

@@ -336,16 +336,17 @@ impl MetadataBackend for PostgresMetadataStore {
         Ok(())
     }
 
-    fn count_transcripts(&self, job_id: &str) -> Result<usize, String> {
+    fn delete_transcript(&self, job_id: &str, transcript_id: &str) -> Result<bool, String> {
         let mut client = self.connect()?;
-        let count: i64 = client
-            .query_one(
-                "SELECT COUNT(*) FROM transcripts WHERE job_id = $1",
-                &[&job_id],
+        let deleted = client
+            .execute(
+                "DELETE FROM transcripts WHERE job_id = $1 AND transcript_id = $2",
+                &[&job_id, &transcript_id],
             )
-            .map_err(|error| format!("failed to count postgres transcripts: {error}"))?
-            .get(0);
-        Ok(count.max(0) as usize)
+            .map_err(|error| {
+                format!("failed to delete postgres transcript {job_id}/{transcript_id}: {error}")
+            })?;
+        Ok(deleted > 0)
     }
 
     fn get_summary(&self, job_id: &str) -> Result<Option<SummaryRecord>, String> {

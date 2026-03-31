@@ -151,12 +151,28 @@ pub(crate) mod test_support {
         job_id: &str,
         transcripts: &[(&str, &str)],
     ) -> Result<(), String> {
+        let transcript_dir = store.audio_store()?.spool_root().join("stt").join(job_id);
+        fs::create_dir_all(&transcript_dir).map_err(|error| {
+            format!(
+                "failed to create test transcript dir {}: {error}",
+                transcript_dir.display()
+            )
+        })?;
+
         for (transcript_id, text) in transcripts {
+            let file_name = format!("{transcript_id}.txt");
             store.upsert_transcript(&TranscriptRecord {
                 job_id: job_id.to_string(),
                 transcript_id: (*transcript_id).to_string(),
-                file_name: format!("{transcript_id}.txt"),
+                file_name: file_name.clone(),
                 text: (*text).to_string(),
+            })?;
+            let transcript_path = transcript_dir.join(&file_name);
+            fs::write(&transcript_path, text).map_err(|error| {
+                format!(
+                    "failed to seed transcript file {}: {error}",
+                    transcript_path.display()
+                )
             })?;
         }
         Ok(())
