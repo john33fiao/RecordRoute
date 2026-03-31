@@ -34,6 +34,12 @@ const BATCH_PROCESS_TARGETS = [
   { value: "embedding", label: "임베딩" },
 ];
 
+const BATCH_DELETE_TARGETS = [
+  { value: "stt", label: "전사" },
+  { value: "summary", label: "요약" },
+  { value: "embedding", label: "임베딩" },
+];
+
 const TAB_KEYS = ["upload", "jobs", "search", "queue", "dictionary"];
 
 const state = {
@@ -59,6 +65,7 @@ const state = {
     open: false,
     selection: emptyJobResetSelection(),
   },
+  batchDeleteModal: emptyBatchDeleteModalState(),
   settingsModal: {
     open: false,
   },
@@ -71,6 +78,7 @@ const state = {
   loading: {
     upload: false,
     batchProcess: false,
+    batchDelete: false,
     queuePause: false,
     queueCancel: false,
     jobReset: false,
@@ -97,6 +105,17 @@ function emptyJobResetSelection() {
     stt: false,
     summary: false,
     embedding: false,
+  };
+}
+
+function emptyBatchDeleteModalState() {
+  return {
+    open: false,
+    target: BATCH_DELETE_TARGETS[0].value,
+    eligibleJobs: [],
+    completedCount: 0,
+    submitting: false,
+    progressMessage: "",
   };
 }
 
@@ -163,6 +182,24 @@ function canResetSelectedJob() {
   return Boolean(state.selectedJobId) && queueIsIdleForReset() && !state.loading.jobReset;
 }
 
+function canOpenBatchDeleteModal() {
+  return state.queueLoaded && !state.loading.batchDelete;
+}
+
+function findTaskRecord(job, taskType) {
+  return Array.isArray(job?.tasks)
+    ? job.tasks.find((task) => task.task_type === taskType)
+    : null;
+}
+
+function jobEligibleForBatchDelete(job, target) {
+  const task = findTaskRecord(job, target);
+  if (target === "embedding") {
+    return task?.status === "completed" || Boolean(job?.summary_embedding);
+  }
+  return task?.status === "completed";
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   captureElements();
   bindEvents();
@@ -219,6 +256,8 @@ function captureElements() {
   elements.uploadSubmitButton = document.getElementById("upload-submit-button");
   elements.batchProcessTargetSelect = document.getElementById("batch-process-target");
   elements.batchProcessButton = document.getElementById("batch-process-button");
+  elements.batchDeleteTargetSelect = document.getElementById("batch-delete-target");
+  elements.batchDeleteButton = document.getElementById("batch-delete-button");
   elements.queueCancelButton = document.getElementById("queue-cancel-button");
   elements.uploadQueue = document.getElementById("upload-queue");
   elements.sttForm = document.getElementById("stt-form");
@@ -247,6 +286,15 @@ function captureElements() {
   elements.jobResetSttCheckbox = document.getElementById("job-reset-stt-checkbox");
   elements.jobResetSummaryCheckbox = document.getElementById("job-reset-summary-checkbox");
   elements.jobResetEmbeddingCheckbox = document.getElementById("job-reset-embedding-checkbox");
+  elements.batchDeleteModal = document.getElementById("batch-delete-modal");
+  elements.batchDeleteTitle = document.getElementById("batch-delete-title");
+  elements.batchDeleteCopy = document.getElementById("batch-delete-copy");
+  elements.batchDeleteSummary = document.getElementById("batch-delete-summary");
+  elements.batchDeleteHint = document.getElementById("batch-delete-hint");
+  elements.batchDeleteForm = document.getElementById("batch-delete-form");
+  elements.batchDeleteConfirmButton = document.getElementById("batch-delete-confirm-button");
+  elements.batchDeleteCloseButton = document.getElementById("batch-delete-close-button");
+  elements.batchDeleteCancelButton = document.getElementById("batch-delete-cancel-button");
 }
 
 function bindEvents() {
@@ -274,6 +322,8 @@ function bindEvents() {
   });
   elements.uploadForm.addEventListener("submit", onUploadSubmit);
   elements.batchProcessButton.addEventListener("click", onBatchProcessSubmit);
+  elements.batchDeleteButton.addEventListener("click", openBatchDeleteModal);
+  elements.batchDeleteTargetSelect.addEventListener("change", onBatchDeleteTargetChange);
   elements.queueCancelButton.addEventListener("click", onQueueCancelPending);
   elements.uploadInput.addEventListener("change", onUploadInputChange);
   elements.uploadDropzone.addEventListener("dragenter", onUploadDragEnter);
@@ -298,8 +348,12 @@ function bindEvents() {
   elements.dictionaryList.addEventListener("click", onDictionaryListClick);
   elements.searchForm.addEventListener("submit", onSearchSubmit);
   elements.jobResetForm.addEventListener("submit", onJobResetSubmit);
+  elements.batchDeleteForm.addEventListener("submit", onBatchDeleteSubmit);
   elements.jobResetModal.querySelectorAll("[data-job-reset-close]").forEach((button) => {
     button.addEventListener("click", closeJobResetModal);
+  });
+  elements.batchDeleteModal.querySelectorAll("[data-batch-delete-close]").forEach((button) => {
+    button.addEventListener("click", () => closeBatchDeleteModal());
   });
   elements.settingsModal.querySelectorAll("[data-settings-close]").forEach((button) => {
     button.addEventListener("click", closeSettingsModal);
@@ -375,7 +429,7 @@ function renderTabs() {
 function syncModalBodyState() {
   document.body.classList.toggle(
     "is-modal-open",
-    Boolean(state.jobResetModal.open || state.settingsModal.open)
+    Boolean(state.jobResetModal.open || state.batchDeleteModal.open || state.settingsModal.open)
   );
 }
 
@@ -397,6 +451,7 @@ function openJobResetModal() {
     return;
   }
   closeSettingsModal();
+  closeBatchDeleteModal({ force: true });
   state.jobResetModal.open = true;
   state.jobResetModal.selection = emptyJobResetSelection();
   setMessage("job-reset", "", "info");
@@ -408,6 +463,47 @@ function closeJobResetModal() {
   state.jobResetModal.selection = emptyJobResetSelection();
   setMessage("job-reset", "", "info");
   renderJobResetModal();
+}
+
+async function onBatchDeleteTargetChange() {
+  state.batchDeleteModal.target = resolveBatchDeleteTarget();
+  if (!state.batchDeleteModal.open) {
+    return;
+  }
+  state.batchDeleteModal.eligibleJobs = [];
+  state.batchDeleteModal.completedCount = 0;
+  state.batchDeleteModal.progressMessage = "";
+  setMessage("batch-delete", "", "info");
+  renderBatchDeleteModal();
+  await loadBatchDeletePreview(state.batchDeleteModal.target);
+}
+
+async function openBatchDeleteModal() {
+  if (!canOpenBatchDeleteModal()) {
+    return;
+  }
+  closeSettingsModal();
+  closeJobResetModal();
+  state.batchDeleteModal = {
+    ...emptyBatchDeleteModalState(),
+    open: true,
+    target: resolveBatchDeleteTarget(),
+  };
+  setMessage("batch-delete", "", "info");
+  renderBatchDeleteModal();
+  await loadBatchDeletePreview(state.batchDeleteModal.target);
+}
+
+function closeBatchDeleteModal({ force = false } = {}) {
+  if (state.batchDeleteModal.submitting && !force) {
+    return;
+  }
+  state.batchDeleteModal = {
+    ...emptyBatchDeleteModalState(),
+    target: resolveBatchDeleteTarget(),
+  };
+  setMessage("batch-delete", "", "info");
+  renderBatchDeleteModal();
 }
 
 function onJobResetCheckboxChange(event) {
@@ -472,8 +568,145 @@ async function onJobResetSubmit(event) {
   }
 }
 
+function resolveBatchDeleteTarget() {
+  return elements.batchDeleteTargetSelect?.value || BATCH_DELETE_TARGETS[0].value;
+}
+
+function resolveBatchDeleteTargetLabel(target) {
+  return BATCH_DELETE_TARGETS.find((option) => option.value === target)?.label || "선택 단계";
+}
+
+function buildBatchDeletePayload(target) {
+  return { [target]: true };
+}
+
+async function loadBatchDeletePreview(target = resolveBatchDeleteTarget()) {
+  state.batchDeleteModal.target = target;
+  state.batchDeleteModal.progressMessage = "";
+  setLoading("batchDelete", true);
+  try {
+    const { data } = await fetchJson("/jobs/completed");
+    const completedJobs = Array.isArray(data?.jobs) ? data.jobs : [];
+    const eligibleJobs = completedJobs.filter((job) => jobEligibleForBatchDelete(job, target));
+    if (state.batchDeleteModal.target !== target) {
+      return;
+    }
+    state.batchDeleteModal.completedCount = completedJobs.length;
+    state.batchDeleteModal.eligibleJobs = eligibleJobs;
+    setMessage("batch-delete", "", "info");
+  } catch (error) {
+    if (state.batchDeleteModal.target === target) {
+      state.batchDeleteModal.completedCount = 0;
+      state.batchDeleteModal.eligibleJobs = [];
+      setMessage("batch-delete", error.message, "error");
+    }
+  } finally {
+    setLoading("batchDelete", false);
+    renderBatchDeleteModal();
+  }
+}
+
+function buildBatchDeleteResultMessage(label, successCount, failureCount) {
+  if (failureCount === 0) {
+    return {
+      tone: "success",
+      text: `${label} 일괄 삭제 완료 · 성공 ${successCount}건`,
+    };
+  }
+  if (successCount === 0) {
+    return {
+      tone: "error",
+      text: `${label} 일괄 삭제 실패 · 실패 ${failureCount}건`,
+    };
+  }
+  return {
+    tone: "info",
+    text: `${label} 일괄 삭제 부분 완료 · 성공 ${successCount}건 · 실패 ${failureCount}건`,
+  };
+}
+
+async function onBatchDeleteSubmit(event) {
+  event.preventDefault();
+  const target = state.batchDeleteModal.target || resolveBatchDeleteTarget();
+  const label = resolveBatchDeleteTargetLabel(target);
+
+  if (!state.queueLoaded) {
+    setMessage("batch-delete", "큐 상태를 불러온 뒤에 일괄 삭제를 사용할 수 있습니다.", "error");
+    renderBatchDeleteModal();
+    return;
+  }
+
+  if (!queueIsIdleForReset()) {
+    setMessage("batch-delete", "진행 중이거나 대기 중인 작업이 있으면 일괄 삭제를 실행할 수 없습니다.", "error");
+    renderBatchDeleteModal();
+    return;
+  }
+
+  state.batchDeleteModal.submitting = true;
+  state.batchDeleteModal.progressMessage = `${label} 삭제 대상을 다시 확인하는 중입니다.`;
+  setLoading("batchDelete", true);
+  renderBatchDeleteModal();
+
+  try {
+    const { data } = await fetchJson("/jobs/completed");
+    const completedJobs = Array.isArray(data?.jobs) ? data.jobs : [];
+    const eligibleJobs = completedJobs.filter((job) => jobEligibleForBatchDelete(job, target));
+
+    state.batchDeleteModal.completedCount = completedJobs.length;
+    state.batchDeleteModal.eligibleJobs = eligibleJobs;
+
+    if (eligibleJobs.length === 0) {
+      closeBatchDeleteModal({ force: true });
+      setMessage("upload", `${label} 삭제 대상이 없습니다.`, "info");
+      return;
+    }
+
+    let successCount = 0;
+    let failureCount = 0;
+
+    for (let index = 0; index < eligibleJobs.length; index += 1) {
+      const job = eligibleJobs[index];
+      state.batchDeleteModal.progressMessage = `${label} 일괄 삭제 진행 중 · ${index + 1}/${eligibleJobs.length}`;
+      renderBatchDeleteModal();
+
+      try {
+        await fetchJson(`/jobs/${encodeURIComponent(job.job_id)}/reset`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(buildBatchDeletePayload(target)),
+        });
+        successCount += 1;
+      } catch (error) {
+        console.error(error);
+        failureCount += 1;
+      }
+    }
+
+    closeBatchDeleteModal({ force: true });
+    const resultMessage = buildBatchDeleteResultMessage(label, successCount, failureCount);
+    setMessage("upload", resultMessage.text, resultMessage.tone);
+    await Promise.all([
+      refreshJobs(),
+      refreshQueue(),
+      state.selectedJobId ? refreshSelectedJob(state.selectedJobId) : Promise.resolve(),
+    ]);
+  } catch (error) {
+    setMessage("batch-delete", error.message, "error");
+    renderBatchDeleteModal();
+  } finally {
+    state.batchDeleteModal.submitting = false;
+    state.batchDeleteModal.progressMessage = "";
+    setLoading("batchDelete", false);
+  }
+}
+
 function onDocumentKeydown(event) {
   if (event.key !== "Escape") {
+    return;
+  }
+
+  if (state.batchDeleteModal.open) {
+    closeBatchDeleteModal();
     return;
   }
 
@@ -1268,6 +1501,7 @@ function renderAll() {
   renderSystem();
   renderJobs();
   renderJobResetModal();
+  renderBatchDeleteModal();
   renderSelectedJob();
   renderQueueBoard();
   renderDictionary();
@@ -1464,6 +1698,58 @@ function renderJobResetModal() {
   elements.jobResetHint.dataset.tone = resetAllowed ? "success" : "info";
   elements.jobResetConfirmButton.disabled =
     !resetAllowed || !jobResetSelectionHasAny(selection) || state.loading.jobReset;
+}
+
+function renderBatchDeleteModal() {
+  const isOpen = state.batchDeleteModal.open;
+  const target = state.batchDeleteModal.target || resolveBatchDeleteTarget();
+  const label = resolveBatchDeleteTargetLabel(target);
+  const completedCount = state.batchDeleteModal.completedCount;
+  const eligibleCount = state.batchDeleteModal.eligibleJobs.length;
+  const queueIdle = queueIsIdleForReset();
+  const loading = state.loading.batchDelete;
+  const submitting = state.batchDeleteModal.submitting;
+
+  elements.batchDeleteModal.hidden = !isOpen;
+  syncModalBodyState();
+
+  elements.batchDeleteTitle.textContent = `${label} 일괄 삭제`;
+  elements.batchDeleteCopy.textContent =
+    `${label} 단계 산출물만 삭제합니다. source와 job 자체는 유지되고, 완료된 Job 중 현재 대상만 순차적으로 reset 합니다.`;
+  elements.batchDeleteSummary.innerHTML = [
+    ["선택 단계", label],
+    ["완료 Job", `${completedCount}건`],
+    ["삭제 대상", `${eligibleCount}건`],
+  ]
+    .map(([term, value]) => `<dt>${escapeHtml(term)}</dt><dd>${escapeHtml(value)}</dd>`)
+    .join("");
+
+  let hintText = "";
+  let hintTone = "info";
+
+  if (submitting && state.batchDeleteModal.progressMessage) {
+    hintText = state.batchDeleteModal.progressMessage;
+  } else if (!state.queueLoaded) {
+    hintText = "큐 상태를 불러온 뒤에 일괄 삭제를 사용할 수 있습니다.";
+  } else if (!queueIdle) {
+    hintText = "진행 중이거나 대기 중인 작업이 있으면 일괄 삭제를 실행할 수 없습니다.";
+  } else if (loading) {
+    hintText = `${label} 삭제 대상을 계산하는 중입니다.`;
+  } else if (completedCount === 0) {
+    hintText = "완료된 Job이 없습니다.";
+  } else if (eligibleCount === 0) {
+    hintText = `완료된 Job 중 ${label} 산출물이 있는 대상이 없습니다.`;
+  } else {
+    hintText = `${label} 산출물 ${eligibleCount}건을 삭제할 수 있습니다. 확인을 누르면 순차적으로 reset을 요청합니다.`;
+    hintTone = "success";
+  }
+
+  elements.batchDeleteHint.textContent = hintText;
+  elements.batchDeleteHint.dataset.tone = hintTone;
+  elements.batchDeleteConfirmButton.disabled =
+    !state.queueLoaded || !queueIdle || loading || eligibleCount === 0;
+  elements.batchDeleteCloseButton.disabled = submitting;
+  elements.batchDeleteCancelButton.disabled = submitting;
 }
 
 function renderSelectedJob() {
@@ -2345,6 +2631,8 @@ function updateActionStates() {
   elements.uploadSubmitButton.disabled = state.loading.upload;
   elements.batchProcessTargetSelect.disabled = state.loading.batchProcess;
   elements.batchProcessButton.disabled = state.loading.batchProcess;
+  elements.batchDeleteTargetSelect.disabled = state.loading.batchDelete;
+  elements.batchDeleteButton.disabled = state.loading.batchDelete || !state.queueLoaded;
   elements.queueCancelButton.disabled = state.loading.queueCancel || !state.queueLoaded;
   elements.systemRefreshButton.disabled = false;
   elements.jobsRefreshButton.disabled = false;
@@ -2361,6 +2649,9 @@ function updateActionStates() {
 
   if (state.jobResetModal.open) {
     renderJobResetModal();
+  }
+  if (state.batchDeleteModal.open) {
+    renderBatchDeleteModal();
   }
 }
 

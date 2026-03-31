@@ -531,6 +531,11 @@ a {
   font-size: 0.86rem;
 }
 
+.batch-controls-stack {
+  display: grid;
+  gap: 18px;
+}
+
 .batch-controls {
   display: grid;
   grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
@@ -555,6 +560,11 @@ a {
 
 .batch-controls .button-row > * {
   min-height: 46px;
+}
+
+.batch-controls-danger {
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
 }
 
 .jobs-rail {

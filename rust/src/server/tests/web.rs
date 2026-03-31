@@ -51,6 +51,10 @@ async fn get_root_serves_html_shell_with_expected_sections() {
     assert!(html.contains("id=\"dictionary-refresh-button\""));
     assert!(html.contains("id=\"queue-pause-button\""));
     assert!(html.contains("id=\"queue-cancel-button\""));
+    assert!(html.contains("id=\"batch-delete-target\""));
+    assert!(html.contains("id=\"batch-delete-button\""));
+    assert!(html.contains("id=\"batch-delete-modal\""));
+    assert!(html.contains("id=\"batch-delete-confirm-button\""));
     assert!(html.contains(".qta,audio/*"));
     assert!(html.contains("성을 회의록으로, STT·요약·임베딩·RAG 질의 지원까지 일원화."));
     assert!(html.contains("오디오-텍스트 변환 정확도를 높이기 위해, 주로 사용되는 키워드를 관리할 수 있습니다."));
@@ -100,6 +104,12 @@ async fn get_app_js_serves_script_asset() {
     assert!(js.contains("pendingDictionaryRefreshJobId"));
     assert!(js.contains("queue-pause-button"));
     assert!(js.contains("queue-cancel-button"));
+    assert!(js.contains("const BATCH_DELETE_TARGETS = ["));
+    assert!(js.contains("async function openBatchDeleteModal"));
+    assert!(js.contains("async function onBatchDeleteSubmit"));
+    assert!(js.contains("function renderBatchDeleteModal"));
+    assert!(js.contains("/jobs/completed"));
+    assert!(js.contains("batch-delete-button"));
     assert!(js.contains("const QUEUE_COLLAPSE_THRESHOLD = 10;"));
     assert!(js.contains("각 파일이 ffmpeg 큐에 등록되었습니다."));
     assert!(js.contains("setActiveTab(\"jobs\");"));
@@ -153,6 +163,8 @@ async fn get_app_css_serves_stylesheet_asset() {
     assert!(css.contains(".queue-board"));
     assert!(css.contains(".section-actions"));
     assert!(css.contains(".danger-button"));
+    assert!(css.contains(".batch-controls-stack"));
+    assert!(css.contains(".batch-controls-danger"));
     assert!(css.contains(".settings-summary-card"));
     assert!(css.contains(".modal-dialog-large"));
     assert!(css.contains(".queue-column-toggle"));

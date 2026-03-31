@@ -85,34 +85,53 @@
                   <p class="section-copy">전체 작업을 한꺼번  시작/종료할 수 있습니다.</p>
                 </div>
               </div>
-              <div class="batch-controls">
-                <label class="field compact-field" for="batch-process-target">
-                  <span>일괄처리 대상</span>
-                  <div class="select-shell">
-                    <select id="batch-process-target" name="batch-process-target">
-                      <option value="all" selected>전체 작업</option>
-                      <option value="ffmpeg">오디오 분리</option>
-                      <option value="stt">전사</option>
-                      <option value="summary">요약</option>
-                      <option value="embedding">임베딩</option>
-                    </select>
+              <div class="batch-controls-stack">
+                <div class="batch-controls">
+                  <label class="field compact-field" for="batch-process-target">
+                    <span>일괄처리 대상</span>
+                    <div class="select-shell">
+                      <select id="batch-process-target" name="batch-process-target">
+                        <option value="all" selected>전체 작업</option>
+                        <option value="ffmpeg">오디오 분리</option>
+                        <option value="stt">전사</option>
+                        <option value="summary">요약</option>
+                        <option value="embedding">임베딩</option>
+                      </select>
+                    </div>
+                  </label>
+                  <div class="button-row button-row-compact">
+                    <button
+                      class="primary-button"
+                      id="upload-submit-button"
+                      type="submit"
+                      form="upload-form"
+                    >
+                      업로드
+                    </button>
+                    <button class="ghost-button" id="batch-process-button" type="button">
+                      일괄처리 시작
+                    </button>
+                    <button class="danger-button" id="queue-cancel-button" type="button">
+                      일괄 취소
+                    </button>
                   </div>
-                </label>
-                <div class="button-row button-row-compact">
-                  <button
-                    class="primary-button"
-                    id="upload-submit-button"
-                    type="submit"
-                    form="upload-form"
-                  >
-                    업로드
-                  </button>
-                  <button class="ghost-button" id="batch-process-button" type="button">
-                    일괄처리 시작
-                  </button>
-                  <button class="danger-button" id="queue-cancel-button" type="button">
-                    일괄 취소
-                  </button>
+                </div>
+                <div class="batch-controls batch-controls-danger">
+                  <label class="field compact-field" for="batch-delete-target">
+                    <span>일괄삭제 대상</span>
+                    <div class="select-shell">
+                      <select id="batch-delete-target" name="batch-delete-target">
+                        <option value="stt" selected>전사</option>
+                        <option value="summary">요약</option>
+                        <option value="embedding">임베딩</option>
+                      </select>
+                    </div>
+                  </label>
+                  <div class="button-row button-row-compact">
+                    <button class="danger-button" id="batch-delete-button" type="button">
+                      일괄 삭제
+                    </button>
+                  </div>
                 </div>
               </div>
             </section>
@@ -471,6 +490,39 @@
       </section>
     </div>
 
+    <div class="modal-shell" id="batch-delete-modal" hidden>
+      <div class="modal-backdrop" data-batch-delete-close></div>
+      <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="batch-delete-title">
+        <div class="modal-head">
+          <div>
+            <p class="section-kicker">Batch Delete</p>
+            <h2 id="batch-delete-title">일괄 삭제</h2>
+          </div>
+          <button
+            class="ghost-button modal-close"
+            id="batch-delete-close-button"
+            type="button"
+            data-batch-delete-close
+          >
+            닫기
+          </button>
+        </div>
+        <p class="modal-copy" id="batch-delete-copy">
+          완료된 Job 중 선택 단계 산출물이 있는 대상만 찾아, source와 job 자체는 유지한 채 해당 단계 결과만 삭제합니다.
+        </p>
+        <div class="notice" id="batch-delete-message" aria-live="polite"></div>
+        <form class="stack" id="batch-delete-form">
+          <div class="kv-list kv-list-compact" id="batch-delete-summary"></div>
+          <p class="modal-hint" id="batch-delete-hint"></p>
+          <div class="button-row">
+            <button class="danger-button" id="batch-delete-confirm-button" type="submit">확인</button>
+            <button class="ghost-button" id="batch-delete-cancel-button" type="button" data-batch-delete-close>
+              취소
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
     <script src="/app.js" defer></script>
   </body>
 </html>
