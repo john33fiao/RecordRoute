@@ -16,3 +16,10 @@ Claude 작업 가이드입니다.
 - CLI 모드 정의: `rust/src/app/cli.rs`
 - 서버 라우트 정의: `rust/src/server.rs`
 - 인덱스 타입 정의: `rust/src/index/types.rs`
+
+## 스킬
+
+### Codex Workflow
+- 트리거: 사용자 메시지에 "지피티", "코덱스" 또는 "codex" 포함, 또는 코드 작업 요청
+- 파일: `.claude/agents/skills/codex-workflow.md`
+- 요약: Claude는 오케스트레이션만 담당하고 실제 코드 작업은 Codex에 위임한다.
