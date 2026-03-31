@@ -1,5 +1,6 @@
 use super::super::*;
 use super::support::*;
+use crate::app::stt_stage::execute_stt_job;
 use crate::index::{IndexStore, JobOutputs, JobRecord, QueuePayload, TaskType};
 use crate::test_support::env_lock;
 use std::fs;
@@ -323,4 +324,87 @@ fn submit_stt_submits_when_keywords_change_completed_task_profile() {
 
     assert!(submission.should_execute());
     assert!(!submission.reused());
+}
+
+#[test]
+fn execute_stt_job_repairs_invalid_transcript_before_db_persist() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let whisper_bin = repo_root
+        .join(".build/whisper")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    let fixture = repo_root.join("invalid-transcript.bin");
+    fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+    fs::create_dir_all(repo_root.join("models/whisper")).expect("models dir");
+    fs::create_dir_all(&whisper_bin).expect("whisper bin");
+    write_bytes(&fixture, b"synthetic \xFFtranscript");
+    write_build_script(&build_script_path(&repo_root, "whisper"));
+    write_platform_script(
+        &fake_command_path(&whisper_bin, "whisper-cli"),
+        &format!(
+            "#!/bin/sh\nfixture='{}'\nout=''\nnext=''\nfor arg in \"$@\"; do\n  if [ \"$next\" = 'of' ]; then\n    out=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -of)\n      next='of'\n      ;;\n  esac\ndone\nmkdir -p \"$(dirname \"$out\")\"\ncat \"$fixture\" > \"$out.txt\"\n",
+            fixture.display()
+        ),
+        &format!(
+            "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nset \"fixture={fixture}\"\nset \"out=\"\nset \"next=\"\n:loop\nif \"%~1\"==\"\" goto done\nset \"arg=%~1\"\nif \"!arg:~0,4!\"==\"\\\\?\\\" set \"arg=!arg:~4!\"\nif /I \"!next!\"==\"of\" (\n  set \"out=!arg!\"\n  set \"next=\"\n) else if /I \"!arg!\"==\"-of\" (\n  set \"next=of\"\n)\nshift\ngoto loop\n:done\nif defined out (\n  for %%I in (\"!out!\") do if not exist \"%%~dpI\" mkdir \"%%~dpI\"\n  copy /b \"!fixture!\" \"!out!.txt\" >nul\n)\nexit /b 0\n",
+            fixture = fixture.display()
+        ),
+    );
+    fs::write(repo_root.join("models/whisper/ggml-base.bin"), "model").expect("model");
+
+    let mut job = super::super::super::test_support::test_job(
+        "job-1",
+        "2026-01-01T00:00:00Z",
+        "sources/job-1/source.wav",
+        "hash-job-1",
+        "input.wav",
+    );
+    super::super::super::test_support::mark_job_completed_with_audio(
+        &store,
+        &mut job,
+        "2026-01-01T00:00:01Z",
+        &["mono_mix.wav"],
+    )
+    .expect("mark completed");
+    job.enqueue_task(TaskType::Stt, "2026-01-01T00:00:02Z".to_string());
+    store.insert_job(job).expect("insert job");
+
+    let result = execute_stt_job(
+        &repo_root,
+        "job-1",
+        &[PathBuf::from("mono_mix.wav")],
+        "ko",
+        &[],
+    )
+    .expect("execute stt");
+
+    let transcript = store
+        .find_transcript("job-1", "mono_mix")
+        .expect("find transcript")
+        .expect("transcript");
+    let spool_file = crate::audio_store::AudioStore::new(&repo_root)
+        .expect("audio store")
+        .spool_root()
+        .join("stt")
+        .join("job-1")
+        .join("mono_mix.txt");
+    let expected = format!("synthetic {}transcript", char::REPLACEMENT_CHARACTER);
+
+    assert_eq!(transcript.text, expected);
+    assert_eq!(
+        fs::read_to_string(&spool_file).expect("spool transcript"),
+        expected
+    );
+    assert_eq!(
+        result.task(TaskType::Stt).expect("stt task").status,
+        crate::index::TaskStatus::Completed
+    );
+}
+
+fn write_bytes(path: &std::path::Path, bytes: &[u8]) {
+    fs::write(path, bytes).expect("fixture bytes");
 }

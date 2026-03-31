@@ -1,16 +1,38 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub(crate) fn postprocess_transcript(output_text: &Path) -> Result<(), String> {
-    let original = fs::read_to_string(output_text).map_err(|error| {
+const UTF8_BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
+const UTF16_LE_BOM: &[u8] = &[0xFF, 0xFE];
+const UTF16_BE_BOM: &[u8] = &[0xFE, 0xFF];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TranscriptText {
+    pub(crate) text: String,
+    pub(crate) repaired: bool,
+}
+
+pub(crate) fn read_transcript(output_text: &Path) -> Result<TranscriptText, String> {
+    let bytes = fs::read(output_text).map_err(|error| {
         format!(
-            "failed to read transcript for post-processing {}: {error}",
+            "failed to read transcript {}: {error}",
             output_text.display()
         )
     })?;
-    let deduplicated = deduplicate_consecutive_lines(&original);
-    if deduplicated == original {
+    Ok(decode_transcript_bytes(&bytes))
+}
+
+pub(crate) fn postprocess_transcript(output_text: &Path) -> Result<(), String> {
+    let TranscriptText { text, repaired } = read_transcript(output_text)?;
+    let deduplicated = deduplicate_consecutive_lines(&text);
+    if !repaired && deduplicated == text {
         return Ok(());
+    }
+
+    if repaired {
+        eprintln!(
+            "warning: repaired transcript encoding and normalized to UTF-8: {}",
+            output_text.display()
+        );
     }
 
     fs::write(output_text, deduplicated).map_err(|error| {
@@ -42,6 +64,60 @@ fn deduplicate_consecutive_lines(content: &str) -> String {
     }
 
     deduplicated
+}
+
+fn decode_transcript_bytes(bytes: &[u8]) -> TranscriptText {
+    if let Some(stripped) = bytes.strip_prefix(UTF8_BOM) {
+        return decode_utf8_bytes(stripped, true);
+    }
+    if let Some(stripped) = bytes.strip_prefix(UTF16_LE_BOM) {
+        return TranscriptText {
+            text: decode_utf16_bytes(stripped, Utf16Endian::Little),
+            repaired: true,
+        };
+    }
+    if let Some(stripped) = bytes.strip_prefix(UTF16_BE_BOM) {
+        return TranscriptText {
+            text: decode_utf16_bytes(stripped, Utf16Endian::Big),
+            repaired: true,
+        };
+    }
+
+    decode_utf8_bytes(bytes, false)
+}
+
+fn decode_utf8_bytes(bytes: &[u8], repaired: bool) -> TranscriptText {
+    match String::from_utf8(bytes.to_vec()) {
+        Ok(text) => TranscriptText { text, repaired },
+        Err(_) => TranscriptText {
+            text: String::from_utf8_lossy(bytes).into_owned(),
+            repaired: true,
+        },
+    }
+}
+
+fn decode_utf16_bytes(bytes: &[u8], endian: Utf16Endian) -> String {
+    let mut units = Vec::with_capacity(bytes.len() / 2);
+    let mut pairs = bytes.chunks_exact(2);
+    for pair in &mut pairs {
+        let unit = match endian {
+            Utf16Endian::Little => u16::from_le_bytes([pair[0], pair[1]]),
+            Utf16Endian::Big => u16::from_be_bytes([pair[0], pair[1]]),
+        };
+        units.push(unit);
+    }
+
+    let mut decoded = String::from_utf16_lossy(&units);
+    if !pairs.remainder().is_empty() {
+        decoded.push(char::REPLACEMENT_CHARACTER);
+    }
+    decoded
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Utf16Endian {
+    Little,
+    Big,
 }
 
 pub(crate) fn transcript_output_prefix(output_text: &Path) -> Result<PathBuf, String> {

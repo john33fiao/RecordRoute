@@ -8,6 +8,8 @@ mod tests;
 
 use std::path::PathBuf;
 
+pub(crate) use output::read_transcript;
+
 pub const MODEL_ENV_VAR: &str = "RECORDROUTE_WHISPER_MODEL";
 pub const LANGUAGE_ENV_VAR: &str = "RECORDROUTE_WHISPER_LANGUAGE";
 pub(crate) const DEFAULT_MODEL_RELATIVE_PATH: &str = "models/whisper/ggml-base.bin";

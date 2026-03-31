@@ -57,7 +57,9 @@ async fn get_root_serves_html_shell_with_expected_sections() {
     assert!(html.contains("id=\"batch-delete-confirm-button\""));
     assert!(html.contains(".qta,audio/*"));
     assert!(html.contains("성을 회의록으로, STT·요약·임베딩·RAG 질의 지원까지 일원화."));
-    assert!(html.contains("오디오-텍스트 변환 정확도를 높이기 위해, 주로 사용되는 키워드를 관리할 수 있습니다."));
+    assert!(html.contains(
+        "오디오-텍스트 변환 정확도를 높이기 위해, 주로 사용되는 키워드를 관리할 수 있습니다."
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -91,7 +93,9 @@ async fn get_app_js_serves_script_asset() {
     let js = String::from_utf8(body.to_vec()).expect("utf-8 js");
 
     assert!(js.contains("const state ="));
-    assert!(js.contains("const TAB_KEYS = [\"upload\", \"jobs\", \"search\", \"queue\", \"dictionary\"];"));
+    assert!(js.contains(
+        "const TAB_KEYS = [\"upload\", \"jobs\", \"search\", \"queue\", \"dictionary\"];"
+    ));
     assert!(js.contains("async function refreshJobs"));
     assert!(js.contains("async function refreshQueue"));
     assert!(js.contains("function renderTabs()"));

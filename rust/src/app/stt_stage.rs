@@ -9,7 +9,8 @@ use crate::index::{
     TranscriptRecord,
 };
 use crate::whisper::{
-    Toolchain as WhisperToolchain, run_transcription, transcription_language_from_env,
+    Toolchain as WhisperToolchain, read_transcript, run_transcription,
+    transcription_language_from_env,
 };
 use std::fs;
 use std::io::{BufRead, Write};
@@ -163,12 +164,7 @@ pub fn execute_stt_job(
             run_transcription(&toolchain, &absolute_audio, &transcript, language, keywords)?;
             let file_name = artifacts::transcript_file_name(&absolute_audio)?;
             let transcript_id = artifacts::transcript_id_from_file_name(&file_name)?;
-            let text = fs::read_to_string(&transcript).map_err(|error| {
-                format!(
-                    "failed to read transcript {}: {error}",
-                    transcript.display()
-                )
-            })?;
+            let text = read_transcript(&transcript)?.text;
             index_store.upsert_transcript(&TranscriptRecord {
                 job_id: job_id.to_string(),
                 transcript_id,

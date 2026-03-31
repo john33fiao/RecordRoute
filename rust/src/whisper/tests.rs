@@ -402,6 +402,94 @@ fn run_transcription_refreshes_invalid_managed_model_once() {
     );
 }
 
+#[test]
+fn read_transcript_preserves_valid_utf8_without_repair() {
+    let repo_root = temp_workspace();
+    let transcript = repo_root.join("valid.txt");
+    fs::write(&transcript, "안녕하세요").expect("valid transcript");
+
+    let decoded = read_transcript(&transcript).expect("decode transcript");
+
+    assert_eq!(decoded.text, "안녕하세요");
+    assert!(!decoded.repaired);
+}
+
+#[test]
+fn read_transcript_strips_utf8_bom() {
+    let repo_root = temp_workspace();
+    let transcript = repo_root.join("utf8-bom.txt");
+    write_bytes(
+        &transcript,
+        &[0xEF, 0xBB, 0xBF, b'h', b'e', b'l', b'l', b'o'],
+    );
+
+    let decoded = read_transcript(&transcript).expect("decode transcript");
+
+    assert_eq!(decoded.text, "hello");
+    assert!(decoded.repaired);
+}
+
+#[test]
+fn read_transcript_decodes_utf16_le_bom() {
+    let repo_root = temp_workspace();
+    let transcript = repo_root.join("utf16-le.txt");
+    write_bytes(
+        &transcript,
+        &encode_utf16_with_bom("안녕", Utf16TestEndian::Little),
+    );
+
+    let decoded = read_transcript(&transcript).expect("decode transcript");
+
+    assert_eq!(decoded.text, "안녕");
+    assert!(decoded.repaired);
+}
+
+#[test]
+fn read_transcript_decodes_utf16_be_bom() {
+    let repo_root = temp_workspace();
+    let transcript = repo_root.join("utf16-be.txt");
+    write_bytes(
+        &transcript,
+        &encode_utf16_with_bom("hello", Utf16TestEndian::Big),
+    );
+
+    let decoded = read_transcript(&transcript).expect("decode transcript");
+
+    assert_eq!(decoded.text, "hello");
+    assert!(decoded.repaired);
+}
+
+#[test]
+fn read_transcript_repairs_invalid_utf8_lossily() {
+    let repo_root = temp_workspace();
+    let transcript = repo_root.join("invalid.txt");
+    write_bytes(&transcript, b"hello \xFFworld");
+
+    let decoded = read_transcript(&transcript).expect("decode transcript");
+
+    assert_eq!(
+        decoded.text,
+        format!("hello {}world", char::REPLACEMENT_CHARACTER)
+    );
+    assert!(decoded.repaired);
+}
+
+#[test]
+fn postprocess_transcript_rewrites_repaired_output_as_valid_utf8() {
+    let repo_root = temp_workspace();
+    let transcript = repo_root.join("postprocess.txt");
+    write_bytes(&transcript, b"intro\nrepeat \xFFme\nrepeat \xFFme\noutro\n");
+
+    super::output::postprocess_transcript(&transcript).expect("postprocess transcript");
+
+    assert_eq!(
+        fs::read_to_string(&transcript)
+            .expect("normalized transcript")
+            .replace("\r\n", "\n"),
+        format!("intro\nrepeat {}me\noutro\n", char::REPLACEMENT_CHARACTER)
+    );
+}
+
 fn temp_workspace() -> PathBuf {
     let path = std::env::temp_dir().join(format!("recordroute-whisper-{}", Uuid::now_v7()));
     fs::create_dir_all(&path).expect("temp workspace");
@@ -436,4 +524,31 @@ fn write_executable(path: &Path, unix_content: &str, windows_content: &str) {
 
 fn write_test_audio(path: &Path) {
     fs::write(path, b"RIFFsyntheticWAVE").expect("audio file");
+}
+
+fn write_bytes(path: &Path, bytes: &[u8]) {
+    fs::write(path, bytes).expect("fixture bytes");
+}
+
+fn encode_utf16_with_bom(text: &str, endian: Utf16TestEndian) -> Vec<u8> {
+    let mut bytes = match endian {
+        Utf16TestEndian::Little => vec![0xFF, 0xFE],
+        Utf16TestEndian::Big => vec![0xFE, 0xFF],
+    };
+
+    for unit in text.encode_utf16() {
+        let encoded = match endian {
+            Utf16TestEndian::Little => unit.to_le_bytes(),
+            Utf16TestEndian::Big => unit.to_be_bytes(),
+        };
+        bytes.extend_from_slice(&encoded);
+    }
+
+    bytes
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Utf16TestEndian {
+    Little,
+    Big,
 }
