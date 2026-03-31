@@ -1308,11 +1308,13 @@ a {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+  align-items: start;
 }
 
 .dictionary-group {
   display: grid;
   gap: 14px;
+  align-content: start;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
@@ -1338,6 +1340,8 @@ a {
   list-style: none;
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start;
   gap: 10px;
   margin: 0;
   padding: 0;
@@ -1690,3 +1694,4 @@ a {
     max-height: calc(100vh - 16px);
   }
 }
+
