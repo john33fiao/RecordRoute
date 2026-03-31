@@ -10,6 +10,8 @@ use crate::index::{
 };
 use std::path::{Path, PathBuf};
 
+#[path = "queue/audio_cache.rs"]
+mod audio_cache;
 #[path = "queue/entries.rs"]
 mod entries;
 #[path = "queue/executor.rs"]
@@ -19,6 +21,9 @@ mod planner;
 #[path = "queue/scheduler.rs"]
 mod scheduler;
 
+pub(crate) use audio_cache::{
+    record_previous_audio_keys, refresh_audio_cache, sync_audio_cache_dispatch_state,
+};
 #[cfg(test)]
 pub use entries::build_stt_entry;
 pub use entries::{
@@ -107,7 +112,7 @@ pub fn set_queue_paused(repo_root: &Path, paused: bool) -> Result<TaskQueueState
 
 pub fn cancel_pending_entries(repo_root: &Path) -> Result<QueueCancelPendingResult, String> {
     let finished_at = now_rfc3339()?;
-    IndexStore::new(repo_root).with_index_mut(|index| {
+    let cancelled = IndexStore::new(repo_root).with_index_mut(|index| {
         let mut cancelled = QueueCancelPendingResult::default();
         let mut entries = Vec::new();
 
@@ -137,7 +142,9 @@ pub fn cancel_pending_entries(repo_root: &Path) -> Result<QueueCancelPendingResu
         }
 
         Ok(cancelled)
-    })
+    })?;
+    refresh_audio_cache(repo_root);
+    Ok(cancelled)
 }
 
 fn cancel_entry(

@@ -126,6 +126,7 @@ pub fn submit_ffmpeg_job_from_imported_source(
             Ok((job.clone(), ticket))
         })
         .map_err(AppError::internal)?;
+    queue::refresh_audio_cache(repo_root);
 
     Ok(FfmpegJobSubmission {
         job,
@@ -184,7 +185,7 @@ pub fn execute_ffmpeg_job(
             record_audio_outputs(&index_store, job_id, &planned_outputs)?;
             job.mark_completed(now_rfc3339()?, build_job_outputs(&planned_outputs))?;
             index_store.update_job(job_id, |_| job.clone())?;
-            hydrate_queued_stt_entry(&index_store, job_id)?;
+            hydrate_queued_stt_entry(repo_root, &index_store, job_id)?;
             Ok(job)
         }
         Err(error) => {
@@ -218,7 +219,11 @@ fn wait_for_ffmpeg_job_completion(repo_root: &Path, job_id: &str) -> Result<JobR
     }
 }
 
-fn hydrate_queued_stt_entry(index_store: &IndexStore, job_id: &str) -> Result<(), String> {
+fn hydrate_queued_stt_entry(
+    repo_root: &Path,
+    index_store: &IndexStore,
+    job_id: &str,
+) -> Result<(), String> {
     let normalized_audio_files = artifacts::supported_audio_files(&index_store.job_dir(job_id))?
         .into_iter()
         .map(|path| {
@@ -232,7 +237,7 @@ fn hydrate_queued_stt_entry(index_store: &IndexStore, job_id: &str) -> Result<()
         return Ok(());
     }
 
-    index_store.with_index_mut(|index| {
+    let updated = index_store.with_index_mut(|index| {
         let mut request_fingerprint = None;
         let updated = queue::update_queued_entry(index, job_id, TaskType::Stt, |entry| {
             let QueuePayload::Stt {
@@ -257,7 +262,7 @@ fn hydrate_queued_stt_entry(index_store: &IndexStore, job_id: &str) -> Result<()
             .request_fingerprint();
         });
         if !updated {
-            return Ok(());
+            return Ok(false);
         }
 
         let job = index
@@ -266,8 +271,12 @@ fn hydrate_queued_stt_entry(index_store: &IndexStore, job_id: &str) -> Result<()
             .find(|job| job.job_id == job_id)
             .ok_or_else(|| format!("job not found in index: {job_id}"))?;
         job.set_task_request_fingerprint(TaskType::Stt, request_fingerprint);
-        Ok(())
-    })
+        Ok(true)
+    })?;
+    if updated {
+        queue::refresh_audio_cache(repo_root);
+    }
+    Ok(())
 }
 
 fn build_job_outputs(outputs: &ConversionOutputs) -> JobOutputs {

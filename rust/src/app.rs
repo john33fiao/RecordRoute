@@ -400,6 +400,7 @@ pub fn now_rfc3339() -> Result<String, String> {
 
 #[cfg(test)]
 mod tests;
+pub(crate) use queue::refresh_audio_cache;
 pub use queue::{
     DispatchState, QueueCancelPendingResult, QueueTicket, cancel_pending_entries, dispatch_one,
     queue_snapshot, recover_interrupted_active_entry, set_queue_paused, submit_batch_pipeline_jobs,

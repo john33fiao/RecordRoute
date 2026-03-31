@@ -71,6 +71,7 @@ pub fn submit_summary_embedding_job(
     let (job, ticket) =
         stages::enqueue_existing_task(&index_store, job_id, TaskType::Embedding, queued_at, entry)
             .map_err(AppError::internal)?;
+    queue::refresh_audio_cache(repo_root);
     Ok(StageJobSubmission {
         job,
         disposition: StageJobDisposition::Submitted,

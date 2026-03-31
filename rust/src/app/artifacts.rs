@@ -101,7 +101,12 @@ pub(crate) fn audio_logical_name(audio_file: &Path) -> Result<String, String> {
         .file_name()
         .and_then(|name| name.to_str())
         .map(str::to_string)
-        .ok_or_else(|| format!("audio file does not have a valid file name: {}", audio_file.display()))
+        .ok_or_else(|| {
+            format!(
+                "audio file does not have a valid file name: {}",
+                audio_file.display()
+            )
+        })
 }
 
 pub(crate) fn transcript_file_name(audio_file: &Path) -> Result<String, String> {

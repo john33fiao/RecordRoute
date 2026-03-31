@@ -404,6 +404,10 @@ impl IndexStore {
         Ok(index)
     }
 
+    pub(crate) fn persist_index(&self, index: &IndexFile) -> Result<(), String> {
+        self.write_index(index)
+    }
+
     fn write_index(&self, index: &IndexFile) -> Result<(), String> {
         let mut normalized = index.clone();
         normalized.task_queue.normalize_burst_limit();

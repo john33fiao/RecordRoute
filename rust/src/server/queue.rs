@@ -15,6 +15,11 @@ impl QueueDispatcher {
             eprintln!("{error}");
         }
 
+        if let Err(error) = app::recover_interrupted_active_entry(&repo_root) {
+            eprintln!("{error}");
+        }
+        app::refresh_audio_cache(&repo_root);
+
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || run_dispatcher(repo_root, rx));
         let dispatcher = Self { tx };
@@ -30,10 +35,6 @@ impl QueueDispatcher {
 }
 
 fn run_dispatcher(repo_root: PathBuf, rx: mpsc::Receiver<()>) {
-    if let Err(error) = app::recover_interrupted_active_entry(&repo_root) {
-        eprintln!("{error}");
-    }
-
     let mut state = DispatchState::default();
 
     loop {

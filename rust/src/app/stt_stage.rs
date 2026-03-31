@@ -41,8 +41,8 @@ pub fn submit_stt_job(
         )));
     }
 
-    let all_audio_files =
-        artifacts::listed_or_discovered_audio_files(&index_store, job_id).map_err(AppError::internal)?;
+    let all_audio_files = artifacts::listed_or_discovered_audio_files(&index_store, job_id)
+        .map_err(AppError::internal)?;
     let audio_files = select_subset_audio_files(&all_audio_files, subset_audio_files)
         .map_err(AppError::bad_request)?;
     if audio_files.is_empty() {
@@ -120,6 +120,7 @@ pub fn submit_stt_job(
     let (job, ticket) =
         stages::enqueue_existing_task(&index_store, job_id, TaskType::Stt, queued_at, entry)
             .map_err(AppError::internal)?;
+    queue::refresh_audio_cache(repo_root);
     Ok(StageJobSubmission {
         job,
         disposition: StageJobDisposition::Submitted,

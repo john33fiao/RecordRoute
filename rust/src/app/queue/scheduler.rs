@@ -10,106 +10,122 @@ pub(super) fn reserve_next_entry(
     started_at: String,
     honor_pause: bool,
 ) -> Result<Option<QueueWorkItem>, String> {
-    IndexStore::new(repo_root).with_index_mut(|index| {
-        let mut scanned_batches = 0usize;
-        loop {
-            if honor_pause && index.task_queue.paused {
-                return Ok(None);
-            }
+    let store = IndexStore::new(repo_root);
+    store.ensure_db_dir()?;
+    let mut index = store.read_index()?;
+    let Some(entry) = reserve_next_entry_in_index(repo_root, &mut index, state, honor_pause)?
+    else {
+        return Ok(None);
+    };
+    if let Err(error) = mark_entry_running(&mut index, &entry, started_at) {
+        clear_running_entry_in_index(&mut index, &entry);
+        return Err(error);
+    }
+    store.persist_index(&index)?;
+    Ok(Some(QueueWorkItem { entry }))
+}
 
-            promote_pending_batch(index);
+pub(super) fn reserve_next_entry_in_index(
+    repo_root: &Path,
+    index: &mut IndexFile,
+    state: &mut DispatchState,
+    honor_pause: bool,
+) -> Result<Option<QueueEntry>, String> {
+    let mut scanned_batches = 0usize;
+    loop {
+        if honor_pause && index.task_queue.paused {
+            return Ok(None);
+        }
 
-            let Some(active_category) = index
-                .task_queue
-                .active_batch
-                .as_ref()
-                .map(|batch| batch.category)
-            else {
-                return Ok(None);
-            };
+        promote_pending_batch(index);
 
-            if index
-                .task_queue
-                .active_batch
-                .as_ref()
-                .and_then(|batch| batch.running.as_ref())
-                .is_some()
-            {
-                return Ok(None);
-            }
+        let Some(active_category) = index
+            .task_queue
+            .active_batch
+            .as_ref()
+            .map(|batch| batch.category)
+        else {
+            return Ok(None);
+        };
 
-            if index
-                .task_queue
-                .active_batch
-                .as_ref()
-                .is_some_and(|batch| batch.entries.is_empty())
-            {
-                index.task_queue.active_batch = None;
-                continue;
-            }
+        if index
+            .task_queue
+            .active_batch
+            .as_ref()
+            .and_then(|batch| batch.running.as_ref())
+            .is_some()
+        {
+            return Ok(None);
+        }
 
-            if !index.task_queue.pending_batches.is_empty()
-                && state.should_rotate(active_category, index.task_queue.burst_limit)
-            {
-                rotate_active_batch(index);
-                continue;
-            }
+        if index
+            .task_queue
+            .active_batch
+            .as_ref()
+            .is_some_and(|batch| batch.entries.is_empty())
+        {
+            index.task_queue.active_batch = None;
+            continue;
+        }
 
-            let entry = {
-                let mut entries = {
-                    let active_batch = index.task_queue.active_batch.as_mut().ok_or_else(|| {
+        if !index.task_queue.pending_batches.is_empty()
+            && state.should_rotate(active_category, index.task_queue.burst_limit)
+        {
+            rotate_active_batch(index);
+            continue;
+        }
+
+        let entry = {
+            let mut entries = {
+                let active_batch =
+                    index.task_queue.active_batch.as_mut().ok_or_else(|| {
                         "active batch disappeared while reserving work".to_string()
                     })?;
-                    std::mem::take(&mut active_batch.entries)
-                };
-                let total_entries = entries.len();
-                let mut selected = None;
+                std::mem::take(&mut active_batch.entries)
+            };
+            let total_entries = entries.len();
+            let mut selected = None;
 
-                for _ in 0..total_entries {
-                    let candidate = entries.remove(0);
-                    if is_entry_ready(repo_root, index, &candidate) {
-                        selected = Some(candidate);
-                        break;
-                    }
-                    entries.push(candidate);
+            for _ in 0..total_entries {
+                let candidate = entries.remove(0);
+                if is_entry_ready(repo_root, index, &candidate) {
+                    selected = Some(candidate);
+                    break;
                 }
+                entries.push(candidate);
+            }
 
-                {
-                    let active_batch = index.task_queue.active_batch.as_mut().ok_or_else(|| {
+            {
+                let active_batch =
+                    index.task_queue.active_batch.as_mut().ok_or_else(|| {
                         "active batch disappeared while restoring work".to_string()
                     })?;
-                    active_batch.entries = entries;
-                }
-
-                let Some(entry) = selected else {
-                    let total_batches =
-                        1usize.saturating_add(index.task_queue.pending_batches.len());
-                    scanned_batches = scanned_batches.saturating_add(1);
-                    if scanned_batches >= total_batches {
-                        return Ok(None);
-                    }
-                    if !index.task_queue.pending_batches.is_empty() {
-                        rotate_active_batch(index);
-                        continue;
-                    }
-                    return Ok(None);
-                };
-
-                index
-                    .task_queue
-                    .active_batch
-                    .as_mut()
-                    .ok_or_else(|| "active batch disappeared while marking running".to_string())?
-                    .running = Some(entry.clone());
-                entry
-            };
-            if let Err(error) = mark_entry_running(index, &entry, started_at.clone()) {
-                clear_running_entry_in_index(index, &entry);
-                return Err(error);
+                active_batch.entries = entries;
             }
-            return Ok(Some(QueueWorkItem { entry }));
-        }
-    })
+
+            let Some(entry) = selected else {
+                let total_batches = 1usize.saturating_add(index.task_queue.pending_batches.len());
+                scanned_batches = scanned_batches.saturating_add(1);
+                if scanned_batches >= total_batches {
+                    return Ok(None);
+                }
+                if !index.task_queue.pending_batches.is_empty() {
+                    rotate_active_batch(index);
+                    continue;
+                }
+                return Ok(None);
+            };
+
+            index
+                .task_queue
+                .active_batch
+                .as_mut()
+                .ok_or_else(|| "active batch disappeared while marking running".to_string())?
+                .running = Some(entry.clone());
+            entry
+        };
+        return Ok(Some(entry));
+    }
 }
 
 fn is_entry_ready(repo_root: &Path, index: &IndexFile, entry: &QueueEntry) -> bool {

@@ -17,7 +17,7 @@ pub fn submit_batch_pipeline_jobs(
     let store = IndexStore::new(repo_root);
     let default_language = transcription_language_from_env();
     let default_keywords = dictionary::resolve_stt_keywords(&store, &[])?;
-    store.with_index_mut(|index| {
+    let submission = store.with_index_mut(|index| {
         let mut summary = BatchQueueSubmission {
             total_jobs: index.jobs.len(),
             ..BatchQueueSubmission::default()
@@ -147,7 +147,9 @@ pub fn submit_batch_pipeline_jobs(
         }
 
         Ok(summary)
-    })
+    })?;
+    super::refresh_audio_cache(repo_root);
+    Ok(submission)
 }
 
 fn stt_prerequisites_ready(job: &JobRecord, audio_files: &[PathBuf]) -> bool {
