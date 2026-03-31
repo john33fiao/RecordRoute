@@ -336,6 +336,19 @@ impl MetadataBackend for PostgresMetadataStore {
         Ok(())
     }
 
+    fn delete_transcript(&self, job_id: &str, transcript_id: &str) -> Result<bool, String> {
+        let mut client = self.connect()?;
+        let deleted = client
+            .execute(
+                "DELETE FROM transcripts WHERE job_id = $1 AND transcript_id = $2",
+                &[&job_id, &transcript_id],
+            )
+            .map_err(|error| {
+                format!("failed to delete postgres transcript {job_id}/{transcript_id}: {error}")
+            })?;
+        Ok(deleted > 0)
+    }
+
     fn count_transcripts(&self, job_id: &str) -> Result<usize, String> {
         let mut client = self.connect()?;
         let count: i64 = client

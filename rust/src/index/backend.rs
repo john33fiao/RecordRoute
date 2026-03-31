@@ -34,6 +34,7 @@ pub(crate) trait MetadataBackend {
         transcript_id: &str,
     ) -> Result<Option<TranscriptRecord>, String>;
     fn upsert_transcript(&self, record: &TranscriptRecord) -> Result<(), String>;
+    fn delete_transcript(&self, job_id: &str, transcript_id: &str) -> Result<bool, String>;
     fn count_transcripts(&self, job_id: &str) -> Result<usize, String>;
 
     fn get_summary(&self, job_id: &str) -> Result<Option<SummaryRecord>, String>;

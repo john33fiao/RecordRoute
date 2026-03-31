@@ -267,6 +267,10 @@ impl IndexStore {
         self.backend()?.upsert_transcript(record)
     }
 
+    pub fn delete_transcript(&self, job_id: &str, transcript_id: &str) -> Result<bool, String> {
+        self.backend()?.delete_transcript(job_id, transcript_id)
+    }
+
     pub fn count_transcripts(&self, job_id: &str) -> Result<usize, String> {
         self.backend()?.count_transcripts(job_id)
     }

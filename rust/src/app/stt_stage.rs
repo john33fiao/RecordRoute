@@ -9,9 +9,11 @@ use crate::index::{
     TranscriptRecord,
 };
 use crate::whisper::{
-    Toolchain as WhisperToolchain, run_transcription, transcription_language_from_env,
+    Toolchain as WhisperToolchain, read_transcript_text, run_transcription,
+    transcription_language_from_env,
 };
 use std::fs;
+use std::io::ErrorKind;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
@@ -160,21 +162,33 @@ pub fn execute_stt_job(
                 index_store.job_dir(job_id).join(audio)
             };
             let transcript = artifacts::transcript_output_path(&stt_dir, &absolute_audio)?;
-            run_transcription(&toolchain, &absolute_audio, &transcript, language, keywords)?;
             let file_name = artifacts::transcript_file_name(&absolute_audio)?;
             let transcript_id = artifacts::transcript_id_from_file_name(&file_name)?;
-            let text = fs::read_to_string(&transcript).map_err(|error| {
-                format!(
-                    "failed to read transcript {}: {error}",
-                    transcript.display()
-                )
-            })?;
-            index_store.upsert_transcript(&TranscriptRecord {
-                job_id: job_id.to_string(),
-                transcript_id,
-                file_name,
-                text,
-            })?;
+            let transcript_result = (|| -> Result<(), String> {
+                run_transcription(&toolchain, &absolute_audio, &transcript, language, keywords)?;
+                let text = read_transcript_text(&transcript).map_err(|error| {
+                    format!(
+                        "failed to read transcript {}: {error}",
+                        transcript.display()
+                    )
+                })?;
+                index_store.upsert_transcript(&TranscriptRecord {
+                    job_id: job_id.to_string(),
+                    transcript_id: transcript_id.clone(),
+                    file_name: file_name.clone(),
+                    text,
+                })?;
+                Ok(())
+            })();
+            if let Err(error) = transcript_result {
+                return Err(cleanup_failed_transcript(
+                    &index_store,
+                    job_id,
+                    &transcript_id,
+                    &transcript,
+                    error,
+                ));
+            }
         }
         Ok(())
     })();
@@ -379,4 +393,48 @@ fn all_transcripts_exist(
                     .find_transcript(job_id, &transcript_id)?
                     .is_some())
         })
+}
+fn cleanup_failed_transcript(
+    index_store: &IndexStore,
+    job_id: &str,
+    transcript_id: &str,
+    transcript_path: &Path,
+    error: String,
+) -> String {
+    match cleanup_transcript_artifacts(index_store, job_id, transcript_id, transcript_path) {
+        Ok(()) => format!(
+            "stt transcript {transcript_id} failed: {error}; deleted transcript output {} and metadata record",
+            transcript_path.display()
+        ),
+        Err(cleanup_error) => format!(
+            "stt transcript {transcript_id} failed: {error}; cleanup failed: {cleanup_error}"
+        ),
+    }
+}
+
+fn cleanup_transcript_artifacts(
+    index_store: &IndexStore,
+    job_id: &str,
+    transcript_id: &str,
+    transcript_path: &Path,
+) -> Result<(), String> {
+    let mut cleanup_errors = Vec::new();
+    match fs::remove_file(transcript_path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => cleanup_errors.push(format!(
+            "failed to delete transcript file {}: {error}",
+            transcript_path.display()
+        )),
+    }
+    if let Err(error) = index_store.delete_transcript(job_id, transcript_id) {
+        cleanup_errors.push(format!(
+            "failed to delete transcript record {job_id}/{transcript_id}: {error}"
+        ));
+    }
+    if cleanup_errors.is_empty() {
+        Ok(())
+    } else {
+        Err(cleanup_errors.join("; "))
+    }
 }

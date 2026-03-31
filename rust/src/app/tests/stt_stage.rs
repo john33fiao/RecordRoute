@@ -145,6 +145,113 @@ fn run_stt_retries_invalid_folder_selection() {
             .contains("Invalid selection. Enter a number between 1 and 1.")
     );
 }
+#[test]
+fn execute_stt_job_deletes_failed_transcript_and_batch_requeues_job() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    unsafe { std::env::remove_var("RECORDROUTE_WHISPER_LANGUAGE") };
+
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+    let job_dir = store.job_dir("job-1");
+    let whisper_bin = repo_root
+        .join(".build/whisper")
+        .join(crate::ffmpeg::target_dir_name())
+        .join("bin");
+    let source_dir = repo_root.join("whisper-source");
+    fs::create_dir_all(&job_dir).expect("job dir");
+    fs::create_dir_all(repo_root.join("scripts")).expect("scripts dir");
+    fs::create_dir_all(&source_dir).expect("source dir");
+    fs::create_dir_all(&whisper_bin).expect("whisper bin");
+
+    write_build_script(&build_script_path(&repo_root, "whisper"));
+    write_platform_script(
+        &fake_command_path(&whisper_bin, "whisper-cli"),
+        "#!/bin/sh\nout=''\nnext=''\nfor arg in \"$@\"; do\n  if [ \"$next\" = 'of' ]; then\n    out=\"$arg\"\n    next=''\n    continue\n  fi\n  case \"$arg\" in\n    -of)\n      next='of'\n      ;;\n  esac\ndone\nmkdir -p \"$(dirname \"$out\")\"\ncase \"$out\" in\n  *channel_02)\n    printf '\\377\\376A' > \"$out.txt\"\n    ;;\n  *)\n    printf 'good transcript' > \"$out.txt\"\n    ;;\nesac\n",
+        "@echo off\nsetlocal EnableExtensions EnableDelayedExpansion\nset \"out=\"\nset \"next=\"\n:loop\nif \"%~1\"==\"\" goto done\nset \"arg=%~1\"\nif \"!arg:~0,4!\"==\"\\\\?\\\" set \"arg=!arg:~4!\"\nif /I \"!next!\"==\"of\" (\n  set \"out=!arg!\"\n  set \"next=\"\n) else if /I \"!arg!\"==\"-of\" (\n  set \"next=of\"\n)\nshift\ngoto loop\n:done\nif defined out (\n  for %%I in (\"!out!\") do if not exist \"%%~dpI\" mkdir \"%%~dpI\"\n  set \"target=!out!.txt\"\n  echo !target! | findstr /I /C:\"channel_02\" >nul\n  if not errorlevel 1 (\n    powershell -NoProfile -Command \"[System.IO.File]::WriteAllBytes('!target!',[byte[]](0xFF,0xFE,0x41))\" >nul\n  ) else (\n    > \"!target!\" <nul set /p =good transcript\n  )\n)\nexit /b 0\n",
+    );
+    fs::write(source_dir.join("ggml-base.bin"), "model").expect("source model");
+    unsafe { std::env::set_var("RECORDROUTE_WHISPER_MODEL_SOURCE_DIR", &source_dir) };
+
+    let mut job = JobRecord::new(
+        "job-1".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+        PathBuf::from("/tmp/input.wav"),
+        job_dir,
+    );
+    super::super::super::test_support::mark_job_completed_with_audio(
+        &store,
+        &mut job,
+        "2026-01-01T00:00:01Z",
+        &["channel_01.wav", "channel_02.wav"],
+    )
+    .expect("mark completed");
+    job.enqueue_task(TaskType::Stt, "2026-01-01T00:00:02Z".to_string());
+    store.insert_job(job).expect("insert job");
+
+    let error = super::super::stt_stage::execute_stt_job(
+        &repo_root,
+        "job-1",
+        &[
+            PathBuf::from("channel_01.wav"),
+            PathBuf::from("channel_02.wav"),
+        ],
+        "ko",
+        &[],
+    )
+    .expect_err("stt should fail");
+    unsafe { std::env::remove_var("RECORDROUTE_WHISPER_MODEL_SOURCE_DIR") };
+
+    assert!(error.contains("channel_02"));
+
+    let stt_dir = repo_root.join("db/audio-spool/stt/job-1");
+    assert!(stt_dir.join("channel_01.txt").is_file());
+    assert!(!stt_dir.join("channel_02.txt").exists());
+    assert!(
+        store
+            .find_transcript("job-1", "channel_01")
+            .expect("find transcript")
+            .is_some()
+    );
+    assert!(
+        store
+            .find_transcript("job-1", "channel_02")
+            .expect("find transcript")
+            .is_none()
+    );
+
+    let persisted_job = store.find_job("job-1").expect("find job").expect("job");
+    let task = persisted_job.task(TaskType::Stt).expect("stt task");
+    assert_eq!(task.status, crate::index::TaskStatus::Failed);
+    assert!(
+        task.last_error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("channel_02")
+    );
+
+    let batch =
+        submit_batch_pipeline_jobs(&repo_root, BatchProcessTarget::Stt).expect("batch submit");
+    assert_eq!(batch.stt_queued, 1);
+
+    let entry = store
+        .with_index_read(|index| {
+            Ok(super::super::queue::find_task_entry(
+                index,
+                "job-1",
+                TaskType::Stt,
+            ))
+        })
+        .expect("read queue")
+        .expect("queue entry");
+    match entry.payload {
+        QueuePayload::Stt { audio_files, .. } => {
+            assert_eq!(audio_files, vec!["channel_01.wav", "channel_02.wav"]);
+        }
+        other => panic!("expected stt payload, got {other:?}"),
+    }
+}
 
 #[test]
 fn submit_stt_rejects_conflicting_inflight_subset_request() {
