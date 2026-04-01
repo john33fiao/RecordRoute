@@ -1,8 +1,8 @@
 use super::super::router_with_repo_root;
 use super::support::{get_request, read_json, temp_workspace};
 use crate::index::{
-    IndexStore, JobRecord, SourceKind, SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord,
-    TaskType,
+    ActiveQueueBatch, IndexStore, JobRecord, QueueBatch, QueueCategory, QueueEntry, QueuePayload,
+    SourceKind, SummaryEmbeddingRecord, SummaryEmbeddingVectorRecord, TaskQueueState, TaskType,
 };
 use crate::server::types::StatsOverviewResponse;
 use crate::test_support::{mark_job_completed_with_audio, seed_summary, seed_transcripts};
@@ -75,6 +75,42 @@ fn seed_embedding(store: &IndexStore, job_id: &str, created_at: &str) -> Result<
     Ok(())
 }
 
+fn stt_entry(job_id: &str, queued_at: &str) -> QueueEntry {
+    QueueEntry {
+        job_id: job_id.to_string(),
+        task_type: TaskType::Stt,
+        category: QueueCategory::Stt,
+        queued_at: queued_at.to_string(),
+        payload: QueuePayload::Stt {
+            audio_files: vec!["mono_mix.wav".to_string()],
+            language: "ko".to_string(),
+            keywords: Vec::new(),
+        },
+    }
+}
+
+fn summary_entry(job_id: &str, queued_at: &str) -> QueueEntry {
+    QueueEntry {
+        job_id: job_id.to_string(),
+        task_type: TaskType::Summary,
+        category: QueueCategory::Llm,
+        queued_at: queued_at.to_string(),
+        payload: QueuePayload::Summary {
+            force_regenerate: false,
+        },
+    }
+}
+
+fn embedding_entry(job_id: &str, queued_at: &str) -> QueueEntry {
+    QueueEntry {
+        job_id: job_id.to_string(),
+        task_type: TaskType::Embedding,
+        category: QueueCategory::Embed,
+        queued_at: queued_at.to_string(),
+        payload: QueuePayload::Embedding,
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn get_stats_overview_returns_zero_counts_for_empty_workspace() {
     let repo_root = temp_workspace();
@@ -95,6 +131,105 @@ async fn get_stats_overview_returns_zero_counts_for_empty_workspace() {
         assert_eq!(stage.in_progress_count, 0);
         assert_eq!(stage.unprocessed_count, 0);
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_stats_overview_treats_stale_task_status_without_queue_entries_as_unprocessed() {
+    let repo_root = temp_workspace();
+    let store = IndexStore::new(&repo_root);
+
+    let mut summary_stale = upload_job("job-upload-summary-stale", "summary-stale.wav");
+    mark_job_completed_with_audio(
+        &store,
+        &mut summary_stale,
+        "2026-01-01T00:00:01Z",
+        &["mono_mix.wav"],
+    )
+    .expect("mark summary stale ffmpeg completed");
+    complete_task(
+        &mut summary_stale,
+        TaskType::Stt,
+        "2026-01-01T00:00:02Z",
+        "2026-01-01T00:00:03Z",
+    );
+    running_task(
+        &mut summary_stale,
+        TaskType::Summary,
+        "2026-01-01T00:00:04Z",
+    );
+    store
+        .insert_job(summary_stale)
+        .expect("insert summary stale job");
+    seed_transcripts(
+        &store,
+        "job-upload-summary-stale",
+        &[("mono_mix", "transcript text")],
+    )
+    .expect("seed summary stale transcripts");
+
+    let mut embedding_stale = upload_job("job-upload-embedding-stale", "embedding-stale.wav");
+    mark_job_completed_with_audio(
+        &store,
+        &mut embedding_stale,
+        "2026-01-01T00:00:01Z",
+        &["mono_mix.wav"],
+    )
+    .expect("mark embedding stale ffmpeg completed");
+    complete_task(
+        &mut embedding_stale,
+        TaskType::Stt,
+        "2026-01-01T00:00:02Z",
+        "2026-01-01T00:00:03Z",
+    );
+    complete_task(
+        &mut embedding_stale,
+        TaskType::Summary,
+        "2026-01-01T00:00:04Z",
+        "2026-01-01T00:00:05Z",
+    );
+    queue_task(
+        &mut embedding_stale,
+        TaskType::Embedding,
+        "2026-01-01T00:00:06Z",
+    );
+    store
+        .insert_job(embedding_stale)
+        .expect("insert embedding stale job");
+    seed_transcripts(
+        &store,
+        "job-upload-embedding-stale",
+        &[("mono_mix", "transcript text")],
+    )
+    .expect("seed embedding stale transcripts");
+    seed_summary(&store, "job-upload-embedding-stale", "summary text")
+        .expect("seed embedding stale summary");
+
+    let app = router_with_repo_root(repo_root);
+    let response = app
+        .oneshot(get_request("/stats/overview"))
+        .await
+        .expect("stats overview response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: StatsOverviewResponse = read_json(response).await;
+
+    let summary = body
+        .stages
+        .iter()
+        .find(|stage| stage.stage == TaskType::Summary)
+        .expect("summary stage");
+    assert_eq!(summary.completed_count, 1);
+    assert_eq!(summary.in_progress_count, 0);
+    assert_eq!(summary.unprocessed_count, 1);
+
+    let embedding = body
+        .stages
+        .iter()
+        .find(|stage| stage.stage == TaskType::Embedding)
+        .expect("embedding stage");
+    assert_eq!(embedding.completed_count, 0);
+    assert_eq!(embedding.in_progress_count, 0);
+    assert_eq!(embedding.unprocessed_count, 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -383,6 +518,37 @@ async fn get_stats_overview_separates_upload_totals_and_stage_buckets() {
     seed_summary(&store, "job-local-complete-all", "summary text").expect("seed local summary");
     seed_embedding(&store, "job-local-complete-all", "2026-01-01T00:00:07Z")
         .expect("seed local embedding");
+
+    store
+        .with_index_mut(|index| {
+            index.task_queue = TaskQueueState {
+                paused: false,
+                burst_limit: 100,
+                active_batch: Some(ActiveQueueBatch {
+                    category: QueueCategory::Llm,
+                    running: Some(summary_entry(
+                        "job-upload-summary-running",
+                        "2026-01-01T00:00:04Z",
+                    )),
+                    entries: Vec::new(),
+                }),
+                pending_batches: vec![
+                    QueueBatch {
+                        category: QueueCategory::Stt,
+                        entries: vec![stt_entry("job-upload-stt-queued", "2026-01-01T00:00:02Z")],
+                    },
+                    QueueBatch {
+                        category: QueueCategory::Embed,
+                        entries: vec![embedding_entry(
+                            "job-upload-embedding-queued",
+                            "2026-01-01T00:00:06Z",
+                        )],
+                    },
+                ],
+            };
+            Ok(())
+        })
+        .expect("seed task queue");
 
     let app = router_with_repo_root(repo_root);
     let response = app
