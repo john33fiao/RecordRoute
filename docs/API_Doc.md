@@ -114,7 +114,26 @@
   - 응답: `QueueCancelPendingResponse`
   - 카운터 필드: `total_cancelled`, `ffmpeg_cancelled`, `stt_cancelled`, `summary_cancelled`, `embedding_cancelled`
 
-### 2.4 Dictionary
+### 2.4 Statistics
+
+- `GET /stats/overview`
+  - 목적: 업로드 기준 처리 현황을 단계별 스냅샷으로 집계
+  - 응답: `StatsOverviewResponse`
+  - 핵심 필드:
+    - `generated_at`: 통계 스냅샷 생성 시각
+    - `upload_job_count`: `source_kind=upload` 기준 job 수
+    - `all_job_count`: 전체 job 수(`local_file` 포함)
+    - `stages`: `ffmpeg`, `stt`, `summary`, `embedding` 순서의 단계별 집계
+  - `stages[]` 필드:
+    - `stage`: 파이프라인 단계
+    - `label`: UI 표시용 단계 이름
+    - `completed_count`: 해당 단계 산출물이 저장된 job 수
+    - `in_progress_count`: 해당 단계 task가 `queued` 또는 `running`인 job 수
+    - `unprocessed_count`: 완료/처리중/실패 어디에도 속하지 않는 upload job 수
+  - summary/embedding 단계는 persisted 결과 유무를 완료 기준으로 봅니다.
+  - 실패 task는 이 통계에서 제외됩니다.
+
+### 2.5 Dictionary
 
 - `GET /dictionary/keywords`
   - 목적: STT dictionary 키워드 조회
@@ -154,7 +173,7 @@
 - 현재 STT 프롬프트에 자동 주입되는 것은 `user_keywords`입니다.
 - `auto_keywords`는 review 및 promote 대상이며 아직 자동 주입 기준이 아닙니다.
 
-### 2.5 Jobs
+### 2.6 Jobs
 
 - `POST /jobs`
   - 목적: 서버 로컬 파일 경로로 ffmpeg job 생성 또는 재사용
@@ -213,7 +232,7 @@
     - 어떤 job에도 `queued` 또는 `running` task가 없어야 함
   - `all=true`면 나머지 stage 선택을 모두 포함하는 master flag로 정규화됩니다.
 
-### 2.6 STT
+### 2.7 STT
 
 - `POST /jobs/{job_id}/stt`
   - 목적: STT task 제출
@@ -249,7 +268,7 @@
   - 응답: `SttTranscriptText`
   - `transcript_id`는 slash, backslash, `..`를 포함할 수 없습니다.
 
-### 2.7 Summary / Embedding / Search
+### 2.8 Summary / Embedding / Search
 
 - `POST /jobs/{job_id}/summary`
   - 목적: summary task 제출
@@ -301,7 +320,7 @@
   - 현재 summary 본문과 어긋난 stale embedding은 결과에서 제외됩니다.
   - embedding toolchain 또는 모델이 준비되지 않았으면 `503`
 
-### 2.8 Files
+### 2.9 Files
 
 - `GET /jobs/{job_id}/files`
   - 목적: 다운로드 가능한 logical file 목록 조회

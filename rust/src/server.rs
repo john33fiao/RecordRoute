@@ -18,6 +18,8 @@ mod queue_dispatcher;
 mod queue_routes;
 #[path = "server/routes/stages.rs"]
 mod stages;
+#[path = "server/routes/stats.rs"]
+mod stats;
 #[path = "server/types.rs"]
 mod types;
 #[path = "server/upload.rs"]
@@ -74,6 +76,7 @@ pub(crate) fn router_with_repo_root_and_upload_limits(
             "/queue/cancel-pending",
             post(queue_routes::post_queue_cancel_pending),
         )
+        .route("/stats/overview", get(stats::get_stats_overview))
         .route(
             "/dictionary/keywords",
             get(dictionary::get_stt_dictionary_keywords)

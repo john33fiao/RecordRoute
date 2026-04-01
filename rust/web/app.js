@@ -40,7 +40,7 @@ const BATCH_DELETE_TARGETS = [
   { value: "embedding", label: "임베딩" },
 ];
 
-const TAB_KEYS = ["upload", "jobs", "search", "queue", "dictionary"];
+const TAB_KEYS = ["upload", "jobs", "stats", "search", "queue", "dictionary"];
 
 const state = {
   activeTab: "upload",
@@ -58,6 +58,8 @@ const state = {
   embeddingStatus: null,
   systemStatus: null,
   modelsStatus: null,
+  statsOverview: null,
+  statsLoaded: false,
   queueStatus: null,
   queueLoaded: false,
   queueExpanded: emptyQueueExpandedState(),
@@ -86,6 +88,7 @@ const state = {
     summary: false,
     embedding: false,
     search: false,
+    stats: false,
     prepareWhisper: false,
     prepareLlama: false,
     dictionary: false,
@@ -233,6 +236,9 @@ function captureElements() {
   elements.systemServerStatus = document.getElementById("system-server-status");
   elements.systemGrid = document.getElementById("system-grid");
   elements.modelGrid = document.getElementById("model-grid");
+  elements.statsKpiGrid = document.getElementById("stats-kpi-grid");
+  elements.statsStageGrid = document.getElementById("stats-stage-grid");
+  elements.statsGeneratedAt = document.getElementById("stats-generated-at");
   elements.jobsList = document.getElementById("jobs-list");
   elements.jobsTotalCount = document.getElementById("jobs-total-count");
   elements.selectedJobTitle = document.getElementById("selected-job-title");
@@ -259,6 +265,7 @@ function captureElements() {
   elements.searchResults = document.getElementById("search-results");
 
   elements.systemRefreshButton = document.getElementById("system-refresh-button");
+  elements.statsRefreshButton = document.getElementById("stats-refresh-button");
   elements.jobsDeleteButton = document.getElementById("jobs-delete-button");
   elements.jobsRefreshButton = document.getElementById("jobs-refresh-button");
   elements.selectedJobRefreshButton = document.getElementById("selected-job-refresh-button");
@@ -313,6 +320,9 @@ function bindEvents() {
   elements.settingsOpenButton.addEventListener("click", openSettingsModal);
   elements.systemRefreshButton.addEventListener("click", () => {
     refreshSystemAndModels({ showMessage: true });
+  });
+  elements.statsRefreshButton.addEventListener("click", () => {
+    refreshStats({ showMessage: true });
   });
   elements.tabButtons.forEach((button) => {
     button.addEventListener("click", () => {
@@ -384,7 +394,7 @@ function bindEvents() {
 }
 
 async function bootstrap() {
-  await Promise.all([refreshSystemAndModels(), refreshJobs(), refreshQueue(), refreshDictionary()]);
+  await Promise.all([refreshSystemAndModels(), refreshStats(), refreshJobs(), refreshQueue(), refreshDictionary()]);
 }
 
 function resolveTabFromHash(hash = window.location.hash) {
@@ -403,6 +413,11 @@ function onHashChange() {
   state.activeTab = nextTab;
   renderTabs();
   syncSelectedJobPoller();
+  if (nextTab === "stats") {
+    refreshStats().catch((error) => {
+      console.error(error);
+    });
+  }
 }
 
 function setActiveTab(tab) {
@@ -421,6 +436,12 @@ function setActiveTab(tab) {
 
   if (tab === "jobs" && state.selectedJobId) {
     refreshSelectedJob(state.selectedJobId).catch((error) => {
+      console.error(error);
+    });
+  }
+
+  if (tab === "stats") {
+    refreshStats().catch((error) => {
       console.error(error);
     });
   }
@@ -1343,6 +1364,23 @@ async function refreshSystemAndModels({ showMessage = false } = {}) {
   }
 }
 
+async function refreshStats({ showMessage = false } = {}) {
+  setLoading("stats", true);
+  try {
+    const { data } = await fetchJson("/stats/overview");
+    state.statsOverview = data || null;
+    state.statsLoaded = true;
+    renderStats();
+    setMessage("stats", showMessage ? "통계 정보를 갱신했습니다." : "", "success");
+  } catch (error) {
+    renderStats();
+    setMessage("stats", error.message, "error");
+  } finally {
+    setLoading("stats", false);
+    renderStats();
+  }
+}
+
 async function refreshJobs({ showMessage = false } = {}) {
   try {
     const { data } = await fetchJson("/jobs");
@@ -1533,6 +1571,7 @@ function renderAll() {
   renderSettingsModal();
   renderUploadQueue();
   renderSystem();
+  renderStats();
   renderJobs();
   renderJobResetModal();
   renderBatchDeleteModal();
@@ -1639,6 +1678,87 @@ function renderSystem() {
     errorCount > 0
       ? "환경 준비가 필요합니다. setup을 다시 실행하세요."
       : "모든 런타임과 모델이 준비되었습니다.";
+}
+
+function renderStats() {
+  if (!elements.statsKpiGrid || !elements.statsStageGrid || !elements.statsGeneratedAt) {
+    return;
+  }
+
+  if (!state.statsLoaded || !state.statsOverview) {
+    elements.statsKpiGrid.innerHTML = '<p class="muted">통계 정보를 불러오는 중입니다.</p>';
+    elements.statsStageGrid.innerHTML = "";
+    elements.statsGeneratedAt.textContent = "통계 스냅샷을 아직 불러오지 못했습니다.";
+    return;
+  }
+
+  const overview = state.statsOverview;
+  const stages = Array.isArray(overview?.stages) ? overview.stages : [];
+  const kpis = [
+    {
+      title: "업로드된 오디오 수",
+      value: `${Number(overview?.upload_job_count) || 0}건`,
+      copy: "source_kind=upload 기준",
+    },
+    {
+      title: "전체 Job 수",
+      value: `${Number(overview?.all_job_count) || 0}건`,
+      copy: "local_file + upload 합산",
+    },
+  ];
+
+  elements.statsKpiGrid.innerHTML = kpis
+    .map(
+      (item) => `
+        <article class="stats-kpi-card">
+          <p class="stats-kpi-title">${escapeHtml(item.title)}</p>
+          <strong class="stats-kpi-value">${escapeHtml(item.value)}</strong>
+          <p class="stats-kpi-copy">${escapeHtml(item.copy)}</p>
+        </article>
+      `
+    )
+    .join("");
+
+  elements.statsStageGrid.innerHTML = stages.length
+    ? stages.map(renderStatsStageCard).join("")
+    : '<p class="muted">표시할 단계 통계가 없습니다.</p>';
+  elements.statsGeneratedAt.textContent = `생성 시각: ${formatDate(overview?.generated_at)} 기준 스냅샷`;
+}
+
+function renderStatsStageCard(stage) {
+  const stageKey = stage?.stage || "task";
+  const label = stage?.label || formatTaskTypeLabel(stageKey);
+  const completedCount = Number(stage?.completed_count) || 0;
+  const inProgressCount = Number(stage?.in_progress_count) || 0;
+  const unprocessedCount = Number(stage?.unprocessed_count) || 0;
+  const tone = inProgressCount > 0 ? "running" : completedCount > 0 ? "completed" : "idle";
+  const toneLabel = inProgressCount > 0 ? "처리 중" : completedCount > 0 ? "처리 완료 존재" : "대기";
+
+  return `
+    <article class="stats-stage-card">
+      <div class="stats-stage-head">
+        <div>
+          <p class="section-kicker">${escapeHtml(formatTaskTypeLabel(stageKey))}</p>
+          <h4>${escapeHtml(label)}</h4>
+        </div>
+        ${statusBadge(tone, toneLabel)}
+      </div>
+      <dl class="stats-stage-metrics">
+        <div>
+          <dt>완료</dt>
+          <dd>${escapeHtml(String(completedCount))}건</dd>
+        </div>
+        <div>
+          <dt>처리 중</dt>
+          <dd>${escapeHtml(String(inProgressCount))}건</dd>
+        </div>
+        <div>
+          <dt>미처리</dt>
+          <dd>${escapeHtml(String(unprocessedCount))}건</dd>
+        </div>
+      </dl>
+    </article>
+  `;
 }
 
 function renderJobs() {
@@ -2683,6 +2803,7 @@ function updateActionStates() {
   elements.batchDeleteButton.disabled = state.loading.batchDelete || !state.queueLoaded;
   elements.queueCancelButton.disabled = state.loading.queueCancel || !state.queueLoaded;
   elements.systemRefreshButton.disabled = false;
+  elements.statsRefreshButton.disabled = state.loading.stats;
   elements.jobsRefreshButton.disabled = false;
   elements.jobsDeleteButton.disabled = !canResetSelectedJob();
   elements.selectedJobRefreshButton.disabled = !hasJob;

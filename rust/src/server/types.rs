@@ -263,6 +263,22 @@ pub(crate) struct QueueCancelPendingResponse {
     pub embedding_cancelled: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct StatsStageOverviewResponse {
+    pub stage: TaskType,
+    pub label: String,
+    pub completed_count: usize,
+    pub in_progress_count: usize,
+    pub unprocessed_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct StatsOverviewResponse {
+    pub generated_at: String,
+    pub upload_job_count: usize,
+    pub all_job_count: usize,
+    pub stages: Vec<StatsStageOverviewResponse>,
+}
 impl From<DictionaryKeywords> for DictionaryKeywordListResponse {
     fn from(value: DictionaryKeywords) -> Self {
         Self {
@@ -495,6 +511,24 @@ pub(crate) fn build_batch_queue_submission_response(
     }
 }
 
+pub(crate) fn build_stats_overview_response(overview: app::StatsOverview) -> StatsOverviewResponse {
+    StatsOverviewResponse {
+        generated_at: overview.generated_at,
+        upload_job_count: overview.upload_job_count,
+        all_job_count: overview.all_job_count,
+        stages: overview
+            .stages
+            .into_iter()
+            .map(|stage| StatsStageOverviewResponse {
+                stage: stage.stage,
+                label: stage.label,
+                completed_count: stage.completed_count,
+                in_progress_count: stage.in_progress_count,
+                unprocessed_count: stage.unprocessed_count,
+            })
+            .collect(),
+    }
+}
 pub(crate) fn build_model_status_response(status: app::ModelStatusSnapshot) -> ModelStatusResponse {
     let status = super::errors::sanitize_model_status_snapshot(status);
     ModelStatusResponse {

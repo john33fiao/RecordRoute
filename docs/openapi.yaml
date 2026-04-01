@@ -20,6 +20,7 @@ tags:
   - name: system
   - name: models
   - name: queue
+  - name: stats
   - name: dictionary
   - name: jobs
   - name: stt
@@ -252,6 +253,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueCancelPendingResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /stats/overview:
+    get:
+      tags: [stats]
+      summary: Inspect upload-centric pipeline statistics snapshot
+      operationId: getStatsOverview
+      responses:
+        '200':
+          description: Upload-centric pipeline statistics snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsOverviewResponse'
         '500':
           description: Internal server error
           content:
@@ -1864,6 +1884,42 @@ components:
         embedding_cancelled:
           type: integer
           minimum: 0
+
+    StatsStageOverviewResponse:
+      type: object
+      required: [stage, label, completed_count, in_progress_count, unprocessed_count]
+      properties:
+        stage:
+          $ref: '#/components/schemas/TaskType'
+        label:
+          type: string
+        completed_count:
+          type: integer
+          minimum: 0
+        in_progress_count:
+          type: integer
+          minimum: 0
+        unprocessed_count:
+          type: integer
+          minimum: 0
+
+    StatsOverviewResponse:
+      type: object
+      required: [generated_at, upload_job_count, all_job_count, stages]
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        upload_job_count:
+          type: integer
+          minimum: 0
+        all_job_count:
+          type: integer
+          minimum: 0
+        stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatsStageOverviewResponse'
 
     TaskType:
       type: string

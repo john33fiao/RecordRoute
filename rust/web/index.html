@@ -28,6 +28,9 @@
           Upload
         </button>
         <button class="tab-button" data-tab="jobs" type="button" aria-selected="false">Jobs</button>
+        <button class="tab-button" data-tab="stats" type="button" aria-selected="false">
+          통계(Statistics)
+        </button>
         <button class="tab-button" data-tab="search" type="button" aria-selected="false">
           Search
         </button>
@@ -288,6 +291,34 @@
                     </section>
                   </div>
                 </div>
+              </section>
+            </div>
+          </section>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="stats" id="stats-tab-panel" hidden>
+          <section class="surface section-card stats-shell" id="stats-panel">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Statistics</p>
+                <h2>통계 대시보드</h2>
+                <p class="section-copy">
+                  업로드 기준 처리 현황을 단계별로 확인합니다. 실패 건수는 제외됩니다.
+                </p>
+              </div>
+              <div class="section-actions">
+                <button class="ghost-button" id="stats-refresh-button" type="button">통계 새로고침</button>
+              </div>
+            </div>
+            <div class="notice" id="stats-message" aria-live="polite"></div>
+            <div class="stats-grid">
+              <div class="stats-kpi-grid" id="stats-kpi-grid"></div>
+              <section class="stats-stage-panel">
+                <div class="stats-stage-panel-head">
+                  <h3>단계별 현황</h3>
+                  <p class="stats-meta" id="stats-generated-at">통계 스냅샷을 불러오는 중입니다.</p>
+                </div>
+                <div class="stats-stage-grid" id="stats-stage-grid"></div>
               </section>
             </div>
           </section>

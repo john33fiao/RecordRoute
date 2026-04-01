@@ -17,6 +17,8 @@ mod queue;
 mod reset;
 #[path = "app/stages.rs"]
 mod stages;
+#[path = "app/stats.rs"]
+mod stats;
 #[path = "app/stt_stage.rs"]
 mod stt_stage;
 #[path = "app/summary_stage.rs"]
@@ -235,6 +237,7 @@ pub use models::{
     submit_model_preparation_api,
 };
 pub(crate) use reset::{JobResetResult, RESET_BY_USER_MESSAGE, reset_job};
+pub use stats::{StatsOverview, collect_stats_overview};
 pub use stt_stage::{run_stt_with_repo_root, submit_stt_job};
 pub use summary_stage::{run_summary_with_repo_root, submit_summary_job};
 

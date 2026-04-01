@@ -4,5 +4,6 @@ mod models;
 mod ping;
 mod queue;
 mod stages;
+mod stats;
 mod support;
 mod web;
