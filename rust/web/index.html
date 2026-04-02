@@ -51,6 +51,16 @@
                   <h2>Upload Audio File</h2>
                   <p class="section-copy">음성 파일을 업로드하여 텍스트 변환, 요약, 임베딩 작업을 순차적으로 진행할 수 있습니다.</p>
                 </div>
+                <div class="section-actions">
+                  <button
+                    class="primary-button"
+                    id="upload-submit-button"
+                    type="submit"
+                    form="upload-form"
+                  >
+                    업로드
+                  </button>
+                </div>
               </div>
               <form class="upload-form" id="upload-form">
                 <label class="upload-dropzone" id="upload-dropzone">
@@ -103,19 +113,20 @@
                     </div>
                   </label>
                   <div class="button-row button-row-compact">
-                    <button
-                      class="primary-button"
-                      id="upload-submit-button"
-                      type="submit"
-                      form="upload-form"
-                    >
-                      업로드
-                    </button>
                     <button class="ghost-button" id="batch-process-button" type="button">
                       일괄처리 시작
                     </button>
                     <button class="danger-button" id="queue-cancel-button" type="button">
                       일괄 취소
+                    </button>
+                    <button
+                      class="ghost-button"
+                      id="upload-queue-pause-button"
+                      type="button"
+                      data-queue-pause-toggle
+                      data-message-target="upload"
+                    >
+                      일시정지
                     </button>
                   </div>
                 </div>
@@ -378,7 +389,15 @@
                 </p>
               </div>
               <div class="section-actions">
-                <button class="ghost-button" id="queue-pause-button" type="button">일시정지</button>
+                <button
+                  class="ghost-button"
+                  id="queue-pause-button"
+                  type="button"
+                  data-queue-pause-toggle
+                  data-message-target="queue"
+                >
+                  일시정지
+                </button>
                 <button class="ghost-button" id="queue-refresh-button" type="button">큐 새로고침</button>
               </div>
             </div>

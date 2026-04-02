@@ -284,7 +284,7 @@ function captureElements() {
   elements.summarySubmitButton = document.getElementById("summary-submit-button");
   elements.summaryForceCheckbox = document.getElementById("summary-force-checkbox");
   elements.embeddingSubmitButton = document.getElementById("embedding-submit-button");
-  elements.queuePauseButton = document.getElementById("queue-pause-button");
+  elements.queuePauseButtons = Array.from(document.querySelectorAll("[data-queue-pause-toggle]"));
   elements.queueRefreshButton = document.getElementById("queue-refresh-button");
   elements.dictionarySubmitButton = document.getElementById("dictionary-submit-button");
   elements.searchForm = document.getElementById("search-form");
@@ -356,7 +356,9 @@ function bindEvents() {
   elements.sttForm.addEventListener("change", onSttFormChange);
   elements.summarySubmitButton.addEventListener("click", onSummarySubmit);
   elements.embeddingSubmitButton.addEventListener("click", onEmbeddingSubmit);
-  elements.queuePauseButton.addEventListener("click", onQueuePauseToggle);
+  elements.queuePauseButtons.forEach((button) => {
+    button.addEventListener("click", onQueuePauseToggle);
+  });
   elements.queueRefreshButton.addEventListener("click", () => {
     refreshQueue({ showMessage: true });
   });
@@ -1152,8 +1154,9 @@ async function onBatchProcessSubmit() {
   }
 }
 
-async function onQueuePauseToggle() {
+async function onQueuePauseToggle(event) {
   const nextPaused = !state.queueStatus?.paused;
+  const messageTarget = event?.currentTarget?.dataset.messageTarget || "queue";
   setLoading("queuePause", true);
   renderQueueControls();
   try {
@@ -1167,14 +1170,14 @@ async function onQueuePauseToggle() {
     renderQueueBoard();
     syncQueuePoller();
     setMessage(
-      "queue",
+      messageTarget,
       nextPaused
         ? "큐를 일시정지했습니다. 현재 진행 중인 작업만 끝나고 다음 작업은 대기합니다."
         : "큐를 재개했습니다. 다음 작업부터 순서대로 이어집니다.",
       "info"
     );
   } catch (error) {
-    setMessage("queue", error.message, "error");
+    setMessage(messageTarget, error.message, "error");
   } finally {
     setLoading("queuePause", false);
     renderQueueControls();
@@ -2661,16 +2664,16 @@ function renderQueueControls() {
       : "전역 큐의 남은 작업과 일괄처리로 미리 등록된 후속 단계를 칸반보드에서 확인합니다.";
   }
 
-  if (elements.queuePauseButton) {
-    elements.queuePauseButton.textContent = state.loading.queuePause
+  elements.queuePauseButtons.forEach((button) => {
+    button.textContent = state.loading.queuePause
       ? paused
         ? "재개 중..."
         : "일시정지 중..."
       : paused
         ? "재개"
         : "일시정지";
-    elements.queuePauseButton.dataset.active = paused ? "true" : "false";
-  }
+    button.dataset.active = paused ? "true" : "false";
+  });
 }
 
 function buildQueueColumns() {
@@ -2807,7 +2810,9 @@ function updateActionStates() {
   elements.jobsRefreshButton.disabled = false;
   elements.jobsDeleteButton.disabled = !canResetSelectedJob();
   elements.selectedJobRefreshButton.disabled = !hasJob;
-  elements.queuePauseButton.disabled = state.loading.queuePause || !state.queueLoaded;
+  elements.queuePauseButtons.forEach((button) => {
+    button.disabled = state.loading.queuePause || !state.queueLoaded;
+  });
   elements.queueRefreshButton.disabled = false;
   elements.dictionaryRefreshButton.disabled = state.loading.dictionary;
   elements.dictionarySubmitButton.disabled = state.loading.dictionary;
