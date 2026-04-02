@@ -75,6 +75,8 @@ const state = {
   dictionaryLoaded: false,
   pendingDictionaryRefreshJobId: null,
   searchResults: [],
+  searchResultOneLines: new Map(),
+  searchResultsVersion: 0,
   uploadQueue: [],
   pollers: new Map(),
   loading: {
@@ -1051,6 +1053,9 @@ async function onSearchSubmit(event) {
     payload.min_score = Number(minScoreRaw);
   }
 
+  const searchResultsVersion = state.searchResultsVersion + 1;
+  state.searchResultsVersion = searchResultsVersion;
+  state.searchResultOneLines = new Map();
   setLoading("search", true);
   try {
     const { data } = await fetchJson("/summary/search", {
@@ -1058,19 +1063,73 @@ async function onSearchSubmit(event) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
     });
+    if (searchResultsVersion !== state.searchResultsVersion) {
+      return;
+    }
     state.searchResults = Array.isArray(data?.results) ? data.results : [];
     renderSearchResults();
+    void hydrateSearchResultOneLines(state.searchResults, searchResultsVersion);
     const message =
       state.searchResults.length > 0
         ? `${state.searchResults.length}개의 결과를 찾았습니다. 검색 대상 Job에는 embedding이 미리 생성돼 있어야 합니다.`
         : "결과가 없습니다. 검색 대상 summary에 embedding이 생성돼 있는지 확인해 주세요.";
     setMessage("search", message, "info");
   } catch (error) {
+    if (searchResultsVersion !== state.searchResultsVersion) {
+      return;
+    }
     state.searchResults = [];
+    state.searchResultOneLines = new Map();
     renderSearchResults();
     setMessage("search", error.message, "error");
   } finally {
-    setLoading("search", false);
+    if (searchResultsVersion === state.searchResultsVersion) {
+      setLoading("search", false);
+    }
+  }
+}
+
+async function hydrateSearchResultOneLines(results, searchResultsVersion) {
+  const jobIds = [...new Set(results.map((row) => row?.job_id).filter(Boolean))];
+  if (!jobIds.length) {
+    return;
+  }
+
+  const oneLineEntries = await Promise.all(
+    jobIds.map(async (jobId) => {
+      try {
+        const { data } = await fetchJson(`/jobs/${encodeURIComponent(jobId)}/summary/text`);
+        const oneLineSummary = String(data?.one_line_summary || "").trim();
+        return oneLineSummary ? [jobId, oneLineSummary] : null;
+      } catch (_error) {
+        return null;
+      }
+    })
+  );
+
+  if (searchResultsVersion !== state.searchResultsVersion) {
+    return;
+  }
+
+  const activeJobIds = new Set(state.searchResults.map((row) => row.job_id));
+  let changed = false;
+  for (const entry of oneLineEntries) {
+    if (!entry) {
+      continue;
+    }
+    const [jobId, oneLineSummary] = entry;
+    if (!activeJobIds.has(jobId)) {
+      continue;
+    }
+    if (state.searchResultOneLines.get(jobId) === oneLineSummary) {
+      continue;
+    }
+    state.searchResultOneLines.set(jobId, oneLineSummary);
+    changed = true;
+  }
+
+  if (changed) {
+    renderSearchResults();
   }
 }
 
@@ -2496,14 +2555,20 @@ function renderSearchResults() {
   elements.searchResults.innerHTML = `
     <div class="results-list">
       ${state.searchResults
-        .map(
-          (row) => `
+        .map((row) => {
+          const oneLineSummary = state.searchResultOneLines.get(row.job_id);
+          return `
             <article class="result-card">
               <div class="result-card-head">
                 <div class="result-card-copy">
                   <p class="result-card-meta">${escapeHtml(row.job_id)}</p>
                   <p class="result-card-title">${escapeHtml(row.source_file_name)}</p>
                   <p>${escapeHtml(row.summary_file_name)}</p>
+                  ${
+                    oneLineSummary
+                      ? `<p class="result-card-one-line">한줄요약: ${escapeHtml(oneLineSummary)}</p>`
+                      : ""
+                  }
                 </div>
                 ${statusBadge("running", `score ${Number(row.score).toFixed(2)}`)}
               </div>
@@ -2518,8 +2583,8 @@ function renderSearchResults() {
                 </button>
               </div>
             </article>
-          `
-        )
+          `;
+        })
         .join("")}
     </div>
   `;

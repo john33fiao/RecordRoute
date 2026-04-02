@@ -100,6 +100,9 @@ async fn get_app_js_serves_script_asset() {
     assert!(js.contains("/jobs/completed"));
     assert!(js.contains("batch-delete-button"));
     assert!(js.contains("const QUEUE_COLLAPSE_THRESHOLD = 10;"));
+    assert!(js.contains("searchResultOneLines"));
+    assert!(js.contains("searchResultsVersion"));
+    assert!(js.contains("async function hydrateSearchResultOneLines"));
     assert!(js.contains("\u{AC01} \u{D30C}\u{C77C}\u{C774} ffmpeg \u{D050}\u{C5D0} \u{B4F1}\u{B85D}\u{B418}\u{C5C8}\u{C2B5}\u{B2C8}\u{B2E4}."));
     assert!(js.contains("setActiveTab(\"jobs\");"));
     assert!(js.contains("function onQueueBoardClick"));
@@ -167,6 +170,7 @@ async fn get_app_css_serves_stylesheet_asset() {
     assert!(css.contains(".dictionary-group"));
     assert!(css.contains(".dictionary-promote-button"));
     assert!(css.contains(".dictionary-group-head-row"));
+    assert!(css.contains(".result-card-one-line"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
