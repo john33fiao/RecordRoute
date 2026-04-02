@@ -80,6 +80,8 @@ run.bat
 - 런처(`RecordRoute`)는 foreground supervisor로 동작하며 `RecordRouteServer`를 직접 소유합니다.
 - `run.sh`/`run.bat`는 package 전용 실행 경로입니다. Rust 소스, `setup`, 빌드 스크립트, 현재 플랫폼 `.build` 툴체인을 바꾼 뒤에는 `./setup.sh` 또는 `setup.bat`를 다시 실행해 package를 갱신해야 합니다.
 - package가 repo 입력보다 오래되었거나 package 내부 산출물이 비어 있으면 `run.sh`/`run.bat`는 실행을 중단하고 재패키징을 안내합니다.
+- macOS에서 `RECORDROUTE_STARTUP_VPN_ENABLED=true`면 `run.sh`가 `package/.env`를 읽어 VPN 연결과 SMB 마운트를 먼저 확인하고, 실패 시 런처를 시작하지 않습니다.
+- startup preflight에서 VPN 식별자는 표시 이름보다 `scutil --nc list`의 UUID를 권장합니다.
 - `run.sh`/`run.bat`를 실행하면 브라우저를 연 뒤에도 터미널이 유지되며, Rust 서버 로그가 터미널과 `package/logs/server.log`에 함께 출력됩니다.
 - `Ctrl-C` 또는 터미널 종료 시 런처가 자신이 띄운 `RecordRouteServer`를 함께 종료합니다.
 - 서버는 기본적으로 `127.0.0.1:38080`에 바인딩되며 웹 UI는 [http://127.0.0.1:38080/](http://127.0.0.1:38080/)에서 접근합니다.
@@ -179,6 +181,35 @@ RECORDROUTE_WHISPER_MODEL=models/whisper/ggml-base.bin
 RECORDROUTE_WHISPER_LANGUAGE=ko
 RECORDROUTE_LLAMA_MODEL=ggml-org/gemma-3-4b-it-GGUF
 HF_TOKEN=
+```
+
+macOS에서 `run.sh` 시작 전에 WireGuard와 SMB를 선행하려면 다음 키를 `package/.env`에 추가합니다.
+
+- `RECORDROUTE_STARTUP_VPN_ENABLED`
+  - `1|true|yes|on`이면 `run.sh`가 startup preflight를 수행
+- `RECORDROUTE_STARTUP_VPN_NAME`
+  - `scutil --nc list`에 보이는 WireGuard 서비스 UUID 또는 이름
+- `RECORDROUTE_STARTUP_SMB_URL`
+  - `smb://[domain;]user@server/share` 형식의 SMB share URL
+- `RECORDROUTE_STARTUP_SMB_MOUNT_PATH`
+  - 마운트할 절대 경로
+
+주의:
+
+- startup preflight는 macOS `run.sh`에서만 동작합니다.
+- SMB 비밀번호는 `.env`에 넣지 말고 `nsmb.conf` 또는 시스템 저장소에 둡니다.
+- SMB를 함께 쓰면 `RECORDROUTE_AUDIO_ROOT`를 SMB mount path 하위 경로로 명시해야 합니다.
+
+예시:
+
+```env
+RECORDROUTE_STARTUP_VPN_ENABLED=true
+RECORDROUTE_STARTUP_VPN_NAME=8489373B-112D-499E-978D-AA8522418550
+RECORDROUTE_STARTUP_SMB_URL=smb://user@nas.local/recordroute
+RECORDROUTE_STARTUP_SMB_MOUNT_PATH=/Volumes/recordroute
+RECORDROUTE_AUDIO_ROOT=/Volumes/recordroute/audio
+RECORDROUTE_AUDIO_CACHE_ROOT=db/audio-cache
+RECORDROUTE_AUDIO_SPOOL_ROOT=db/audio-spool
 ```
 
 ---
