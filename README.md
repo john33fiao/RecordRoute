@@ -191,15 +191,16 @@ macOS에서 `run.sh` 시작 전에 WireGuard와 SMB를 선행하려면 다음 �
 - `RECORDROUTE_STARTUP_VPN_NAME`
   - `scutil --nc list`에 보이는 WireGuard 서비스 UUID 또는 이름
 - `RECORDROUTE_STARTUP_SMB_URL`
-  - `smb://[domain;]user@server/share` 형식의 SMB share URL
+  - 반드시 share 이름까지 포함한 `smb://[domain;]user@server/share` 형식의 SMB URL
 - `RECORDROUTE_STARTUP_SMB_MOUNT_PATH`
-  - 마운트할 절대 경로
+  - share root mount path 또는 share 내부 하위 폴더 절대 경로
 
 주의:
 
 - startup preflight는 macOS `run.sh`에서만 동작합니다.
 - SMB 비밀번호는 `.env`에 넣지 말고 `nsmb.conf` 또는 시스템 저장소에 둡니다.
 - startup preflight는 VPN과 SMB 준비만 확인하며, `RECORDROUTE_AUDIO_ROOT` 같은 저장 경로 설정과는 독립적으로 동작합니다.
+- `RECORDROUTE_STARTUP_SMB_MOUNT_PATH`가 `/Volumes/<share>/...` 형태면 스크립트는 `/Volumes/<share>` mount를 확인한 뒤 하위 폴더 접근 가능 여부까지 검증합니다.
 
 예시:
 
