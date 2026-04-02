@@ -92,7 +92,7 @@ bool_env_is_true() {
 
 is_startup_env_key() {
   case "$1" in
-    RECORDROUTE_STARTUP_VPN_ENABLED|RECORDROUTE_STARTUP_VPN_NAME|RECORDROUTE_STARTUP_SMB_URL|RECORDROUTE_STARTUP_SMB_MOUNT_PATH|RECORDROUTE_AUDIO_ROOT)
+    RECORDROUTE_STARTUP_VPN_ENABLED|RECORDROUTE_STARTUP_VPN_NAME|RECORDROUTE_STARTUP_SMB_URL|RECORDROUTE_STARTUP_SMB_MOUNT_PATH)
       return 0
       ;;
     *)
@@ -272,7 +272,7 @@ ensure_vpn_connected() {
 ensure_smb_mount_ready() {
   local smb_url="${RECORDROUTE_STARTUP_SMB_URL:-}"
   local mount_path="${RECORDROUTE_STARTUP_SMB_MOUNT_PATH:-}"
-  local smb_mount_spec normalized_mount_path resolved_audio_root mount_line mounted_source mount_output
+  local smb_mount_spec normalized_mount_path mount_line mounted_source mount_output
 
   if [[ -z "${smb_url}" && -z "${mount_path}" ]]; then
     return 0
@@ -280,10 +280,6 @@ ensure_smb_mount_ready() {
 
   if [[ -z "${smb_url}" || -z "${mount_path}" ]]; then
     startup_fail "RECORDROUTE_STARTUP_SMB_URL and RECORDROUTE_STARTUP_SMB_MOUNT_PATH must be configured together."
-  fi
-
-  if [[ -z "${RECORDROUTE_AUDIO_ROOT:-}" ]]; then
-    startup_fail "RECORDROUTE_AUDIO_ROOT must be explicitly set when SMB startup preflight is enabled."
   fi
 
   if [[ "${mount_path}" != /* ]]; then
@@ -294,11 +290,6 @@ ensure_smb_mount_ready() {
     startup_fail "RECORDROUTE_STARTUP_SMB_URL must use the smb:// scheme."
   }
   normalized_mount_path="$(normalize_path "${mount_path}")"
-  resolved_audio_root="$(resolve_runtime_path "${RECORDROUTE_AUDIO_ROOT}")"
-
-  if ! path_is_within "${resolved_audio_root}" "${normalized_mount_path}"; then
-    startup_fail "RECORDROUTE_AUDIO_ROOT (${resolved_audio_root}) must be inside the SMB mount path (${normalized_mount_path})."
-  fi
 
   if [[ -e "${normalized_mount_path}" && ! -d "${normalized_mount_path}" ]]; then
     startup_fail "Configured SMB mount path is not a directory: ${normalized_mount_path}"
