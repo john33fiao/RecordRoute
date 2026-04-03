@@ -41,7 +41,16 @@ mkdir "%staging_dir%"
 
 copy /Y "%repo_root%\rust\target\release\recordroute.exe" "%staging_dir%\RecordRoute.exe" >nul
 copy /Y "%repo_root%\rust\target\release\recordroute_server.exe" "%staging_dir%\RecordRouteServer.exe" >nul
-if exist "%repo_root%\.build" xcopy "%repo_root%\.build" "%staging_dir%\.build" /E /I /Y >nul
+call :stage_runtime_file "%repo_root%\.build\ffmpeg\%target_dir%\install\bin\ffmpeg.exe" "%staging_dir%\.build\ffmpeg\%target_dir%\install\bin\ffmpeg.exe" "ffmpeg binary"
+if errorlevel 1 exit /b 1
+call :stage_runtime_file "%repo_root%\.build\ffmpeg\%target_dir%\install\bin\ffprobe.exe" "%staging_dir%\.build\ffmpeg\%target_dir%\install\bin\ffprobe.exe" "ffprobe binary"
+if errorlevel 1 exit /b 1
+call :stage_runtime_file "%repo_root%\.build\whisper\%target_dir%\bin\whisper-cli.exe" "%staging_dir%\.build\whisper\%target_dir%\bin\whisper-cli.exe" "whisper-cli binary"
+if errorlevel 1 exit /b 1
+call :stage_runtime_file "%repo_root%\.build\llama\%target_dir%\bin\llama-cli.exe" "%staging_dir%\.build\llama\%target_dir%\bin\llama-cli.exe" "llama-cli binary"
+if errorlevel 1 exit /b 1
+call :stage_runtime_file "%repo_root%\.build\llama\%target_dir%\bin\llama-embedding.exe" "%staging_dir%\.build\llama\%target_dir%\bin\llama-embedding.exe" "llama-embedding binary"
+if errorlevel 1 exit /b 1
 if exist "%repo_root%\models" xcopy "%repo_root%\models" "%staging_dir%\models" /E /I /Y >nul
 > "%staging_dir%\.recordroute-runtime-root" echo.
 
@@ -107,6 +116,18 @@ set "required_label=%~2"
 if exist "%required_path%" exit /b 0
 >&2 echo missing %required_label%: %required_path%
 exit /b 1
+
+:stage_runtime_file
+set "runtime_src=%~1"
+set "runtime_dst=%~2"
+set "runtime_label=%~3"
+call :require_file "%runtime_src%" "%runtime_label%"
+if errorlevel 1 exit /b 1
+for %%I in ("%runtime_dst%") do set "runtime_dst_dir=%%~dpI"
+if not exist "%runtime_dst_dir%" mkdir "%runtime_dst_dir%"
+copy /Y "%runtime_src%" "%runtime_dst%" >nul
+if errorlevel 1 exit /b 1
+exit /b 0
 
 :touch_packaged_outputs
 set "touch_root=%~1"

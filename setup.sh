@@ -37,6 +37,15 @@ copy_if_exists() {
   fi
 }
 
+copy_required_file() {
+  local src="$1"
+  local dst="$2"
+  local description="$3"
+  ensure_file_exists "${src}" "${description}"
+  mkdir -p "$(dirname "${dst}")"
+  cp -a "${src}" "${dst}"
+}
+
 ensure_file_exists() {
   local path="$1"
   local description="$2"
@@ -99,7 +108,26 @@ mkdir -p "${staging_dir}"
 
 cp "${script_dir}/rust/target/release/recordroute" "${staging_dir}/RecordRoute"
 cp "${script_dir}/rust/target/release/recordroute_server" "${staging_dir}/RecordRouteServer"
-copy_if_exists "${script_dir}/.build" "${staging_dir}/.build"
+copy_required_file \
+  "${script_dir}/.build/ffmpeg/${target_dir}/install/bin/ffmpeg" \
+  "${staging_dir}/.build/ffmpeg/${target_dir}/install/bin/ffmpeg" \
+  "ffmpeg binary"
+copy_required_file \
+  "${script_dir}/.build/ffmpeg/${target_dir}/install/bin/ffprobe" \
+  "${staging_dir}/.build/ffmpeg/${target_dir}/install/bin/ffprobe" \
+  "ffprobe binary"
+copy_required_file \
+  "${script_dir}/.build/whisper/${target_dir}/bin/whisper-cli" \
+  "${staging_dir}/.build/whisper/${target_dir}/bin/whisper-cli" \
+  "whisper-cli binary"
+copy_required_file \
+  "${script_dir}/.build/llama/${target_dir}/bin/llama-cli" \
+  "${staging_dir}/.build/llama/${target_dir}/bin/llama-cli" \
+  "llama-cli binary"
+copy_required_file \
+  "${script_dir}/.build/llama/${target_dir}/bin/llama-embedding" \
+  "${staging_dir}/.build/llama/${target_dir}/bin/llama-embedding" \
+  "llama-embedding binary"
 copy_if_exists "${script_dir}/models" "${staging_dir}/models"
 touch "${staging_dir}/.recordroute-runtime-root"
 
